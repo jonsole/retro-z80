@@ -454,7 +454,7 @@ The sprite row store and line buffer are spec 5's. The design plan's block RAM t
 |---|------|
 | V1 | The attribute layer uses its target's window (no window of its own, to save 8 ports); D5 says "own window and scroll". Only the scroll is its own |
 | V2 | In hi-res the tile map is 128 × 32, not 64 × 32, so that 80–90 columns fit (D5 says 90 columns in hi-res, which a 64-wide map cannot show) |
-| V3 | Block RAM: 6 blocks for video | Closed: in the design plan's budget (D11), 28 of 100 in all |
+| V3 | Block RAM: 6 blocks for video. Closed: they are in the design plan's budget (D11), 28 of 100 in all |
 | V4 | The repeat buffer holds pixel values before the bank registers, so BMBANK and TLBANK writes act on both lines of a pair (needed by spec 6's per-cell bank example). The tile entry's BANK is kept in the repeat buffer |
 | V5 | Bitmap and tile order is fixed (bitmap behind). A swap bit in VIDCTL could be added later |
 | V6 | 1-bit tiles cost a cycle per row, as 2-bit ones; packing two rows per cycle would need tiles stored row-interleaved |
