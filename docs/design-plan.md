@@ -1,64 +1,73 @@
 # retro-z80 design plan
 
-Status: **draft for review**. Nothing in `fpga/`, `firmware/` or `hardware/` gets built until the decisions below are agreed and each block has a written spec.
+Status: **draft for review**. The decisions below were made one by one (section 1). Nothing in `fpga/`, `firmware/` or `hardware/` gets built until each block has a written spec.
 
-retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k). It runs on the same board, the **ZX Spectrum Next KS3**, with the same video output, storage and USB link, but with a Z80 and a smaller chipset sized for an 8-bit CPU. A 6502 version may follow, so the chipset is kept separate from the CPU from the start.
+retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a **new machine** (not a copy of an existing one) for use both as a home computer and as a games machine. It runs on the same board, the **ZX Spectrum Next KS3**, with the same video output, storage and USB link, but with a Z80 and a smaller chipset made for an 8-bit CPU. The chipset is kept separate from the CPU, so a 6502 version stays possible.
 
-## Main path
+## 1. Decision tree
 
-The Z80 is a soft core inside the KS3's Artix-7 FPGA, and main memory is the board's fast SRAM, reached through an MMU of 8 KB pages. The only extra hardware is the FT232H USB module already used by retro68k. The design is installed as another core on the Next, next to the normal Next core and retro68k.
-
-## 1. Requirements
-
-| # | Requirement | Source |
-|---|-------------|--------|
-| R1 | CPU is a Z80 soft core, at 3.5, 7, 14 or 28 MHz, chosen by software | decided |
-| R2 | 64 KB address space mapped onto the SRAM through eight 8 KB windows (MMU) | decided |
-| R3 | Chipset is new and scaled down for an 8-bit CPU: tiles, a bitmap and sprites, not retro68k's three planar layers | decided |
-| R4 | Version 1 is kept small; extra features (copper, DMA engine, sample channels) come later | decided |
-| R5 | Same board and I/O as retro68k: KS3, HDMI and VGA at 576p, SD card, PS/2 keyboard, FT232H USB serial | decided |
-| R6 | The chipset talks to the CPU through one 8-bit bus interface, so a 6502 can replace the Z80 later | decided |
-| R7 | Usable as a home computer (monitor, then BASIC) and as a games machine (tiles, sprites, joysticks) | proposed |
+| # | Branch | Decision |
+|---|--------|----------|
+| 1 | Board | ZX Spectrum Next KS3, the Z80 as a soft core in its FPGA |
+| 1 | Compatibility | A new machine; Spectrum games are made easy to port, not run unchanged |
+| 1 | Use | Both home computer and games machine |
+| 1 | Chipset | New and scaled down for an 8-bit CPU |
+| 2 | CPU core | tv80 (Verilog) |
+| 2 | CPU speed | 3.5, 7, 14 or 28 MHz by software; **28 MHz after reset** |
+| 2 | Interrupts | IM 2 with vectors from the interrupt controller (IM 1 also works) |
+| 2 | Memory | Eight 8 KB windows onto the SRAM (MMU) |
+| 3 | Picture | 360×288 at 2×, filling the 576p screen; every layer has its own size and position, so a 256×192 window can be placed |
+| 3 | Layers | Background colour, a bitmap layer, a tile layer, an attribute layer, sprites |
+| 3 | Bitmap | 1, 2, 4 or 8 bits per pixel |
+| 3 | Tiles | 8×8, 4-bit, or 1-bit for text |
+| 3 | Hi-res | Per layer: 720 across instead of 360 |
+| 3 | Lines | Per layer: 288 lines (each shown twice) or 576 |
+| 3 | Colours | 12-bit RGB (4096 colours); palette grown to 512 entries for the attribute layer |
+| 3 | Attributes | An attribute layer of 8×8 or 8×1 cells that sets the palette bank of the bitmap or the tile layer |
+| 3 | Spectrum screen layout | Done by the copper (a line address per line), no extra hardware |
+| 3 | Copper | In version 1, a "smart" copper: loops, a counter, indirect moves through X/Y pointers |
+| 4 | Sprites | 32 sprites, 8 to 32 pixels, 1, 2, 4 or 8 bits per pixel, patterns in SRAM |
+| 5 | Sound | **Open** (Q1) |
+| 6 | Registers | 8-bit, in Z80 I/O space only; 16- and 24-bit values are byte groups latched on the last byte |
+| 6 | DMA engine | Later |
+| 7 | BASIC | BBC BASIC (Z80) |
+| 7 | CP/M | Later (CP/M 3) |
+| 7 | I/O | USB serial (FT232H), SD card, PS/2 keyboard, joysticks, Spectrum keyboard |
+| 7 | Assembler | sjasmplus |
+| 8 | 6502 | Decide later; keep the chipset CPU-independent |
 
 ## 2. Key decisions
 
 ### D1. Board: ZX Spectrum Next KS3
 
-Same as retro68k (its design plan, D1): Artix-7 XC7A35T, 4 MB (or 2 MB) of 10 ns SRAM, HDMI and an ADV7125 VGA DAC, audio jack, SD card in SPI mode, PS/2 sockets, two joystick ports, the accelerator port for the FT232H module, and a 50 MHz oscillator. Vivado free edition, scripted in Tcl, loaded over JTAG during development.
+Same as retro68k (its design plan, D1): Artix-7 XC7A35T, 4 MB (or 2 MB) of 10 ns SRAM, HDMI and an ADV7125 VGA DAC, audio jack, SD card in SPI mode, PS/2 sockets, two joystick ports, the Spectrum membrane keyboard, the accelerator port for the FT232H module, and a 50 MHz oscillator. Vivado free edition, scripted in Tcl, loaded over JTAG during development, installed as a Next core when finished.
 
-The Next is itself a Z80 machine, so the board is a natural fit.
+### D2. CPU: tv80
 
-### D2. CPU: a Z80 soft core
-
-| Core | Language | Licence | Notes |
-|------|----------|---------|-------|
-| **tv80** (proposed) | Verilog | BSD-style (from T80) | A Verilog version of T80; works with Icarus and Verilator like the rest of the design |
-| T80 | VHDL | BSD-style | The core the Next uses (as T80N); Vivado takes mixed languages, but Icarus and Verilator do not read VHDL |
-
-Proposal: **tv80**, checked with the ZEXDOC/ZEXALL instruction tests (open question Q1). The core runs on the 56 MHz system clock with a clock enable: one T-state every 2, 4, 8 or 16 clocks gives 28, 14, 7 or 3.5 MHz. The CPUSPEED register changes the speed at once; the speed at reset is open question Q6.
-
-Interrupts use the Z80's own modes: **IM 2** with a vector byte from the interrupt controller during the acknowledge cycle, or IM 1 (RST 38h) with a status register to read. NMI comes from the Multiface button and a USB "break".
+- **tv80**, a Verilog version of the T80 core (BSD-style licence), so the whole design stays in Verilog and runs in Icarus and Verilator like retro68k. Checked with the ZEXDOC and ZEXALL instruction tests. It need not match a real Z80 cycle for cycle (open question Q3).
+- The core runs on the 56 MHz system clock with a clock enable: a T-state every 2, 4, 8 or 16 clocks gives **28, 14, 7 or 3.5 MHz**. A register changes the speed at once; reset gives 28 MHz.
+- **Interrupts:** IM 2, with the interrupt controller putting each source's vector byte on the bus during the acknowledge cycle. IM 1 (RST 38h) works too, with a status register to read. NMI from the Multiface button and a USB "break".
 
 ### D3. Clocks
 
-- **System clock 56 MHz**, from MMCM 1: 50 MHz × 21 = VCO 1050 MHz, ÷ 18.75 (CLKOUT0 has a fractional divider). The CPU speeds are clock enables, not separate clocks.
-- **Pixel clock 27 MHz** (and 135 MHz for HDMI) from MMCM 2, exactly as in retro68k. The two are treated as asynchronous.
-- Both come from one oscillator, so every 576p line (32 µs) is exactly **1792 system clocks = 224 memory slots**: the display's memory use repeats the same way on every line.
+- **System clock 56 MHz** from MMCM 1: 50 MHz × 21 = VCO 1050 MHz, ÷ 18.75 (CLKOUT0's fractional divider). CPU speeds are clock enables.
+- **Pixel clock 27 MHz** (and 135 MHz for HDMI) from MMCM 2, as in retro68k, treated as asynchronous.
+- Both come from one oscillator, so every 576p line (32 µs) is exactly **1792 system clocks = 224 memory slots**.
 
 ### D4. Memory: slots and the MMU
 
-**Slots.** SRAM time is cut into slots of 4 memory cycles. A memory cycle is 2 system clocks (35.7 ns, a gentle cycle for a 10 ns SRAM) and moves 16 bits; a slot is 143 ns, one 28 MHz T-state per cycle.
+**Slots.** SRAM time is cut into slots of 4 memory cycles. A memory cycle is 2 system clocks (35.7 ns, gentle for a 10 ns SRAM) and moves 16 bits; a slot is 143 ns.
 
 | Cycle | Owner |
 |-------|-------|
 | 0 | CPU |
-| 1 | Video (tiles, bitmap) |
+| 1 | Video: bitmap, tiles, attributes |
 | 2 | CPU |
-| 3 | Sprites, then anything with work waiting |
+| 3 | Sprites and copper, then video if it is behind |
 
-A cycle its owner does not use goes to the others. The CPU has a cycle every 2 T-states, and a Z80 never touches memory more often than every 3, so **the Z80 never waits, even at 28 MHz** (the real Next adds a wait state at 28 MHz). A 6502, which uses memory on every clock, would get up to 14 MHz with no waits from the same slots. Total bandwidth is 56 MB/s; the video needs less than a quarter of it (D5).
+A cycle its owner does not use goes to the others. The CPU has a cycle every 2 T-states and a Z80 never touches memory more often than every 3, so **the Z80 never waits, even at 28 MHz**. (A 6502, which uses memory on every clock, would get 14 MHz with no waits from the same slots.) Total bandwidth is 56 MB/s.
 
-**MMU.** The Z80's 64 KB is eight 8 KB windows. Each window has a 10-bit page register (MMU0–MMU7, two ports each):
+**MMU.** Eight 8 KB windows (MMU0–MMU7), each with a 10-bit page number:
 
 | Page | Meaning |
 |------|---------|
@@ -66,124 +75,153 @@ A cycle its owner does not use goes to the others. The CPU has a cycle every 2 T
 | `0x3FC`–`0x3FF` | Boot ROM, 4 pages (32 KB of block RAM) |
 | Others | Reserved: reads give `0xFF`, writes are ignored |
 
-At reset, windows 0–1 map boot ROM pages 0–1 (so the Z80 starts in the ROM at `0x0000`) and windows 2–7 map SRAM pages 0–5. A window can be set read-only, so RAM loaded with a ROM image behaves like ROM.
+At reset, windows 0–1 map boot ROM pages 0–1 (the Z80 starts at `0x0000` in the ROM) and windows 2–7 map SRAM pages 0–5. A window can be set read-only.
 
-Video data, sprite patterns and sound live in the SRAM like everything else; the CPU reaches them by mapping their pages into a window.
+The chipset (video, sprites, copper) sees the SRAM by its 22-bit physical address, not through the MMU.
 
-### D5. Video (version 1)
+### D5. Video
 
-Kept on purpose much smaller than retro68k's.
+**Output.** 576p (720×576 at 50 Hz) over HDMI and VGA at once, with retro68k's platform modules. The picture is **360×288 at 2×**, filling the whole screen; the background colour shows where no layer covers it.
 
-- **Output:** 576p (720×576 at 50 Hz) over HDMI and VGA at once, as in retro68k, so the same platform modules are used. The picture is **320×256 shown at 2×** (640×512) in the middle of the screen with a border colour around it, like a PAL home computer. A hi-res setting doubles the width to 640 for 80-column text.
-- **Line buffers.** Each picture line is drawn into a line buffer in block RAM while the line before it is shown (each picture line lasts two 576p lines, 64 µs). This makes layers and sprites simple and keeps memory reads in short bursts.
-- **Layers**, back to front in a fixed order (with a priority bit on tiles and sprites):
-  1. **Border/background colour**
-  2. **Bitmap layer:** 320×256 at 4 or 8 bits per pixel (40 KB or 80 KB), or 640×256 at 4 bits; scroll in X and Y, wrapping in its pages
-  3. **Tile layer:** a 64×32 map of 8×8 tiles, 2 bytes per entry (tile number, palette offset, X/Y flip, priority); tiles at 4 bits per pixel, or 1 bit per pixel for text with a foreground colour; scroll in X and Y. The boot ROM's console is this layer
-  4. **Sprites:** 64 sprites of 16×16 at 4 bits per pixel (with a palette offset), up to 16 on one line; attributes (X, Y, pattern, palette, flip, priority) in block RAM, patterns in SRAM
-- **Palette:** one of 256 colours, 12-bit RGB (4096 colours, as on the Amiga OCS), in block RAM. Each layer and sprite picks a 16-colour bank for 4-bit data.
-- **Interrupts:** vertical blank and a line compare. Beam position registers.
-- **Memory budget per picture line (64 µs, 448 slots):** cycle 1 alone gives 896 bytes. An 8-bit bitmap uses 320, the tile layer up to 246, 16 sprites 128: about 700 bytes.
+**Line buffers.** Each picture line is drawn into a line buffer in block RAM while the line before is shown. At 288 lines, each picture line lasts two 576p lines (64 µs); at 576 lines, one (32 µs).
 
-No copper, no multiple bitmap layers and no direct colour in version 1.
+**Layers**, back to front:
 
-### D6. Sound (version 1)
+1. **Background colour.**
+2. **Bitmap layer.** 1, 2, 4 or 8 bits per pixel. Its own window (size and position on the screen), scroll in X and Y, a line stride, and a line address that is reloaded at the start of every line, so the copper can set any line's address (this is how the Spectrum's row order is done). Hi-res: 720 across. Height: 288 or 576 lines.
+3. **Tile layer.** A 64×32 map of 8×8 tiles, 2 bytes per entry (tile number, palette bank, X/Y flip, priority). Tiles at 4 bits per pixel, or 1 bit per pixel for text with the colour from the palette bank. Own window, scroll, hi-res (90 columns, 80 in a window) and height. The boot console is this layer.
+4. **Attribute layer.** Draws nothing itself: it changes the colours of the bitmap or the tile layer (a register picks which). A map of cells, **8×8 or 8×1 pixels**, one byte each; the byte replaces the high bits of the target's palette index. For a 1-bit target, index = attribute × 2 + pixel, so a Spectrum attribute byte (bright, paper, ink) picks a pair of colours as on the Spectrum. For a 4-bit target it picks a 16-colour bank per cell. A flash bit swaps the pair on a timer. Own window and scroll, so it lines up with its target.
+5. **Sprites** (D6), each in front of or behind the tile layer by its priority bit.
 
-- **One AY-3-8910-style sound chip** (3 tone channels, noise, envelope), the sound of the Spectrum 128, MSX and Amstrad CPC, so existing Z80 music players work with little change.
-- Output by sigma-delta to the audio jack and the internal speaker, as in retro68k.
-- Later: a second AY (as in the Next's TurboSound) or 2 DMA sample channels.
+**Palette.** 512 entries of 12-bit RGB (4096 colours), in block RAM, looked up as each pixel goes out. Layers with fewer than 8 bits per pixel take a bank.
 
-### D7. Registers: one 8-bit block, in I/O space
+**Interrupts and beam.** Vertical blank and a line compare interrupt; beam position registers.
 
-- All chipset registers are 8-bit and form **one block of 256 registers**. On the Z80 the block is in I/O space and **only the low 8 bits of the port address are decoded**, so `OUT (n),A` works and `OTIR` can stream bytes to one port.
-- Big tables (palette, sprite attributes) are reached through an index port and a data port that steps the index after each access, so `OTIR` loads them quickly.
-- For the 6502, which has no I/O space, the same block is mapped into one 256-byte memory page; only the bus interface changes.
-- The register list is kept in one file (`fpga/regmap.def`) and turned into assembler, C and Verilog headers by a generator, as in retro68k.
+**Memory budget.** Video has cycle 1 of every slot, plus cycle 3 when sprites and copper leave it free:
 
-### D8. I/O
+| | Per picture line at 288 lines (448 slots) | At 576 lines (224 slots) |
+|-|-------------------------------------------|---------------------------|
+| Cycle 1 alone | 896 bytes | 448 bytes |
+| Cycles 1 and 3 | 1792 bytes | 896 bytes |
 
-| Block | Version 1 | Notes |
-|-------|-----------|-------|
-| USB serial | Yes | FT232H in 245 FIFO mode: console and fast uploads, logic from retro68k |
-| SD card | Yes | SPI byte master; software does the commands, as in retro68k |
-| PS/2 keyboard | Yes | Raw byte FIFO, as in retro68k |
-| Joysticks | Yes | Both KS3 ports, read as plain bits |
-| Timers | Yes | 2 timers, 16-bit, plus a frame counter (fewer than retro68k) |
-| Interrupt controller | Yes | About 10 sources, fixed priorities, IM 2 vectors |
-| Spectrum keyboard, mouse, RTC | Later | |
+| Layer | Bytes per line |
+|-------|----------------|
+| Bitmap 360 wide, 8-bit | 360 (720 hi-res) |
+| Bitmap 360 wide, 1-bit | 45 |
+| Tiles, 4-bit | 276 (546 hi-res) |
+| Attributes | 45 (90 hi-res) |
+| Sprites | width × depth ÷ 8 per sprite: a 16×16 4-bit sprite is 8, a 32×32 8-bit one is 32 |
 
-### D9. Tools and languages
+Settings that ask for more than the budget are allowed; the video sets an OVERRUN flag and shows the background colour where data was late, as in retro68k. Example: Spectrum-style 256×192, 1-bit plus 8×8 attributes, uses 64 bytes per line.
 
-- **HDL:** plain Verilog-2005; chip-specific parts in `fpga/rtl/platform/artix7/`, with behavioural copies for simulation, as in retro68k.
+### D6. Sprites
+
+- **32 sprites**, each 8, 16 or 32 pixels across and down (set separately), at **1, 2, 4 or 8 bits per pixel**, with a palette bank for fewer than 8 bits.
+- **Patterns in SRAM**, anywhere in the 4 MB, given by a pointer per sprite; animation is changing the pointer.
+- Attributes (X, Y, size, depth, pointer, bank, flip, priority) in registers.
+- On each line, the sprites on that line are fetched during the line before, in cycle 3. How many fit depends on their size and depth (D5); the spec will set the limits.
+
+### D7. Copper
+
+A beam-following coprocessor that writes chipset registers, in version 1. It is more than the Amiga's: it has loops and pointers so that per-cell effects (like attributes from a Spectrum screen in memory) take a short program, not a list the size of the screen.
+
+- **Instructions:** MOVE (value to register), WAIT (beam position), SKIP, a counter with a loop instruction, and an **indirect move**: read a byte from SRAM through pointer X or Y (stepping it) and write it to a register; pointers can be stepped back (for example by 32, to repeat a row of cells).
+- **Timing:** the copper runs in step with the line being drawn into the line buffer, not with the beam, so its changes land on the pixels it waited for. Palette writes take effect as the pixel goes out.
+- The program is in SRAM, read in cycle 3. A change every 8 pixels is about one memory read per cell, within its share.
+- Restarted at the start of each frame.
+
+### D8. Registers
+
+- All chipset registers are **8-bit**, in **Z80 I/O space only**. Only the low 8 bits of the port address are decoded, so `OUT (n),A` works and `OTIR` can stream bytes to one port.
+- 16- and 24-bit values (pointers, scroll) are 2 or 3 consecutive ports; the value changes when the last byte is written, so the hardware never sees half a value.
+- Big tables (palette, sprite attributes) are reached through an index port and a data port that steps the index after each access.
+- 256 ports are a tight fit; if they run out, a bank register selects between groups (spec 3).
+- The copper writes the same registers by port number.
+- The register list is kept in one file (`fpga/regmap.def`) and turned into sjasmplus, C and Verilog headers by a generator, as in retro68k.
+
+### D9. I/O
+
+| Block | Notes |
+|-------|-------|
+| USB serial | FT232H in 245 FIFO mode: console and fast uploads, logic from retro68k |
+| SD card | SPI byte master; software does the commands, as in retro68k |
+| PS/2 keyboard | Raw byte FIFO, as in retro68k |
+| Spectrum keyboard | The KS3's 8×7 membrane matrix, read as rows like a Spectrum's port `0xFE` |
+| Joysticks | Both KS3 ports, read as plain bits |
+| Timers | 2 timers of 16 bits and a frame counter |
+| Interrupt controller | About 12 sources, fixed priorities, IM 2 vectors |
+
+### D10. Software and tools
+
+- **HDL:** plain Verilog-2005; chip-specific parts in `fpga/rtl/platform/artix7/` with behavioural copies for simulation.
 - **Simulation:** Icarus Verilog for blocks, Verilator for the whole computer (fast enough to run ZEXDOC).
-- **Z80 software:** `sjasmplus` for the boot ROM, `z88dk` for C.
-- **BASIC:** BBC BASIC (Z80) by R. T. Russell, open source; CP/M 2.2 or 3 later, which needs the 80-column text setting.
-- **Shared with retro68k:** the KS3 pin list, MMCM, HDMI and VGA output modules, TMDS encoder, the FT232H serial logic, the SRAM and FT232H simulation models and the register-map generator. They are copied in (not linked), since the bus widths differ; changes that help both are made in both.
+- **Z80 code:** sjasmplus for the boot ROM and system code; z88dk if C is wanted later.
+- **Boot ROM:** a monitor (dump, edit, load over USB or SD, run), then **BBC BASIC (Z80)** by R. T. Russell (open source, zlib licence) with a small hardware layer. **CP/M 3** later, using the MMU and hi-res tiles for 80 columns.
+- **Shared with retro68k:** the KS3 pin list, MMCM, HDMI and VGA modules, TMDS encoder, the FT232H serial logic, the SRAM and FT232H simulation models, and the register-map generator. They are copied in, since the bus widths differ.
 
-### D10. Block RAM budget
+### D11. Block RAM budget
 
 | Item | Blocks (18 Kb) |
 |------|----------------|
 | Boot ROM, 32 KB | 16 |
-| Line buffers (two lines of 640 pixels, 16 bits each) | 2 |
-| Palette (256 × 12 bits) | 1 |
-| Sprite attributes | 1 |
-| USB serial FIFOs, keyboard FIFO | 3 |
-| **Total** | **23 of 100** |
+| Line buffers (two lines of 720 pixels, 16 bits each) | 2 |
+| Palette (512 × 12 bits) | 1 |
+| USB serial and keyboard FIFOs | 3 |
+| **Total** | **22 of 100** |
 
-The logic budget is to be measured; a Z80 core is about 2–3k LUTs, so the whole design should use well under half the XC7A35T.
+The logic budget is to be measured; a Z80 core is about 2–3k LUTs, and the chipset should be well under retro68k's.
 
-## 3. Memory and I/O map
+## 3. I/O port map (first sketch)
 
-**Z80 memory** (64 KB): eight 8 KB windows, set by MMU0–MMU7 (D4).
-
-**Z80 I/O ports** (low byte only; a first sketch, the real list goes in spec 3):
+Low byte of the port address only. The full list goes in spec 3.
 
 | Ports | Block |
 |-------|-------|
-| `0x00`–`0x0F` | System: ID, CPU speed, reset cause, MMU0–MMU7 |
-| `0x10`–`0x1F` | Interrupt controller and timers |
-| `0x20`–`0x2F` | USB serial, SD card, keyboard, joysticks |
-| `0x30`–`0x3F` | Sound (AY register select and data) |
-| `0x40`–`0x7F` | Video: layers, scroll, palette and sprite index/data ports, beam |
-| `0x80`–`0xFF` | Reserved (later: copper, DMA engine, sample channels) |
+| `0x00`–`0x1F` | System: ID, CPU speed, reset cause, MMU0–MMU7, interrupt controller, timers |
+| `0x20`–`0x2F` | USB serial, SD card, PS/2 keyboard, joysticks |
+| `0x30`–`0x3F` | Sound (reserved until Q1 is decided) |
+| `0x40`–`0x7F` | Video: layers, windows, scroll, palette index/data, beam |
+| `0x80`–`0x9F` | Sprite index/data, copper |
+| `0xA0`–`0xFD` | Reserved (DMA engine later) |
+| `0xFE` | Spectrum keyboard rows (same port as a Spectrum's, for easy ports) |
+| `0xFF` | Reserved |
 
 ## 4. Specs to write before code
 
-1. **CPU bus interface:** Z80 core with clock enables, memory and I/O cycles, the internal 8-bit chipset bus, interrupt acknowledge, reset
+1. **CPU bus interface:** tv80 with clock enables, memory and I/O cycles, the internal chipset bus, IM 2 acknowledge, reset
 2. **Memory:** slots, SRAM timing, MMU, boot ROM overlay
 3. **Registers:** the full port list
-4. **Video:** timing, line buffers, bitmap and tile layers, palette, interrupts
+4. **Video:** timing, line buffers, windows, bitmap, tile and attribute layers, palette, budget, interrupts
 5. **Sprites**
-6. **Sound:** AY-style chip, sigma-delta output
-7. **System:** reset, boot ROM, start-up, buttons, installing as a Next core, board pins
-8. **I/O:** serial, SD, keyboard, joysticks, timers, interrupts (short, since most follow retro68k)
+6. **Copper:** instruction set, timing against the line buffer
+7. **System:** reset, boot ROM, buttons, installing as a Next core, board pins
+8. **I/O:** serial, SD, keyboards, joysticks, timers, interrupts (short, since most follow retro68k)
+9. **Sound:** once Q1 is decided
 
 ## 5. Phases
 
 | Phase | Work | Done when |
 |-------|------|-----------|
-| **0. Plan** | This document agreed, specs written | Decisions D1–D10 signed off |
-| **1. Simulated CPU** | tv80 + bus interface + MMU + SRAM controller + boot ROM + USB serial, in simulation | Boot ROM prints "hello" over simulated serial; ZEXDOC passes in Verilator |
-| **2. Video** | Tile layer with the boot console, then the bitmap layer and palette | Console text on the simulated screen, checked pixel by pixel |
-| **3. On the board** | Build for the KS3; boot monitor (dump, edit, load over USB, run) | "hello" on a real monitor and over USB; RAM test at 28 MHz |
-| **4. Games machine** | Sprites, AY sound, joysticks | A small demo with scrolling tiles, sprites and music |
-| **5. Home computer** | SD card, PS/2 keyboard, BBC BASIC | Boot to BASIC, load and save a program |
+| **0. Plan** | This document agreed, specs written | Specs 1–8 drafted |
+| **1. Simulated CPU** | tv80, bus interface, MMU, SRAM controller, boot ROM, USB serial, in simulation | Boot ROM prints "hello" over simulated serial; ZEXDOC passes in Verilator |
+| **2. Video** | Tile layer with the boot console, then bitmap, palette, attribute layer | Console text on the simulated screen, checked pixel by pixel |
+| **3. On the board** | Build for the KS3; boot monitor | "hello" on a real monitor and over USB; RAM test at 28 MHz |
+| **4. Games machine** | Copper, sprites, joysticks | A demo with scrolling tiles, sprites and a Spectrum-style screen drawn by the copper |
+| **5. Home computer** | SD card, keyboards, BBC BASIC | Boot to BASIC, load and save a program |
 | **6. Next core** | Package and install as a Next core | The KS3 boots retro-z80 from its core menu |
-| **Later** | Copper, DMA engine, sample channels, CP/M, the 6502 version | |
+| **Later** | Sound (if not before), DMA engine, CP/M 3, a 6502 version | |
 
 ## 6. Open questions
 
 | # | Item | Plan |
 |---|------|------|
-| Q1 | Is tv80 exact enough (flags, undocumented instructions, interrupt timing)? | Run ZEXDOC and ZEXALL in Verilator in phase 1; fall back to T80 (VHDL) with GHDL for simulation |
-| Q2 | Does the Z80 need to be cycle-exact to a real one? | Not planned: code is new, not Spectrum software. Say if Spectrum compatibility matters |
-| Q3 | Bitmap at 4 and 8 bits, or 8 bits only? | Proposed both; 4-bit halves memory and makes 640 wide possible |
-| Q4 | One AY, or two, or sample channels in version 1? | Proposed one AY; the others later |
-| Q5 | Should the 6502 version be a build option of this repo, or its own repo? | Proposed a build option here, since only the CPU and its bus interface change |
-| Q6 | Start-up CPU speed: 3.5 MHz (like a Spectrum) or 28 MHz? | Proposed 28 MHz; software can slow down |
-| Q7 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
+| Q1 | Sound hardware: AY-style chip(s), sample channels, or both | To be decided; ports `0x30`–`0x3F` kept for it |
+| Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent meanwhile. With registers in I/O space only, a 6502 would see them through a memory page in its bus interface |
+| Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
+| Q4 | Copper timing: a cell is 8 pixels, 593 ns at 2× but only 296 ns (about 2 slots) in hi-res. Can the indirect moves keep up while sprites also use cycle 3? | Work out in spec 6; give the copper priority over sprites in cycle 3 if needed |
+| Q5 | Are 256 I/O ports enough? | Count them in spec 3; add a bank register if not |
+| Q6 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
 
 ## 7. Next step
 
-Review this plan and change anything that doesn't feel right, especially the size of version 1 (D5, D6) and the open questions. Then write the specs in section 4, starting with the CPU bus interface and memory, and begin phase 1 in simulation.
+Write specs 1 and 2 (CPU bus interface and memory), then start phase 1 in simulation.
