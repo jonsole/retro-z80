@@ -19,7 +19,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 3 | Picture | 360×288 at 2×, filling the 576p screen; every layer has its own size and position, so a 256×192 window can be placed |
 | 3 | Layers | Background colour, a bitmap layer, a tile layer, an attribute layer, sprites |
 | 3 | Bitmap | 1, 2, 4 or 8 bits per pixel |
-| 3 | Tiles | 8×8, 4-bit, or 1-bit for text |
+| 3 | Tiles | 8×8, 1, 2, 4 or 8 bits per pixel (1-bit for text) |
 | 3 | Hi-res | Per layer: 720 across instead of 360 |
 | 3 | Lines | Per layer: 288 lines (each shown twice) or 576 |
 | 3 | Colours | 12-bit RGB (4096 colours); palette grown to 512 entries for the attribute layer |
@@ -89,7 +89,7 @@ The chipset (video, sprites, copper) sees the SRAM by its 22-bit physical addres
 
 1. **Background colour.**
 2. **Bitmap layer.** 1, 2, 4 or 8 bits per pixel. Its own window (size and position on the screen), scroll in X and Y, a line stride, and a line address that is reloaded at the start of every line, so the copper can set any line's address (this is how the Spectrum's row order is done). Hi-res: 720 across. Height: 288 or 576 lines.
-3. **Tile layer.** A 64×32 map of 8×8 tiles, 2 bytes per entry (tile number, palette bank, X/Y flip, priority). Tiles at 4 bits per pixel, or 1 bit per pixel for text with the colour from the palette bank. Own window, scroll, hi-res (90 columns, 80 in a window) and height. The boot console is this layer.
+3. **Tile layer.** A 64×32 map of 8×8 tiles, 2 bytes per entry (tile number, palette bank, X/Y flip, priority). Tiles at **1, 2, 4 or 8 bits per pixel** (8, 16, 32 or 64 bytes per tile), set for the whole layer; the palette bank gives the high bits of the colour index, so 1-bit tiles make text with a colour per character. Own window, scroll, hi-res (90 columns, 80 in a window) and height. The boot console is this layer.
 4. **Attribute layer.** Draws nothing itself: it changes the colours of the bitmap or the tile layer (a register picks which). A map of cells, **8×8 or 8×1 pixels**, one byte each; the byte replaces the high bits of the target's palette index. For a 1-bit target, index = attribute × 2 + pixel, so a Spectrum attribute byte (bright, paper, ink) picks a pair of colours as on the Spectrum. For a 4-bit target it picks a 16-colour bank per cell. A flash bit swaps the pair on a timer. Own window and scroll, so it lines up with its target.
 5. **Sprites** (D6), each in front of or behind the tile layer by its priority bit.
 
@@ -108,7 +108,7 @@ The chipset (video, sprites, copper) sees the SRAM by its 22-bit physical addres
 |-------|----------------|
 | Bitmap 360 wide, 8-bit | 360 (720 hi-res) |
 | Bitmap 360 wide, 1-bit | 45 |
-| Tiles, 4-bit | 276 (546 hi-res) |
+| Tiles, 1/2/4/8-bit | 138 / 184 / 276 / 460 (hi-res about twice) |
 | Attributes | 45 (90 hi-res) |
 | Sprites | width × depth ÷ 8 per sprite: a 16×16 4-bit sprite is 8, a 32×32 8-bit one is 32 |
 
