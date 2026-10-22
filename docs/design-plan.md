@@ -218,6 +218,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | Q7 | KS3 pins for the Spectrum keyboard, joysticks, PS/2 and `sd_miso`, not yet checked against the Next's pin file | Check before phase 3 (spec 7, SY1) |
 | Q8 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
 | Q9 | A Z80 faster than 28 MHz | Left for later. Options: (A) 56 MHz with one wait state on SRAM, about 1.6×; (B) A plus 128 KB of block-RAM fast RAM with no waits, 2× there; (C) 17.9 ns SRAM cycles on a 112 MHz system clock, 2× with no waits; (D) a core that needs fewer clocks per instruction, 2–3×. B looked the best value. All need tv80 (or the new core) to meet 56 MHz |
+| Q10 | Hardware help for 3D filled polygons | Left for later. Options, cheapest first: (0) Z80 only; (1) a maths unit, 16×16 multiply and 32/16 divide on ports, about 100 LUTs; (2) a span filler, (y, x0, x1, colour) into a FIFO and filled in spare memory cycles, as a mode of the DMA engine; (3) a triangle rasteriser, about 1–2k LUTs; (4) a programmable geometry coprocessor like the SNES's Super FX, about 3–5k LUTs. 1 and 2 together looked the best value. Double buffering already works by switching BMADDR at vertical blank |
 
 ## 7. Next step
 
