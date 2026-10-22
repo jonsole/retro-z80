@@ -217,6 +217,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | Q6 | Kempston joystick port `0x1F` is INTHIGH here | Ported code changes the port; could alias JOY1 at `0x1F` if porting matters more (spec 3, R1) |
 | Q7 | KS3 pins for the Spectrum keyboard, joysticks, PS/2 and `sd_miso`, not yet checked against the Next's pin file | Check before phase 3 (spec 7, SY1) |
 | Q8 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
+| Q9 | A Z80 faster than 28 MHz | Left for later. Options: (A) 56 MHz with one wait state on SRAM, about 1.6×; (B) A plus 128 KB of block-RAM fast RAM with no waits, 2× there; (C) 17.9 ns SRAM cycles on a 112 MHz system clock, 2× with no waits; (D) a core that needs fewer clocks per instruction, 2–3×. B looked the best value. All need tv80 (or the new core) to meet 56 MHz |
 
 ## 7. Next step
 
