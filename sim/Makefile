@@ -3,7 +3,17 @@
 #   make            build and run every test written so far
 #   make smoke      the tool-chain smoke test (sjasmplus, bin2hex, Icarus)
 #   make vsmoke     the same test built with Verilator
-#   make zexhello   the ZEX testbench's own check: two tiny CP/M programs
+#   make hello      the system: the boot ROM prints "hello" over USB serial,
+#                   twice (the second time after the RESET control command)
+#   make hello2mb   the same on a build for a 2 MB board (CHIPMB = 2): the
+#                   self-test sees pages 0x100-0x1FF mirror 0x000-0x0FF
+#   make systest    the system test ROM: system registers, I/O decode, SRAM
+#                   bytes, writable boot ROM, the self-test, soft reset
+#   make speeds     the speed test ROM: "hello" at every CPUSPEED setting,
+#                   with the T-state rates measured
+#   make lint       Verilator lint of the RTL (fpga/lint.sh)
+#   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
+#                   and the R register test
 #   make zexdoc     ZEXDOC on the bare tv80 core in Verilator (long, see README)
 #   make zexall     ZEXALL, the same with the undocumented flags (long)
 #
@@ -25,8 +35,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke zexhello zexdoc zexall clean
-all: smoke vsmoke zexhello
+.PHONY: all smoke vsmoke hello hello2mb systest speeds lint zexhello zexdoc zexall clean
+all: smoke vsmoke hello hello2mb systest speeds zexhello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -52,8 +62,56 @@ vsmoke: $(BUILD)/vl_smoke/vsmoke $(BUILD)/smoke.hex
 	cd $(BUILD) && ./vl_smoke/vsmoke | tee vsmoke.log
 	@grep -q "^TEST PASSED" $(BUILD)/vsmoke.log
 
+# The system (ticket #4): tv80 behind the bus interface, the scheduler and
+# SRAM controller, the boot ROM, the system registers and USB serial, with
+# retro68k's SRAM and FT232H models. Each run checks that the Z80 never
+# waited (tb.v). +dma keeps the DMA port busy meanwhile.
+RTL       := $(ROOT)/fpga/rtl
+TV80      := $(ROOT)/fpga/third_party/tv80
+INC       := $(ROOT)/firmware/include
+TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v retroz80.v)
+SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
+
+$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+$(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -I $(ROOT)/firmware/boot --raw=$@ $<
+
+$(BUILD)/speeds.bin: speeds/speeds.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+$(BUILD)/%.hex: $(BUILD)/%.bin
+	$(PYTHON) $(ROOT)/tools/bin2hex.py $< $@
+
+$(BUILD)/tb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
+
+# The same testbench for a 2 MB build (spec 2, section 11)
+$(BUILD)/tb2mb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -Ptb.CHIPMB=2 -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
+
+hello: $(BUILD)/tb.vvp $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +dma | tee hello.log
+	@grep -q "^TEST PASSED" $(BUILD)/hello.log
+
+hello2mb: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb2mb.vvp +rom=boot.hex +hello +dma | tee hello2mb.log
+	@grep -q "^TEST PASSED" $(BUILD)/hello2mb.log
+
+systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=systest.hex +dma | tee systest.log
+	@grep -q "^TEST PASSED" $(BUILD)/systest.log
+
+speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=speeds.hex +speeds +dma +timeout=10000 | tee speeds.log
+	@grep -q "^TEST PASSED" $(BUILD)/speeds.log
+
+lint:
+	sh $(ROOT)/fpga/lint.sh
+
 # ZEX: the bare tv80 core with 64 KB of RAM runs CP/M .COM programs (ticket #2)
-TV80     := $(ROOT)/fpga/third_party/tv80
 TV80_SRC := $(addprefix $(TV80)/,tv80s.v tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
 ZEX_RUN   = cd $(BUILD) && ./vl_zex/vzex +cpm=cpm.bin
 

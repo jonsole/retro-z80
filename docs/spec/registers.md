@@ -109,7 +109,7 @@ Each spec declares where a register departs from the rules above. The first thre
 | Register | Exception | Why | Spec |
 |----------|-----------|-----|------|
 | **The three exceptions to direct access** | | | |
-| MMUn_0/MMUn_1, MMUnW_0/MMUnW_1 (registers `0x80`–`0x9F`) | Byte 0 is held; writing byte 1 commits the page, with the held byte 0 (or the current one, if none was written). Committing a read page also sets the window's write page | A window must never point at a half-changed page: the next opcode fetch may use it | 2, 9.4 |
+| MMUn_0/MMUn_1, MMUnW_0/MMUnW_1 (registers `0x80`–`0x9F`) | Byte 0 is held; writing byte 1 commits the page, with the held byte 0 (or the current one, if none was written). Committing a read page also sets the window's write page | A window must never point at a half-changed page: the next opcode fetch may use it | 2, 9.2 |
 | Colours: PALDAT, the palettes in the register page, BGCOLOR (custom `0x004`–`0x006`) | Blue and green go into the master's colour assembly buffer; the red byte writes the colour whole. One buffer per master (CPU, copper, DMA engine), shared by all three paths; not a latch per entry | A colour is shown live: a half-written one would show for some pixels | 4, 6.1 and 6.5 |
 | Captures (rule 4) | Reading the low byte captures the whole value in the master's one tagged capture; higher bytes of the same register read from it | Counters the hardware changes by itself must be read whole | 3, rule 4 |
 | **Set/clear** | | | |

@@ -1,0 +1,271 @@
+# retro-z80 register map: the one source for every register (spec 3, section 8).
+#
+# tools/regmap.py reads this file, checks it against docs/spec/registers.md and writes:
+#   firmware/include/hw.inc   sjasmplus equates
+#   firmware/include/hw.h     C header (z88dk)
+#   fpga/rtl/regmap.vh        Verilog defines and decodes
+#
+# Edit this file, then run:  python3 tools/regmap.py
+#
+# Syntax (one item per line, # starts a comment):
+#   block  NAME PAGE SIZE "text"                    the system page, the custom block, the register page
+#   reg    OFFSET NAME WIDTH ACCESS SPEC [fields]   a register of WIDTH bytes (1-4) in the current block
+#   regs   NAME COUNT OFFSET WIDTH ACCESS SPEC [fields]
+#                                                   NAME0..NAME(COUNT-1), WIDTH bytes apart
+#   array  NAME COUNT OFFSET STRIDE SPEC ... end    a repeated group (L, SPR, TMR, DMX, MMU)
+#   area   NAME OFFSET SIZE ACCESS SPEC             a table in the register page (palettes, KEYROW)
+#   port   NAME LOWBYTE REGISTER                    a low-byte-only port and its register in page 0x00
+#   const  NAME VALUE ["text"]                      a named number
+#
+# Blocks with a PAGE below 0x100 are I/O pages: their registers get ports (name_P),
+# port = (offset & 0xFF) << 8 | PAGE + (offset >> 8). The REGS block is the register
+# page (MMU page 0x3F8): offsets only, no ports.
+# In an array, a reg named "-" is the element itself (MMUn), and a lower-case "n" in the array
+# name marks where the index goes (MMUnW gives MMU0W ... MMU7W).
+# Access: R, W, RW, W1C, RW1C (mixed), SC (set/clear) or S (strobe), with flags
+#   CAP (reading the low byte captures), SEP (separate bytes), COLR (red byte commits),
+#   MMU (byte 1 commits), PAIR (two 2-byte values), F (reading has an effect),
+#   LOCK (lockable), BUSY (writes ignored while busy).
+# Fields: FIELD=BIT or FIELD=HIGH:LOW, numbered in the whole value (bit 8 is bit 0 of
+#   the second byte). "fields=OTHER" copies another register's fields.
+# SPEC is "spec/section", e.g. 4/6.1.
+
+# ================================================================ system page
+block SYSTEM 0x00 0x100 "System page: port = register << 8"
+
+# Interrupt controller (spec 8)
+reg  0x00 INTCON   1 RW      8/12   MASTER=0
+regs INTENA 3 0x01 1 SC,SEP  8/12   SETCLR=7
+regs INTPEND 3 0x04 1 R,SEP  8/12
+regs INTRAW 3 0x07 1 R,SEP   8/12
+reg  0x0A VECBASE  1 RW      8/5    VEC=7:1
+reg  0x0B SOFTINT  1 S       8/9    SET=0 CLR=1
+reg  0x0C INTID    1 R       8/6    SRC=4:0
+reg  0x0D NMICON   1 RW      8/10   BUTTONEN=0 USBEN=1
+reg  0x0E NMISTAT  1 W1C     8/10   BUTTON=0 USB=1
+
+# Membrane key map and Kempston (spec 12)
+regs KEYMAP 7 0x10 1 R,SEP   12/5.3
+reg  0x1F KEMPSTON 1 R       12/8.5 RIGHT=0 LEFT=1 DOWN=2 UP=3 FIRE1=4 FIRE2=5 A=6 START=7
+
+# Time counter, timers and watchdog (spec 9)
+reg  0x20 TIME     4 R,CAP   9/3
+array TMR 4 0x28 8 9/6
+  reg 0x0 CTRL     1 RW      9/6    EN=0 REPEAT=1 SRC=3:2 IRQ=4 DMA=5 DMACH=7:6
+  reg 0x1 PRESCALE 2 RW      9/4.2
+  reg 0x3 RELOAD   2 RW      9/4.1
+  reg 0x5 COUNT    2 RW,CAP  9/4.1
+  reg 0x7 STAT     1 W1C     9/6    UNDER=0
+end
+reg  0x48 WDCTRL   1 RW,LOCK 9/5    EN=0 LOCK=1
+reg  0x49 WDTIME   2 RW,LOCK 9/5
+reg  0x4B WDKICK   1 S       9/5
+
+# USB serial (spec 10)
+reg  0x50 SERCON   1 RW      10/7   EN=0 CTLEN=1 CTLLOCK=2 TXDROP=3 RXFLUSH=4 TXFLUSH=5
+reg  0x51 SERSTAT0 1 R       10/7   TXSPACE=7:0
+reg  0x52 SERSTAT1 1 R       10/7   RXCOUNT=7:0
+reg  0x53 SERDATA  1 RW,F    10/7
+reg  0x54 SERLEVEL 1 RW      10/7   TXLEVEL=3:0 RXLEVEL=7:4
+reg  0x55 SERTIME  1 RW      10/7
+reg  0x56 SERIRQ   1 RW1C    10/5.4 RXREADY=0 RXTIMEOUT=1 TXREADY=2 TXOVF=3
+reg  0x57 SERIRQEN 1 RW      10/5.4 fields=SERIRQ
+reg  0x5C SERDROP  1 R,F     10/7
+
+# SD card (spec 11)
+reg  0x58 SDCON    2 RW      11/6   EN=0 CS0=1 CS1=2 AUTO=7 CLKDIV=15:8
+reg  0x5A SDSTAT   1 R       11/6   BUSY=0
+reg  0x5B SDDATA   1 RW,F    11/3
+reg  0x5D SDCOUNT  2 RW,CAP  11/5.2 COUNT=15:0
+
+# PS/2 keyboard, joysticks, KEYCON (spec 12)
+reg  0x60 KBCON    1 RW      12/6   EN=0
+reg  0x61 KBSTAT   1 R       12/6   COUNT=4:0 TXBUSY=7
+reg  0x62 KBDATA   1 R,F     12/3.2
+reg  0x63 KBSEND   1 W       12/3.4
+reg  0x64 KBIRQ    1 RW1C    12/6   DATA=0 PARITY=1 FRAME=2 OVERFLOW=3 TIMEOUT=4
+reg  0x65 KBIRQEN  1 RW      12/6   fields=KBIRQ
+reg  0x66 JOY1     1 R       12/4.3 RIGHT=0 LEFT=1 DOWN=2 UP=3 FIRE1=4 FIRE2=5 A=6 START=7
+reg  0x67 JOY2     1 R       12/4.3 fields=JOY1
+reg  0x68 JOYCON   1 RW      12/4.2 MD1=0 MD2=1 SIX1=4 SIX2=5 MDPRES1=6 MDPRES2=7
+reg  0x6B KEYCON   1 RW      12/8   KXMAP=0 EAR6=1 PS2MAP=2
+reg  0x6C JOY1X    1 R       12/4.3 X=0 Y=1 Z=2 MODE=3
+reg  0x6D JOY2X    1 R       12/4.3 fields=JOY1X
+
+# System (spec 7)
+reg  0x70 SYSID    1 R       7/11.1
+reg  0x71 SYSVER   1 R       7/11.1 MINOR=3:0 MAJOR=7:4
+reg  0x72 SYSCFG   1 R       7/11.1 CPU=1:0 CHIPMB=7:2
+reg  0x73 RESETWHY 1 R       7/3.1  POWER=0 WATCHDOG=1 BUTTON=2 SOFTWARE=3 USB=4 UPLOAD=5 KEYBOARD=6 HALTED=7
+reg  0x74 SYSCON   1 RW      7/11.1 ROMWE=1 ROMLOCK=2
+reg  0x75 SYSRESET 1 S       7/11.1
+reg  0x76 SYSBTN   1 R       7/6    MULTIFACE=0 DIVMMC=1
+reg  0x77 CPUSPEED 1 RW      7/6.1  DIV=2:0 SPECTRUM=3
+reg  0x78 I2CCON   1 RW      7/11.2 EN=0 CLKDIV=7:1
+reg  0x79 I2CDATA  1 RW      7/11.2
+reg  0x7A I2CCMD   1 S       7/11.2 START=0 STOP=1 WRITE=2 READ=3 ACK=4
+reg  0x7B I2CSTAT  1 R       7/11.2 BUSY=0 NACK=1 ARBLOST=2
+reg  0x7C NMICTL   1 RW      7/11.3 EN=0 INNMI=1
+reg  0x7D NMISAV0  1 R       7/11.3
+reg  0x7E NMISAVW0 1 R       7/11.3
+reg  0x7F NMISAVHI 1 R       7/11.3 READ=1:0 WRITE=5:4
+
+# MMU (spec 2): window n's read page MMUn, write page MMUnW
+array MMU 8 0x80 2 2/9.2
+  reg 0x0 -        2 RW,MMU  2/9.2  PAGE=9:0
+end
+array MMUnW 8 0x90 2 2/9.2
+  reg 0x0 -        2 RW,MMU  2/9.2  PAGE=9:0
+end
+
+# Geometry unit, 0xA0-0xBF: reserved for spec 15
+
+# Port 0xFE: keyboard rows, border, beeper (spec 12, a Spectrum extra)
+reg  0xFE ULA      1 RW      12/8   BORDER=2:0 BEEPER=4
+
+# Low-byte-only ports: answer whatever the high byte holds
+port KEMPSTON 0x1F 0x1F
+port SERDATA  0x53 0x53
+port SDDATA   0x5B 0x5B
+port KBDATA   0x62 0x62
+port ULA      0xFE 0xFE
+
+# ================================================================ custom block
+block CUSTOM 0x10 0x400 "Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8)"
+
+# Video globals (spec 4)
+reg  0x000 VIDCON   1 RW      4/6.1  EN=0 BLANKALL=2 DIRECT=4 SHAREPAL=5
+reg  0x001 VIDSTAT  1 RW1C    4/3.4  VBLANK=0 LINE=1 OVERRUNA=2 INVBLANK=3 OVERRUN0=4 OVERRUN1=5 OVERRUN2=6 SPRUNDER=7
+reg  0x002 VIDINTEN 1 RW      4/3.4  VBLANK=0 LINE=1 OVERRUNA=2 OVERRUN0=4 OVERRUN1=5 OVERRUN2=6 SPRUNDER=7
+reg  0x003 PRIO     1 RW      4/4.8  FRONT=1:0 MIDDLE=3:2 BACK=5:4
+reg  0x004 BGCOLOR  3 RW,COLR 4/4.7  BLUE=7:0 GREEN=15:8 RED=23:16
+reg  0x007 LINECMP  2 RW      4/3.4  VLINE=10:0
+reg  0x009 PALIDX   2 RW      4/6.5  ENTRY=7:0 PAL=9:8
+reg  0x00B PALDAT   1 RW,F    4/6.5
+reg  0x00C DMACON   1 SC      4/6.1  AUDEN=1 SPREN=2 BLTEN=3 COPEN=4 BPLEN=5 DMAEN=6 SETCLR=7
+
+# Sprites 0-7 (spec 5)
+array SPR 8 0x010 0x10 5/6
+  reg 0x0 PT       3 RW,CAP  5/6    ADDR=21:1
+  reg 0x3 H        4 RW,PAIR 5/3.1  HSTART=10:0 HSTOP=26:16
+  reg 0x7 V        4 RW,PAIR 5/3.1  VSTART=10:0 VSTOP=26:16
+  reg 0xB CTL      1 RW      5/3.3  BPP=1:0 DEPTH=3:2 PAL=7:4
+  reg 0xC STEP     4 RW,PAIR 5/3.4  XSTEP=15:0 YSTEP=31:16
+end
+
+# Layers L0-L2 (spec 4)
+array L 3 0x090 0x20 4/6.3
+  reg 0x00 CTRL0     1 RW,SEP  4/6.4 EN=0 BPP=3:2 TRANSP=4 MODE=5 HSCALE=7:6
+  reg 0x01 CTRL1     1 RW,SEP  4/6.4 VSCALE=1:0 PALOFS=7:4
+  reg 0x02 CTRL2     1 RW,SEP  4/6.4 WRAP=7:4
+  reg 0x03 CTRL3     1 RW,SEP  4/6.4 MAPW=1:0 MAPH=3:2
+  reg 0x04 WINX      4 RW,PAIR 4/4.3 XEND=10:0 XSTART=26:16
+  reg 0x08 WINY      4 RW,PAIR 4/4.3 YEND=10:0 YSTART=26:16
+  reg 0x0C SCROLLX   2 RW      4/4.4
+  reg 0x0E SCROLLY   2 RW      4/4.5
+  reg 0x10 BPLSTRIDE 2 RW      4/4.4
+  reg 0x14 BPL0PT    3 RW,CAP  4/4.4 ADDR=21:1
+  reg 0x18 MAPPT     3 RW      4/4.5 ADDR=21:1
+  reg 0x1C PATPT     3 RW      4/4.5 ADDR=21:1
+end
+
+# Video read-only (spec 4)
+reg  0x0F0 BEAMPOS    4 R,CAP,PAIR 4/3.3 HPIXEL=10:0 VLINE=26:16
+reg  0x0F4 FRAMECOUNT 2 R,CAP      4/3.3 COUNT=15:0
+reg  0x0F6 VIDSIZE    4 R,PAIR     4/6.2 HVISIBLE=10:0 VVISIBLE=26:16
+
+# Copper (spec 6)
+reg  0x100 COPCON   1 RW      6/6    EN=0 IRQEN=1 RESUME=2 STKKEEP=3 PRI=5:4
+reg  0x101 COP1LC   3 RW      6/6    ADDR=21:0
+reg  0x104 COP2LC   3 RW      6/6.5  ADDR=21:0
+reg  0x107 COPJMP1  1 S       6/6
+reg  0x108 COPJMP2  1 S       6/6
+reg  0x109 COPINT   1 S       6/6.4
+reg  0x10A COPPC    3 R,CAP   6/6    ADDR=21:0
+reg  0x10D COPSTAT  1 RW1C    6/6.1  WAITING=0 STOPPED=1 ERR=2 IRQ=3
+reg  0x10E COPX     1 RW      6/4.6
+reg  0x10F COPY     1 RW      6/4.6
+reg  0x110 COPFLAGS 1 RW      6/4.6  Z=0 N=1 C=2
+reg  0x111 COPSP    1 RW      6/4.8  DEPTH=3:0
+regs COPR 8 0x118 1 RW,SEP    6/4.6
+
+# Sprite globals (spec 5)
+reg  0x120 SPRDMA   2 SC      5/6    SPR=7:0 SETCLR=15
+regs SPRCOLL 4 0x124 1 RW1C,SEP 5/3.6
+
+# Attribute layer (spec 4, a Spectrum extra)
+reg  0x130 ATCTL    1 RW      4/7.1  EN=0 TARGET=2:1 CELL1=3 FLASH=4 RATE=6:5 PHASE=7
+reg  0x131 ATADDR   3 RW      4/7.1  ADDR=21:1
+reg  0x134 ATSTRIDE 1 RW      4/7.1  STRIDE=7:1
+reg  0x135 ATSCROLL 1 RW      4/7.1  FINEX=3:0 FINEY=6:4
+
+# DMA engine channels 0-3 (spec 14)
+array DMX 4 0x140 0x40 14/8.1
+  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 FN=7:4 BPP=9:8 DESC=10 IRQ=12 SRCKIND=14:13 DSTKIND=16:15
+  reg 0x04 SRC       3 RW,BUSY     14/8.1
+  reg 0x08 DST       3 RW,BUSY     14/8.1
+  reg 0x0C WIDTH     3 RW,BUSY     14/8.1
+  reg 0x10 HEIGHT    3 RW,BUSY     14/3   HEIGHT=15:0 SRCBIT=18:16 DSTBIT=22:20
+  reg 0x14 DSTSTRIDE 2 RW,BUSY     14/8.1
+  reg 0x16 SRCSTRIDE 2 RW,BUSY     14/8.1
+  reg 0x18 VALUE     4 RW,BUSY     14/3
+  reg 0x1C NEXT      3 RW,BUSY     14/8.1
+  reg 0x20 CHDESC    3 RW,BUSY,CAP 14/8.1
+  reg 0x24 CHCTRL    1 S           14/8.2 START=0 RUN=1 STOP=2 PAUSE=3
+  reg 0x28 CHSTAT    1 RW1C        14/8.3 BUSY=0 DONE=1 ERR=2 PAUSED=3
+  reg 0x2C CHERR     3 R           14/8.1
+end
+reg  0x230 DMXINT   1 W1C     14/8.4 CH0=0 CH1=1 CH2=2 CH3=3
+reg  0x234 DMXINTEN 1 RW      14/8.4 fields=DMXINT
+
+# Audio 0x240-0x2FF: reserved for spec 13. 0x300-0x3FF: free.
+
+# ================================================================ register page
+block REGS 0x3F8 0x2000 "Register page, MMU page 0x3F8: I/O page p, register r at p << 8 | r"
+area SYSTEM     0x0000 0x100 RW 3/6
+area KEYROW     0x0100 8     R  12/8.1
+regs KEYROW 8 0x0100 1 R,SEP 12/8.1
+area CUSTOM     0x1000 0x400 RW 3/6
+area PALETTE0   0x1400 0x300 RW 2/10.2
+area PALETTE1   0x1700 0x300 RW 2/10.2
+area PALETTE2   0x1A00 0x300 RW 2/10.2
+area SPRPALETTE 0x1D00 0x300 RW 2/10.2
+
+# ================================================================ named numbers
+const SYSPAGE       0x00   "The system page"
+const CUSTPAGE      0x10   "The custom block's first page"
+const REGS_PALETTE  0x1400 "Register page: PALETTE0"
+const REGS_PAL_SPAN 0x300  "Register page: bytes from one palette to the next"
+
+# Interrupt sources (spec 8, section 4): INT_name, INTB_name and INTR_name
+const INT_VBLANK  0
+const INT_LINE    1
+const INT_COPPER  2
+const INT_VIDERR  3
+const INT_DMA0    4
+const INT_DMA1    5
+const INT_DMA2    6
+const INT_DMA3    7
+const INT_AUDIO   9  "Reserved for sound"
+const INT_TIMER0  11
+const INT_TIMER1  12
+const INT_TIMER2  13
+const INT_TIMER3  14
+const INT_SERIAL  15
+const INT_SD      16 "Not used in version 1"
+const INT_KEYB    17
+const INT_SOFT    18
+const INT_GEOM    19 "Reserved for the geometry unit"
+const INT_NONE    23 "Spurious acknowledge, not a source"
+
+# Video (spec 4, section 3.3)
+const VID_X0 144 "First beam pixel of the picture"
+const VID_Y0 49  "First beam line of the picture"
+const VID_W  720 "Picture width"
+const VID_H  576 "Picture height"
+const BEAM_W 864 "Beam pixels per line"
+const BEAM_H 625 "Beam lines per frame"
+
+# Magic values
+const SYSRESET_MAGIC 0xA5 "SYSRESET: a full reset"
+const WDKICK_MAGIC   0x5A "WDKICK: restart the watchdog's time"
