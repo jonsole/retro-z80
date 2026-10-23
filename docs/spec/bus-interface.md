@@ -52,7 +52,7 @@ tv80 comes as a core (`tv80_core`) and a small synchronous wrapper (`tv80s`). re
 1. **cen** is brought out and passed to the core (`tv80s` ties it to 1). The wrapper's bus strobe flip-flops (mreq_n, iorq_n, rd_n, wr_n) and its read data register also change only on cen.
 2. The core's early cycle-type outputs (`mcycle`, `tstate`, `iorq`, `no_read`, `write`, `intcycle_n`) are brought out to the bus interface, which needs to know the type of an M-cycle during T1 (section 5).
 3. `TV80_REFRESH` is defined, so the R register counts (games use `LD A,R` for random numbers) and rfsh_n works.
-4. The core's internal `NMICycle` flag (high during the M-cycles of the NMI response) is brought out as **nmicycle**, for the NMI paging of section 8.2. This needs one added output port on `tv80_core`; the core's logic is not changed.
+4. Nothing else is brought out: the NMI paging of section 8.2 works from signals outside the core (nmi_n, which the design drives, and the opcode fetches), as a Multiface does, so tv80 itself is used unchanged.
 
 Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IOWait = 1` (the standard I/O cycle with one automatic wait state).
 
@@ -66,7 +66,6 @@ Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IO
 | wait_n | in | Tied high: the Z80 never waits |
 | int_n | in | From the interrupt controller (spec 8) |
 | nmi_n | in | From the interrupt controller (spec 8), falling edge taken |
-| nmicycle | out | Added (item 4): the core is running the NMI response |
 | busrq_n | in | Tied high: there is no other bus master |
 | m1_n | out | Opcode fetch, or with iorq_n, interrupt acknowledge |
 | mreq_n | out | Memory cycle (also low in the refresh part of M1) |
@@ -395,11 +394,12 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 
 The rest of this section is a Spectrum extra, outside the retro68k-shaped core. Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers are NMICTL, NMISAV0, NMISAVW0 and NMISAVHI, registers `0x7C`–`0x7F` of page `0x00` (ports `0x7C00`–`0x7F00`), and the monitor itself is in spec 7. The bus interface keeps the flag **INNMI** (read in NMICTL) and an ED-prefix flag.
 
-**Entry.** While NMICTL.EN = 1 and INNMI = 0:
+**Entry.** nmi_n is driven by the design (spec 8), so the bus interface knows when an NMI is coming; it spots the response from outside the core, as a Multiface does, with no signal from inside tv80. While NMICTL.EN = 1 and INNMI = 0:
 
-1. The pushes of PC happen while nmicycle is high, so they use window 0 as the program left it. Each posted write keeps the page it was given in its own T1 (section 5.2).
-2. Once the second write (the low byte of PC) has taken its page, at the clock after its T2 starts, the bus interface copies MMU0 and MMU0W into the saved-page registers, loads MMU0 with `0x3FF` (the monitor page) and MMU0W with `0x3FB` (NONE), and sets INNMI.
-3. The next M-cycle is the opcode fetch at `0x0066`. Its MMU lookup in T1 already sees the new window 0, so the first monitor byte comes from ROM offset `0x6066`. The change is made a whole T-state (the write's T3) before that T1 at every speed: at 20 MHz at T2 + 1, 9 clocks before the next T1.
+1. A falling edge of nmi_n sets the flag **NMIARM**.
+2. The core finishes its instruction and runs the response: a dummy M1 at PC and two writes that push PC. These are ordinary cycles and use window 0 as the program left it.
+3. The first **opcode fetch at `0x0066`** while NMIARM is set is the response's fetch of the handler. The bus interface sees it in that fetch's T1, from the early cycle outputs and the address, and the fetch's own MMU lookup already uses the monitor page: in that clock the bus interface copies MMU0 and MMU0W into the saved-page registers, loads MMU0 with `0x3FF` (the monitor page) and MMU0W with `0x3FB` (NONE), sets INNMI and clears NMIARM. The first monitor byte comes from ROM offset `0x6066`.
+4. Spotting the fetch rather than the pushes is safe whatever instruction the edge lands in: an instruction that runs before the response (for example a `PUSH`, a fetch and two writes) is not mistaken for it. Only a program that itself jumps to `0x0066` in the few instructions between the edge and the response would page early; a Multiface has the same property.
 
 **Exit.** While INNMI = 1 the bus interface watches the bytes taken by opcode fetches (M1 cycles with "fetch" from the early outputs; acknowledges, refresh and operand reads do not count):
 
@@ -484,7 +484,7 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 | B4 | Closed: an NMI pages the boot ROM's monitor page into window 0 and `RETN` restores it (section 8.2; spec 7) |
 | B5 | Closed: the 28 MHz swap is gone. At 20 MHz and below every access has a CPU cycle in time (section 5) |
 | B6 | Closed: the register page read has 2 clocks to spare at 20 MHz, with a copper write in the same clock (section 5.7) |
-| B7 | tv80's `NMICycle` must be brought out of `tv80_core` (section 2.1, item 4). Check in simulation that the response is always M1 plus two writes, also from `HALT`. Fallback without touching the core: page at the first opcode fetch at `0x0066` that follows a falling nmi_n edge and two memory writes |
+| B7 | Closed: the NMI response is spotted from outside the core, by the first opcode fetch at `0x0066` after a falling nmi_n edge (section 8.2), as a Multiface does; tv80 is used unchanged. Check in simulation, also from `HALT` and with the edge on every T-state of a `PUSH` |
 | B8 | tv80 must put B on A15–A8 as a real Z80 does in the block I/O instructions: after the decrement for `OUTI`/`OTIR`/`OUTD`/`OTDR`, before it for `INI`/`INIR`/`IND`/`INDR` (section 6.2). Check in simulation against a known-good Z80 model |
 | B9 | Closed: the page decode (section 6.1) has 4 clocks before the strobe |
 | B10 | 25 MHz: try in simulation (design plan, branch 11). It needs the CPU to take whichever cycle is issued 40 ns after T1 and give its next cycle back, with no clock to spare on the read path (section 11). Faster than 25 MHz is parked (design plan, Q9) |
