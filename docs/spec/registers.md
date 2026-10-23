@@ -61,7 +61,7 @@ The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, n
 | `0x19` INTREQH | Bit 7 = 1 sets the software interrupt instead of clearing bits | No room for a separate SET port | 8 |
 | `0x46` PALDAT | One port for 2-byte entries: the low byte is held, the high byte commits the entry and steps the index | Lets `OTIR` stream the palette | 4 |
 | `0x80` SPRIDX | Not latched: a write sets index bits 7–0 at once and clears bit 8 | One write reaches sprites 0–15 | 5 |
-| `0x82` SPRDATA | Attribute bytes are written one by one; each multi-byte field commits on its highest byte (XH, YH, pointer byte 6, step high bytes) | Same rule, inside the table | 5 |
+| `0x82` SPRDATA | Attribute bytes are written one by one; each multi-byte field commits on its highest byte (XH, YH, pointer byte 6, step high bytes). Writes made during the sprite scan (the last 32 clocks of a line) are queued and applied after it; reads meanwhile return the old value | Same rule, inside the table; the scan must see a stable table | 5 |
 | `0x28`, `0x2C`, `0xA0` | Data ports read from or write to a FIFO or a shift register; reading has an effect | They are streams, not values | 10, 11, 12 |
 
 ## 4. Port list
@@ -120,7 +120,7 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 
 | Port | Name | Meaning | Spec 4 |
 |------|------|---------|--------|
-| `0x40` | VIDCTL | Layer enables: bitmap, tiles, attributes | 9 |
+| `0x40` | VIDCTL | Layer enables: bitmap, tiles, attributes; BMFRONT (bit 3): bitmap in front of the tiles | 9 |
 | `0x41` | VIDSTAT | VBLANK, LINE, OVERRUN and per-layer late flags (W1C); FLASH, INVBL (live) | 8 |
 | `0x42`–`0x43` | BGCOL0–1 | Background colour, `0x0RGB` | 3 |
 | `0x44`–`0x45` | PALIDX0–1 | Palette index, 9 bits | 3.3 |
@@ -139,13 +139,13 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 | `0x5A`–`0x5B` | BMSCRX0–1 | X scroll | 5.3 |
 | `0x5C`–`0x5D` | BMSCRY0–1 | Y scroll | 5.2 |
 | `0x5E`–`0x5F` | BMHEIGHT0–1 | Y wrap line count | 5.2 |
-| `0x60` | TLCTL | Depth, hi-res, 576 lines, transparency | 6.3 |
+| `0x60` | TLCTL | Depth, hi-res, 576 lines, transparency; MAPW (bits 6–5: 32/64/128 wide), MAPH (bit 7: 32/64 high) | 6.3 |
 | `0x61` | TLBANK | Tile palette bank, high bits | 6.3 |
 | `0x62`–`0x64` | TLMAP0–2 | Map address | 6.1 |
 | `0x65`–`0x67` | TLTILE0–2 | Tile pattern address | 6.1 |
 | `0x68`–`0x69` | TLSCRX0–1 | Tile X scroll | 6 |
-| `0x6A` | TLSCRY | Tile Y scroll | 6 |
-| `0x6B`–`0x6F` | | Reserved | |
+| `0x6A`–`0x6B` | TLSCRY0–1 | Tile Y scroll, 9 bits | 6 |
+| `0x6C`–`0x6F` | | Reserved | |
 | `0x70`–`0x77` | BMXS, BMXE, BMYS, BMYE | Bitmap window, 2 bytes each | 5.4 |
 | `0x78`–`0x7F` | TLXS, TLXE, TLYS, TLYE | Tile window, 2 bytes each (also the attribute layer's when it targets tiles) | 6 |
 
@@ -272,6 +272,6 @@ As in retro68k, `fpga/regmap.def` is the source of truth. Each line names a port
 |---|------|------|
 | R1 | Kempston joysticks at port `0x1F` | Closed: `0x1F` reads joystick 1; INTHIGH moved to `0xB8` |
 | R2 | Port `0xFE` writes | Closed: border (bits 2–0) and beeper (bit 4), spec 12 |
-| R3 | 59 of 64 video ports are used, 16 of 16 sprite ports | A second video bank or index port if later features need more |
+| R3 | 60 of 64 video ports are used, 16 of 16 sprite ports | A second video bank or index port if later features need more |
 | R4 | DMA engine ports | Take from `0xBE` up when it is specified |
 | R5 | Should the copper and DMA engine also see the palette and sprite table directly (as in the register page) rather than through index ports? | Not needed for version 1 |

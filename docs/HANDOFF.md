@@ -51,24 +51,30 @@ The user reviewed the choices the spec writers had made and decided the followin
 
 | # | Decision | Where | State |
 |---|----------|-------|-------|
-| 1 | Tile map size selectable: width 32, 64 or 128 entries, height 32 or 64 (replaces 64×32, 128×32 in hi-res) | Spec 4 | In progress (see 5.2) |
-| 2 | A VIDCTL swap bit puts the bitmap in front of the tiles (default behind); the two are then the back and front layer | Spec 4 | In progress |
-| 3 | Sprite DEPTH, 2 bits, in attribute byte 12 bits 1–0 (XH bit 6, the old BEHIND, becomes reserved). Order, back to front: background < DEPTH 3 sprites < back layer < DEPTH 2 sprites < front layer < DEPTH 1 sprites < PRI tile pixels < DEPTH 0 sprites. So PRI tiles cover DEPTH 1–3 sprites but never DEPTH 0 | Specs 4, 5 | In progress |
-| 4 | Sprite pipeline shortened from 3 lines to 2: fetch and render share one line, so attribute writes act 2 lines later. The fetch and render limits then interact; keep the lowest-numbered sprites, predictably | Spec 5 | In progress |
-| 5 | Cycle-3 order: urgent display FIFO first, then copper, sprites, display top-up. The copper may slip and sets COPSTAT.LATE | Spec 2 done; specs 4, 5 in progress; **spec 6 to do** |
+| 1 | Tile map size selectable: width 32, 64 or 128 entries, height 32 or 64 (TLCTL.MAPW, MAPH); TLSCRY grew to 2 bytes (`0x6A`–`0x6B`) | Spec 4 | Done |
+| 2 | A VIDCTL swap bit puts the bitmap in front of the tiles (default behind); the two are then the back and front layer | Spec 4 | Done (VIDCTL.BMFRONT) |
+| 3 | Sprite DEPTH, 2 bits, in attribute byte 12 bits 1–0 (XH bit 6, the old BEHIND, becomes reserved). Order, back to front: background < DEPTH 3 sprites < back layer < DEPTH 2 sprites < front layer < DEPTH 1 sprites < PRI tile pixels < DEPTH 0 sprites. So PRI tiles cover DEPTH 1–3 sprites but never DEPTH 0 | Specs 4, 5 | Done |
+| 4 | Sprite pipeline shortened from 3 lines to 2: fetch and render share one line, so attribute writes act 2 lines later. The fetch and render limits then interact; keep the lowest-numbered sprites, predictably. Rule: a write committed while the draw beam is on line N is used from line N + 2 (writes during the scan, the last 32 clocks, from N + 3) | Spec 5 | Done |
+| 5 | Cycle-3 order: urgent display FIFO first, then copper, sprites, display top-up. The copper may slip and sets COPSTAT.LATE | Specs 2, 4, 5 done; **spec 6 to do** |
 | 6 | Copper second counter D (8-bit, like C), port `0x9C` COPD, with a loop instruction or a select bit | Spec 3 done; **spec 6 to do** |
 | 7 | Port `0x1F` reads joystick 1 (Kempston); INTHIGH moves to `0xB8` | Done (specs 3, 8, 12) |
-| 8 | Port `0xFE` writes: bits 2–0 border (sets BGCOL to one of 8 fixed Spectrum colours), bit 4 beeper into the audio output, bit 3 ignored | Specs 3, 7, 12 done; **spec 4 must define the 8 colours and the BGCOL interaction** (in progress) |
+| 8 | Port `0xFE` writes: bits 2–0 border (sets BGCOL to one of 8 fixed Spectrum colours), bit 4 beeper into the audio output, bit 3 ignored | Done (specs 3, 4, 7, 12) |
 | 9 | NMI pages in a monitor: window 0 → boot ROM page `0x3FF` (write page NONE), old pages saved in `0xBA`–`0xBD`, NMICTL at `0xB9`; RETN restores window 0 right after its opcode fetch (before its stack reads). Nested NMIs are held off | Done (specs 1, 2, 3, 7) |
 | – | Kept as drafted: the attribute layer uses its target's window; the sprite fetch stops at the first sprite that doesn't fit; over-wide lines cut a sprite off; copper pacing in 2-pixel steps; no watchdog; IM 0 not supported | – | – |
 
 ### 5.2 Video and sprite specs
 
-At handoff, `docs/spec/video.md` and `docs/spec/sprites.md` were being updated for items 1–5 and 8 by a helper. **Check `git status` and `git log`:** if those two files are committed with a "review round" commit, read them to confirm the items above are in; if not (or they are half-edited), redo items 1–5 and 8 in them, reading both files fully first.
+Done: `video.md` and `sprites.md` carry items 1–5 and 8. Points they raised for review:
+
+- **V12:** the border colours use level `0xD` for the Spectrum's non-bright colours.
+- **V13:** TLSCRY is now 2 bytes, so a copper program must write both.
+- **S8:** SPRLIMIT's reset value of 192 leaves only 28 of the 220 cycle-3 cycles per line to the copper and urgent display fetches.
+- **S11:** the sprite renderer waits for fixed due clocks so results never depend on timing, and loses time when the copper and display use less than their share.
+- **Order quirk:** sprites among themselves are ordered by number whatever their DEPTH, so a low-numbered DEPTH 3 sprite hides a higher-numbered DEPTH 0 sprite where they overlap (as on the SNES). Worth a decision.
 
 ### 5.3 Then
 
-1. **Copper spec (`copper.md`):** counter D (item 6), the new cycle-3 order (item 5: the copper is no longer first, so state its guaranteed rate as best effort after urgent display fetches, and when LATE is set), and sprite reuse timing from spec 5's new 2-line rule (item 4); fix the examples and tests that mention them.
+1. **Copper spec (`copper.md`):** counter D (item 6), the new cycle-3 order (item 5: the copper is no longer first, so state its rate as best effort after urgent display fetches, and when LATE is set), sprite reuse timing from spec 5 (write a reused sprite during draw line M − 2; its section 3 still says N + 3 and (M − 3, 16), and its "216 cycles" is now SPRLIMIT out of 220), and TLSCRY as 2 bytes; fix the examples and tests.
 2. **Design plan:** update the decision table and D5–D9 for items 1–9, the port map (section 3: `0x1F`, `0x9C`, `0xB8`–`0xBD`), and close Q6 (Kempston).
 3. **Consistency pass:** grep all specs for stale text: "BEHIND", "3 lines", "N+3", "copper first", "INTHIGH" at `0x1F`, "64×32", "read-only bit".
 4. Commit and push.

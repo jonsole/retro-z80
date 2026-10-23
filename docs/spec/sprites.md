@@ -391,12 +391,12 @@ The 3 blocks are in the design plan's block RAM table (D11).
 | S1 | Confirm in simulation the renderer's 4-clock start-up per sprite (which also covers a row's last cycle reaching the row store before its due clock), the 32-clock scan at clocks 1760–1791 and the end of the render at 1760; adjust the 1,760 and 220 figures if not |
 | S2 | Closed: a tile with PRI set covers sprites of DEPTH 1–3 and never DEPTH 0 ones (section 3, spec 4 section 3.2) |
 | S3 | Closed: the pipeline is two lines (scan at the end of line N − 2; fetch and render in line N − 1; draw on line N). The fetch and render limits act together through the due clock (section 5.3) |
-| S4 | The render limit cuts the sprite being drawn at clock 1760 (part of it shows). Knowing the width in advance needs a divide (or the width given by software); kept simple for now |
+| S4 | The render deadline cuts the sprite being drawn at clock 1760 (part of it shows). Knowing the width in advance needs a divide (or the width given by software); kept simple for now |
 | S5 | Step 0 is taken as 0x0800 (normal size), so the reset table and programs that never scale show normal sprites. The brief suggested 0x0001; to be confirmed |
 | S6 | Should LATE also set VIDSTAT.OVERRUN (spec 4), so one flag shows all late data? |
-| S7 | Fetch budget rule: stop at the first sprite that does not fit (simple, "lowest numbers kept"), or skip it and keep later, cheaper ones. This spec stops |
+| S7 | Closed: the fetch budget stops at the first sprite that does not fit ("lowest numbers kept"), and an over-wide line cuts a sprite off |
 | S8 | Reset value of SPRLIMIT (192, leaving 28 cycles to the copper and the display and about 1,536 clocks of render with light fetches): to be checked against typical copper programs with spec 6's cycle costs |
 | S9 | SPRIDX is not latched (an exception to spec 3's rule for multi-byte values), so one write reaches sprites 0–15. To be listed in spec 3 |
 | S10 | Width/height code 3 is reserved; it could be 64 pixels later if the budgets allow |
-| S11 | The renderer waits for each row's due clock even when the row came sooner, so that the result never depends on timing. When the copper and display use less than their share, that time is lost. A software-chosen "no copper" mode (due clocks ignored, LATE impossible with the copper off) could win it back |
+| S11 | The renderer waits for each row's due clock even when the row came sooner, so that the result never depends on timing. When the copper and display use less than their share, that time is lost. A control bit that ignores the due clocks, for programs whose copper and layers leave cycle 3 to the sprites, could win it back (at the cost of results that depend on timing if they do not) |
 | S12 | Writes to the attribute table during the scan are queued (32 entries, enough for one write per clock) and a read meanwhile returns the old value. To be listed in spec 3's exceptions if kept |
