@@ -277,7 +277,7 @@ Each page register is 2 bytes. Unlike the other registers, which are written dir
 | `0x91` + 2n | `0x9100` + 0x200n | MMUnW_1 | RW | 1–0 | Write page bits 9–8; writing commits the write page only | Section 9.4 |
 | | | | | 7–2 | Unused: read 0 | |
 
-- **Write follows read.** Committing a read page (writing MMUn_1) sets the window's write page to the same page. Ordinary code changes a window with one register, as on any 8-bit MMU. Writing MMUnW_1 afterwards sets only the write page and splits the window.
+- **Write follows read.** Committing a read page (writing MMUn_1) sets the window's write page to the same page. Ordinary code changes a window with one register, as on any 8-bit MMU. Writing MMUnW_1 afterwards sets only the write page and splits the window. The write register's held byte 0 follows too, so writing MMUnW_1 alone afterwards uses the new page's bits 7–0.
 - Writing byte 0 only holds it; writing byte 1 commits the page, so a window never points at a half-changed page, even while code runs from it. Write byte 0 first: `LD (nn),HL` or `OUT (C),r` with `INC B`, not `PUSH` or `LDDR`. Writing byte 1 alone commits it with the held byte 0, which is the page's current bits 7–0 if byte 0 has not been written since the last commit. Reading returns the committed value.
 - The new mapping applies from the next memory access after the commit, including the next opcode fetch. Code can change the window it runs in, as long as the next instruction is at the same address in the new page.
 
