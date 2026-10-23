@@ -66,7 +66,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 ## 2. Key decisions
 
-> Branch 9 of section 1 (23 October 2026) brought the chipset back in line with retro68k; D4–D11 below follow it. Each spec has a "Comparison with retro68k" section listing every difference and its reason.
+> Branch 9 of section 1 (23 October 2026) brought the chipset back in line with retro68k, and branch 11 took retro68k's memory timing and video design too. Where D2–D11 below disagree with branch 11, branch 11 wins until they are rewritten. Each spec has a "Comparison with retro68k" section listing every difference and its reason.
 
 ### D1. Board: ZX Spectrum Next KS3
 
@@ -221,6 +221,18 @@ The full list is in [spec 3](spec/registers.md).
 | 8 | [Interrupts](spec/interrupts.md) | Draft |
 | 9 | [Timers](spec/timers.md) | Draft |
 | 10 | [USB serial](spec/serial.md) | Draft |
+| 11 | Memory timing | **retro68k's:** 100 MHz system clock, 20 ns memory cycles, 100 ns slots of 5 cycles. Display on cycles 1 and 3 (as retro68k); CPU on cycles 0 and 2; audio and the free pool (copper, DMA engine, cycles others leave) on cycle 4. Replaces the 56 MHz clock, the 4-cycle slots and the 28 MHz swap |
+| 11 | CPU speed | Z80 top speed **20 MHz** (2 T-states per slot, locked to the slots); also 10, 5 and 3.57 MHz. 25 MHz to be tried in simulation (open point). Replaces branch 2's 28 MHz |
+| 11 | Video design | **retro68k's design and RTL as built**: just-in-time layer fetch through its scheduler, data registers and shifters, mixing on the pixel side; software sees the display beam; 2×-tall layers fetch every line. The only new hardware is a **tile mode** in the layer fetcher. The FIFOs, draw beam, line buffer and repeat buffer go |
+| 11 | Layers | **Three layers L0–L2**, chunky only (no planar), 1/2/4/8 bpp, scale 1×, 2×, 4× or 8× each way, PRIO, **direct colour**. Each a bitmap or a tile map |
+| 11 | Colour | **24-bit** palette entries as retro68k (3 bytes: blue, green, red; red commits); BGCOLOR 3 bytes. PALETTE0–2 and SPRPALETTE. Default: the Spectrum colours in entries 0–15 at `0xD7` (normal) and `0xFF` (bright) |
+| 11 | Sprites | retro68k's 8 sprites as built, streamed through its 32-word FIFOs (no image-row limit); **fractional scaling** with SPRxSTEP (XSTEP, YSTEP, 5.11, `0x0800` normal), as retro68k; signed HSTART. **No manual mode** (no SPRxDAT), so 16 bytes per sprite. Reuse needs one gap line |
+| 11 | DMA engine | **retro68k's version 1** narrowed: 4 channels, descriptors in SRAM, COPY, FILL, KEYCOPY, LOGIC, ADD at 1–8 bpp, registers, palettes and the SD/serial ports as sources or destinations. No HIGH mode. OP 6–7 reserved, to agree with retro68k for the 3D drawing job. Sources DMA0–DMA3 |
+| 11 | Ports | Every port is **register (high byte) : page (low byte)**. Page `0x00` the system block (register numbers as the old system ports); pages `0x10`–`0x13` the custom block; `0x1F` Kempston, `0xFE` Spectrum (high byte picks keyboard rows) and the stream ports SERDATA (`0x53`), SDDATA (`0x5B`), KBDATA (`0x62`) ignore the high byte. Writes `OUT (C),r`; reads `LD A,reg` then `IN A,(page)`; `OUT (n),A` is given up. Full I/O access is kept alongside the register page (the MMU must be reachable before the page is mapped) |
+| 11 | Register page | Page p, register r at offset p × 256 + r: the port with its bytes swapped. Palettes memory-only at `0x1800` plus PALIDX/PALDAT |
+| 11 | Custom block | `0x000`–`0x00F` video globals; `0x010`–`0x08F` sprites 0–7; `0x090`, `0x0B0`, `0x0D0` layers L0–L2 (32 bytes each); `0x0F0`–`0x0FF` video read-only; from `0x100`: copper control and state, sprite globals, attribute layer, DMA engine (4 channels), audio (reserved). Copper MOVE reaches `0x000`–`0x0EF` |
+| 11 | Small items | `CMOVEL` keeps retro68k's meaning (a whole wide register); the one-byte far move is `CMOVEF`. Unused addresses read `0xFF`. Serial: retro68k's control sequence; check RXCOUNT before reading. SDCON keeps retro68k's layout; no SD transmit buffer. SERDROP, a membrane key map and JOY1X/JOY2X get registers. PS/2 keys also show on `0xFE`. No IM 0, no hardware debugger. CHIPMB is a build option. No UPLOAD on a long reset press; beeper level fixed. Copper prefetch 2 words; RESUME doesn't save the latch. The boot console belongs to spec 7. Deferred: 48-bit TIME, timer capture, DMA job queue, high-speed SD, accelerator-pin interrupts, a faster paging port |
+| 11 | Next specs | 15 geometry unit (branch 10; its registers in the system page, reached by `OUT (C)` or the register page), 16 boot ROM |
 | 11 | [SD card](spec/sd-card.md) | Draft |
 | 12 | [Input](spec/input.md) | Draft |
 | 13 | Sound | Waiting for Q1 |
