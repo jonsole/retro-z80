@@ -2,7 +2,7 @@
 
 Status: **draft**
 
-Sprites are small images drawn over (or between) the layers at any position, without touching the layers' memory. retro-z80 has retro68k's eight sprites as built (its spec 9, guide chapter 4, `sprites.v` and `sprite_pix.v`), narrowed to byte registers. Each sprite has a pointer into SRAM for its image (SPRxPT); its window, settings and scale are plain registers (SPRxH, SPRxV, SPRxCTL, SPRxSTEP) that the CPU or copper writes. A sprite starts only when its SPRxCTL is written. Every frame the copper writes each sprite's pointer and then its CTL, and it can reuse a sprite further down the screen by writing its registers again. The image is fetched just in time, through the same scheduler as the layers, into a 32-word FIFO per sprite.
+Sprites are small images drawn over (or between) the layers at any position, without touching the layers' memory. retro-z80 has retro68k's eight sprites as built (its spec 9, guide chapter 4, `sprites.v` and `sprite_pix.v`), narrowed to byte registers. Each sprite has a pointer into SRAM for its image (SPRxPT); its window, settings and scale are plain registers (SPRxH, SPRxV, SPRxCTL, SPRxSTEP) that the CPU or copper writes. A write to SPRxCTL starts a sprite; the vertical blank stops them all, so each frame the copper writes each sprite's registers, CTL last. The others can be changed while a sprite is being drawn, from one line to the next, for effects such as wobbling, zooming and switching images, and the copper can reuse a sprite further down the screen by starting it again. The image is fetched just in time, through the same scheduler as the layers, into a 32-word FIFO per sprite.
 
 ## 1. Summary
 
@@ -12,14 +12,14 @@ Sprites are small images drawn over (or between) the layers at any position, wit
 | Window | HSTART–HSTOP across, VSTART–VSTOP down, in beam coordinates, as a layer's window. The image's size follows from the window and the scale |
 | Size | Any, set by the window. Lines of any length stream through the FIFO; only the memory budget (section 5) limits how big and how many |
 | Colours | 2, 4 or 8 bits per pixel. 2 and 4 bpp: 3 or 15 colours + transparent, from any 16-colour block of the sprite palette; 8 bpp: 255 colours + transparent, the whole sprite palette. The sprites have a 256-entry palette of their own, SPRPALETTE (spec 4) |
-| Position | Any beam pixel and line, unsigned; clipped by the hardware at all four edges (section 3.2) |
+| Position | Any beam pixel and line, unsigned, with HSTART 16 or more; clipped by the hardware at all four edges (section 3.2) |
 | Scaling | Fractional, across and down separately: a 16-bit step per axis (SPRxSTEP), in source pixels per screen pixel, 5.11 fixed point, from 16× bigger (`0x0080`) through normal size (`0x0800`) to 1/16 (`0x8000`) |
 | Depth | Per sprite: in front of all three layers, between any two (in PRIO order), or behind all |
 | Order | DEPTH first, then number: a sprite at a front depth is in front of one at a deeper depth; at the same depth the lower number is in front |
 | Collisions | Sprite–sprite and sprite–layer, per pixel, sticky (SPRCOLL) |
 | Data registers | A 32-word FIFO per sprite, streaming: lines of any length pass through it |
-| Fetch | Just in time, earliest deadline first, shared with the layers through the scheduler (spec 2). A sprite's next words are fetched as soon as its FIFO has room and a memory cycle is free, so most of each line is fetched ahead |
-| Restart | Only a write to SPRxCTL (one byte) restarts a sprite: its FIFO empties and it fetches from SPRxPT from the next line. Writes to PT, H, V and STEP act directly. There is no restart at the frame start (section 4.2) |
+| Fetch | Just in time, earliest deadline first, shared with the layers through the scheduler (spec 2). Each line's words are fetched during that line, from its start (the horizontal blank), as soon as the sprite's FIFO has room and a memory cycle is free |
+| Starting | A write to SPRxCTL (one byte) starts a sprite; the vertical blank stops every sprite. The other registers act on a running sprite from the next line (section 4.2) |
 | Late data | A sprite whose FIFO runs dry shows nothing more until its CTL is next written, and sets VIDSTAT.SPRUNDER, which can raise VIDERR (section 4.3) |
 | Registers | Custom block: 16 bytes per sprite at `0x010` + n × `0x10` (in a copper MOVE's reach); SPRDMA and SPRCOLL at `0x120`–`0x127` |
 | Interrupts | None of their own: SPRUNDER raises VIDERR, as in retro68k (spec 4, spec 8) |
@@ -27,17 +27,15 @@ Sprites are small images drawn over (or between) the layers at any position, wit
 
 ## 2. Comparison with retro68k
 
-The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxSTEP with retro68k's fields; any size, set by the window; chunky 2, 4 and 8 bpp, first pixel in the high bits; value 0 transparent; PAL blocks of SPRPALETTE, and VIDCON.SHAREPAL; fractional scaling with XSTEP and YSTEP (5.11, 0 counts as `0x0800`, limits `0x0080`–`0x8000`); DEPTH among three layers in PRIO order; DEPTH first, then number; direct colour (sprites in front, DEPTH not used); unsigned beam positions clipped at all edges; no flips; SPRxPT moves as the image is fetched and is rewritten every frame; 32-word FIFOs filled just in time through the scheduler, deadline first; SPRUNDER in VIDSTAT, raising VIDERR; SPRDMA (set/clear) with DMACON.SPREN and DMAEN; SPRCOLL with SPR, L0, L1 and L2; reuse down the screen by the copper with a gap line.
+The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxSTEP with retro68k's fields; any size, set by the window; chunky 2, 4 and 8 bpp, first pixel in the high bits; value 0 transparent; PAL blocks of SPRPALETTE, and VIDCON.SHAREPAL; fractional scaling with XSTEP and YSTEP (5.11, 0 counts as `0x0800`, limits `0x0080`–`0x8000`); DEPTH among three layers in PRIO order; DEPTH first, then number; direct colour (sprites in front, DEPTH not used); unsigned beam positions clipped at all edges, with HSTART 16 or more; no flips; a write to SPRxCTL starts a sprite and the vertical blank stops every sprite, so each frame the copper writes each sprite's registers, CTL last, and nothing restarts by itself; PT, H, V and STEP act on a running sprite from the next line, and a PT write sets exactly where the next image line starts; the window checked on every line; SPRxPT moves as the image is fetched, and reading it gives where the sprite is in its image; 32-word FIFOs filled just in time through the scheduler, deadline first, each line fetched during that line, from its start; SPRUNDER in VIDSTAT, raising VIDERR; SPRDMA (set/clear) with DMACON.SPREN and DMAEN, which pauses a sprite without starting or stopping it; SPRCOLL with SPR, L0, L1 and L2; reuse down the screen by the copper, CTL last.
 
 | Item | retro68k | retro-z80 | Why |
 |------|----------|-----------|-----|
 | Register width | 32-bit registers | Bytes. Each register is its bytes in order, low byte first; each byte is written directly, with no latch (spec 3) | Z80 |
 | Sprite registers | 32 bytes per sprite at `0x520` + n × `0x20`: PT, H, V, CTL, DAT, STEP at `+0x00`–`+0x14` | 16 bytes per sprite at custom offset `0x010` + n × `0x10`: PT (3 bytes), H (4), V (4), CTL (1), STEP (4) | Z80: a one-word copper MOVE reaches offsets below `0x0F0` only (spec 6) |
-| SPRxPT | Bits 22–1, 4 bytes | Bits 21–1 (22-bit physical SRAM address, spec 2), 3 bytes | Memory size |
-| SPRxCTL | 32 bits: BPP (13–12), DEPTH (21–20), PAL (27–24) | One byte: BPP (1–0), DEPTH (3–2), PAL (7–4). Every field fits; nothing is lost. It is the packing retro68k's `sprites.v` keeps inside | Byte registers |
-| Restart | A write to PT, H, V, CTL or STEP restarts the sprite | Only a write to SPRxCTL restarts it. CTL is one byte, so it is never half written. PT, H, V and STEP act directly: H, V and STEP are read line by line, and PT is the fetch pointer, written before CTL | Byte registers: a restart on every byte would let the fetch move SPRxPT between its bytes (design plan, branch 11) |
-| Frame start | Every sprite restarts at the frame start | No restart at the frame start: each frame the copper or CPU writes the sprite's PT, then its CTL. A sprite whose image has finished stops fetching until its next CTL write | Branch 11: one way to start a sprite |
-| Manual mode | SPRxDAT pushes words into the FIFO with the sprite's DMA off; a read gives the words in the FIFO | None: no SPRxDAT. A sprite with its DMA off shows what is left in its FIFO, then nothing (section 4.4) | Branch 11: 16 bytes per sprite |
+| SPRxPT | Bits 22–1, 4 bytes | Bits 21–1 (22-bit physical SRAM address, spec 2), 3 bytes. Written while the sprite runs, its three bytes go in within one line (section 4.2) | Memory size; byte registers |
+| SPRxCTL | 32 bits: BPP (13–12), DEPTH (21–20), PAL (27–24) | One byte: BPP (1–0), DEPTH (3–2), PAL (7–4). Every field fits; nothing is lost. It is the packing retro68k's `sprites.v` keeps inside. One byte, so the write that starts a sprite never finds CTL half written | Byte registers |
+| Manual mode | SPRxDAT pushes words into the FIFO with the sprite's DMA off; a read gives the words in the FIFO | None: no SPRxDAT. A sprite with its DMA off is paused as in retro68k, but nothing else fills its FIFO (section 4.4) | Branch 11: 16 bytes per sprite |
 | SPRDMA, SPRCOLL | `0x500`, `0x504` | `0x120`, `0x124`; the copper reaches them with MOVEF only | Custom block layout (spec 3) |
 | SPRDMA write | One 16-bit write: SPR (7–0) and SETCLR (15) | Two bytes: SPR in byte 0, SETCLR in byte 1 bit 7; writing byte 1 sets or clears the bits of byte 0 | Byte registers |
 | CPU cycles | An urgent sprite fetch may take the CPU's cycle 0; the CPU waits one slot | An urgent fetch never takes a cycle the CPU is using; the CPU never waits (spec 2). Sprites get cycles 1 and 3 by deadline, then spare cycles | Z80: no wait states (spec 1) |
@@ -50,8 +48,8 @@ The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxSTEP with retro68
 
 Each sprite has five registers (section 6):
 
-- **SPRxPT** points at the sprite's image in SRAM: its lines one after another, top line first, each a whole number of 16-bit words. As a layer's pointer does, it moves through the image as it is fetched, so the hardware does not reset it: the copper (or the CPU) writes each sprite's pointer every frame, and then its SPRxCTL, which starts the sprite (section 4.2).
-- **SPRxH** and **SPRxV** give the sprite's window, **SPRxCTL** its settings and **SPRxSTEP** its scale. They stay as written until written again. The image in memory is pixels only.
+- **SPRxPT** points at the sprite's image in SRAM: its lines one after another, top line first, each a whole number of 16-bit words. As a layer's pointer does, it moves through the image as it is fetched, so the hardware does not reset it: the copper (or the CPU) writes it every frame, before CTL (section 4.2).
+- **SPRxH** and **SPRxV** give the sprite's window, **SPRxCTL** its settings and **SPRxSTEP** its scale. They are plain registers: the CPU or copper writes them, and they stay as written until written again. The image in memory is pixels only.
 
 ### 3.1 The window
 
@@ -59,27 +57,27 @@ In beam coordinates (spec 4: the picture is pixels 144–863, lines 49–624):
 
 | Register | Bits | Field | Meaning |
 |----------|------|-------|---------|
-| SPRxH | 10–0 | HSTART | First beam pixel of the sprite (0–863; 864 or more: not shown). Pixels before 144 are in the horizontal blank: fetched, not shown |
+| SPRxH | 10–0 | HSTART | First beam pixel of the sprite (16–863, section 3.2; 864 or more: not shown). Pixels before 144 are in the horizontal blank: fetched, not shown |
 | SPRxH | 26–16 | HSTOP | Beam pixel just after the sprite (above 864 counts as 864) |
 | SPRxV | 10–0 | VSTART | First beam line of the sprite (0–624; 625 or more: not shown). Lines before 49 are in the vertical blank: fetched, not shown |
 | SPRxV | 26–16 | VSTOP | Beam line just after the sprite (above 625 counts as 625) |
 
 All four are unsigned 11-bit beam positions, as retro68k's RTL and guide (open point S3).
 
-The image's size follows from the window and the scale (section 3.4): **source width** = ⌈(HSTOP − HSTART) × XSTEP ÷ 2048⌉ pixels and **source height** = ⌈(VSTOP − VSTART) × YSTEP ÷ 2048⌉ lines. At normal size (step `0x0800`) the image is the window's size. A source line is stored in whole words: ⌈source width × BPP ÷ 16⌉ words, twice that in bytes. If HSTOP is not above HSTART, or VSTOP not above VSTART, the window is empty and the sprite does not show. After reset every window is empty.
+The image's size follows from the window and the scale (section 3.4): **source width** = ⌈(HSTOP − HSTART) × XSTEP ÷ 2048⌉ pixels and **source height** = ⌈(VSTOP − VSTART) × YSTEP ÷ 2048⌉ lines. At normal size (step `0x0800`) the image is the window's size. A source line is stored in whole words: ⌈source width × BPP ÷ 16⌉ words, twice that in bytes. These sizes are worked out for each line from the settings at its start (section 4.2), so a window or scale changed while a sprite is drawn changes the size of its lines from there on. If HSTOP is not above HSTART, or VSTOP not above VSTART, the window is empty and the sprite does not show. After reset every window is empty.
 
-A sprite shows inside its window once after each write to its SPRxCTL (section 4.2). To hide it, leave out its CTL write in the next frame, turn its DMA off (section 4.4), or set VSTART to 625 or more.
+A sprite shows inside its window from a write to its SPRxCTL until the next vertical blank (section 4.2). To hide it, don't write its CTL this frame, turn its DMA off (section 4.4), or set VSTART to 625 or more.
 
 ### 3.2 Clipping
 
 The hardware clips at all four edges. A sprite's line is a beam line, and its frame the beam's frame:
 
-- **Left:** pixels before beam pixel 144 are fetched but not shown. HSTART can be 0, so a sprite can hang 144 pixels off the left edge.
+- **Left:** pixels before beam pixel 144 are fetched and used up but not shown. A line's words are fetched during the line, from its start, so the fetch needs a few pixels before the sprite's first pixel: **HSTART must be 16 or more**, so a sprite can hang up to 128 pixels off the left edge.
 - **Top:** lines before beam line 49 are fetched and used up but not shown, so the first line that shows is the right line of the image.
 - **Right:** pixels from beam pixel 864 on are neither fetched nor shown.
 - **Bottom:** lines from beam line 625 on are neither fetched nor shown.
 
-A sprite fetches from the line after its CTL write, and needs a little time to fetch its first words, so its first line should come after the line its CTL is written on (section 4.2). A list that writes CTL at the top of the frame lands it on line 0, so **a sprite should not start on beam line 0 or 1**, as in retro68k. Those lines are in the vertical blank, so this matters only for a sprite hanging more than 47 lines off the top.
+A sprite cannot show on beam line 0, where the vertical blank stops every sprite. Its first line is the next line after its CTL write that is inside its window (section 4.2).
 
 ### 3.3 SPRxCTL
 
@@ -108,9 +106,9 @@ These are retro68k's three fields, with its values, packed into one byte in the 
 | `0x1000` | Half |
 | `0x8000` | 1/16 |
 
-- **Which source pixel:** screen pixel i of the window (i = 0 at HSTART) shows source pixel ⌊i × XSTEP ÷ 2048⌋ of its line; screen line j of the window (j = 0 at VSTART) shows source line ⌊j × YSTEP ÷ 2048⌋. So the first pixel and line always show the image's first.
+- **Which source pixel:** screen pixel i of the window (i = 0 at HSTART) shows source pixel ⌊i × XSTEP ÷ 2048⌋ of its line; screen line j of the sprite (j = 0 at its first line) shows source line ⌊j × YSTEP ÷ 2048⌋, while YSTEP and SPRxPT are left alone. So the first pixel and line always show the image's first, and every step works the same, with no rounding to pick. (A YSTEP changed part way down carries on from the fraction reached; a PT written part way down starts again from there.)
 - **Limits:** steps below `0x0080` count as `0x0080`, steps above `0x8000` as `0x8000`. A step of 0 counts as `0x0800`, so a sprite whose SPRxSTEP was never written is normal size.
-- **Cost** (section 5): bigger across, a word lasts more screen pixels; smaller across, fewer, since every source pixel of a line is fetched, the skipped ones too. Bigger down, a line is fetched again for each screen line it shows on (the FIFO cannot replay a line); smaller down, the lines skipped are not fetched.
+- **Cost** (section 5): bigger across, a word lasts more screen pixels; smaller across, fewer, since every source pixel of a line is fetched, the skipped ones too (they stream through the FIFO). Bigger down, a line is fetched again for each screen line it shows on (the FIFO cannot replay a line); smaller down, the lines skipped are not fetched.
 
 For any other size the step is 2048 ÷ the scale. There is no flip: for an object that faces either way, store both images.
 
@@ -159,59 +157,60 @@ There is no collision interrupt, as in retro68k.
 
 ### 4.1 The FIFO
 
-Each sprite has a **FIFO of 32 words**, its data registers. The fetcher pushes the image's words in at the back; the sprite takes them from the front as it is drawn, a line's worth per screen line. The FIFO streams: a line can be longer than the FIFO, as long as the fetch keeps it from running dry. Its size only sets how far ahead the fetch can go.
+Each sprite has a **FIFO of 32 words**, its data registers. The fetcher pushes the image's words in at the back; the sprite takes them from the front as it is drawn, a line's worth per screen line (⌈source width × BPP ÷ 16⌉ words). The FIFO streams: a line can be longer than the FIFO, as long as the fetch keeps it from running dry. Its size only sets how far ahead the fetch can go.
 
-- **Fetching early.** The fetcher pushes a sprite's words whenever its FIFO has room, using any memory cycle the scheduler gives it. While a line is drawn, the words it has finished with are already being replaced by the next line's. Fetching becomes urgent only when the FIFO is about to run dry: then the sprite takes part in the earliest-deadline-first order with the layers (spec 2).
-- **The lead** is up to 30 words per sprite (two of the 32 places are kept for words still on their way): 60 source pixels at 8 bpp, 120 at 4 bpp, 240 at 2 bpp. A sprite at the right edge fills its FIFO for its next line in the horizontal blank (5.3 µs).
-- **What a line takes.** The words that hold its shown pixels, from HSTART to HSTOP or beam pixel 864, whichever comes first. Words past the right edge are not fetched. At the end of each screen line the line start moves on by k image lines, k the source lines YSTEP moves on: 0 when a line shows again (bigger down), more than 1 when lines are skipped (smaller down).
-- **How the pointer moves.** Each word fetched moves the fetch on by 2 bytes; at the end of each line the fetch goes to the next line's start, as above. Reading SPRxPT gives the start of the image line being fetched (section 6).
-- **From the restart.** After a write to SPRxCTL, the fetcher keeps the FIFO filled from the next line until the window's last line has been fetched. So a sprite's first line is fetched ahead too, before VSTART. Then the sprite stops fetching until its CTL is written again.
+- **Fetching within the line.** A line's words are fetched during that line, from its start: never ahead into the next line, since the next line's settings are not known until it starts. The fetcher pushes the line's words whenever the FIFO has room, up to 30 words ahead of the beam (it keeps two of the 32 places for words still on their way): 60 source pixels at 8 bpp, 120 at 4 bpp, 240 at 2 bpp. Fetching becomes urgent only when the FIFO is about to run dry: then the sprite takes part in the earliest-deadline-first order with the layers (spec 2).
+- **The lead** is the time from the line's start to the sprite's first pixel: at least 16 pixels (HSTART 16), and the whole horizontal blank, 144 pixels (5.3 µs), for a sprite at the picture's left edge.
+- **What a line takes.** The words that hold its shown pixels, from HSTART to HSTOP or beam pixel 864, whichever comes first. Words past the right edge are not fetched.
+- **How the pointer moves.** Each word fetched moves SPRxPT on by 2 bytes: reading it gives where the sprite is in its image. Each line starts where section 4.2 ("Which image line") says.
 
-### 4.2 Starting again
+### 4.2 Starting, stopping and changing a sprite
 
-A sprite **starts again only when its SPRxCTL is written**. CTL is one byte, so it is never half written. The restart empties the sprite's FIFO, drops reads still on their way, and from the next line fetches the image afresh from SPRxPT. The image's first line shows on the first line of the window after the CTL write: VSTART, if the beam has not reached it yet. If the window's last line has already passed in this frame, the sprite waits for its window in the next frame (open point S11).
+- **A write to SPRxCTL starts the sprite** (any write: the CTL value may be the same as before). CTL is one byte, so it is never half written. Its FIFO is emptied and reads still on their way are dropped. Its first line is the next beam line, after the write, that is inside its window; that line shows the image line at SPRxPT. (It is the copper's job to point SPRxPT at the image's first line, as for a layer, before it writes CTL.)
+- **The vertical blank stops every sprite** (beam line 0, pixel 0): its FIFO is emptied and nothing is fetched or shown until its CTL is written again. Nothing starts again by itself at the frame start. So each frame the copper (or the CPU, in its VBLANK interrupt) writes each sprite's registers, CTL last.
+- A sprite whose CTL is written after its VSTART has gone by shows the image from its first line, from the next line, down to VSTOP.
+- To hide a sprite, don't write its CTL this frame, turn its DMA off (section 4.4), or set VSTART to 625 or more.
 
-There is **no restart at the frame start**, unlike retro68k. Each frame the copper (or the CPU) writes the sprite's SPRxPT, then its SPRxCTL. A sprite whose image has finished (its window's last line fetched) stops fetching until its CTL is next written; without that write it shows nothing in the next frame.
+**Each line.** At the start of every beam line (pixel 0, the start of its horizontal blank) each running sprite takes the line's settings: its window, its scale, its CTL settings. If the line is inside the window (VSTART ≤ line < VSTOP), the sprite shows on it, and its words are fetched during the line. The window is checked on every line: a VSTOP made later lets the sprite go on, one made earlier ends it; a VSTART moved later leaves the sprite off until the window reaches it again.
 
-Writes to SPRxPT, SPRxH, SPRxV and SPRxSTEP **do not restart** the sprite. Each byte is written directly, with no latch (spec 3), and acts as follows:
+**Which image line.** The sprite's first line shows the image line at SPRxPT. Each further line it shows moves on by the source lines YSTEP gives (section 3.4): k lines, k × ⌈source width × BPP ÷ 16⌉ words, with the source width of that line's settings. When the sprite is bigger down (YSTEP below `0x0800`), k is often 0 and the line is fetched again; when it is smaller, lines in between are skipped: neither fetched nor shown. **A write to SPRxPT** while the sprite runs sets exactly where its next image line starts (not moved on by YSTEP that time); the lines after it move on from there. So an image can be switched from one line to the next.
 
-- **SPRxH, SPRxV, SPRxSTEP:** the hardware reads them line by line. The pixel side takes each sprite's settings at the end of each line for the next one. So moving a sprite partway down the screen works: it moves from the next line. A value caught half written gives at worst a one-line glitch.
-- **SPRxPT** is the fetch pointer: it moves as the image is fetched. A write changes where the fetch goes next. It is safe while the sprite is not fetching: before its CTL write, or after its image has finished. Written while the sprite fetches, the fetch can move it between its bytes, and the rest of the image is fetched from the wrong place.
+**Changing a sprite while it is drawn.** Writes to SPRxH, SPRxV, SPRxSTEP and SPRxPT act on a running sprite from the next line that starts after the write; CTL's settings (BPP, DEPTH, PAL) likewise, but a CTL write also starts the sprite again. A stopped sprite takes them when it is started. So a copper list can move a sprite across on every line (a wobble), change XSTEP and the window on every line (a zoom, perspective), or switch its image part way down.
 
-So the rule is: **write PT, H, V and STEP in any order, then CTL last.** The CTL write starts the sprite with all of them in place, from the next line.
+Each byte is written directly, with no latch (spec 3), and the others keep their values:
+
+- **SPRxH, SPRxV, SPRxSTEP:** a value caught half written at a line's start gives at worst one wrong line.
+- **SPRxPT:** the fetch moves it as the sprite runs, so a line that starts between its bytes can send the rest of the sprite to a mixed address. Write its three bytes while the sprite is stopped (in the vertical blank, before its CTL write), or all within one line (a copper `CMOVEA` takes three slots).
 
 | Register | Takes effect |
 |----------|--------------|
-| SPRxCTL | On the write: restart. Its FIFO empties, and it fetches from SPRxPT with the new BPP, DEPTH and PAL from the next line |
-| SPRxH, SPRxV, SPRxSTEP | Each byte at once; read by the hardware line by line, so from the next line. No restart |
-| SPRxPT | Each byte at once: the fetch pointer. No restart. Write it before CTL, while the sprite is not fetching |
-| SPRDMA, DMACON.SPREN, DMACON.DMAEN | At once. No restart (section 4.4) |
+| SPRxCTL | On the write: starts the sprite. Its FIFO empties; its first line is the next line inside its window, from SPRxPT, with the new BPP, DEPTH and PAL |
+| SPRxH, SPRxV, SPRxSTEP, SPRxPT | A running sprite: from the next line that starts after the write. A stopped sprite: when it is started |
+| The vertical blank (beam line 0, pixel 0) | Stops every sprite until its CTL is written again |
+| SPRDMA, DMACON.SPREN, DMACON.DMAEN | At once. Does not start or stop a sprite: off pauses its fetching (section 4.4) |
 | SPRCOLL | At once |
 | SPRPALETTE, VIDCON.SHAREPAL, PRIO | Spec 4's rules |
 
 The copper's byte writes and the CPU's land in the order the register bus takes them, and the last write to each byte wins (spec 3, rule 3): let one of them own each sprite. Software and the copper see the display beam (spec 4), as in retro68k.
 
-**Reusing a sprite further down the screen**, as Amiga programs do with their control words: after the sprite's last line, the copper WAITs, writes the new use's PT, H, V and STEP as needed, then its CTL. The rules, retro68k's gap-line rule in these terms:
-
-- the writes come after the old use's last line has been shown: for a last line E, a WAIT for (E + 1, 0). By then the old use's image has finished, so the new pointer is safe to write;
-- the CTL write lands on line E + 1, and the new use starts from the line after it, so there is **at least one gap line** (VSTART ≥ E + 2). The fetch fills the FIFO in line E + 2's horizontal blank, before the new use's first pixel.
+**Reusing a sprite further down the screen**, as Amiga programs do with their control words: after the sprite's last line, the copper WAITs, then writes the sprite's PT, window and STEP for its next use, and CTL last. For a last line E, a WAIT for (E + 1, 0) is enough. The CTL write then lands in line E + 1, so the new use can start on line E + 2 or later.
 
 ### 4.3 Underrun: SPRUNDER
 
 If the fetch cannot keep a sprite's FIFO filled (section 5), the sprite **underruns**:
 
 - **VIDSTAT.SPRUNDER** (spec 4) is set: sticky, cleared by writing 1, and with its enable in VIDINTEN it raises the **VIDERR** interrupt, as the layers' OVERRUN bits do;
-- the sprite shows nothing more until its CTL is next written: its words would no longer line up with its lines.
+- the sprite shows nothing more until its CTL is written again: its words would no longer line up with its lines.
 
 An underrun means the screen asks too much of the memory at that point. Use fewer bits per pixel, scale a smaller image up across instead of a wider image, spread the sprites out, or put fewer layers' fetches under them.
 
 ### 4.4 DMA on and off
 
-A sprite fetches only while its SPRDMA bit, DMACON.SPREN and DMACON.DMAEN are all set. There is no manual mode: nothing else fills the FIFO.
+A sprite fetches only while its SPRDMA bit, DMACON.SPREN and DMACON.DMAEN are all set. SPRDMA acts at once and does not start or stop a sprite: off pauses its fetching (the sprite keeps what is in its FIFO), on lets it carry on, as in retro68k. There is no manual mode: nothing else fills the FIFO.
 
-- Turning a sprite's DMA off stops its fetch at once. The sprite still shows the words already in its FIFO (at most 32), then nothing; it does not set SPRUNDER. A CTL write empties the FIFO. To hide a sprite at once, set VSTART to 625 or more.
-- Turning it on again part-way down a frame resumes the fetch where it stopped, so the sprite may show from the wrong line until its CTL is next written. Change SPRDMA in the vertical blank, or write the sprite's PT and then its CTL after it.
-- SPRDMA is retro68k's per-sprite DMA enable. It is not needed to write a sprite's registers safely: write PT, H, V and STEP, then CTL (section 4.2).
+- While its DMA is off, a running sprite shows the words already in its FIFO (at most 32). When it needs a word and the FIFO is empty, it waits for it, transparent; it does not set SPRUNDER.
+- Turned on again part way down the sprite, the fetch carries on where it stopped, so its words may no longer line up with its lines until its CTL is written again. Change SPRDMA in the vertical blank, or start the sprite again after it.
+- To hide a sprite from the next line, set VSTART to 625 or more (section 4.2).
 
 ## 5. Memory budget
 
@@ -219,7 +218,7 @@ Sprites and layers share one budget, ordered by deadline (spec 2; retro68k spec 
 
 - A **layer** needs, per 16 source pixels, b words at b bpp; at 2× across, half that per 16 screen pixels. A tile-map layer also fetches its map entries (spec 4 gives its cost).
 - A **sprite** needs BPP words per 16 source pixels while the beam is over it (2, 4 or 8): BPP × XSTEP ÷ 2048 words per 16 screen pixels. Twice as big across (`0x0400`), half that; half size across (`0x1000`), twice.
-- Sprites side by side do not add up; sprites over the same pixels at the same time do. Each FIFO's lead lets a sprite fetch ahead into quieter stretches of the line, so short overlaps (up to about 64 pixels at 8 bpp, 256 at 2 bpp) are smoothed out.
+- Sprites side by side do not add up; sprites over the same pixels at the same time do. Within a line, each FIFO (30 words ahead) lets a sprite fetch ahead into quieter stretches before its pixels, so short overlaps (up to about 60 pixels at 8 bpp, 240 at 2 bpp) are smoothed out; longer overlaps of wide sprites are limited by the budget at that moment, as the table shows. A sprite near the left of a line has less time to fetch ahead (as little as 16 pixels at HSTART 16).
 
 Sprites stacked over the same 16 screen pixels, guaranteed (more when cycles are free):
 
@@ -263,9 +262,9 @@ Sprite n (0–7) at `0x010` + n × `0x10`:
 | `+0xE` | SPRxSTEP2 | RW | 7–0 | YSTEP bits 7–0 | 0 |
 | `+0xF` | SPRxSTEP3 | RW | 7–0 | YSTEP bits 15–8 | 0 |
 
-- **Writing SPRxCTL (`+0xB`) restarts the sprite** (section 4.2). Writes to PT, H, V and STEP do not: H, V and STEP are read line by line, and PT is the fetch pointer. Write them first, then CTL. Each byte is written directly; the others keep their values.
+- **When writes take effect:** a write to SPRxCTL (`+0xB`) starts the sprite (section 4.2). Writes to SPRxPT, SPRxH, SPRxV and SPRxSTEP act on a running sprite from the next line that starts after the write; a stopped sprite takes them when it is started. The vertical blank stops every sprite, so each frame write PT (and H, V and STEP as needed), then CTL last. Each byte is written directly; the others keep their values.
 - Unused bits are written 0 and read 0.
-- Reads give the value written. SPRxPT reads give where the fetch has got to: the start of the image line being fetched, as retro68k's `sprites.v`. It changes by itself, so **reading SPRxPT0 captures all three bytes**, and SPRxPT1 and SPRxPT2 read the captured copy (spec 3, rule 4: one tagged capture for the CPU).
+- Reads give the value written. A write to SPRxPT sets where the sprite's next image line starts; a read gives the next word of the image (it moves as fetched), as retro68k. It changes by itself, so **reading SPRxPT0 captures all three bytes**, and SPRxPT1 and SPRxPT2 read the captured copy (spec 3, rule 4: one tagged capture for the CPU).
 
 Sprite globals:
 
@@ -292,7 +291,7 @@ Bits elsewhere:
 | VIDCON (spec 4) | SHAREPAL | Sprites use PALETTE0 |
 | SPRPALETTE (spec 4) | – | The sprites' 256-entry palette |
 
-**State after reset:** DMACON.SPREN is clear, SPRDMA has all eight sprites on, every sprite's PT, H, V, CTL and STEP are 0 (empty windows, nothing shows; STEP 0 counts as normal size), SPRCOLL is 0, the FIFOs are empty, and no sprite fetches until its CTL is written.
+**State after reset:** DMACON.SPREN is clear, SPRDMA has all eight sprites on, every sprite's PT, H, V, CTL and STEP are 0 (empty windows, nothing shows; STEP 0 counts as normal size), SPRCOLL is 0, the FIFOs are empty, and every sprite is stopped: none fetches until its CTL is written.
 
 **Equates** (`hw.inc`, as retro68k's where the thing is the same):
 
@@ -350,7 +349,7 @@ Y0      equ  VID_Y0+100
         out  (c),a           ; SPR0CTL, last: PAL 2, DEPTH 1, 4 bpp; starts the sprite
 ```
 
-The sprite shows once. To show it every frame, write SPR0PT and SPR0CTL again in each vertical blank, or let the copper do it.
+The sprite shows in this frame only: the next vertical blank stops it. To show it every frame, write SPR0PT and SPR0CTL again in each vertical blank, or let the copper do it.
 
 The same window through the register page, mapped into window 7 (`REGS` = `0xE000`; the custom block at `REGS + 0x1000`). `LD (nn),HL` writes the low byte first:
 
@@ -369,7 +368,19 @@ SHIPCTL equ  2<<SPR_CTL_PAL_B | 1<<SPR_CTL_DEPTH_B | 1<<SPR_CTL_BPP_B
         CMOVE   SPR0+SPR_CTL,SHIPCTL     ; last: starts the sprite
 ```
 
-Four words per sprite per frame. To move the ship, write SPR0H and SPR0V; they act from the next line, so write them in the vertical blank, before the CTL write.
+Four words per sprite per frame. To move the ship, write SPR0H and SPR0V (from the CPU, or with copper MOVEs) before the CTL write; or, while it is drawn, at any time: each write acts from the next line.
+
+**A wobble:** the copper moves sprite 0 two pixels further right on each of its lines (a list can step through a table of positions with MOVR, spec 6):
+
+```
+        CWAIT   VID_Y0+100,0
+        CMOVEL  SPR0+SPR_H,((VID_X0+202+32)<<16)|(VID_X0+202)   ; for line 101
+        CWAIT   VID_Y0+101,0
+        CMOVEL  SPR0+SPR_H,((VID_X0+204+32)<<16)|(VID_X0+204)   ; for line 102
+        ...
+```
+
+Six words a line. Here the high bytes of HSTART and HSTOP do not change, so writing only the two low bytes is enough: four words a line.
 
 **The same ship at 1.5× its size:** a 48 × 36 window, and steps of 2048 ÷ 1.5 = `0x0555` across and down (the image is still 32 × 24: ⌈48 × `0x555` ÷ 2048⌉ = 32):
 
@@ -381,7 +392,7 @@ Four words per sprite per frame. To move the ship, write SPR0H and SPR0V; they a
         CMOVE   SPR0+SPR_CTL,SHIPCTL                            ; last
 ```
 
-**Reusing sprite 0** for a second ship from picture line 300: the first ship's last line is picture line 123, so the copper waits for line 124 and writes sprite 0 again, CTL last; the second use starts well after the gap line:
+**Reusing sprite 0** for a second ship from picture line 300: after the first ship's last line (picture line 123), the copper waits for line 124 and writes sprite 0 again, CTL last. The second use could start on line 125 or later:
 
 ```
         CWAIT   VID_Y0+124,0                                    ; ship 1 has been shown
@@ -391,7 +402,7 @@ Four words per sprite per frame. To move the ship, write SPR0H and SPR0V; they a
         CMOVE   SPR0+SPR_CTL,SHIPCTL                            ; last: starts the second use
 ```
 
-Fourteen words: 2 for the WAIT and 4 + 4 + 3 + 1 MOVEs. At the copper's PRI 1 rate (one word per slot, spec 6) the CTL write lands about 1.1 µs after the WAIT, in line 124's horizontal blank. Writing only the bytes that change is enough: each byte is written directly, and the others keep their values. CTL must be written even when its value does not change, since only that write restarts the sprite.
+Fourteen words: 2 for the WAIT and 4 + 4 + 3 + 1 MOVEs. At the copper's PRI 1 rate (one word per slot, spec 6) the CTL write lands about 1.1 µs after the WAIT, in line 124's horizontal blank. Writing only the bytes that change is enough: each byte is written directly, and the others keep their values. CTL must be written even when its value does not change, since only that write starts the sprite.
 
 **Collisions,** once a frame in the vertical blank:
 
@@ -417,7 +428,7 @@ The sprite RTL is retro68k's `sprites.v` and `sprite_pix.v`, with a byte registe
 | `sprites.v`: registers, sizes, fetcher, deadlines, 8 FIFOs of 32 × 16 bits (distributed RAM) | About 2,000 |
 | 8 pixel units (`sprite_pix.v`) | About 90 each, 730 in all |
 | Mixing with the layers (depth), collisions | A few hundred |
-| Byte register front end (byte writes, restart on a CTL write, SPRxPT capture) | About 20 more |
+| Byte register front end (byte writes, start on a CTL write, SPRxPT capture) | About 20 more |
 | Total | About 3,000; no block RAM |
 
 The per-sprite state lives in distributed RAM, worked on one sprite a clock, as in retro68k. The earlier draft's 4 RAMB18 for a row store are no longer needed.
@@ -428,15 +439,16 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 
 ## 10. Test plan
 
-- **Golden images:** sprites of many window sizes at 2, 4 and 8 bpp; many steps (bigger, smaller, odd steps, different across and down, the limits, step 0); PAL blocks; SHAREPAL; clipped at all four edges (HSTART 0, VSTART 2, HSTOP and VSTOP past the edges); every DEPTH against three layers in several PRIO orders, over transparent and opaque layer pixels; DEPTH first then number; direct colour; compared pixel by pixel with the Python video model extended with sprites (retro68k's model, narrowed).
+- **Golden images:** sprites of many window sizes at 2, 4 and 8 bpp; many steps (bigger, smaller, odd steps, different across and down, the limits, step 0); PAL blocks; SHAREPAL; clipped at all four edges (HSTART 16, VSTART 1, HSTOP and VSTOP past the edges); every DEPTH against three layers in several PRIO orders, over transparent and opaque layer pixels; DEPTH first then number; direct colour; compared pixel by pixel with the Python video model extended with sprites (retro68k's model, narrowed).
 - **Collisions:** known overlaps set exactly the expected SPRCOLL bits in all four bytes; none from clipped pixels, the blanking, or an underrun sprite; W1C clears only the bits written.
-- **Pointer:** SPRxPT after a frame equals the image's start + lines × line length, also with right clipping and YSTEP above and below `0x0800`; reading SPRxPT0 captures all three bytes.
-- **Byte registers:** each byte of PT, H, V, CTL and STEP takes effect when written, whatever its order; only a CTL write restarts the sprite; copper and CPU writes to the same sprite land in bus order; SPRDMA0 alone changes nothing; SPRDMA set and clear through SPRDMA1.
-- **Restart:** a CTL write empties the FIFO, drops reads on their way, and fetches from SPRxPT from the next line; PT, H, V and STEP written in any order, then CTL, show the image from its first line at VSTART; a CTL write partway down the window shows the image's first line on the next line; a CTL write after the window's last line shows the sprite in the next frame's window (S11).
-- **No frame-start restart:** a sprite whose CTL is not written again shows once, then nothing in the following frames, and stops fetching after its window's last line; writing PT and CTL in each vertical blank shows it every frame.
-- **Direct writes:** H, V and STEP changed while the sprite is drawn act from the next line with no restart (the sprite moves partway down, at worst a one-line glitch while bytes go in); PT written while the sprite fetches moves the fetch, and written before CTL is used as written.
-- **Reuse:** one sprite shown three times down the screen by the copper (retro68k's three ships), with PT, H, V and STEP then CTL written on line E + 1 and one gap line.
-- **DMA off:** SPRDMA cleared mid-sprite shows the FIFO's words then nothing, with no SPRUNDER; SPRDMA set again and a CTL write in the vertical blank show the sprite from its first line.
+- **Pointer:** SPRxPT after the sprite's last line equals the image's start + the source lines moved on × line length, also with right clipping and YSTEP above and below `0x0800`; read mid-line it gives the next word of the image; reading SPRxPT0 captures all three bytes.
+- **Byte registers:** each byte of PT, H, V, CTL and STEP takes effect when written, whatever its order; only a CTL write starts the sprite; copper and CPU writes to the same sprite land in bus order; SPRDMA0 alone changes nothing; SPRDMA set and clear through SPRDMA1.
+- **Starting:** a CTL write empties the FIFO, drops reads on their way, and the sprite's first line is the next line inside its window, showing the image line at SPRxPT; PT, H, V and STEP written in any order, then CTL, show the image from its first line at VSTART; a CTL write after VSTART has gone by shows the image from its first line on the next line, down to VSTOP; a CTL write with the same value starts it too.
+- **Stopping:** the vertical blank stops every sprite, with its FIFO emptied; a sprite whose CTL is not written again shows nothing in the following frames and fetches nothing; a sprite whose VSTOP is past the frame's end stops at the vertical blank; writing PT and CTL in each vertical blank shows it every frame; nothing shows on beam line 0.
+- **Changes while drawn:** a copper list moving a sprite across on every line, changing another's XSTEP and window on every line, switching an image part way down with a PT write (the next line starts exactly at the new PT, whatever YSTEP), moving a VSTOP earlier (the sprite ends) and later (it goes on), and moving a VSTART later (it is off until the window reaches it); each acts from the next line, without starting the sprite again; a byte of H, V or STEP caught half written spoils one line at most.
+- **Fetch timing:** each line's words are fetched during that line, never in the line before; a sprite at HSTART 16 and one at the picture's left edge show their first pixels on time.
+- **Reuse:** one sprite shown three times down the screen by the copper (retro68k's three ships), with PT, H, V and STEP then CTL written on line E + 1 and the new use from line E + 2.
+- **DMA off:** SPRDMA cleared mid-sprite shows the FIFO's words, then waits, transparent, with no SPRUNDER; set again, the fetch carries on; SPRDMA never starts or stops a sprite.
 - **Budget and underrun:** each row of section 5's table, with the CPU at 20 MHz running a memory-heavy loop: the sprites the table allows always show; a deliberate overload sets SPRUNDER, the sprite shows nothing more that frame, and VIDERR is raised with VIDINTEN.SPRUNDER set.
 - **CPU never waits** with all eight sprites fetching (spec 2's test).
 - **Measure** in simulation how many stacked sprites each layer set-up allows, with and without the CPU's spare cycles (open point S1).
@@ -447,12 +459,12 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 |---|------|
 | S1 | Measure how many stacked sprites each layer set-up allows (section 5), in simulation, as retro68k's S1. Also measure how much the CPU's spare cycle adds at 20 MHz |
 | S2 | Whether the sprites' share of the free cycles should be limited, so that a screen full of sprites cannot starve the copper at PRI 0 and the DMA engine (retro68k's S2, which worries about its CPU instead) |
-| S3 | Closed: HSTART is unsigned, as retro68k's RTL and guide; retro68k's register table, which says "signed", should be corrected. All four window positions are unsigned 11-bit beam positions (10–0, 26–16). A sprite can still hang 144 pixels off the left edge, since the picture starts at beam pixel 144 |
+| S3 | Closed: HSTART is unsigned, as retro68k's RTL and guide; retro68k's register table, which says "signed", should be corrected. All four window positions are unsigned 11-bit beam positions (10–0, 26–16). A sprite can still hang up to 128 pixels off the left edge (HSTART 16 or more), since the picture starts at beam pixel 144 |
 | S4 | Closed: PRI tile pixels go in front of DEPTH 1–3 sprites and behind DEPTH 0 (spec 4, section 4.8) |
-| S5 | SPRxPT reads give the start of the image line being fetched (retro68k's RTL); retro68k's spec text says "the next word". Proposed: as the RTL; retro68k's text to be corrected |
-| S6 | With no manual mode, a sprite whose DMA is turned off mid-frame shows the words left in its FIFO (section 4.4), as retro68k's RTL. Hiding it at once would need a gate on the pixel side (a few LUTs). Proposed: as built |
+| S5 | Closed: as retro68k's rewritten spec 9, a write to SPRxPT sets where the next image line starts, and a read gives the next word of the image (it moves as fetched). The earlier proposal, the start of the image line being fetched (retro68k's RTL before the rewrite), is dropped |
+| S6 | Closed: as retro68k, SPRDMA pauses a sprite without starting or stopping it; the sprite shows the words left in its FIFO, then waits, transparent (section 4.4). To hide it, set VSTART to 625 or more |
 | S7 | Closed: manual mode (SPRxDAT) dropped (branch 11), so 16 bytes per sprite |
 | S8 | Closed: the earlier draft's row store, 512-byte limit, exact L + 2 write rule, line-0 rule and budget B = 224 − D − C are replaced by retro68k's FIFOs and rules (branch 11) |
 | S9 | Closed: SPRDMA (set/clear, SETCLR in its high byte) and SPRCOLL (separate W1C bytes) are listed in spec 3 |
-| S10 | Closed (design plan, branch 11): a sprite restarts only when its SPRxCTL is written, and there is no restart at the frame start. PT, H, V and STEP act directly; PT is written before CTL, while the sprite is not fetching. This replaces the DMA-off workaround (section 4.2) |
-| S11 | A CTL write after the window's last line in a frame: proposed, the sprite fetches its first words and waits for its window in the next frame (section 4.2). To be confirmed in simulation |
+| S10 | Closed (design plan, branch 11, and retro68k's rewritten spec 9): a sprite starts only when its SPRxCTL is written, and nothing restarts at the frame start. PT, H, V and STEP act on a running sprite from the next line. This replaces the DMA-off workaround (section 4.2) |
+| S11 | Closed: the vertical blank stops every sprite (section 4.2), so a CTL write after the window's last line in a frame shows nothing; the sprite is stopped at the next vertical blank and stays off until its CTL is written again |

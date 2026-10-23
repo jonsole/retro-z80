@@ -98,7 +98,7 @@ This is the one place that lists every register in the machine: the rules every 
 12. **Set/clear registers** (DMACON, INTENA0–2, SPRDMA): bit 7 of the byte (SPRDMA: of its second byte, SPRDMA1) is SETCLR. Writing with SETCLR = 1 sets the other bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reading gives the enables, with SETCLR reading 0. Never read, change and write back: write only the bits to change.
 13. **Strobes** act on any write, whatever the value: COPJMP1, COPJMP2, COPINT, and the strobe bits of SOFTINT, CHCTRL (START, RUN, STOP), I2CCMD and SERCON (RXFLUSH, TXFLUSH). Two act only on a magic value: SYSRESET (`0xA5`) and WDKICK (`0x5A`, where any other value resets while the watchdog is on).
 14. **Reading has no side effects,** except for the CPU: SERDATA and KBDATA, which take a byte; SDDATA with SDCON.AUTO set, which starts an exchange; SERDROP, which clears; PALDAT, whose red read steps the index; and the captures of rule 4. All except PALDAT and the captures are in the system page, out of the copper's and the DMA engine's reach. The copper never reads, and a DMA engine read of a register has no side effect (spec 14).
-15. **Timing.** A write takes effect as its unit's spec says: some at once (palette entries, VIDCON), some at the start of the line's picture (PRIO, BGCOLOR), some at the start of the next line (layer settings; a sprite's H, V and STEP), and a write to SPRxCTL restarts its sprite. Each byte takes effect when it is written; only an MMU page and a colour wait for their last byte (rule 2). A port `0xFE` border write acts at once, from the pixel being shown about 10–60 ns later (a Spectrum extra, spec 4, section 7.2). See spec 4, section 5.6, and spec 5, section 4.2.
+15. **Timing.** A write takes effect as its unit's spec says: some at once (palette entries, VIDCON), some at the start of the line's picture (PRIO, BGCOLOR), some at the start of the next line (layer settings; a running sprite's PT, H, V and STEP), and a write to SPRxCTL starts its sprite (the vertical blank stops every sprite). Each byte takes effect when it is written; only an MMU page and a colour wait for their last byte (rule 2). A port `0xFE` border write acts at once, from the pixel being shown about 10–60 ns later (a Spectrum extra, spec 4, section 7.2). See spec 4, section 5.6, and spec 5, section 4.2.
 
 **Access column key:** R = read only; W = write only (reads `0x00`); RW = read and write; W1C = sticky flags, cleared by writing 1; R, W1C = live bits and sticky flags mixed; SC = set/clear (rule 12); S = strobe (rule 13); F = reading has an effect (rule 14); CAP = reading the low byte captures (rule 4).
 
@@ -134,7 +134,7 @@ Each spec declares where a register departs from the rules above. The first thre
 | SERDROP (`0x5C`) | Reading clears it | retro68k's SERDROP | 10, 7 |
 | **Writes with an effect** | | | |
 | MMUn_1 (registers `0x81` + 2n) | Committing a read page also sets the window's write page (the first row) | One write changes a window | 2, 9.2 |
-| SPRxCTL | A write restarts the sprite: its FIFO empties and it fetches from SPRxPT from the next line. Writes to SPRxPT, SPRxH, SPRxV and SPRxSTEP do not restart it; write them first, then CTL. No restart at the frame start | CTL is one byte, so a restart never sees a half-written register (design plan, branch 11) | 5, 4.2 |
+| SPRxCTL | A write starts the sprite: its FIFO empties, and its first line is the next line inside its window, at SPRxPT. Writes to SPRxPT, SPRxH, SPRxV and SPRxSTEP act on a running sprite from the next line; write them first, then CTL. The vertical blank stops every sprite; nothing restarts at the frame start | CTL is one byte, so a start never sees a half-written register (design plan, branch 11) | 5, 4.2 |
 | TMRn_COUNT | Each byte written sets that byte of the count at once; RELOAD is used only at the next underflow. Stop the timer before writing its count | retro68k's timers | 9, 4.1 |
 | SDCOUNT (registers `0x5D`–`0x5E`) | A write to SDCOUNT1 starts a run of reads for DMA port 0: a start trigger, not a latch. Write SDCOUNT0 first | retro68k's SDCOUNT | 11, 5.2 |
 | BGCOLOR (custom `0x004`–`0x006`) | A write to port `0xFE` sets all three bytes at once and shows at once, mid-line, after the clock crossing (10–60 ns); the CPU's colour assembly buffer is kept. BGCOLOR written as a register shows from the start of a line's picture | Spectrum border | 4, 7.2 |
@@ -415,11 +415,11 @@ Sprite n (0–7) at `0x010` + n × `0x10`, ports `0x1010` + n × `0x1000`: SPR0 
 
 | Offset | Name | Width | Access | Spec |
 |--------|------|-------|--------|------|
-| `+0x0`–`+0x2` | SPRxPT | 3 | RW, CAP; the fetch pointer, no restart | 5, 6 |
-| `+0x3`–`+0x6` | SPRxH (HSTART, HSTOP) | 4 | RW; read line by line, no restart | 5, 3.1 |
-| `+0x7`–`+0xA` | SPRxV (VSTART, VSTOP) | 4 | RW; read line by line, no restart | 5, 3.1 |
-| `+0xB` | SPRxCTL (BPP, DEPTH, PAL) | 1 | RW; a write restarts the sprite | 5, 3.3 |
-| `+0xC`–`+0xF` | SPRxSTEP (XSTEP, YSTEP) | 4 | RW; read line by line, no restart | 5, 3.4 |
+| `+0x0`–`+0x2` | SPRxPT | 3 | RW, CAP; moves as fetched; from the next line | 5, 6 |
+| `+0x3`–`+0x6` | SPRxH (HSTART, HSTOP) | 4 | RW; from the next line | 5, 3.1 |
+| `+0x7`–`+0xA` | SPRxV (VSTART, VSTOP) | 4 | RW; from the next line | 5, 3.1 |
+| `+0xB` | SPRxCTL (BPP, DEPTH, PAL) | 1 | RW; a write starts the sprite | 5, 3.3 |
+| `+0xC`–`+0xF` | SPRxSTEP (XSTEP, YSTEP) | 4 | RW; from the next line | 5, 3.4 |
 
 ### 5.4 Layers (`0x090`–`0x0EF`)
 
@@ -642,7 +642,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 3. **Reset values:** every register reads its spec's reset value after reset.
 4. **Multi-byte writes:** for each multi-byte register except the MMU pages and the colours, each byte takes effect when it is written, in any order, and reads back at once; `LD (nn),HL`, `PUSH`, `LDDR` and unrolled `OUTI`s give the same value; a copper write and a DMA write between the CPU's bytes land in bus order, and the last write to each byte wins. **MMU pages:** byte 0 alone changes nothing; byte 1 commits with the held byte 0, or the current one. **Colours:** blue and green alone change nothing; red writes the colour whole, through PALDAT, the register page and BGCOLOR, with one buffer per master, so a copper colour between the CPU's blue and red does not mix with it.
 5. **Captures:** for each register of rule 4, the value read low byte first while the register changes is always a value it really had, through ports and with `LD HL,(nn)`; higher bytes of the tagged register return the capture however late; higher bytes of another register read live; reading another capturing register's low byte replaces the capture; an interrupt handler that reads a counter between a program's bytes replaces the program's capture, as rule 4 says; a DMA job's capture is separate from the CPU's; SERSTAT0 and SERSTAT1 read live.
-6. **Exceptions:** each row of section 3.1 behaves as its spec says: set/clear bytes, SPRDMA1 acting on SPRDMA0, PALDAT stepping and its byte order reset by either PALIDX byte, data ports taking exactly one byte through a port and through the register page, a port `0xFE` border write showing mid-line while a BGCOLOR write waits for the next line's picture, MMU0_1 to MMU7_1 setting the write page, a sprite restart on a CTL write only, SDCOUNT1 starting a run, locks, busy writes ignored.
+6. **Exceptions:** each row of section 3.1 behaves as its spec says: set/clear bytes, SPRDMA1 acting on SPRDMA0, PALDAT stepping and its byte order reset by either PALIDX byte, data ports taking exactly one byte through a port and through the register page, a port `0xFE` border write showing mid-line while a BGCOLOR write waits for the next line's picture, MMU0_1 to MMU7_1 setting the write page, a sprite started by a CTL write only and stopped by the vertical blank, SDCOUNT1 starting a run, locks, busy writes ignored.
 7. **Register bus:** a copper write in the same clock as a CPU strobe goes first and the CPU's access still completes in time; a DMA engine access waits for both and never delays them; with all three busy, no access is lost.
 8. **Copper reach:** MOVE reaches `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF` (writes to `0x0F0`–`0x0FF` ignored), MOVEF `0x000`–`0x3FF`; nothing the copper does reaches the system page.
 9. **DMA engine reach:** jobs read and write the custom block and the palettes at `0x7F1000`–`0x7F1FFF`, read the boot ROM, and stop with an error on the system page and KEYROW (`0x7F0000`–`0x7F0FFF`).

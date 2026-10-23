@@ -118,6 +118,7 @@ Each event sets a sticky flag in VIDSTAT, cleared by writing 1 to it. VIDINTEN h
 
 - VIDSTAT.INVBLANK (bit 3, read only) is 1 while the beam is in lines 0–48.
 - The first picture line, 49, is fetched from beam (49, 0), so a VBLANK handler has 49 lines (1.57 ms) to set up the next frame.
+- The start of the vertical blank also stops every sprite: each frame the copper or the VBLANK handler starts each sprite again by writing its SPRxCTL (spec 5, section 4.2).
 - A LINE handler runs during beam line LINECMP. Its writes to CTRL, WINX, WINY, SCROLLX, SCROLLY, PRIO or BGCOLOR act from line LINECMP + 1 if they are written before that line starts (32 µs: 640 T-states at 20 MHz, less the time the Z80 takes to start the handler); BPLSTRIDE acts at the end of the line being shown. This is retro68k's rule (section 5.6).
 
 ### 3.5 Output
@@ -421,6 +422,7 @@ These are retro68k's rules. Each byte takes effect when it is written, with no l
 | Port `0xFE` border bits (section 7.2) | At once: from the pixel being shown, about 10–60 ns after the write (a Spectrum extra) |
 | VIDCON, palette entries | At once (the next pixel) |
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once (DMACON stops or starts the next fetch) |
+| Sprite registers (spec 5, section 4.2) | A write to SPRxCTL starts the sprite; SPRxPT, SPRxH, SPRxV and SPRxSTEP act on a running sprite from the next line. The vertical blank (beam line 0, pixel 0) stops every sprite |
 
 The settings read at beam pixel 0 are copied to the pixel side once per line. A write that lands in the same few clocks as that copy may take effect a line later, as in retro68k.
 

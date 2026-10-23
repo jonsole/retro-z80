@@ -66,7 +66,7 @@ The copper follows the **display beam**, as retro68k's does and as software sees
 | BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1. On a 2×-tall layer, write after the **last** copy of a source line |
 | CTRL, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144): write in line L's horizontal blank, or earlier |
-| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: only a CTL write restarts the sprite, which fetches from SPRxPT from the next line. H, V and STEP act from the next line; PT is the fetch pointer. Write PT, H, V and STEP, then CTL last. No restart at the frame start: each frame the list writes each sprite's PT, then its CTL. Reuse needs one gap line |
+| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: a CTL write starts the sprite, from the next line inside its window, at SPRxPT. PT, H, V and STEP act on a running sprite from the next line. The vertical blank stops every sprite, so each frame the list writes each sprite's registers, CTL last |
 
 Spec 4 has the full list; where it differs, spec 4 wins.
 
@@ -120,7 +120,7 @@ A MOVE or MOVEF writes one byte, **straight to its register**, with no latch (sp
 
 - A line setting (spec 4, section 5.6): in the horizontal blank after beam pixel 0, or in the visible part of the line before the one it is for.
 - A live pointer (BPL0PT): while the layer is not fetching, in the vertical blank, or after the layer's last fetch on a line and before the next line starts. A fetch between its bytes would move the pointer on from a mixed value (spec 4, section 4.4).
-- A sprite register: write PT, H, V and STEP in any order, then CTL last; only the CTL write restarts the sprite. Write the pointer while the sprite is not fetching (spec 5, section 4.2).
+- A sprite register: to start a sprite, write PT, H, V and STEP in any order, then CTL last. On a running sprite, write SPRxPT's three bytes within one line, so that no line starts between them (spec 5, section 4.2).
 - **Colours are the exception** (spec 3, rule 7): MOVEs to a colour's blue and green bytes (BGCOLOR, or PALDAT) go into the copper's **colour assembly buffer**, its own, separate from the CPU's and the DMA engine's, and the red MOVE writes the colour whole. Other instructions may come between them. The buffer is one for all colours, not one per entry.
 
 MOVR follows the same rules. A CPU write between two copper MOVEs to one register lands between them, and the last write to each byte wins.
@@ -536,7 +536,7 @@ Cost: 11 words in the vertical blank; 9 at the panel. The five MOVEs after the W
 
 ### 8.4 Sprite reuse down the screen
 
-Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rule (section 4.2): only a CTL write restarts a sprite, and it fetches from SPRxPT from the next line; there is no restart at the frame start, so the list starts the first use in the vertical blank too. The reuse writes come after the old use's last line has been shown, and the new use starts at least one gap line after the CTL write. So the copper waits for line 132, writes the window and the pointer, then CTL; the second use may start on line 133 or later. The old use's image has finished by then, so the pointer is safe to write.
+Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rules (section 4.2): a CTL write starts a sprite, from the next line inside its window, at SPRxPT; the vertical blank stops every sprite, so the list starts the first use in the vertical blank too. The other registers act on a running sprite from the next line, so the reuse writes come after the old use's last line has been shown. So the copper waits for line 132, writes the window and the pointer, then CTL; the CTL write lands in line 132, so the second use may start on line 133 or later.
 
 ```
             ALIGN   2
@@ -552,7 +552,7 @@ ships:      CMOVEL  SPR0+SPR_V,SHIP1_V           ; first use: window down ...
             CSTOP
 ```
 
-Cost: 2 + 4 + 4 + 3 + 1 = 14 words per reuse (WAIT, SPRxV, SPRxH, SPRxPT, SPRxCTL): the CTL write lands about 1.1 µs (30 pixels) after the WAIT, in line 132's horizontal blank. CTL is written even when its value does not change, since only that write restarts the sprite. All the sprite registers are in a MOVE's reach.
+Cost: 2 + 4 + 4 + 3 + 1 = 14 words per reuse (WAIT, SPRxV, SPRxH, SPRxPT, SPRxCTL): the CTL write lands about 1.1 µs (30 pixels) after the WAIT, in line 132's horizontal blank. CTL is written even when its value does not change, since only that write starts the sprite. All the sprite registers are in a MOVE's reach.
 
 ### 8.5 Per-cell colours
 
@@ -590,7 +590,7 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 - **Direct writes:** each MOVE's byte takes effect when it is written, in any order; a CPU write between two copper MOVEs to one register lands between them and the last write to each byte wins; a colour's blue and green MOVEs change nothing until its red, with a WAIT or other MOVEs between them, through BGCOLOR and PALDAT; a CPU colour write between them does not mix with the copper's buffer.
 - **Waits:** WAIT and SKIP on blank and picture lines, at pixels 0, 143, 144 and 863; positions beyond the frame; the pixel-only forms on the current and the next line; B with each of the four DMA channels busy and all idle, including a job started by the MOVEF just before; line 1023 as the end of a list.
 - **Pixel exactness:** golden images: palette writes after a WAIT land within a pixel of the WAIT's position, and a second prefetched MOVE within the next; a colour with its blue and green before the WAIT changes whole at the pixel.
-- **When writes take effect:** pointer writes between a layer's last fetch and the line's end used as written for the next line; on a 2×-tall layer a pointer written after the first copy changes nothing until the next source line's rules allow (spec 4); spec 5's sprite reuse rule with the example of section 8.4.
+- **When writes take effect:** pointer writes between a layer's last fetch and the line's end used as written for the next line; on a 2×-tall layer a pointer written after the first copy changes nothing until the next source line's rules allow (spec 4); spec 5's sprite rules (a CTL write starts a sprite, the vertical blank stops it, the other registers act from the next line) with the example of section 8.4.
 - **Registers and ALU:** every ALU function and source, every flag result (carry and borrow at the 8-bit edges, N from bit 7), every condition, loads and stores of the flags, MOVR in all forms with X + 1 across a multi-byte register and the wrap from `0xFF`.
 - **CALL and RET:** nesting to 8, overflow and underflow set ERR; the stack emptied at the frame restart, or kept with STKKEEP.
 - **Rates and priority:** words counted on the SRAM model match section 5.2 for each example; at PRI 1, with the CPU at 20 MHz running a memory-heavy loop, every sprite fetching and the DMA engine busy, on a screen within the display budget, the copper gets every cycle 4; at PRI 0 it gets fewer, never ahead of non-urgent layer and sprite fetches; PRI 2 and 3 act as 1; the CPU never waits at any PRI; the display is never late because of the copper.
