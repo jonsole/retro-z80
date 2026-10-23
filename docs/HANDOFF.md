@@ -49,7 +49,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step, 
 
 ## 5. Unfinished work (do this first)
 
-1. **Review the choices the spec writers made** in the branch 9 rewrite (each spec's open points). The main ones:
+1. **Review the rest of the choices the spec writers made** in the branch 9 rewrite (each spec's open points). Sprite order (DEPTH first), no copper table reads, no sprite limit and the draw beam everywhere are decided (design plan, branch 9). Others:
    - Sprites: placed by DEPTH first, then number (retro68k's rule; replaces the earlier "number order" decision). One gap line to reuse a sprite. No SPRLIMIT: over-budget results depend on spare cycles, as in retro68k.
    - Copper: X and Y are 8-bit registers, not SRAM pointers (per-cell colour from a table is left to the attribute layer). `CMOVEL` is the one-byte any-offset MOVE; wide writes are `CMOVEW`, `CMOVEA`, `CMOVEN`.
    - Video: software sees the draw beam (one line ahead of the screen); the layer pointer is taken per source line, not live; separate MAPPT and PATPT for tile mode.
