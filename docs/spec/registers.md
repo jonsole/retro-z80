@@ -72,7 +72,7 @@ This is the one place that lists every register in the machine: the rules every 
 ## 3. Rules for all registers
 
 1. **Decoding.** Every port is register (A15–A8) : page (A7–A0). A port whose low byte is one of the five low-byte-only ports (`0x1F`, `0x53`, `0x5B`, `0x62`, `0xFE`) goes to that register of page `0x00` whatever A15–A8 hold; only port `0xFE` looks at A15–A8, on reads, to pick keyboard rows (spec 12). Otherwise page `0x00` is the system page, pages `0x10`–`0x13` are the custom block, and every other page is reserved: no strobe, reads `0xFF`, writes ignored (spec 1, section 6.1). The register bus address is page × 256 + register, the same address as the register page offset (section 6).
-2. **Multi-byte values.** A value wider than 8 bits sits at consecutive registers (offsets), **low byte at the lowest**. Writing a lower byte puts it in a latch; writing the **highest byte commits the whole value at once**. At the commit, the lower bytes written since the last commit come from the latch, and any lower byte not written since then keeps the register's current value. So the hardware never sees half a value, and to change only the high byte a program writes just the high byte. Each multi-byte register has its own CPU latch, so an interrupt handler that writes other registers between a program's two `OUT`s disturbs nothing.
+2. **Multi-byte values.** A value wider than 8 bits sits at consecutive registers (offsets), **low byte at the lowest**. Writing a lower byte puts it in a latch; writing the **highest byte commits the whole value at once**. At the commit, the lower bytes written since the last commit come from the latch, and any lower byte not written since then keeps the register's current value. So the hardware never sees half a value, and to change only the high byte a program writes just the high byte. The bytes are named NAME0, NAME1, NAME2, NAME3, lowest first (section 8). Each multi-byte register has its own CPU latch, so an interrupt handler that writes other registers between a program's two `OUT`s disturbs nothing.
 3. **The copper and each DMA channel have their own latch**, separate from the CPU's and from each other, and follow the same rule: lower bytes written since the last commit, the current value for the rest. Such a latch holds the lower bytes (up to 3) of one register at a time, tagged with its offset: a lower byte of another register drops what it held (spec 6, section 4.2; spec 14, section 4). The frame restart and the COPJMP strobes empty the copper's latch. A copper or DMA write never mixes with half a CPU write, nor the other way round.
 4. **Reading.** Reading gives the committed value, never the latch. For registers the **hardware changes by itself**, **reading the lowest byte captures the whole value**, and the higher bytes then read the captured copy, so a value read low byte first always matches. Reading a higher byte without first reading the lowest returns the last capture. The CPU has one capture per such register; an interrupt handler that reads the same register between a program's reads spoils the program's value. The DMA engine has captures of its own, one set per channel (spec 14, section 4). The registers that capture:
 
@@ -98,7 +98,7 @@ This is the one place that lists every register in the machine: the rules every 
 12. **Set/clear registers** (DMACON, INTENA0–2, SPRDMA): bit 7 of the byte (SPRDMA: of its second byte, SPRDMA1) is SETCLR. Writing with SETCLR = 1 sets the other bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reading gives the enables, with SETCLR reading 0. Never read, change and write back: write only the bits to change.
 13. **Strobes** act on any write, whatever the value: COPJMP1, COPJMP2, COPINT, and the strobe bits of SOFTINT, CHCTRL (START, RUN, STOP), I2CCMD and SERCON (RXFLUSH, TXFLUSH). Two act only on a magic value: SYSRESET (`0xA5`) and WDKICK (`0x5A`, where any other value resets while the watchdog is on).
 14. **Reading has no side effects,** except for the CPU: SERDATA and KBDATA, which take a byte; SDDATA with SDCON.AUTO set, which starts an exchange; SERDROP, which clears; PALDAT, whose red read steps the index; and the captures of rule 4. All except PALDAT and the captures are in the system page, out of the copper's and the DMA engine's reach. The copper never reads, and a DMA engine read of a register has no side effect (spec 14).
-15. **Timing.** A write takes effect as its unit's spec says: some at once (palette entries, VIDCON), some at the start of the line's picture (PRIO, BGCOLOR), some at the start of the next line (layer settings), some on commit with a restart (sprites). See spec 4, section 5.6, and spec 5, section 4.2.
+15. **Timing.** A write takes effect as its unit's spec says: some at once (palette entries, VIDCON), some at the start of the line's picture (PRIO, BGCOLOR), some at the start of the next line (layer settings), some on commit with a restart (sprites). A port `0xFE` border write acts at once, from the pixel being shown about 10–60 ns later (a Spectrum extra, spec 4, section 7.2). See spec 4, section 5.6, and spec 5, section 4.2.
 
 **Access column key:** R = read only; W = write only (reads `0x00`); RW = read and write; W1C = sticky flags, cleared by writing 1; R, W1C = live bits and sticky flags mixed; SC = set/clear (rule 12); S = strobe (rule 13); F = reading has an effect (rule 14); CAP = reading the lowest byte captures (rule 4).
 
@@ -120,7 +120,7 @@ Each spec declares where a register departs from the rules above.
 | KEYMAP0–6 (registers `0x10`–`0x16`), KEYROW0–7 | Separate read-only bytes, one per column or row | Each is used on its own | 12, 5.3 and 8.1 |
 | SPRCOLL0–3 (custom `0x124`–`0x127`) | Separate W1C bytes | Each byte is read and cleared on its own | 5, 6 |
 | SERSTAT0, SERSTAT1 (registers `0x51`–`0x52`) | Two separate live counts, TXSPACE and RXCOUNT; reading `0x51` does **not** capture `0x52` | Each count is used on its own, for `OTIR` or `INIR` | 10, 7 |
-| NMISAVL, NMISAVWL, NMISAVH (registers `0x7D`–`0x7F`) | Separate read-only bytes, set at NMI entry | Nothing changes them while the monitor reads them | 7, 11.3 |
+| NMISAV0, NMISAVW0, NMISAVHI (registers `0x7D`–`0x7F`) | Separate read-only bytes, set at NMI entry | Nothing changes them while the monitor reads them | 7, 11.3 |
 | **Index and data** | | | |
 | PALDAT (custom `0x00B`) | One register for 3-byte entries: blue and green writes are held, the red write changes the entry and steps PALIDX; a red read steps it too. Writing PALIDX's high byte resets PALDAT's byte order | Lets a loop of `OUT (C),r` stream a palette | 4, 6.5 |
 | Palettes in the register page (`0x1400`–`0x1FFF`) | 3-byte entries, blue first; the red byte commits the entry. PALIDX is not used or changed | 3 KB fits the page | 2, 10.2; 4, 6.5 |
@@ -129,11 +129,11 @@ Each spec declares where a register departs from the rules above.
 | SDDATA (`0x5B`) | Writing starts an SPI exchange; with SDCON.AUTO, reading starts one too | Lets `INIR` read a block | 11, 6 |
 | SERDROP (`0x5C`) | Reading clears it | retro68k's SERDROP | 10, 7 |
 | **Commits with an effect** | | | |
-| MMUnH (registers `0x81` + 2n) | Committing a read page also sets the window's write page | One write changes a window | 2, 9.2 |
+| MMUn_1 (registers `0x81` + 2n) | Committing a read page also sets the window's write page | One write changes a window | 2, 9.2 |
 | SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP | Committing restarts the sprite; SPRxCTL is one byte, so every write restarts | retro68k's restart rule | 5, 4.2 |
 | TMRn_COUNT | Committing sets the count at once; RELOAD is used only at the next underflow | retro68k's timers | 9, 4.1 |
 | SDCOUNT (registers `0x5D`–`0x5E`) | Committing starts a run of reads for DMA port 0 | retro68k's SDCOUNT | 11, 5.2 |
-| BGCOLOR (custom `0x004`–`0x006`) | A write to port `0xFE` sets all three bytes at once; the CPU's held bytes are kept | Spectrum border | 4, 7.2 |
+| BGCOLOR (custom `0x004`–`0x006`) | A write to port `0xFE` sets all three bytes at once and shows at once, mid-line, after the clock crossing (10–60 ns); the CPU's held bytes are kept. BGCOLOR written as a register shows from the start of a line's picture | Spectrum border | 4, 7.2 |
 | **Writes refused or limited** | | | |
 | DMA job registers and CHDESC (channel `+0x00`–`+0x22`) | Writes are ignored while CHSTAT.BUSY | retro68k's rule | 14, 8.1 |
 | WDCTRL, WDTIME (registers `0x48`–`0x4A`) | Read only after WDCTRL.LOCK, until reset | retro68k's watchdog lock | 9, 5 |
@@ -144,7 +144,7 @@ Each spec declares where a register departs from the rules above.
 | COPSP (custom `0x111`) | Reads the stack depth; any write empties the stack | retro68k's COPSP | 6, 6 |
 | COP2LC (custom `0x104`–`0x106`) | Changed by the hardware at a frame restart with COPCON.RESUME; no capture | retro68k's RESUME | 6, 6.5 |
 | **Spectrum extras** | | | |
-| Port `0xFE` | Reads decode A15–A8 as keyboard rows (register `0xFE` of page `0x00`, with no row select, reads all rows); writes set the border (BGCOLOR) and the beeper | Spectrum compatibility | 12, 8.1 and 8.4; 4, 7.2; 7, 10.2 |
+| Port `0xFE` | Reads decode A15–A8 as keyboard rows (register `0xFE` of page `0x00`, with no row select, reads all rows); writes set the border (BGCOLOR, at once) and the beeper | Spectrum compatibility | 12, 8.1 and 8.4; 4, 7.2; 7, 10.2 |
 | KEMPSTON (port `0x1F`) | A second view of JOY1 | Spectrum compatibility | 12, 8.5 |
 | KEYROW0–7 | Register page only (offsets `0x0100`–`0x0107`); no port | A memory read has no A15–A8 for the row select | 12, 8.1 |
 
@@ -267,7 +267,7 @@ Page `0x00`. The same registers are at register page offset = register number. T
 | `0x38`–`0x3F` | `0x3800`–`0x3F00` | TMR2 | | | Timer 2 | 9, 6 |
 | `0x40`–`0x47` | `0x4000`–`0x4700` | TMR3 | | | Timer 3 | 9, 6 |
 | `0x48` | `0x4800` | WDCTRL | 1 | RW (lockable) | EN, LOCK | 9, 5 |
-| `0x49`–`0x4A` | `0x4900`–`0x4A00` | WDTIME (WDTIMEL, WDTIMEH) | 2 | RW (lockable) | Milliseconds between kicks | 9, 5 |
+| `0x49`–`0x4A` | `0x4900`–`0x4A00` | WDTIME (WDTIME0, WDTIME1) | 2 | RW (lockable) | Milliseconds between kicks | 9, 5 |
 | `0x4B` | `0x4B00` | WDKICK | 1 | W (S) | `0x5A` kicks; any other value resets | 9, 5 |
 | `0x4C`–`0x4F` | | – | | | Reserved | |
 
@@ -276,9 +276,9 @@ Timer n (0–3) at register `0x28` + n × 8:
 | Offset | Name | Width | Access | Meaning | Spec |
 |--------|------|-------|--------|---------|------|
 | `+0` | TMR_CTRL | 1 | RW | EN, REPEAT, SRC, IRQ, DMA, DMACH | 9, 6 |
-| `+1`–`+2` | TMR_PRESCALE (L, H) | 2 | RW | SRC 0 divider | 9, 4.2 |
-| `+3`–`+4` | TMR_RELOAD (L, H) | 2 | RW | Loaded at each underflow when repeating | 9, 4.1 |
-| `+5`–`+6` | TMR_COUNT (L, H) | 2 | RW, CAP | The count; committing sets it at once | 9, 4.1 |
+| `+1`–`+2` | TMR_PRESCALE (TMR_PRESCALE0, TMR_PRESCALE1) | 2 | RW | SRC 0 divider | 9, 4.2 |
+| `+3`–`+4` | TMR_RELOAD (TMR_RELOAD0, TMR_RELOAD1) | 2 | RW | Loaded at each underflow when repeating | 9, 4.1 |
+| `+5`–`+6` | TMR_COUNT (TMR_COUNT0, TMR_COUNT1) | 2 | RW, CAP | The count; committing sets it at once | 9, 4.1 |
 | `+7` | TMR_STAT | 1 | W1C | UNDER | 9, 6 |
 
 ### 4.6 USB serial (`0x50`–`0x57`, `0x5C`)
@@ -342,16 +342,16 @@ Timer n (0–3) at register `0x28` + n × 8:
 | `0x7A` | `0x7A00` | I2CCMD | 1 | W (S) | START, STOP, WRITE, READ, ACK | 7, 11.2 |
 | `0x7B` | `0x7B00` | I2CSTAT | 1 | R | BUSY, NACK, ARBLOST | 7, 11.2 |
 | `0x7C` | `0x7C00` | NMICTL | 1 | RW | EN; INNMI (R). Spectrum extra | 7, 11.3 |
-| `0x7D` | `0x7D00` | NMISAVL | 1 | R | Saved window-0 read page, bits 7–0. Spectrum extra | 7, 11.3 |
-| `0x7E` | `0x7E00` | NMISAVWL | 1 | R | Saved window-0 write page, bits 7–0. Spectrum extra | 7, 11.3 |
-| `0x7F` | `0x7F00` | NMISAVH | 1 | R | Bits 9–8 of both saved pages. Spectrum extra | 7, 11.3 |
+| `0x7D` | `0x7D00` | NMISAV0 | 1 | R | Saved window-0 read page, bits 7–0. Spectrum extra | 7, 11.3 |
+| `0x7E` | `0x7E00` | NMISAVW0 | 1 | R | Saved window-0 write page, bits 7–0. Spectrum extra | 7, 11.3 |
+| `0x7F` | `0x7F00` | NMISAVHI | 1 | R | Bits 9–8 of both saved pages. Spectrum extra | 7, 11.3 |
 
 ### 4.10 MMU (`0x80`–`0x9F`)
 
 | Register | Port | Name | Width | Access | Meaning | Spec |
 |----------|------|------|-------|--------|---------|------|
-| `0x80` + 2n | `0x8000` + n × `0x200` | MMUn (MMUnL, MMUnH) | 2 | RW | Window n's read page, 10 bits; committing also sets its write page | 2, 9.2 |
-| `0x90` + 2n | `0x9000` + n × `0x200` | MMUnW (MMUnWL, MMUnWH) | 2 | RW | Window n's write page, 10 bits | 2, 9.2 |
+| `0x80` + 2n | `0x8000` + n × `0x200` | MMUn (MMUn_0, MMUn_1) | 2 | RW | Window n's read page, 10 bits; committing also sets its write page | 2, 9.2 |
+| `0x90` + 2n | `0x9000` + n × `0x200` | MMUnW (MMUnW_0, MMUnW_1) | 2 | RW | Window n's write page, 10 bits | 2, 9.2 |
 
 n = 0–7: MMU0 at `0x80`, MMU7 at `0x8E`; MMU0W at `0x90`, MMU7W at `0x9E`. While an NMI has paged the monitor in, MMU0 and MMU0W read the monitor mapping (spec 1, section 8.2).
 
@@ -363,7 +363,7 @@ Reserved for the geometry unit (design plan branch 10, spec 15, not yet written)
 
 | Register | Port | Name | Width | Access | Meaning | Spec |
 |----------|------|------|-------|--------|---------|------|
-| `0xFE` | `0xFE` with A15–A8 picking rows; `0xFE00` (all rows) | – | 1 | RW | Read: membrane rows (and PS/2 keys mapped on) selected by A15–A8, bits 4–0 active low. Write: bits 2–0 border (sets BGCOLOR), bit 4 beeper | 12, 8.1, 8.4; 4, 7.2; 7, 10.2 |
+| `0xFE` | `0xFE` with A15–A8 picking rows; `0xFE00` (all rows) | – | 1 | RW | Read: membrane rows (and PS/2 keys mapped on) selected by A15–A8, bits 4–0 active low. Write: bits 2–0 border (sets BGCOLOR and shows at once, mid-line), bit 4 beeper | 12, 8.1, 8.4; 4, 7.2; 7, 10.2 |
 
 ## 5. Custom block
 
@@ -587,7 +587,6 @@ As in retro68k, every register, field, layout and named number is kept in **`fpg
 ```
 block  NAME PAGE SIZE "text"                    the system page, the custom block
 reg    OFFSET NAME WIDTH ACCESS SPEC [fields]   a register of WIDTH bytes (1-4) in the current block
-bytes  NAME B0 B1 ...                           its byte names, where a spec gives them (default NAME0, NAME1 ...)
 regs   NAME COUNT OFFSET WIDTH ACCESS SPEC      NAME0..NAME(COUNT-1), WIDTH bytes apart
 array  NAME COUNT OFFSET STRIDE SPEC ... end    a repeated group (L, SPR, TMR, DMX, MMU)
 area   NAME OFFSET SIZE ACCESS SPEC             a table in the register page (palettes, KEYROW)
@@ -621,7 +620,7 @@ port SERDATA 0x53 0x53
 - **Register names.** A system register's name is its **register number**, which is also its register page offset (`INTID` = `0x0C`, `SYSID` = `0x70`): `ld a,INTID` then `in a,(SYSPAGE)`, or `REGS + INTID` through the register page. A custom register's name is its **custom offset**, which copper lists use (`CMOVE BGCOLOR,0`) and the register page uses (`REGS + REGS_CUSTOM + BGCOLOR`).
 - **Ports.** `name_P` is the register's port, for `ld bc,name_P` and `OUT (C),r`: register × 256 for the system page (`SYSID_P` = `0x7000`), (offset & `0xFF`) << 8 | `0x10` + (offset >> 8) for the custom block (`BGCOLOR_P` = `0x0410`). Low-byte-only ports also get their bare port (`SERDATA_PORT` = `0x53`, `KEMPSTON_PORT` = `0x1F`, `ULA_PORT` = `0xFE`). `SYSPAGE` = `0x00` and `CUSTPAGE` = `0x10` are the pages.
 - **Widths.** Every register has `name_N`, its width in bytes (spec 6's `CMOVEN` uses it).
-- **Byte names.** Each byte of a multi-byte register has a name too, with its own `_P`: the spec's names where it gives them (`MMU0L`, `MMU0H`, `TMR0_COUNTL`, `SDCON1`, `SPRDMA1`), otherwise `name0`, `name1` … (`TIME0`–`TIME3`, `SPR0_PT0`).
+- **Byte names.** Each byte of a multi-byte register has a name too, with its own `_P`: the register's name and the byte's number, lowest first: NAME0, NAME1, NAME2, NAME3 (`TIME0`–`TIME3`, `SDCON1`, `SPRDMA1`, `WDTIME1`, `TMR0_COUNT0`, `SPR0_PT0`, `L1_BPL0PT2`, `DMX2_CHDESC0`). Where the name ends in a digit, or in an index and a letter (the MMU's `MMU0` and `MMU0W`), an underscore goes before the byte's number so that it cannot be read as part of the name: `MMU0_0`, `MMU0_1` (read page), `MMU0W_0`, `MMU0W_1` (write page). Every spec uses these names; there are no L/H byte names. Separate byte registers (section 3.1) keep their own names: CTRL0–CTRL3, INTENA0–2, SERSTAT0 and SERSTAT1, SPRCOLL0–3, KEYMAP0–6, and NMISAV0, NMISAVW0 and NMISAVHI (spec 7, section 11.3).
 - **Fields** give `name_FIELD_B` (first bit), `name_FIELD_W` (width in bits) and `name_FIELD_M` (mask), as retro68k's. Magic values are constants (`SYSRESET_MAGIC`, `WDKICK_MAGIC`).
 - **Arrays** give the bases (`L0`–`L2`; `SPR0`–`SPR7`; `TMR0`–`TMR3`; `DMX0`–`DMX3`; `MMU0`–`MMU7`), `NAME_NUM` and `NAME_SPAN`, the offsets within the group (`L_BPL0PT`, `SPR_H`, `TMR_COUNT`, `DMX_CHCTRL`), and ready-added names with their ports (`L1_BPL0PT`, `L1_BPL0PT_P`, `TMR2_COUNT`, `DMX2_CHCTRL_P`).
 - **Register page:** `REGS_SYSTEM` = `0x0000`, `REGS_KEYROW` = `0x0100`, `REGS_CUSTOM` = `0x1000`, `REGS_PALETTE` = `0x1400`, `REGS_PAL_SPAN` = `0x300`.
@@ -639,7 +638,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 3. **Reset values:** every register reads its spec's reset value after reset.
 4. **Multi-byte writes:** for each multi-byte register, writing a lower byte alone changes nothing; writing the highest byte commits the bytes written since the last commit and keeps the current value of the others; an interrupt-style write to another register between the two bytes changes nothing; a copper write and a DMA channel's write between the CPU's bytes disturb nothing, and each other's latches stay apart.
 5. **Captures:** for each register of rule 4, the value read low byte first while the register changes is always a value it really had; higher bytes read alone return the last capture; a DMA job's capture is separate from the CPU's; SERSTAT0 and SERSTAT1 read live.
-6. **Exceptions:** each row of section 3.1 behaves as its spec says: set/clear bytes, unlatched groups, PALDAT stepping and its byte order reset, data ports taking exactly one byte through a port and through the register page, MMUnH setting the write page, restarts, locks, busy writes ignored.
+6. **Exceptions:** each row of section 3.1 behaves as its spec says: set/clear bytes, unlatched groups, PALDAT stepping and its byte order reset, data ports taking exactly one byte through a port and through the register page, a port `0xFE` border write showing mid-line while a BGCOLOR write waits for the next line's picture, MMU0_1 to MMU7_1 setting the write page, restarts, locks, busy writes ignored.
 7. **Register bus:** a copper write in the same clock as a CPU strobe goes first and the CPU's access still completes in time; a DMA engine access waits for both and never delays them; with all three busy, no access is lost.
 8. **Copper reach:** MOVE reaches `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF` (writes to `0x0F0`–`0x0FF` ignored), MOVEF `0x000`–`0x3FF`; nothing the copper does reaches the system page.
 9. **DMA engine reach:** jobs read and write the custom block and the palettes at `0x7F1000`–`0x7F1FFF`, read the boot ROM, and stop with an error on the system page and KEYROW (`0x7F0000`–`0x7F0FFF`).
@@ -659,7 +658,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) and interrupt 19 are reserved for spec 15; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |
 | R9 | COP2LC changes by itself only at a frame restart with COPCON.RESUME (spec 6, section 6.5), so it has no capture; a CPU that reads it while a background list runs may see a mixed value. Read it while the copper runs the idle list |
-| R10 | Byte names differ between specs: L/H for 2-byte registers in specs 2 and 9 (MMUnL, TMR_COUNTL, WDTIMEL), 0/1/2/3 in specs 5, 9, 10 and 11 (SPRxPT0, TIME0, SERSTAT0, SDCON0, SDCOUNT0). The generator takes each spec's names (section 8). Proposed: keep them; unify on 0/1/2/3 if the user prefers |
+| R10 | Closed: byte names are digits everywhere (design plan, branch 11). A multi-byte register's bytes are NAME0–NAME3, lowest first, with an underscore before the digit where the name ends in a digit or an index (`MMU0_0`, `MMU0W_1`); the L/H names of specs 2 and 9 are gone (section 8). The generator makes every byte name from the rule, so `regmap.def` has no `bytes` line |
 | R11 | CHDESC changes by itself as a chain runs, so this spec makes it capture on a read of its low byte (rule 4; spec 14, section 8.1). CHERR is set only when a channel stops, so it needs no capture. Proposed: as written |
 | R12 | PALDAT is a custom register, so `OTIR` cannot stream a palette (B is the register number). Making it a sixth low-byte-only port would let it (spec 4, V4) |
-| R13 | The DMA engine's port jobs move bytes through SERDATA and SDDATA on the register bus, paced by each unit's ready signal (spec 1, section 4.2; specs 10, 11, 14). If the build finds a direct port path simpler, only the bus master list changes |
+| R13 | Closed (design plan, branch 11): the DMA engine's port jobs move bytes through SERDATA and SDDATA on the register bus, paced by each unit's ready signal (spec 1, section 4.2; specs 10, 11, 14); there is no direct port path. The engine reads the boot ROM through the ROM's second block RAM port, not the register bus (section 3.2) |

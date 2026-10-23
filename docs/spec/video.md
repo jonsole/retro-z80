@@ -417,7 +417,8 @@ These are retro68k's rules. A value wider than a byte takes effect when its high
 |-----------|-------------|
 | CTRL0–CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL (section 7.1) | At the start of the horizontal blank before each line (beam pixel 0). **To change line L, write during the visible part of line L − 1 or earlier** |
 | BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the pointer's saved line start; a CPU or copper write wins over the fetcher's own change in the same clock. BPLSTRIDE is used with the line's last fetch (section 4.4) |
-| PRIO, BGCOLOR (and port `0xFE`, section 7.2) | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes that line |
+| PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes that line |
+| Port `0xFE` border bits (section 7.2) | At once: from the pixel being shown, about 10–60 ns after the write (a Spectrum extra) |
 | VIDCON, palette entries | At once (the next pixel) |
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once (DMACON stops or starts the next fetch) |
 
@@ -597,7 +598,8 @@ As on a Spectrum, a write to port `0xFE` sets the border colour, which here is t
 
 - The write sets all three bytes of BGCOLOR at once, as a BGCOLOR commit does; BGCOLOR then reads back the new value. The CPU's held BGCOLOR bytes are not changed.
 - BGCOLOR and port `0xFE` set the same register, so the later write wins. A program that wants other border colours (BRIGHT ones, say) writes BGCOLOR.
-- BGCOLOR is read at the start of each line's picture (section 5.6), so border changes land on whole lines. A Spectrum program that changes the border in the middle of a line (a tape loader's stripes) shows the change from the next line (open point V7).
+- **A port `0xFE` write acts at once**, as on a Spectrum, so a program that changes the border in the middle of a line (a tape loader's stripes) shows the change in the middle of the line. The write sends the colour to the pixel side as well as to BGCOLOR: the 3 bits cross as a toggle through two flip-flops at 135 MHz, as "full" does (section 5.7, 7–22 ns), and the pixel side takes the colour at its next pixel (up to 37 ns). So the new colour shows from the pixel being shown about 10–60 ns after the write reaches the register bus, one or two pixels late. At the start of the next line's picture the pixel side reads BGCOLOR as usual, which holds the same colour.
+- **BGCOLOR written as a register keeps retro68k's rule**: it is read at the start of each line's picture (section 5.6), so its changes land on whole lines. This holds for the CPU, the copper and the DMA engine. A port `0xFE` write after a BGCOLOR write in the same line shows at once; a BGCOLOR write after a port `0xFE` write shows from the next line's picture.
 - The background shows wherever no layer and no sprite is opaque. With the Spectrum screen of section 7.3 (TRANSP clear) that is everywhere outside the 256 × 192 window, as a Spectrum's border.
 - The copper cannot write port `0xFE`; it writes BGCOLOR.
 
@@ -673,7 +675,7 @@ The sprites' FIFOs are spec 5's.
 - **Order:** every PRIO value, including a layer left out and the reset value; sprites of each DEPTH against opaque and transparent pixels of each layer; PRI tiles over all layers and DEPTH 1–3 sprites, under DEPTH 0 sprites, and PRI tiles of two layers in PRIO's order.
 - **Register timing:** each line setting committed just before and just after beam pixel 0 acts on line L and on line L + 1; PRIO and BGCOLOR written in the horizontal blank change that line; palette writes land at the next pixel; CTRL1 written alone changes only its fields; BPLSTRIDE acts with the line's last fetch.
 - **Palettes:** PALIDX/PALDAT write and read every entry of the four palettes, the index steps across palettes after the red byte, a blue or green write alone changes nothing; the register page offsets do the same without touching PALIDX; `LDIR` loads a palette; the default palette after configuration, and unchanged by reset.
-- **Border:** `OUT (0xFE),A` with each of the 8 values sets BGCOLOR to the table's colour from the next line's picture; BGCOLOR and port `0xFE` writes in either order, the later wins.
+- **Border:** `OUT (0xFE),A` with each of the 8 values sets BGCOLOR to the table's colour, shown from the pixel being shown 10–60 ns after the write, with the pixel clock at many phases; writes every few microseconds through a line give stripes that change mid-line, as a tape loader's; a BGCOLOR write mid-line shows from the next line's picture; BGCOLOR and port `0xFE` writes in either order, the later wins, and BGCOLOR reads back the later value.
 - **Spectrum screen:** a .scr file shown through the copper's pointer writes (both ways of section 7.3) and the attribute layer, against the model; flash every 16 frames.
 - **Budget:** each example of section 5.4 that fits, with the CPU at 20 MHz making random accesses, the copper and the DMA engine running, and sprites: no OVERRUN. Find how far beyond 1.48 bytes per pixel tile and bitmap screens go without OVERRUN, also at 25 MHz (open point V9). An over-budget screen sets the right OVERRUN bit and shows transparent pixels only for the late groups.
 - **Beam and interrupts:** BEAMPOS reads are consistent and match the display beam; VBLANK and LINE fire at the right positions; FRAMECOUNT counts; INVBLANK; flags clear on writing 1; the request follows VIDSTAT and VIDINTEN.
@@ -691,7 +693,7 @@ The sprites' FIFOs are spec 5's.
 | V4 | PALDAT is a register in the custom page, so `OTIR` cannot stream a palette (B is the register number). Making PALDAT also a low-byte-only stream port, as SERDATA is, would let it |
 | V5 | The data registers are not visible and there is no BPLDMA, so a layer cannot be fed by the CPU or copper. BPLDMA and BPL0DAT would fit at `+0x12`–`+0x13` for 1-bit fed layers only |
 | V6 | Closed: 1-bit tile rows take a whole memory cycle each, as 2-bit ones; packed 1-bit rows are deferred (branch 11) |
-| V7 | Port `0xFE` border changes land on whole lines, since BGCOLOR is read at the start of each line's picture (retro68k's rule). Mid-line stripes would need BGCOLOR to cross to the pixel side per pixel |
+| V7 | Closed: port `0xFE` border writes act at once, from the pixel being shown after the crossing (10–60 ns), so mid-line stripes work as on a Spectrum (section 7.2). BGCOLOR written as a register keeps retro68k's rule, at the start of each line's picture |
 | V8 | PRI tile pixels of two layers are ordered by PRIO. The previous draft had L0's in front of L1's |
 | V9 | Measure in simulation how far beyond 1.48 bytes per pixel a screen fits, with tile layers and without taking the CPU's cycles (section 5.4), at 20 and 25 MHz |
 | V10 | MAPPT, PATPT and SCROLLY are line settings, read at beam pixel 0 like CTRL, not live like BPL0PT: a write mid-line changes the next line, never the rest of the current one |

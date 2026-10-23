@@ -240,6 +240,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 9 | [Timers](spec/timers.md) | Draft |
 | 10 | [USB serial](spec/serial.md) | Draft |
 | 11 | [SD card](spec/sd-card.md) | Draft |
+| 11 | Review | Sprite HSTART unsigned, as retro68k's RTL. Port `0xFE` border writes act immediately (mid-line stripes; a Spectrum extra); BGCOLOR written as a register keeps retro68k's line-start rule. Byte names are digits everywhere (NAME0, NAME1 …; `MMU0_0` where the name ends in a digit). The DMA engine reads the boot ROM through its second block-RAM port; port jobs move bytes over the register bus, paced by the unit |
 | 12 | [Input](spec/input.md) | Draft |
 | 13 | Sound | Waiting for Q1 |
 | 14 | [DMA engine](spec/dma-engine.md) | Draft |

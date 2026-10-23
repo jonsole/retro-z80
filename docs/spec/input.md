@@ -297,12 +297,12 @@ The **mapper** watches the bytes the PS/2 receiver takes, before the FIFO, so it
 
 | Bit | Spectrum use | Here |
 |-----|--------------|------|
-| 2–0 | Border colour | BGCOLOR is set to that Spectrum colour at level `0xD7` (spec 4) |
+| 2–0 | Border colour | BGCOLOR is set to that Spectrum colour at level `0xD7`, **at once**: the screen shows it from the pixel being shown, about 10–60 ns after the write, so mid-line stripes work as on a Spectrum (spec 4, section 7.2) |
 | 3 | MIC (tape out) | Ignored |
 | 4 | EAR (beeper) | The beeper (spec 7) |
 | 7–5 | Unused | Ignored |
 
-Every write sets both the border and the beeper. The page form (port `0xFE00`, register page offset `0x00FE`) takes the same writes.
+Every write sets both the border and the beeper. The page form (port `0xFE00`, register page offset `0x00FE`) takes the same writes, with the same timing. BGCOLOR written as a register keeps retro68k's rule and changes from the start of the next line's picture (spec 4, section 5.6).
 
 ### 8.5 Kempston port 0x1F
 
@@ -326,7 +326,7 @@ Port `0x1F` reads **joystick 1**: the same value as JOY1, at the same moment. Wr
 - **PS/2 mapper:** every key in the table of section 8.3, pressed and released, sets and clears its Spectrum key(s) on port `0xFE` and KEYROW0–7; `E0` keys are told from plain ones (cursor up against keypad 8); fake shifts are ignored; two PS/2 keys giving one Spectrum key keep it held until both are released; `AA`, PS2MAP = 0 and reset clear every held bit; the mapper works with KBCON.EN = 0 and with a full FIFO; KEYMAP0–6 never change.
 - **Membrane, simulation:** a matrix model with keys held: KEYMAP0–6 show every key at its row and column; bounce shorter than the debounce time is ignored.
 - **Joysticks:** a model of both ports through the multiplexer: every direction and button on each port; Atari sticks, Mega Drive 3-button and 6-button pad models; MDPRESn and SIXn; X, Y, Z and MODE in JOYnX; select stays high for at least 1.5 ms between bursts; Kempston bit order.
-- **Spectrum extras:** each of the 8 row addresses reads the right bits on port `0xFE`; several rows selected at once combine; `IN A,(0xFE)` and `IN A,(C)` with every value of A15–A8; ports whose low byte is not `0xFE` never read the keyboard, except the page form `0xFE00` (all rows); with KXMAP each extra key gives its pair, with KXMAP = 0 it does not; KEYROW0–7 match port `0xFE`; EAR6 reaches bit 6. Port `0x1F` with every high byte, `0x1F00` and offset `0x001F` equal JOY1 for every direction and button; writes to `0x1F` change nothing. Port `0xFE` writes reach the border (spec 4) and beeper (spec 7) logic.
+- **Spectrum extras:** each of the 8 row addresses reads the right bits on port `0xFE`; several rows selected at once combine; `IN A,(0xFE)` and `IN A,(C)` with every value of A15–A8; ports whose low byte is not `0xFE` never read the keyboard, except the page form `0xFE00` (all rows); with KXMAP each extra key gives its pair, with KXMAP = 0 it does not; KEYROW0–7 match port `0xFE`; EAR6 reaches bit 6. Port `0x1F` with every high byte, `0x1F00` and offset `0x001F` equal JOY1 for every direction and button; writes to `0x1F` change nothing. Port `0xFE` writes reach the border (spec 4) and beeper (spec 7) logic; a border write mid-line changes the colour mid-line, 10–60 ns later, through the port, `0xFE00` and offset `0x00FE` alike (spec 4's border tests).
 - **On the board:** every membrane key, including the 16 extra keys; a few PS/2 keyboards (every key, lights, plugged in while running: `AA` arrives; a Spectrum game played on PS/2); Atari sticks and Mega Drive 3- and 6-button pads in both ports; a Spectrum game's keyboard and Kempston code unchanged (when it uses ports `0xFE` and `0x1F`).
 
 ## 10. Open points
@@ -338,7 +338,7 @@ Pin facts checked in retro68k's KS3 files: the Multiface, DivMMC and reset butto
 | K1 | Positions of the 16 extra keys in matrix columns 5–6, and the row/column numbering of `keyb_row_o` / `keyb_col_i`, from the Next's keyboard code (`membrane` module) |
 | K2 | Pin locations of `keyb_row_o[7:0]`, `keyb_col_i[6:0]`, `ps2_clk`, `ps2_data` (not in retro68k's pin file yet). Whether the row outputs must be open drain to avoid shorting two rows when two keys in one column are pressed |
 | K3 | Scan and debounce times (64 µs per row, two agreeing scans) to be checked on the real membrane, which is slow to settle |
-| K4 | Closed: port `0xFE` writes set the border with bits 2–0 (spec 4) and the beeper with bit 4 (spec 7); MIC is ignored |
+| K4 | Closed: port `0xFE` writes set the border with bits 2–0 (spec 4) and the beeper with bit 4 (spec 7); MIC is ignored. Border writes act at once, so mid-line stripes work (spec 4, V7) |
 | K5 | Closed: PS/2 keys also show on port `0xFE` (branch 11), through the mapper of section 8.3, turned off with KEYCON.PS2MAP |
 | K6 | Should port `0xFE` bit 6 have a better default for games that test it (issue 2 / issue 3 behaviour)? KEYCON.EAR6 lets software choose |
 | K7 | Some USB keyboards also speak PS/2 through a passive adapter; most new ones don't. List keyboards known to work (retro68k's K3) |

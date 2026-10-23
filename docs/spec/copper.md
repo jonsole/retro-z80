@@ -566,7 +566,7 @@ So at 2× the copper can change a pixel register at every cell at PRI 1, if spec
 
 ## 9. Spectrum extras
 
-The copper has no Spectrum extras of its own. It reaches the attribute layer (custom `0x130`–`0x13F`, spec 4) only with MOVEF, two words per byte. It cannot reach port `0xFE`: to change the border colour it writes BGCOLOR, which `0xFE` also sets (spec 4). The Spectrum screen layout is a copper list (section 8.1).
+The copper has no Spectrum extras of its own. It reaches the attribute layer (custom `0x130`–`0x13F`, spec 4) only with MOVEF, two words per byte. It cannot reach port `0xFE`: to change the border colour it writes BGCOLOR, which `0xFE` also sets (spec 4). A BGCOLOR write shows from the start of a line's picture, not mid-line as a port `0xFE` write does (spec 4, section 7.2). The Spectrum screen layout is a copper list (section 8.1).
 
 ## 10. FPGA resources
 

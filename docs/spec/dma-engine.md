@@ -174,6 +174,8 @@ A program finds the physical address of something it has mapped from the window'
 
 When a port isn't ready, that channel waits and the other channels keep running. Port addresses don't move on.
 
+A port job moves each byte over the register bus, through SDDATA (port 0) or SERDATA (port 1), one clock per byte like any register access, paced by the unit's ready signal (spec 3, section 3.2). There is no separate port path. The boot ROM is read through the ROM's second block RAM port, not the register bus (spec 2, section 2). Both paths are decided (design plan, branch 11; spec 3, R13).
+
 **The engine and the CPU** share memory with no locks. The CPU should not use an area while a job writes it. A CPU write made before the write that starts a channel is in memory before the engine's first read (spec 1).
 
 ## 5. Memory cycles and priority

@@ -159,7 +159,7 @@ Every unit decodes rb_addr, so one address names a register however it is reache
 |-------|--------|-----------------|------|
 | 1 | **Copper** | Writes only: custom offsets (rb_addr `0x1000`–`0x13FF`), `0x000`–`0x0EF` by MOVE, any by MOVEF | 6 |
 | 2 | **CPU** (this bus interface) | Everything: I/O cycles and register page accesses | – |
-| 3 | **DMA engine** | Reads and writes of the custom block, the palettes (`0x1400`–`0x1FFF`) and the stream registers SERDATA and SDDATA for its port jobs; spec 14 lists what a job may name and stops a channel that names anything else | 14 |
+| 3 | **DMA engine** | Reads and writes of the custom block, the palettes (`0x1400`–`0x1FFF`) and the stream registers SERDATA and SDDATA for its port jobs, paced by each unit's ready signal; spec 14 lists what a job may name and stops a channel that names anything else | 14 |
 
 - The copper goes first, so its writes always land on their pixel. It writes at most once every 2 clocks (spec 6), so the CPU's strobe moves at most one clock, which every CPU access has room for (sections 5.7 and 6).
 - The DMA engine waits a clock whenever the copper or the CPU has the bus. It never delays either of them.
@@ -392,7 +392,7 @@ The acknowledge cycle uses no memory cycle and no wait states.
 
 nmi_n comes from the interrupt controller, which drives it from the Multiface button and the USB serial BREAK command, as NMICON allows; NMISTAT says which (spec 8, spec 10). The core takes a falling edge, finishes the instruction, runs the NMI response (a dummy M1 and two writes that push PC) and then fetches the opcode at `0x0066`. The dummy M1 is an ordinary read (section 5); its byte is ignored.
 
-The rest of this section is a Spectrum extra, outside the retro68k-shaped core. Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers are NMICTL, NMISAVL, NMISAVWL and NMISAVH, registers `0x7C`–`0x7F` of page `0x00` (ports `0x7C00`–`0x7F00`), and the monitor itself is in spec 7. The bus interface keeps the flag **INNMI** (read in NMICTL) and an ED-prefix flag.
+The rest of this section is a Spectrum extra, outside the retro68k-shaped core. Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers are NMICTL, NMISAV0, NMISAVW0 and NMISAVHI, registers `0x7C`–`0x7F` of page `0x00` (ports `0x7C00`–`0x7F00`), and the monitor itself is in spec 7. The bus interface keeps the flag **INNMI** (read in NMICTL) and an ED-prefix flag.
 
 **Entry.** While NMICTL.EN = 1 and INNMI = 0:
 

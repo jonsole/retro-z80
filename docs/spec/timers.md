@@ -79,9 +79,9 @@ So a timer with COUNT = n underflows after n + 1 ticks, and a repeating timer wi
 
     period = (PRESCALE + 1) × (RELOAD + 1) ÷ 100 MHz
 
-- **Writing COUNT** sets it at once (when COUNTH is written; spec 3's multi-byte rule).
+- **Writing COUNT** sets it at once (when COUNT1 is written; spec 3's multi-byte rule).
 - **Writing RELOAD** changes nothing until the next underflow, so a repeating timer's period can be changed while it runs without one odd period.
-- **Reading COUNT:** reading COUNTL captures the whole count, and the next COUNTH read returns the high byte of the same capture. Each timer has its own capture. Read COUNTL first.
+- **Reading COUNT:** reading COUNT0 captures the whole count, and the next COUNT1 read returns the high byte of the same capture. Each timer has its own capture. Read COUNT0 first.
 - **Starting:** when CTRL.EN goes from 0 to 1, the timer's prescaler starts again from the beginning, so the first period at SRC 0 is as long as the others. Line and frame ticks are shared by the machine, so at SRC 1 and 2 the first tick comes at the next line or frame start.
 - **Stopping:** writing CTRL.EN = 0 stops the timer and keeps COUNT; setting EN again carries on from there.
 - STAT.UNDER is set at every underflow, even with CTRL.IRQ off, so software can poll a timer without taking interrupts.
@@ -138,24 +138,24 @@ tick_on:
         ld   b,TMR0_STAT
         ld   a,TMR_STAT_UNDER_M
         out  (c),a                   ; 2. no old underflow
-        ld   b,TMR0_PRESCALEL
+        ld   b,TMR0_PRESCALE0
         ld   a,99
         out  (c),a                   ; 3. 100 MHz / 100 = 1 MHz
         inc  b
         xor  a
-        out  (c),a                   ;    PRESCALEH: commits
+        out  (c),a                   ;    PRESCALE1: commits
         inc  b
         ld   a,low 999
-        out  (c),a                   ;    RELOADL: 1000 ticks a period
+        out  (c),a                   ;    RELOAD0: 1000 ticks a period
         inc  b
         ld   a,high 999
-        out  (c),a                   ;    RELOADH: commits
+        out  (c),a                   ;    RELOAD1: commits
         inc  b
         ld   a,low 999
-        out  (c),a                   ;    COUNTL: the first period too
+        out  (c),a                   ;    COUNT0: the first period too
         inc  b
         ld   a,high 999
-        out  (c),a                   ;    COUNTH: commits
+        out  (c),a                   ;    COUNT1: commits
         ld   b,INTENA0+INTR_TIMER0
         ld   a,INTENA_SETCLR_M|(1<<INTB_TIMER0)
         out  (c),a                   ; 4. the controller's enable (spec 8)
@@ -215,23 +215,23 @@ Registers of the system page `0x00` (spec 3): port = (register << 8) | `0x00`, w
 | Offset | Name | Access | Bits | Reset | Description |
 |--------|------|--------|------|-------|-------------|
 | `+0` | TMR_CTRL | RW | EN (0), REPEAT (1), SRC (3–2), IRQ (4), DMA (5), DMACH (7–6) | `0x00` | Running (cleared by a one-shot underflow); repeating; source (section 4.2); interrupt request while UNDER; start DMA engine channel DMACH at underflow (section 4.5) |
-| `+1` | TMR_PRESCALEL | RW | 7–0 | `0x00` | PRESCALE bits 7–0 (latched) |
-| `+2` | TMR_PRESCALEH | RW | 7–0 | `0x00` | PRESCALE bits 15–8; commits. SRC 0 ticks at 100 MHz ÷ (PRESCALE + 1) |
-| `+3` | TMR_RELOADL | RW | 7–0 | `0x00` | RELOAD bits 7–0 (latched) |
-| `+4` | TMR_RELOADH | RW | 7–0 | `0x00` | RELOAD bits 15–8; commits. Loaded into COUNT at each underflow in repeating mode |
-| `+5` | TMR_COUNTL | RW | 7–0 | `0x00` | Write: COUNT bits 7–0 (latched). Read: captures COUNT, returns bits 7–0 |
-| `+6` | TMR_COUNTH | RW | 7–0 | `0x00` | Write: commits COUNT. Read: bits 15–8 of the capture |
+| `+1` | TMR_PRESCALE0 | RW | 7–0 | `0x00` | PRESCALE bits 7–0 (latched) |
+| `+2` | TMR_PRESCALE1 | RW | 7–0 | `0x00` | PRESCALE bits 15–8; commits. SRC 0 ticks at 100 MHz ÷ (PRESCALE + 1) |
+| `+3` | TMR_RELOAD0 | RW | 7–0 | `0x00` | RELOAD bits 7–0 (latched) |
+| `+4` | TMR_RELOAD1 | RW | 7–0 | `0x00` | RELOAD bits 15–8; commits. Loaded into COUNT at each underflow in repeating mode |
+| `+5` | TMR_COUNT0 | RW | 7–0 | `0x00` | Write: COUNT bits 7–0 (latched). Read: captures COUNT, returns bits 7–0 |
+| `+6` | TMR_COUNT1 | RW | 7–0 | `0x00` | Write: commits COUNT. Read: bits 15–8 of the capture |
 | `+7` | TMR_STAT | W1C | UNDER (0) | `0x00` | The timer has underflowed; sticky. Bits 7–1 read 0 |
 
-Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` … `0x40`), `TMR_NUM` = 4, `TMR_SPAN` = 8, the offsets `TMR_CTRL` … `TMR_STAT`, the combined names `TMR0_CTRL`, `TMR2_COUNTL` and so on (register numbers), and `TMR0_CTRL_P` and so on (ports).
+Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` … `0x40`), `TMR_NUM` = 4, `TMR_SPAN` = 8, the offsets `TMR_CTRL` … `TMR_STAT`, the combined names `TMR0_CTRL`, `TMR2_COUNT0` and so on (register numbers), and `TMR0_CTRL_P` and so on (ports).
 
 **Watchdog:**
 
 | Register | Port | Name | Access | Bits | Reset | Description |
 |----------|------|------|--------|------|-------|-------------|
 | `0x48` | `0x4800` | WDCTRL | RW (lockable) | EN (0), LOCK (1) | `0x00` | On; settings read-only until reset. Writing restarts the time. Bits 7–2 read 0 |
-| `0x49` | `0x4900` | WDTIMEL | RW (lockable) | 7–0 | `0xE8` | WDTIME bits 7–0 (latched) |
-| `0x4A` | `0x4A00` | WDTIMEH | RW (lockable) | 7–0 | `0x03` | WDTIME bits 15–8; commits. Milliseconds between kicks (1000 after reset) |
+| `0x49` | `0x4900` | WDTIME0 | RW (lockable) | 7–0 | `0xE8` | WDTIME bits 7–0 (latched) |
+| `0x4A` | `0x4A00` | WDTIME1 | RW (lockable) | 7–0 | `0x03` | WDTIME bits 15–8; commits. Milliseconds between kicks (1000 after reset) |
 | `0x4B` | `0x4B00` | WDKICK | W | 7–0 | – | `0x5A` restarts the time; any other value resets at once (while EN). Reads `0x00` |
 | `0x4C`–`0x4F` | `0x4C00`–`0x4F00` | – | – | – | – | Reserved |
 
@@ -255,8 +255,8 @@ Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` �
 - **Rates:** each SRC on each timer, several PRESCALE values; a repeating timer with RELOAD n underflows every n + 1 ticks; measured in simulation against the system clock (1 µs = 100 clocks, line = 3,200, frame = 2,000,000).
 - **Beam:** the SRC 1 tick comes with the LINE event at the same display beam line, the SRC 2 tick with VIDSTAT.VBLANK.
 - **One-shot:** underflows once, clears EN, leaves COUNT = 0.
-- **Writes:** COUNT changes when COUNTH is written; RELOAD changes take effect at the next underflow only; the first SRC 0 period after EN is full length.
-- **Reads:** COUNTL then COUNTH while the count crosses a high-byte boundary gives a consistent value.
+- **Writes:** COUNT changes when COUNT1 is written; RELOAD changes take effect at the next underflow only; the first SRC 0 period after EN is full length.
+- **Reads:** COUNT0 then COUNT1 while the count crosses a high-byte boundary gives a consistent value.
 - **Chaining:** each timer with SRC 3 counts the one before it (timer 0 counts timer 3), only while that timer runs; the 1-second example works.
 - **Interrupts and polling:** UNDER is set with IRQ off; with IRQ on, each timer gives its own vector and the request drops when UNDER is cleared.
 - **DMA start:** with CTRL.DMA, an underflow starts channel DMACH (each of 0–3) as a CPU START would, with no CPU work; it is ignored while that channel is busy.

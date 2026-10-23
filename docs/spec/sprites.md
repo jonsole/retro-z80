@@ -61,6 +61,8 @@ In beam coordinates (spec 4: the picture is pixels 144–863, lines 49–624):
 | SPRxV | 10–0 | VSTART | First beam line of the sprite (0–624; 625 or more: not shown). Lines before 49 are in the vertical blank: fetched, not shown |
 | SPRxV | 26–16 | VSTOP | Beam line just after the sprite (above 625 counts as 625) |
 
+All four are unsigned 11-bit beam positions, as retro68k's RTL and guide (open point S3).
+
 The image's size follows from the window and the scale (section 3.4): **source width** = ⌈(HSTOP − HSTART) × XSTEP ÷ 2048⌉ pixels and **source height** = ⌈(VSTOP − VSTART) × YSTEP ÷ 2048⌉ lines. At normal size (step `0x0800`) the image is the window's size. A source line is stored in whole words: ⌈source width × BPP ÷ 16⌉ words, twice that in bytes. If HSTOP is not above HSTART, or VSTOP not above VSTART, the window is empty and the sprite does not show. After reset every window is empty.
 
 A sprite shows inside its window once per frame. To hide it, turn its DMA off (section 4.4), or set VSTART to 625 or more.
@@ -426,7 +428,7 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 |---|------|
 | S1 | Measure how many stacked sprites each layer set-up allows (section 5), in simulation, as retro68k's S1. Also measure how much the CPU's spare cycle adds at 20 MHz |
 | S2 | Whether the sprites' share of the free cycles should be limited, so that a screen full of sprites cannot starve the copper at PRI 0 and the DMA engine (retro68k's S2, which worries about its CPU instead) |
-| S3 | **For the user: HSTART signed or unsigned?** The design plan (branch 11) says "signed HSTART, as retro68k". That was agreed before it was found that retro68k is not signed as built: only its spec 9 register table says "HSTART (11–0), HSTOP (27–16), signed"; its section 3, its guide and its RTL (`sprites.v`) use unsigned 11-bit beam positions (10–0, 26–16). Unsigned positions already let a sprite hang 144 pixels off the left edge, since the picture starts at beam pixel 144. This spec follows the RTL (unsigned). Choices: (a) unsigned, as built, and retro68k's table corrected (proposed); (b) signed in both machines, which changes retro68k's RTL and lets a sprite start further left than beam pixel 0 |
+| S3 | Closed: HSTART is unsigned, as retro68k's RTL and guide; retro68k's register table, which says "signed", should be corrected. All four window positions are unsigned 11-bit beam positions (10–0, 26–16). A sprite can still hang 144 pixels off the left edge, since the picture starts at beam pixel 144 |
 | S4 | Closed: PRI tile pixels go in front of DEPTH 1–3 sprites and behind DEPTH 0 (spec 4, section 4.8) |
 | S5 | SPRxPT reads give the start of the image line being fetched (retro68k's RTL); retro68k's spec text says "the next word". Proposed: as the RTL; retro68k's text to be corrected |
 | S6 | With no manual mode, a sprite whose DMA is turned off mid-frame shows the words left in its FIFO (section 4.4), as retro68k's RTL. Hiding it at once would need a gate on the pixel side (a few LUTs). Proposed: as built |

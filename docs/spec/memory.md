@@ -270,23 +270,23 @@ Each page register is 2 bytes (spec 3, multi-byte rule):
 
 | Register | Port | Name | Access | Bits | Meaning | Reset |
 |----------|------|------|--------|------|---------|-------|
-| `0x80` + 2n | `0x8000` + 0x200n | MMUnL | RW | 7–0 | Read page bits 7–0 (latched) | Section 9.4 |
-| `0x81` + 2n | `0x8100` + 0x200n | MMUnH | RW | 1–0 | Read page bits 9–8; writing commits the read page **and** the write page | Section 9.4 |
+| `0x80` + 2n | `0x8000` + 0x200n | MMUn_0 | RW | 7–0 | Read page bits 7–0 (latched) | Section 9.4 |
+| `0x81` + 2n | `0x8100` + 0x200n | MMUn_1 | RW | 1–0 | Read page bits 9–8; writing commits the read page **and** the write page | Section 9.4 |
 | | | | | 7–2 | Unused: read 0 | |
-| `0x90` + 2n | `0x9000` + 0x200n | MMUnWL | RW | 7–0 | Write page bits 7–0 (latched) | Section 9.4 |
-| `0x91` + 2n | `0x9100` + 0x200n | MMUnWH | RW | 1–0 | Write page bits 9–8; writing commits the write page only | Section 9.4 |
+| `0x90` + 2n | `0x9000` + 0x200n | MMUnW_0 | RW | 7–0 | Write page bits 7–0 (latched) | Section 9.4 |
+| `0x91` + 2n | `0x9100` + 0x200n | MMUnW_1 | RW | 1–0 | Write page bits 9–8; writing commits the write page only | Section 9.4 |
 | | | | | 7–2 | Unused: read 0 | |
 
-- **Write follows read.** Committing a read page (writing MMUnH) sets the window's write page to the same page. Ordinary code changes a window with one register, as on any 8-bit MMU. Writing MMUnWH afterwards sets only the write page and splits the window.
+- **Write follows read.** Committing a read page (writing MMUn_1) sets the window's write page to the same page. Ordinary code changes a window with one register, as on any 8-bit MMU. Writing MMUnW_1 afterwards sets only the write page and splits the window.
 - Writing a low byte only fills the latch; writing the high byte commits, so a window never points at a half-changed page. Reading returns the committed value.
 - The new mapping applies from the next memory access after the commit, including the next opcode fetch. Code can change the window it runs in, as long as the next instruction is at the same address in the new page.
 
 Changing a window through ports (38 T-states):
 
 ```
-        ld   bc,0x8600             ; MMU3L: register 0x86 of page 0x00
+        ld   bc,0x8600             ; MMU3_0: register 0x86 of page 0x00
         out  (c),l                 ; page bits 7-0: latched
-        inc  b                     ; MMU3H
+        inc  b                     ; MMU3_1
         out  (c),h                 ; page bits 9-8: commits read and write page
 ```
 
@@ -323,7 +323,7 @@ So the Z80 starts at `0x0000` in the boot ROM, with 16 KB of ROM at the bottom a
 
 ### 9.5 NMI monitor paging (Spectrum extra)
 
-When an NMI is taken with NMICTL.EN set, the bus interface switches window 0 to the monitor page (read `0x3FF`, write NONE) and restores it at `RETN` (spec 1, section 8.2). MMU0 and MMU0W then read back the monitor mapping; the program's own pages are in NMISAVL, NMISAVWL and NMISAVH, registers `0x7D`–`0x7F` of page `0x00` (spec 7).
+When an NMI is taken with NMICTL.EN set, the bus interface switches window 0 to the monitor page (read `0x3FF`, write NONE) and restores it at `RETN` (spec 1, section 8.2). MMU0 and MMU0W then read back the monitor mapping; the program's own pages are in NMISAV0, NMISAVW0 and NMISAVHI, registers `0x7D`–`0x7F` of page `0x00` (spec 7).
 
 ### 9.6 What split read and write pages are for
 
@@ -417,7 +417,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 - **DMACON:** each user turned off asks for no cycles, and its cycles go to the others; DMAEN off turns all of them off; the CPU is not affected.
 - **SRAM model:** run the controller against retro68k's SRAM simulation model with the datasheet checks on (set-up, hold, pulse widths, bus turnaround), at 20 ns cycles, with every mix of reads and writes back to back.
 - **Byte writes:** writing an even or odd byte changes only that byte, from the CPU and from the DMA engine; chipset word reads see even bytes in the low half.
-- **MMU:** reset state; a low-byte write alone changes nothing; the high-byte write commits both; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build; ports `0x8000`–`0x9F00` and register page offsets `0x0080`–`0x009F` reach the same registers; `IN A,(0x00)` with A = `0x80` reads MMU0L.
+- **MMU:** reset state; a low-byte write alone changes nothing; the high-byte write commits both; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build; ports `0x8000`–`0x9F00` and register page offsets `0x0080`–`0x009F` reach the same registers; `IN A,(0x00)` with A = `0x80` reads MMU0_0.
 - **Register page:** every page `0x00` register answers at its offset with the same value and side effects as through I/O; every custom register answers at `0x1000` + its offset as at its port; KEYROW0–7 at `0x0100`–`0x0107` match port `0xFE`; palette entries at `0x1400` + 0x300p + 3i commit on the red byte, and an `LDIR` of 768 bytes copies a palette without touching PALIDX; reserved offsets read `0xFF`; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` commits a 2-byte register; no SRAM cycle is used.
 - **Physical addresses:** a pattern written by the CPU through every page is read by the DMA port at page × `0x2000` + offset; bits 23–22 of pointers are ignored.
 - **Board test:** a full RAM test from the CPU at 20 MHz and from the DMA engine at once, with the display, sprites and copper busy.
