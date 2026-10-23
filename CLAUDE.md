@@ -7,3 +7,17 @@ A Z80 computer in the FPGA of a ZX Spectrum Next KS3; the 8-bit sister of retro6
 - The user decides through a decision tree: 1–4 multiple-choice questions at a time, recommended option first, then write the answers into the plan and specs.
 - Spec style follows retro68k's specs: plain short sentences, British spelling, tables, a test plan and open points.
 - Nothing is built until the specs are agreed; phase 1 (simulation) is next.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on jonsole/retro-z80, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context. Decisions: `docs/design-plan.md` section 1; specs `docs/spec/`. See `docs/agents/domain.md`.
