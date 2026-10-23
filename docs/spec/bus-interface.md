@@ -49,12 +49,12 @@ It follows retro68k's spec 1, with tv80 in place of fx68k. The memory side (the 
 
 tv80 comes as a core (`tv80_core`) and a small synchronous wrapper (`tv80s`). retro-z80 uses its own copy of the wrapper, `fpga/rtl/z80_cpu.v` (as retro68k has `cpu_fx68k.v`), which differs from `tv80s` in four ways:
 
-1. **cen** is brought out and passed to the core (`tv80s` ties it to 1). The wrapper's bus strobe flip-flops (mreq_n, iorq_n, rd_n, wr_n) and its read data register also change only on cen.
+1. **cen** is brought out and passed to the core (`tv80s` ties it to 1). The wrapper's bus strobe flip-flops (mreq_n, iorq_n, rd_n, wr_n) and its read data register also change only on cen. Each strobe is assigned once per clock: `tv80s` assigns each one twice in a clock, which gives false edges in simulation.
 2. The core's early cycle-type outputs (`mcycle`, `tstate`, `iorq`, `no_read`, `write`, `intcycle_n`) are brought out to the bus interface, which needs to know the type of an M-cycle during T1 (section 5).
-3. `TV80_REFRESH` is defined, so the R register counts (games use `LD A,R` for random numbers) and rfsh_n works.
+3. `TV80_REFRESH` is defined, so the R register counts (games use `LD A,R` for random numbers) and rfsh_n works. It is a global define tested inside `tv80_core`, so it is set for the whole build (`-DTV80_REFRESH` in the simulation Makefile and the lint script), not inside the wrapper.
 4. Nothing else is brought out: the NMI paging of section 8.2 works from signals outside the core (nmi_n, which the design drives, and the opcode fetches), as a Multiface does, so tv80 itself is used unchanged.
 
-Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IOWait = 1` (the standard I/O cycle with one automatic wait state).
+Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IOWait = 1` (the standard I/O cycle with one automatic wait state). tv80 makes its automatic wait states, in the I/O cycle and the interrupt acknowledge, by repeating T1, not by adding a TW after T2 (sections 6 and 8.1).
 
 ### 2.2 Signals
 
@@ -106,14 +106,15 @@ The core runs on the 100 MHz system clock. A **T-state is one cen pulse**: the c
 
 - **Locked to the slots:** at n = 1–8 every T-state starts on slot edge 0 or 5 (spec 2, section 3), as retro68k locks its 68000 to the slots. With odd n the T-states alternate between the two phases; with even n they all keep the phase they started on. Both phases are served in time (section 5).
 - **3.57 MHz** is close to a Spectrum's 3.5 MHz, for code timed by counting T-states. A T-state can then start on any slot edge; the accesses still fit with a wide margin (section 5.4). It is not exact Spectrum timing: there is no contention and the clock is 3.571 MHz, not 3.5469.
-- **Speed changes** take effect at the start of the next M-cycle (its T1), so an M-cycle never changes speed half way through. Going from 3.57 MHz to a locked speed, the first T1 waits for the next slot edge 0 or 5: the T-state before it is up to 4 clocks longer. In practice the new speed starts with the instruction after the write to CPUSPEED.
+- **Speed changes** take effect at the first T1 of the next M-cycle, so an M-cycle never changes speed half way through. The divider looks at the core's tstate at E + 3 and takes CPUSPEED in a T1 that follows some other T-state. A repeated T1 (the wait state of an I/O cycle or an acknowledge, section 6) is not a new M-cycle.
+- **From 3.57 MHz to a locked speed**, that first T1 must start on slot edge 0 or 5. tv80 does not show from outside which T-state is the last of its M-cycle, and it is used unchanged, so every T-state from the CPUSPEED write up to that T1 is lined up: each ends on the first slot edge 0 or 5 at least 28 clocks on, so it takes 28–32 clocks. In practice this is the rest of the `OUT` cycle, about 3 T-states (more if the copper writes CPUSPEED). The new speed starts with the instruction after the write to CPUSPEED.
 
 ### 3.2 Timing points
 
 All times in this spec are measured from the cen edge that starts T1 (call it edge E), in clocks of 10 ns. At 20 MHz, T2 starts at E + 5, T3 at E + 10, T4 at E + 15.
 
 - The core changes its address and early outputs just after a cen edge, and its strobes (registered in the wrapper on cen) just after the next one.
-- The core takes read data (into its read data register) at the cen edge that **ends T2**: E + 10 at 20 MHz, E + 10n at speed n, E + 56 at 3.57 MHz. For an I/O cycle and an interrupt acknowledge, at the end of the added wait states.
+- The core takes read data (into its read data register) at the cen edge that **ends T2**: E + 10 at 20 MHz, E + 10n at speed n, E + 56 at 3.57 MHz. An I/O cycle and an interrupt acknowledge repeat T1 for their wait states, so their T2 starts later and the byte is taken later (sections 6 and 8.1).
 
 ### 3.3 Meeting timing at 100 MHz
 
@@ -273,7 +274,7 @@ A write's T2 is on slot edge 0 or 5 too, so it is issued at T2 + 4 or T2 + 5, an
 | Data at di | E + 13 (130 ns) | E + 56 (end of T2, 560 ns) | 43 clocks |
 | Write issued | T2 + 9 | Before the next M-cycle's read (E + 84 + 4 at the earliest) | Over 60 clocks |
 
-So the Spectrum speed needs no wait either, however its T-states fall on the slots.
+So the Spectrum speed needs no wait either, however its T-states fall on the slots. The simulation measures the worst read margin at 3.57 MHz as 43 clocks, as above (ticket #6).
 
 ### 5.5 At most one CPU cycle per slot
 
@@ -302,18 +303,20 @@ A memory access whose page is REGS (`0x3F8`, spec 2, section 10) becomes one reg
 
 ## 6. I/O cycles
 
-tv80 with `IOWait = 1` makes a 4-T-state I/O cycle: T1, T2, an automatic wait state TW, T3. iorq_n and rd_n (or wr_n) go low at the start of T2; read data is taken at the end of TW. I/O cycles use no memory cycle.
+tv80 with `IOWait = 1` makes a 4-T-state I/O cycle. A real Z80 adds an automatic wait state TW after T2; tv80 instead repeats T1: T1, T1, T2, T3. The strobes and the data come at the same times as on a real Z80. iorq_n and rd_n (or wr_n) go low at the start of the second T1; read data is taken at the end of T2. I/O cycles use no memory cycle.
 
 | Edge (20 MHz) | Time (ns) | T-state | What happens |
 |---------------|-----------|---------|--------------|
 | E | 0 | T1 | A valid: page (or low-byte port) in A7–A0; B, A or the count in A15–A8, by instruction (section 6.2) |
 | E + 1–4 | 10–40 | | Bus interface decodes the port into rb_addr and rb_hi (section 6.1) |
-| E + 5 | 50 | T2 | iorq_n and rd_n or wr_n low; dout valid for OUT |
+| E + 5 | 50 | T1 (repeated: the wait state) | iorq_n and rd_n or wr_n low; dout valid for OUT |
 | E + 6 | 60 | | One rb_rd or rb_wr (E + 7 if the copper has the bus) |
 | E + 7 | 70 | | Read data on rb_rdata (or `0xFF` if rb_hit is low), held at di (E + 8 at the latest) |
-| E + 10 | 100 | TW | |
-| E + 15 | 150 | T3 | Core takes the byte (end of TW): at least 7 clocks to spare |
-| E + 20 | 200 | | Next M-cycle |
+| E + 10 | 100 | T2 | |
+| E + 15 | 150 | T3 | Core takes the byte (end of T2): at least 7 clocks to spare |
+| E + 20 | 200 | T1 | Next M-cycle |
+
+The repeated T1 is not a new M-cycle: the speed divider (section 3.1) tells it from a first T1 by the T-state before it.
 
 - **One strobe per I/O cycle.** A read of a FIFO or an index register has its side effect exactly once.
 - **Multi-byte values** (pointers, positions) are at consecutive registers, low byte at the lowest. Each byte is written straight through to its register when it is written; there are no latches (spec 3, rule 2). The exceptions, the MMU pages and the colours, hold their lower bytes inside their own units. The CPU's one tagged capture for live counters (spec 3, rule 4) follows retro68k's `bus_if.v` (`rh_valid`, `rh_tag`, `rh_data`). The unit hands over the whole value on rb_cdata with the low byte (section 4.2); the capture sits in the bus interface, which answers a higher byte of the tagged register from it.
@@ -372,14 +375,14 @@ With `TV80_REFRESH` defined, T3 and T4 of every M1 put I and R on the address bu
 
 ### 8.1 Maskable interrupts (IM 2 and IM 1)
 
-The interrupt controller (spec 8) drives int_n low while an enabled source is pending. The core takes it at the end of an instruction (if interrupts are enabled) and runs an acknowledge cycle: an M1 cycle with intcycle_n low during T1, then m1_n and iorq_n low together (no mreq_n, no rd_n), and the core's two automatic wait states.
+The interrupt controller (spec 8) drives int_n low while an enabled source is pending. The core takes it at the end of an instruction (if interrupts are enabled) and runs an acknowledge cycle: an M1 cycle with intcycle_n low during T1, then m1_n and iorq_n low together (no mreq_n, no rd_n), and the core's two automatic wait states. As in the I/O cycle, tv80 makes the wait states by repeating T1, so T2 comes after them.
 
 | Edge (20 MHz) | What happens |
 |---------------|--------------|
 | E (T1) | intcycle_n low: the early outputs say "acknowledge". No memory request |
 | E + 3 | The bus interface asks the controller for the vector. The controller picks the pending source with the lowest number, writes it to INTID and freezes its choice |
 | E + 4 | The vector byte is held at di |
-| End of the last wait state | The core takes the byte, as it takes an opcode: at least 16 clocks to spare |
+| End of T2 (after the repeated T1s) | The core takes the byte, as it takes an opcode: at least 16 clocks to spare |
 | End of the cycle | The bus interface sends one **acknowledge pulse** (int_ack), which ends the freeze (spec 8). The acknowledge clears nothing; the handler clears its source |
 
 - In **IM 2** the byte is VECBASE + 2 × source (spec 8), the low byte of the table address, with I as the high byte. The two reads of the table and the two writes that push PC are ordinary memory cycles (section 5).
@@ -458,9 +461,9 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 
 ## 13. Test plan
 
-- **Speeds:** at every CPUSPEED setting, count clocks per T-state (5n, or 28); at n = 1–8 every cen falls on slot edge 0 or 5; a change takes effect at the next T1, never inside an M-cycle; from 3.57 MHz to a locked speed the next T1 is on slot edge 0 or 5.
+- **Speeds:** at every CPUSPEED setting, count clocks per T-state (5n, or 28); at n = 1–8 every cen falls on slot edge 0 or 5; a change takes effect at the first T1 of an M-cycle, never inside an M-cycle and not at a repeated T1; from 3.57 MHz to a locked speed every T-state up to that T1 is 28–32 clocks and ends on slot edge 0 or 5. Done in simulation for all nine settings (ticket #6).
 - **No waits:** run code from SRAM at every speed with the display (layers at their budget, urgent fetches), sprites, the copper and the DMA engine all busy; check that every read and write is issued in the cycle of section 5.2, that wait_n is never used, and that the data is at di before the core takes it.
-- **Both phases:** at 20 MHz, reads, fetches and writes with T1 on slot edges 0 and 5 use cycles 2 and 0 as in section 5.3; at 3.57 MHz, T1 on every slot edge 0–9.
+- **Both phases:** at 20 MHz, reads, fetches and writes with T1 on slot edges 0 and 5 use cycles 2 and 0 as in section 5.3; at 3.57 MHz, T1 on every slot edge 0–9. A T-state of 28 clocks moves 8 slot edges, so one stretch at 3.57 MHz puts T1 on only five edges, all even or all odd: the test enters 3.57 MHz from both slot phases, as the speed test ROM (`sim/speeds`) does.
 - **One CPU cycle per slot:** over a long run of every instruction, the CPU never asks for both cycles of one slot.
 - **Writes:** byte writes to even and odd addresses change only that byte; a read straight after a write sees the new data; a posted write goes to the page mapped in its own T1.
 - **Read and write pages:** in a split window, reads and opcode fetches use the read page and writes the write page, at all speeds.
@@ -488,4 +491,4 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 | B8 | tv80 must put B on A15–A8 as a real Z80 does in the block I/O instructions: after the decrement for `OUTI`/`OTIR`/`OUTD`/`OTDR`, before it for `INI`/`INIR`/`IND`/`INDR` (section 6.2). Check in simulation against a known-good Z80 model |
 | B9 | Closed: the page decode (section 6.1) has 4 clocks before the strobe |
 | B10 | 25 MHz: try in simulation (design plan, branch 11). It needs the CPU to take whichever cycle is issued 40 ns after T1 and give its next cycle back, with no clock to spare on the read path (section 11). Faster than 25 MHz is parked (design plan, Q9) |
-| B11 | tv80's acknowledge cycle: check in simulation where it takes the vector byte (after its automatic wait states) and that the int_ack pulse comes once per acknowledge (section 8.1) |
+| B11 | tv80's acknowledge cycle: it makes its wait states by repeating T1 (section 8.1). Check in simulation that it takes the vector byte at the end of T2 and that the int_ack pulse comes once per acknowledge |

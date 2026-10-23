@@ -10,8 +10,8 @@
 // Mode 0 (Z80), T2Write 1 (wr_n low from the start of T2), IOWait 1 (the
 // standard I/O cycle with one automatic wait state).
 //
-// Not yet: nmicycle (spec 1, item 4) needs an added output port on
-// tv80_core, which is left unchanged here (the NMI paging comes later).
+// tv80 is used unchanged: the NMI paging (spec 1, section 8.2) spots the
+// response from outside the core, by the opcode fetch at 0x0066.
 module z80_cpu (
     input  wire        clk,
     input  wire        cen,           // one clock high per T-state

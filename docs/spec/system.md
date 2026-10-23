@@ -200,7 +200,7 @@ The Z80 runs on the 100 MHz system clock with a clock enable (spec 1). CPUSPEED 
 
 - **DIV** (bits 2–0) = n − 1: a T-state every 5 × n system clocks, so the speed is 20 MHz ÷ n. Every such T-state starts on a cycle boundary in step with the slots (spec 2), as at 20 MHz.
 - **SPECTRUM** (bit 3) overrides DIV with a T-state every 28 clocks. These T-states drift against the slots; at this speed a memory access has far more time than it needs, so the bus interface simply waits for the CPU's next memory cycle (spec 1). 3.57 MHz is close to a Spectrum's 3.5 MHz (2% fast), so beeper tones and timing loops sound and run as on a Spectrum.
-- A change takes effect at the next M-cycle (spec 1). CPUSPEED is `0x00` (20 MHz) after every reset.
+- A change takes effect at the first T1 of the next M-cycle (spec 1, section 3.1). CPUSPEED is `0x00` (20 MHz) after every reset.
 - Bits 7–4 read 0. A 25 MHz speed (a T-state every 4 clocks) is to be tried in simulation (open point SY13); if it works it would take a code in bits 7–4.
 
 ## 7. I2C: real-time clock and HDMI DDC
@@ -360,7 +360,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. T
         in   a,(0x00)            ; the same, through A
         ld   bc,CPUSPEED_P       ; port 0x7700
         ld   a,CPUSPEED_SPECTRUM_M
-        out  (c),a               ; 3.57 MHz from the next M-cycle
+        out  (c),a               ; 3.57 MHz from the next M-cycle's first T1
 ```
 
 ### 11.1 System control (`0x70`–`0x77`)
@@ -374,7 +374,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. T
 | `0x74` | `0x7400` | SYSCON | RW | ROMWE (1), ROMLOCK (2) | `0x00` (ROMLOCK kept) | ROMWE: boot ROM pages writable; cannot be set while ROMLOCK is 1. ROMLOCK: writing 1 locks ROMWE off until power-on; writing 0 does nothing. Bits 0 and 7–3 read 0 (retro68k's OVERLAY, PROTECT, HALTRESET) |
 | `0x75` | `0x7500` | SYSRESET | W | 7–0 | – | Write `0xA5` (`SYSRESET_MAGIC`) for a full reset with RESETWHY.SOFTWARE; other values are ignored. Reads `0x00` |
 | `0x76` | `0x7600` | SYSBTN | R | MULTIFACE (0), DIVMMC (1) | – | 1 = button held (debounced). Bits 7–2 read 0 |
-| `0x77` | `0x7700` | CPUSPEED | RW | DIV (2–0), SPECTRUM (3) | `0x00` | Z80 speed (section 6.1): 20 MHz ÷ (DIV + 1), locked to the slots; SPECTRUM = 1 gives 3.57 MHz whatever DIV holds. Takes effect at the next M-cycle. Bits 7–4 read 0 |
+| `0x77` | `0x7700` | CPUSPEED | RW | DIV (2–0), SPECTRUM (3) | `0x00` | Z80 speed (section 6.1): 20 MHz ÷ (DIV + 1), locked to the slots; SPECTRUM = 1 gives 3.57 MHz whatever DIV holds. Takes effect at the first T1 of the next M-cycle. Bits 7–4 read 0 |
 
 ### 11.2 I2C (`0x78`–`0x7B`)
 
@@ -416,7 +416,7 @@ The saved pages reset to `0x3FC`, window 0's reset page, and keep their values a
 - **Start-up time:** from configuration done to the first T1 within a few microseconds; reset released at the start of a slot.
 - **Buttons:** SYSBTN follows the Multiface and DivMMC buttons, debounced; Multiface gives one NMI per press.
 - **Registers:** SYSID, SYSVER, SYSCFG (2 MB and 4 MB builds) read correctly at ports `0x7000`–`0x7200`, through `IN A,(0x00)` with A = the register, and at register page offsets `0x0070`–`0x0072`; SYSCON bits 0 and 3–7 read 0; `OUT (0x70),A` with any A does not reach SYSID.
-- **CPU speed:** every CPUSPEED value gives its T-state spacing (5n clocks for DIV = n − 1, 28 for SPECTRUM); the change happens at the next M-cycle; slot-locked speeds keep the CPU's cycles on cycles 0 and 2 of the slot; at 3.57 MHz every memory access completes; ZEXDOC passes at 20 MHz and 3.57 MHz.
+- **CPU speed:** every CPUSPEED value gives its T-state spacing (5n clocks for DIV = n − 1, 28 for SPECTRUM); the change happens at the first T1 of the next M-cycle; going back from 3.57 MHz, the T-states up to that T1 are lined up to slot edges 0 or 5 (28–32 clocks); at 3.57 MHz T1 reaches all ten slot edges when entered from both slot phases; slot-locked speeds keep the CPU's cycles on cycles 0 and 2 of the slot; at 3.57 MHz every memory access completes; ZEXDOC passes at 20 MHz and 3.57 MHz.
 - **Boot console:** text on the simulated screen at the addresses of section 5.1, checked pixel by pixel; a character is one map write; scrolling by SCROLLY wraps at 32 rows.
 - **I2C:** read and set the real-time clock; read the monitor's EDID; a missing device gives NACK; CLKDIV 124 and 31 give 100 kHz and 391 kHz in simulation against an I2C slave model.
 - **NMI paging:** with each read/write page pair in window 0 (SRAM, ROM, REGS, NONE, split), an NMI fetches `0x0066` from page `0x3FF`; the PC push goes through the old mapping; NMISAV0, NMISAVW0 and NMISAVHI hold the old pages; MMU0/MMU0W read `0x3FF`/`0x3FB` and INNMI = 1; writes to window 0 are ignored; `RETN` with SP in window 0 pops the program's own stack, and the next fetch uses the old pages; `RETI` and other `ED` instructions in the monitor change nothing; with EN = 0 nothing is paged; a second button press in the monitor gives no nested NMI but a new one after `RETN`; reset clears INNMI and sets EN.
