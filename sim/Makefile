@@ -9,6 +9,8 @@
 #                   self-test sees pages 0x100-0x1FF mirror 0x000-0x0FF
 #   make systest    the system test ROM: system registers, I/O decode, SRAM
 #                   bytes, writable boot ROM, the self-test, soft reset
+#   make speeds     the speed test ROM: "hello" at every CPUSPEED setting,
+#                   with the T-state rates measured
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #
 # Needs: iverilog, verilator, sjasmplus, python3. Tools can be given
@@ -29,8 +31,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest lint clean
-all: smoke vsmoke hello hello2mb systest
+.PHONY: all smoke vsmoke hello hello2mb systest speeds lint clean
+all: smoke vsmoke hello hello2mb systest speeds
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -64,7 +66,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v retroz80.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
 $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -72,6 +74,9 @@ $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest
 
 $(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -I $(ROOT)/firmware/boot --raw=$@ $<
+
+$(BUILD)/speeds.bin: speeds/speeds.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
 
 $(BUILD)/%.hex: $(BUILD)/%.bin
 	$(PYTHON) $(ROOT)/tools/bin2hex.py $< $@
@@ -94,6 +99,10 @@ hello2mb: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex
 systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=systest.hex +dma | tee systest.log
 	@grep -q "^TEST PASSED" $(BUILD)/systest.log
+
+speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=speeds.hex +speeds +dma +timeout=10000 | tee speeds.log
+	@grep -q "^TEST PASSED" $(BUILD)/speeds.log
 
 lint:
 	sh $(ROOT)/fpga/lint.sh
