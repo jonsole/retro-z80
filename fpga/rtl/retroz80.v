@@ -116,8 +116,8 @@ module retroz80 #(
     wire [14:1] rom_addr;
     wire [15:0] rom_wdata, rom_rdata;
     wire [12:0] rb_addr;
-    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser;
-    wire        rb_rd, rb_wr, hit_sys, hit_ser;
+    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu;
+    wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu;
     wire        late;
 
     bus_if bif (
@@ -131,11 +131,17 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser), .rb_hit(hit_sys | hit_ser),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu), .rb_hit(hit_sys | hit_ser | hit_mmu),
         .late(late)
     );
 
-    mmu mmu0 (.win(mmu_win), .rpage(mmu_rpage), .wpage(mmu_wpage));
+    // ---------------------------------------------------------------- MMU (spec 2, section 9)
+    mmu mmu0 (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_mmu), .rb_hit(hit_mmu),
+        .win(mmu_win), .rpage(mmu_rpage), .wpage(mmu_wpage)
+    );
 
     // ---------------------------------------------------------------- memory (spec 2)
     wire        go, go_we, m_start, m_rvalid;

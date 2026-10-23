@@ -65,11 +65,11 @@ TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v
 SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
-$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
 
-$(BUILD)/systest.bin: systest/systest.asm $(INC)/hw.inc | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+$(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -I $(ROOT)/firmware/boot --raw=$@ $<
 
 $(BUILD)/%.hex: $(BUILD)/%.bin
 	$(PYTHON) $(ROOT)/tools/bin2hex.py $< $@

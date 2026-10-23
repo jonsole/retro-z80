@@ -8,10 +8,16 @@
 //            gives the CPU the first of cycles 0 and 2 that comes (E + 4 or
 //            E + 5 at 20 MHz), and its data comes back 4 clocks later
 //   boot ROM the block RAM answers in one clock; no SRAM cycle
-//   others   (NONE, reserved; the register page comes with the MMU) 0xFF
-// A write is posted the same way 3 clocks after the cen edge that starts
-// T2, when dout is valid. The byte read is held at di until the next read,
-// so the core can take it at the end of T2 whatever the speed.
+//   REGS     the register page (spec 1, section 5.7): one register bus
+//            strobe the clock after rd_n or wr_n goes low, at A12-A0, as
+//            for I/O; an opcode fetch reads 0xFF (RST 38h) with no strobe
+//   others   (NONE, reserved) 0xFF
+// The page is looked up in T1, from the read page for a fetch or read and
+// the write page for a write, and kept for the access (spec 1, section 5.2),
+// so a write that changes its own window's page goes where it was aimed.
+// A write is posted 3 clocks after the cen edge that starts T2, when dout
+// is valid. The byte read is held at di until the next read, so the core
+// can take it at the end of T2 whatever the speed.
 //
 // I/O (spec 1, section 6): one register bus strobe the clock after iorq_n
 // goes low with rd_n or wr_n, at the address of section 6.1's decode; read
@@ -19,7 +25,7 @@
 //
 // Version for ticket #4: no register bus arbiter yet (the CPU is the only
 // master), no capture (spec 3, rule 4), no interrupt vector (an acknowledge
-// reads 0xFF), no NMI paging and no register page.
+// reads 0xFF) and no NMI paging.
 `include "regmap.vh"
 
 module bus_if (
@@ -96,6 +102,11 @@ module bus_if (
     wire [9:0] page     = is_write ? mmu_wpage : mmu_rpage;
     wire       pg_sram  = !page[9];                     // 0x000-0x1FF
     wire       pg_rom   = (page[9:2] == 8'hFF);         // 0x3FC-0x3FF
+    wire       pg_regs  = (page == 10'h3F8);            // REGS
+    reg  [9:0] apage;                  // the page of this access, from T1
+    wire       ap_sram  = !apage[9];
+    wire       ap_rom   = (apage[9:2] == 8'hFF);
+    wire       ap_regs  = (apage == 10'h3F8);
 
     reg        rd_wait;                // a read waits for its byte
     reg        rd_hi;                  // ... and wants the odd byte (A0)
@@ -117,6 +128,7 @@ module bus_if (
         end else begin
             if (cpu_ack) cpu_req <= 1'b0;
 
+            if (at3 && tstate[1]) apage <= page;
             if (at3 && tstate[1] && (is_fetch || is_read)) begin
                 rd_hi <= A[0];
                 if (pg_sram) begin
@@ -129,23 +141,25 @@ module bus_if (
                     rom_en   <= 1'b1;
                     rom_addr <= {page[1:0], A[12:1]};
                     rd_wait  <= 1'b1;
-                end else
-                    di <= 8'hFF;                        // NONE, reserved
+                end else if (pg_regs && is_read)
+                    rd_wait  <= 1'b1;                   // a register bus read, at T2
+                else
+                    di <= 8'hFF;                        // NONE, reserved; a fetch from REGS
             end
             if (at3 && tstate[1] && is_ack)
                 di <= 8'hFF;                            // no interrupt controller yet
 
             if (at3 && tstate[2] && is_write) begin
-                if (pg_sram) begin
+                if (ap_sram) begin
                     cpu_req   <= 1'b1;
                     cpu_we    <= 1'b1;
-                    cpu_addr  <= {page[8:0], A[12:1]};
+                    cpu_addr  <= {apage[8:0], A[12:1]};
                     cpu_be    <= A[0] ? 2'b10 : 2'b01;
                     cpu_wdata <= {dout, dout};
-                end else if (pg_rom && romwe) begin
+                end else if (ap_rom && romwe) begin
                     rom_en    <= 1'b1;
                     rom_we    <= A[0] ? 2'b10 : 2'b01;
-                    rom_addr  <= {page[1:0], A[12:1]};
+                    rom_addr  <= {apage[1:0], A[12:1]};
                     rom_wdata <= {dout, dout};
                 end
             end
@@ -163,11 +177,12 @@ module bus_if (
             if (cen && tstate[2] && (is_fetch || is_read) && rd_wait)
                 late <= 1'b1;
 
-            // I/O read data, the clock after the strobe
+            // I/O and register page read data, the clock after the strobe
             if (rb_rd) io_rd_d <= 1'b1;
             if (io_rd_d) begin
                 di      <= rb_hit ? rb_rdata : 8'hFF;
                 io_rd_d <= 1'b0;
+                rd_wait <= 1'b0;
             end
             if (io_none) di <= 8'hFF;
         end
@@ -184,6 +199,8 @@ module bus_if (
                           p_sys    ? {5'd0, hi} :
                                      {3'b100, lo[1:0], hi};
     wire       io_strobe = !iorq_n && m1_n && (!rd_n || !wr_n);
+    // A memory read or write (not a fetch) whose page is REGS
+    wire       rp_strobe = iorq_n && m1_n && (!rd_n || !wr_n) && ap_regs;
 
     reg io_seen;                       // this I/O cycle has had its strobe
     always @(posedge clk) begin
@@ -194,8 +211,15 @@ module bus_if (
             io_seen <= 1'b0;
             rb_addr <= 13'd0;
             rb_hi   <= 8'd0;
-        end else if (!io_strobe) begin
+        end else if (!io_strobe && !rp_strobe) begin
             io_seen <= 1'b0;
+        end else if (rp_strobe && !io_seen) begin
+            io_seen  <= 1'b1;
+            rb_addr  <= A[12:0];
+            rb_hi    <= 8'h00;
+            rb_wdata <= dout;
+            rb_rd    <= !rd_n;
+            rb_wr    <= !wr_n;
         end else if (!io_seen) begin
             io_seen  <= 1'b1;
             rb_addr  <= io_addr;

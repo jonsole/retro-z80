@@ -3,8 +3,9 @@
 // After retro68k's sim/tb.v.
 //
 //   +rom=FILE    load FILE into the boot ROM (default boot.hex)
-//   +hello       pass when "hello" arrives; then send the RESET control
-//                command and pass when "hello" arrives a second time
+//   +hello       the boot ROM: pass when "selftest ok, N MB" (N = the
+//                build's CHIPMB) and then "hello" arrive; then send the
+//                RESET control command and pass when both arrive again
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +dma         keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
@@ -14,11 +15,14 @@
 //     (0 or 2) that comes while it stands, and none is ever turned away;
 //   - every byte the core takes from memory is at di before the cen edge
 //     that ends T2, and is the byte the memory holds at that address, by
-//     the reset mapping of spec 2, section 9.4 (worked out here, not taken
-//     from the design);
+//     a model of the MMU kept here from the Z80's own writes to the MMU
+//     registers, through ports and the register page (spec 2, section 9;
+//     worked out here, not taken from the design);
 //   - the SRAM model's datasheet checks and the FT232H model's checks.
 `timescale 1ns/1ps
-module tb;
+module tb #(
+    parameter [5:0] CHIPMB = 6'd4             // the build's SRAM size (spec 2, section 11)
+);
     reg clk = 1'b1;
     always #5 clk = ~clk;                       // 100 MHz
 
@@ -45,7 +49,7 @@ module tb;
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
 
-    retroz80 dut (
+    retroz80 #(.CHIPMB(CHIPMB)) dut (
         .clk(clk), .por(por),
         .btn_reset_n(1'b1), .buttons(2'b00),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
@@ -164,13 +168,59 @@ module tb;
     end
 
     // (2) The core: at the cen edge that ends T2 of a memory read (opcode
-    //     fetch or read), the byte at di must be the memory's.
-    //     Reset mapping (spec 2, section 9.4): windows 0-1 boot ROM pages 0-1,
-    //     windows 2-7 SRAM pages 0-5.
-    integer reads_rom = 0, reads_sram = 0, writes_sram = 0, ios = 0, ntrace = 0, trace = 0;
+    //     fetch or read), the byte at di must be the memory's, by the MMU
+    //     model below.
+    //
+    // MMU model (spec 2, section 9): eight windows, each with a read and a
+    // write page; reset state of section 9.4. The Z80's writes to registers
+    // 0x80-0x9F of page 0x00, by port or through a window whose write page is
+    // the register page (0x3F8), are applied here as section 9.2 says: byte 0
+    // is held, byte 1 commits, a read-page commit also sets the write page.
+    reg  [9:0]  m_rp [0:7];
+    reg  [9:0]  m_wp [0:7];
+    reg  [7:0]  m_hr [0:7];
+    reg  [7:0]  m_hw [0:7];
+    integer     w;
+    task mmu_reset;
+        begin
+            for (w = 0; w < 8; w = w + 1) begin
+                m_rp[w] = (w == 0) ? 10'h3FC : (w == 1) ? 10'h3FD : w - 2;
+                m_wp[w] = m_rp[w];
+                m_hr[w] = m_rp[w][7:0];
+                m_hw[w] = m_rp[w][7:0];
+            end
+        end
+    endtask
+    initial mmu_reset;
+    task mmu_write(input [7:0] r, input [7:0] d);
+        reg [2:0] n;
+        begin
+            n = r[3:1];
+            case ({r[4], r[0]})
+                2'b00: m_hr[n] = d;
+                2'b10: m_hw[n] = d;
+                2'b01: begin
+                    m_rp[n] = {d[1:0], m_hr[n]};
+                    m_wp[n] = m_rp[n];
+                    m_hw[n] = m_hr[n];
+                end
+                2'b11: m_wp[n] = {d[1:0], m_hw[n]};
+            endcase
+        end
+    endtask
+    // The physical byte address of an SRAM page; bit 21 ignored on a 2 MB build
+    function [21:0] sram_byte(input [9:0] pg, input [12:0] off);
+        sram_byte = {pg[8] && CHIPMB != 6'd2, pg[7:0], off};
+    endfunction
+
+    integer reads_rom = 0, reads_sram = 0, reads_regs = 0, reads_none = 0;
+    integer writes_sram = 0, writes_regs = 0, ios = 0, ntrace = 0, trace = 0;
     reg  [15:0] ad;
     reg  [7:0]  want;
+    reg  [9:0]  pg;
     reg  [21:0] phys;
+    reg         chk;
+    reg         wr_q = 1'b1;
     initial if (!$value$plusargs("trace=%d", trace)) trace = 0;
     // ROM writes (SYSCON.ROMWE) go into the copy too; systest checks them
     always @(posedge clk) if (dut.rom_en) begin
@@ -184,33 +234,56 @@ module tb;
         ad = dut.cpu.A;
         if (dut.cpu.mcycle[0] ? dut.cpu.intcycle_n
                               : (!dut.cpu.iorq && !dut.cpu.no_read && !dut.cpu.write)) begin
-            if (ad[15:14] == 2'b00) begin
-                want = pick(rom_ref[ad[13:1]], ad[0]);
-                reads_rom = reads_rom + 1;
-            end else begin
-                phys = {9'd0, ad[12:0]} + ({19'd0, ad[15:13]} - 22'd2) * 22'h2000;
+            pg  = m_rp[ad[15:13]];
+            chk = 1'b1;
+            if (!pg[9]) begin                                   // SRAM
+                phys = sram_byte(pg, ad[12:0]);
                 want = pick(sram.mem[phys[21:1]], phys[0]);
                 reads_sram = reads_sram + 1;
+            end else if (pg[9:2] == 8'hFF) begin                // boot ROM
+                want = pick(rom_ref[{pg[1:0], ad[12:1]}], ad[0]);
+                reads_rom = reads_rom + 1;
+            end else if (pg == 10'h3F8) begin                   // register page
+                want = 8'hFF;                                   // opcode fetches only
+                chk  = dut.cpu.mcycle[0];
+                reads_regs = reads_regs + 1;
+            end else begin                                      // NONE, reserved
+                want = 8'hFF;
+                reads_none = reads_none + 1;
             end
             if (trace > ntrace) begin
-                $display("%t  %s %h = %h", $realtime, dut.cpu.mcycle[0] ? "F" : "R", ad, dut.cpu.di);
+                $display("%t  %s %h = %h (page %h)", $realtime, dut.cpu.mcycle[0] ? "F" : "R", ad, dut.cpu.di, pg);
                 ntrace = ntrace + 1;
             end
-            if (dut.cpu.di !== want) begin
+            if (chk && dut.cpu.di !== want) begin
                 if (wait_errors < 10)
-                    $display("%t WAIT ERROR: %s at %h took %h, memory holds %h", $realtime,
-                             dut.cpu.mcycle[0] ? "fetch" : "read", ad, dut.cpu.di, want);
+                    $display("%t WAIT ERROR: %s at %h (page %h) took %h, memory holds %h", $realtime,
+                             dut.cpu.mcycle[0] ? "fetch" : "read", ad, pg, dut.cpu.di, want);
                 wait_errors = wait_errors + 1;
             end
         end
     end
-    // Writes and I/O, for the counts and the trace
-    always @(negedge dut.cpu.wr_n) if (!dut.cpu.mreq_n) begin
-        if (dut.cpu.A[15:14] != 2'b00) writes_sram = writes_sram + 1;
-        if (trace > ntrace) begin
-            $display("%t  W %h = %h", $realtime, dut.cpu.A, dut.cpu.dout);
-            ntrace = ntrace + 1;
+    // Writes and I/O: the MMU model, the counts and the trace. A write is
+    // seen the clock after wr_n falls, when A and dout are steady.
+    always @(posedge clk) begin
+        if (!dut.cpu_rst_n) mmu_reset;
+        else if (wr_q && !dut.cpu.wr_n) begin
+            ad = dut.cpu.A;
+            if (!dut.cpu.mreq_n) begin
+                pg = m_wp[ad[15:13]];
+                if (!pg[9]) writes_sram = writes_sram + 1;
+                if (pg == 10'h3F8) begin
+                    writes_regs = writes_regs + 1;
+                    if (ad[12:5] == 8'h04) mmu_write(ad[7:0], dut.cpu.dout);   // 0x0080-0x009F
+                end
+                if (trace > ntrace) begin
+                    $display("%t  W %h = %h (page %h)", $realtime, ad, dut.cpu.dout, pg);
+                    ntrace = ntrace + 1;
+                end
+            end else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad[7:0] == 8'h00 && ad[15:13] == 3'b100)
+                mmu_write(ad[15:8], dut.cpu.dout);
         end
+        wr_q <= dut.cpu.wr_n;
     end
     always @(negedge dut.cpu.iorq_n) if (dut.cpu.m1_n) begin
         ios = ios + 1;
@@ -233,13 +306,13 @@ module tb;
     endtask
 
     // ---------------------------------------------------------------- finish
-    integer hello = 0, nhello = 0, scan = 0, ls = 0, done = 0, ok = 0, k;
+    integer hello = 0, nhello = 0, nself = 0, scan = 0, ls = 0, lk, done = 0, ok = 0, k;
     integer timeout_us = 2000;
     initial begin
         hello = $test$plusargs("hello");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
-    function is_line(input integer at, input [8*7-1:0] s, input integer n);
+    function is_line(input integer at, input [8*24-1:0] s, input integer n);
         integer q;
         begin
             is_line = (at + n <= ft.nout);
@@ -252,6 +325,8 @@ module tb;
             $display("");
             $display("---- Z80: %0d reads from the boot ROM, %0d from SRAM, %0d writes to SRAM, %0d I/O cycles",
                      reads_rom, reads_sram, writes_sram, ios);
+            $display("---- Z80: register page %0d reads, %0d writes; %0d reads of NONE or reserved pages (%0d MB build)",
+                     reads_regs, writes_regs, reads_none, CHIPMB);
             $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d turned away",
                      cpu_cycles, cpu_issue0, cpu_issue2, cpu_refused);
             $display("---- never waited: %0d errors", wait_errors + cpu_refused);
@@ -273,18 +348,27 @@ module tb;
         end
     endtask
     always @(posedge clk) if (!done) begin
-        // Lines from the computer: "hello", "PASS" or "FAIL"
+        // Lines from the computer: "selftest ok, N MB" and "hello", or
+        // "PASS" or "FAIL"
         while (scan < ft.nout) begin
             if (scan == 0 || ft.from_fpga[scan-1] == 8'h0A) ls = scan;
             if (ft.from_fpga[scan] == 8'h0A) begin
-                if (hello && is_line(ls, {"hello", 8'h0D, 8'h0A}, 7)) begin
+                $write("%t PC: line \"", $realtime);
+                for (lk = ls; lk < scan - 1; lk = lk + 1) $write("%c", ft.from_fpga[lk]);
+                $display("\"");
+                if (hello && is_line(ls, {"selftest ok, ", "0" + {2'd0, CHIPMB}, " MB", 8'h0D, 8'h0A}, 19)) begin
+                    nself = nself + 1;
+                    $display("%t PC: self-test passed, number %0d", $realtime, nself);
+                end else if (hello && is_line(ls, {"hello", 8'h0D, 8'h0A}, 7)) begin
                     nhello = nhello + 1;
                     $display("%t PC: \"hello\" number %0d", $realtime, nhello);
-                    if (nhello == 1) begin
+                    if (nself != nhello) finish(0, "hello without the self-test");
+                    else if (nhello == 1) begin
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
                     end else finish(1, "");
-                end else if (!hello && is_line(ls, {"PASS", 8'h0D, 8'h0A}, 6)) finish(1, "");
+                end else if (hello && is_line(ls, "selftest FAIL", 13)) finish(0, "the boot ROM self-test failed");
+                else if (!hello && is_line(ls, {"PASS", 8'h0D, 8'h0A}, 6)) finish(1, "");
                 else if (!hello && is_line(ls, "FAIL", 4)) finish(0, "the test ROM failed");
                 else begin
                     $display("%t PC: unexpected line", $realtime);
