@@ -1,0 +1,10 @@
+*.bin
+*.o
+*.lst
+build/
+# FPGA
+*.json
+*.asc
+*.config
+*.bit
+*.svf

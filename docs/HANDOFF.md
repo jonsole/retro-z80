@@ -79,7 +79,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
 
 Done when the boot ROM prints "hello" over simulated USB serial at all four speeds and ZEXDOC passes.
 
-1. **Tools:** Icarus Verilog, Verilator, sjasmplus, Python 3, Vivado 2026.1 (as retro68k's HANDOFF lists for Windows).
+1. **Tools:** done in ticket #1: Icarus, Verilator, sjasmplus, Python, set up as the main README's Tools section says (note the `-O2` workaround for Verilator on MSYS2).
 2. **Skeleton:** folders as in retro68k (`fpga/rtl`, `fpga/rtl/platform/{artix7,sim}`, `firmware/boot`, `firmware/include`, `tools`, `sim`); copy `tools/regmap.py` from retro68k and adapt it to byte registers, the two blocks and the register page (spec 3, section 8); write `fpga/regmap.def` from spec 3.
 3. **tv80 first:** add tv80 (as a submodule or vendored under `fpga/third_party/`, BSD-style licence) and run ZEXDOC on the bare core in Verilator, to answer Q3 before building on it.
 4. **CPU side:** `fpga/rtl/z80_cpu.v` (spec 1: brings out cen, the early cycle signals and `nmicycle`; `TV80_REFRESH`; Mode 0, T2Write 1, IOWait 1), the bus interface, the scheduler and SRAM controller adapted from retro68k's `dmac.v`, the MMU with read and write pages and the register page, the boot ROM in block RAM.

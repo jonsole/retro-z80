@@ -1,0 +1,26 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  simulation:
+    name: Simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Icarus Verilog and Verilator
+        # A broken third-party repository on the runner image must not stop the install
+        run: |
+          sudo apt-get update || true
+          sudo apt-get install -y iverilog verilator
+      - name: Build sjasmplus 1.24.0
+        run: |
+          curl -sSL -o sjasmplus.tar.xz https://github.com/z00m128/sjasmplus/releases/download/v1.24.0/sjasmplus-1.24.0-src.tar.xz
+          mkdir sjasmplus-src
+          tar xJf sjasmplus.tar.xz -C sjasmplus-src --strip-components=1
+          make -C sjasmplus-src -j4 > /dev/null
+          echo "$PWD/sjasmplus-src" >> "$GITHUB_PATH"
+      - name: Tool-chain smoke tests (Icarus and Verilator)
+        run: make -C sim
