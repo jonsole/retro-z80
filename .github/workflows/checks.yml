@@ -5,6 +5,31 @@ on:
   pull_request:
 
 jobs:
+  regmap:
+    name: Register map
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check regmap.def against the spec and the generated files
+        run: python3 tools/regmap.py --verify
+      - name: Install Icarus Verilog and Verilator
+        # A broken third-party repository on the runner image must not stop the install
+        run: |
+          sudo apt-get update || true
+          sudo apt-get install -y iverilog verilator
+      - name: Build sjasmplus 1.24.0
+        run: |
+          curl -sSL -o sjasmplus.tar.xz https://github.com/z00m128/sjasmplus/releases/download/v1.24.0/sjasmplus-1.24.0-src.tar.xz
+          mkdir sjasmplus-src
+          tar xJf sjasmplus.tar.xz -C sjasmplus-src --strip-components=1
+          make -C sjasmplus-src -j4 > /dev/null
+          echo "$PWD/sjasmplus-src" >> "$GITHUB_PATH"
+      - name: Self-test, and the headers through sjasmplus, C, Icarus and Verilator
+        run: make -C tools check
+
   simulation:
     name: Simulation
     runs-on: ubuntu-latest
