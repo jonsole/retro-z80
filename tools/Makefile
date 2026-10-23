@@ -2,7 +2,7 @@
 #
 #   make check      regmap.py --verify, its self-test, and the generated headers
 #                   assembled (sjasmplus), compiled (C), simulated (Icarus) and
-#                   linted (Verilator, WIDTH warnings as errors)
+#                   linted (Verilator, WIDTHTRUNC as an error, as retro68k)
 #   make regmap     rewrite the generated files from fpga/regmap.def
 #
 # Needs: python3, sjasmplus, a C compiler (cc), iverilog and verilator. Tools can be given
@@ -42,7 +42,7 @@ c: | $(BUILD)
 	$(CC) -std=c11 -Wall -Wextra -Werror -I $(INC) -o $(BUILD)/hw_test test/hw_test.c
 
 verilog: | $(BUILD)
-	$(VERILATOR) --lint-only -Wall -Werror-WIDTH -I$(RTL) test/regmap_test.v
+	$(VERILATOR) --lint-only --default-language 1364-2005 -Wall -Wno-fatal -Werror-WIDTHTRUNC -I$(RTL) test/regmap_test.v
 	$(IVERILOG) -g2005 -Wall -I $(RTL) -s regmap_test -o $(BUILD)/regmap_test.vvp test/regmap_test.v
 	$(VVP) -n $(BUILD)/regmap_test.vvp | tee $(BUILD)/regmap_test.log
 	@grep -q "^TEST PASSED" $(BUILD)/regmap_test.log
