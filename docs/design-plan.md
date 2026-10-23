@@ -103,7 +103,7 @@ The KS2's slower speed grade makes 100 MHz harder to meet; a smaller design help
 
 ### D2. CPU: tv80
 
-- **tv80**, a Verilog version of the T80 core (BSD-style licence), so the whole design stays in Verilog and runs in Icarus and Verilator like retro68k. Checked with the ZEXDOC and ZEXALL instruction tests (open question Q3).
+- **tv80**, a Verilog version of the T80 core (MIT licence), so the whole design stays in Verilog and runs in Icarus and Verilator like retro68k. Checked with the ZEXDOC and ZEXALL instruction tests (open question Q3).
 - The core runs on the 100 MHz system clock with a clock enable and multicycle constraints (spec 1). **CPUSPEED** is a divider n = 1–8, a T-state every 5n clocks: **20**, 10, 6.67, 5, 4, 3.33, 2.86 or 2.5 MHz, all locked to the memory slots; plus a SPECTRUM code, 3.57 MHz (÷28). Reset gives 20 MHz. 25 MHz would need the old "swap" back (spec 1, open point B10).
 - **Interrupts:** IM 2, with the controller giving VECBASE + 2 × source during the acknowledge; IM 1 reads INTID. NMI from the Multiface button and a USB "break".
 
