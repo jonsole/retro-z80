@@ -11,35 +11,58 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 1 | Board | ZX Spectrum Next KS3, the Z80 as a soft core in its FPGA |
 | 1 | Compatibility | A new machine; Spectrum games are made easy to port, not run unchanged |
 | 1 | Use | Both home computer and games machine |
-| 1 | Chipset | New and scaled down for an 8-bit CPU |
+| 1 | Chipset | ~~New and scaled down for an 8-bit CPU~~ retro68k's chipset narrowed to 8 bits (branch 9) |
 | 2 | CPU core | tv80 (Verilog) |
 | 2 | CPU speed | 3.5, 7, 14 or 28 MHz by software; **28 MHz after reset** |
 | 2 | Interrupts | IM 2 with vectors from the interrupt controller (IM 1 also works) |
 | 2 | Memory | Eight 8 KB windows onto the SRAM (MMU) |
 | 3 | Picture | 360×288 at 2×, filling the 576p screen; every layer has its own size and position, so a 256×192 window can be placed |
-| 3 | Layers | Background colour, a bitmap layer, a tile layer, an attribute layer, sprites |
-| 3 | Bitmap | 1, 2, 4 or 8 bits per pixel |
-| 3 | Tiles | 8×8, 1, 2, 4 or 8 bits per pixel (1-bit for text) |
-| 3 | Hi-res | Per layer: 720 across instead of 360 |
-| 3 | Lines | Per layer: 288 lines (each shown twice) or 576; output stays 576p (not 576i) |
-| 3 | Display fetch | A FIFO per source just ahead of drawing; 288-line layers replay their first line from a repeat buffer |
-| 3 | Colours | 12-bit RGB (4096 colours); palette grown to 512 entries for the attribute layer |
-| 3 | Attributes | An attribute layer of 8×8 or 8×1 cells that sets the palette bank of the bitmap or the tile layer |
+| 3 | Layers | ~~Background colour, a bitmap layer, a tile layer, an attribute layer, sprites~~ see branch 9 |
+| 3 | Bitmap | ~~1, 2, 4 or 8 bits per pixel~~ see branch 9 |
+| 3 | Tiles | ~~8×8, 1, 2, 4 or 8 bits per pixel (1-bit for text)~~ see branch 9 |
+| 3 | Hi-res | ~~Per layer: 720 across instead of 360~~ see branch 9 |
+| 3 | Lines | ~~Per layer: 288 lines (each shown twice) or 576; output stays 576p (not 576i)~~ see branch 9 |
+| 3 | Display fetch | ~~A FIFO per source just ahead of drawing; 288-line layers replay their first line from a repeat buffer~~ see branch 9 |
+| 3 | Colours | ~~12-bit RGB (4096 colours); palette grown to 512 entries for the attribute layer~~ see branch 9 |
+| 3 | Attributes | ~~An attribute layer of 8×8 or 8×1 cells that sets the palette bank of the bitmap or the tile layer~~ see branch 9 |
 | 3 | Spectrum screen layout | Done by the copper (a line address per line), no extra hardware |
-| 3 | Copper | In version 1, a "smart" copper: loops, a counter, indirect moves through X/Y pointers |
-| 4 | Sprites | 32 sprites, 8 to 32 pixels, 1, 2, 4 or 8 bits per pixel, patterns in SRAM |
-| 4 | Sprite scaling | Fractional, X and Y separately, 1/16× to 16× (16-bit steps, 4.12 fixed point) |
-| 5 | Sound | **Open** (Q1) |
+| 3 | Copper | ~~In version 1, a "smart" copper: loops, a counter, indirect moves through X/Y pointers~~ see branch 9 |
+| 4 | Sprites | ~~32 sprites, 8 to 32 pixels, 1, 2, 4 or 8 bits per pixel, patterns in SRAM~~ see branch 9 |
+| 4 | Sprite scaling | ~~Fractional, X and Y separately, 1/16× to 16× (16-bit steps, 4.12 fixed point)~~ see branch 9 |
+| 5 | Sound | ~~**Open** (Q1)~~ see branch 9 |
 | 6 | Registers | 8-bit, in Z80 I/O space and also as memory through a register page any window can map; 16- and 24-bit values are byte groups latched on the last byte |
 | 6 | MMU read/write | Each window has a read page and a write page; setting the read page also sets the write page; ROM, RAM or registers in any window |
-| 6 | DMA engine | Later |
+| 6 | DMA engine | ~~Later~~ see branch 9 |
 | 7 | BASIC | BBC BASIC (Z80) |
 | 7 | CP/M | Later (CP/M 3) |
 | 7 | I/O | USB serial (FT232H), SD card, PS/2 keyboard, joysticks, Spectrum keyboard |
 | 7 | Assembler | sjasmplus |
 | 8 | 6502 | Decide later; keep the chipset CPU-independent |
+| 9 | Direction | **retro-z80 is retro68k narrowed to 8 bits:** the same blocks, register names, bit layouts and programming model, cut to 8-bit ports. It differs only where the Z80 (8-bit ports, 64 KB address space, IM 2 on one /INT line) or the memory bandwidth (448 guaranteed display bytes per line against retro68k's 1,280) forces it. Every spec has a "Comparison with retro68k" table listing each difference and why |
+| 9 | Layers | Background colour, **two identical layers L0 and L1** with retro68k's per-layer register block (CTRL, window, pointer, stride, scroll), each a **bitmap or a tile map** (a CTRL mode field), and retro68k's PRIO register. Bitmaps chunky 1/2/4/8 bpp; tiles 8×8 at 1/2/4/8 bpp. Scale 1× or 2× across and down (retro68k's HSCALE/VSCALE fields, 4× and 8× reserved). Kept inside the hardware for bandwidth: the FIFOs and the repeat buffer |
+| 9 | Palettes | As retro68k: a 256-entry palette per layer and one for the sprites, with PALOFS and VIDCON.SHAREPAL. Colours stay 12-bit RGB (the KS3's VGA has 4 bits per colour) |
+| 9 | Sprites | **retro68k's 8 sprites:** SPRxPT, SPRxH, SPRxV, SPRxCTL; any size (a window per sprite), 2/4/8 bpp, magnify ×1/2/4 across and down, DEPTH among the layers, own palette, collisions. Fetched whole rows into a line buffer inside, for bandwidth. Fractional scaling, flips and the attribute table are dropped |
+| 9 | Copper | **retro68k's copper instructions and names in 16-bit words with 8-bit data:** MOVE is one word (register and 8-bit data); WAIT, SKIP and JUMP take two; MOVR, the ALU (8-bit R0–R7, flags Z N C), SKIPC, CALL/RET; COP1LC/COP2LC, COPJMP1/2, COPCON. Same macros as retro68k |
+| 9 | DMA engine | retro68k's DMA engine (its version-1 decision), narrowed: one channel, copy and fill in 1D and 2D, SRAM only, spare memory cycles. Specified now |
+| 9 | Sound | Still parked (Q1); its ports and interrupt reserved under retro68k's names |
+| 9 | Interrupts | retro68k's model: each unit keeps its own flags and enables; the controller has INTCON.MASTER, INTENA (set/clear), INTPEND, INTRAW, VECBASE, SOFTINT, NMICON, NMISTAT; retro68k's source names and order. Fixed priority (one /INT line); IM 2 vector = VECBASE + 2 × source |
+| 9 | Timers | retro68k's model at 16 bits: 4 timers, each CTRL, PRESCALE, RELOAD, COUNT, STAT, with retro68k's sources and chaining; a watchdog |
+| 9 | Register map | retro68k's block order and names, narrowed to bytes. **System block** on 8-bit ports (A15–A8 ignored, so `OUT (n),A` and `OTIR` work), in retro68k's order: `0x00`–`0x0F` interrupts, `0x20`–`0x4F` timers and watchdog, `0x50`–`0x57` serial, `0x58`–`0x5F` SD, `0x60`–`0x6F` keyboard and joysticks, `0x70`–`0x7F` system, `0x80`–`0x9F` MMU read and write pages, `0xA0`–`0xBF` geometry unit (branch 10). Spectrum extras at `0x1F` (Kempston) and `0xFE` |
+| 9 | Custom block | The chipset is retro68k's "custom block", 1 KB on **16-bit ports**: port = offset bits 7–0 in the high byte, `0xC0` + offset bits 9–8 in the low byte (`LD BC,reg` then `OUT (C),A`; `INC B` steps to the next register). Layout: `0x000` video globals and palette ports, `0x020` layer 0, `0x040` layer 1, `0x060` sprites 0–7 (16 bytes each), `0x0E0` copper control; `0x100` copper storage registers, `0x120` attribute layer, `0x140` DMA engine, `0x180` audio (reserved). The register page mirrors both blocks |
+| 9 | Copper MOVE | One word: register (8 bits) and data (8 bits). Codes `0x00`–`0xEF` are MOVEs to custom offsets `0x000`–`0x0EF`; codes `0xF0`–`0xFF` are the other instructions, with a second word where needed. A two-word MOVEL reaches any custom register |
+| 9 | Spectrum extras | Kept, each in its own section outside the retro68k core: port `0xFE` (keyboard rows, border, beeper), Kempston `0x1F`, the attribute layer, NMI monitor paging |
+| 10 | 3D target | **Flat-shaded polygons** (one colour each), as in Elite or Starglider 2 but at 25–50 frames a second. No Z-buffer (it would triple the memory traffic): software sorts back to front |
+| 10 | 3D hardware | First a **geometry unit** (matrix multiplier). Help with drawing (span fill or a triangle job in the DMA engine) is decided later. retro-z80 only, not in retro68k: a Z80 has no multiply, so it sits in its own section like the Spectrum extras |
+| 10 | Geometry: numbers | Coordinates signed 16-bit integers; matrix entries signed 2.14 fixed point; sums 32-bit inside, results 16-bit. A result that doesn't fit **saturates** to −32768 or +32767 and sets a status bit |
+| 10 | Geometry: matrices | **Two** 3×3 matrices, each with a translation vector: camera and object. Writing the object matrix makes the unit multiply them (camera × object) itself. A vertex then gives X = m11·x + m12·y + m13·z + tx, and so on |
+| 10 | Geometry: perspective | Selectable by a control bit: screen x = cx + d·X ÷ Z, y = cy − d·Y ÷ Z, with d, cx and cy set once. A vertex with Z below a set minimum sets a **NEAR** bit and comes back unprojected (X, Y, Z), so software can clip or drop it |
+| 10 | Geometry: extras | Plain 16×16 → 32 signed multiply and 32 ÷ 16 divide, on the same DSP slices and divider |
+| 10 | Geometry: access | Ports, and as memory through the register page (LDI, LD (IX+d)); writing z starts a vertex. About 150 T-states a vertex at 28 MHz against 2,000–3,000 in software. The unit finishes in under 1 µs, before the Z80 can read back, but a busy bit is kept |
+| 10 | Geometry: when | Specified after the DMA engine spec, which leaves room in its job codes for a later drawing job |
 
 ## 2. Key decisions
+
+> **Being rewritten.** Branch 9 of section 1 (23 October 2026) brings the chipset back in line with retro68k. Where D5–D11 and section 3 below disagree with branch 9, branch 9 wins; they are updated as each spec is rewritten.
 
 ### D1. Board: ZX Spectrum Next KS3
 
@@ -191,6 +214,7 @@ The full list is in [spec 3](spec/registers.md).
 | 11 | [SD card](spec/sd-card.md) | Draft |
 | 12 | [Input](spec/input.md) | Draft |
 | 13 | Sound | Waiting for Q1 |
+| – | Geometry unit (3D) | After the DMA engine spec (branch 10) |
 
 ## 5. Phases
 
@@ -220,7 +244,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | Q7 | KS3 pins for the Spectrum keyboard, joysticks, PS/2 and `sd_miso`, not yet checked against the Next's pin file | Check before phase 3 (spec 7, SY1) |
 | Q8 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
 | Q9 | A Z80 faster than 28 MHz | Left for later. Options: (A) 56 MHz with one wait state on SRAM, about 1.6×; (B) A plus 128 KB of block-RAM fast RAM with no waits, 2× there; (C) 17.9 ns SRAM cycles on a 112 MHz system clock, 2× with no waits; (D) a core that needs fewer clocks per instruction, 2–3×. B looked the best value. All need tv80 (or the new core) to meet 56 MHz |
-| Q10 | Hardware help for 3D filled polygons | Left for later. Options, cheapest first: (0) Z80 only; (1) a maths unit, 16×16 multiply and 32/16 divide on ports, about 100 LUTs; (2) a span filler, (y, x0, x1, colour) into a FIFO and filled in spare memory cycles, as a mode of the DMA engine; (3) a triangle rasteriser, about 1–2k LUTs; (4) a programmable geometry coprocessor like the SNES's Super FX, about 3–5k LUTs. 1 and 2 together looked the best value. Double buffering already works by switching BMADDR at vertical blank |
+| Q10 | Hardware help for 3D filled polygons | Partly answered by branch 10: a geometry unit (matrices, perspective, multiply and divide) comes first. Still open: drawing help, either (a) a span filler, (y, x0, x1, colour) filled in spare memory cycles, about 0.5k LUTs, with the Z80 stepping the edges, or (b) a triangle job in the DMA engine taking three screen vertices, about 1–2k LUTs. With fast vertices, edge stepping becomes the Z80's main cost, so (b) looks the better value. Double buffering already works by switching the layer pointer at vertical blank |
 
 ## 7. Next step
 

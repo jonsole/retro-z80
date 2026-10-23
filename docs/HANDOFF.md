@@ -6,7 +6,7 @@ Where the project stands, what is unfinished, and how to carry on. Written at th
 
 retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a new Z80 computer (not a copy of an existing machine) inside the FPGA of a **ZX Spectrum Next KS3**, for use as a home computer and a games machine. A 6502 version may follow, so the chipset is kept independent of the CPU.
 
-- **Repo:** `jonsole/retro-z80`. All work so far is on branch `ccr-5715a6b2-fbzuor`; no pull request yet.
+- **Repo:** `jonsole/retro-z80`. Work goes on `main`.
 - **retro68k** (`jonsole/retro68k`) is the model for structure, writing style and shared logic. Clone it next to this repo; the specs refer to its files (RTL, sim models, register-map generator).
 - **Phase:** 0 (planning). Nothing in `fpga/`, `firmware/` or `hardware/` exists yet.
 
@@ -92,7 +92,7 @@ Done: `video.md` and `sprites.md` carry items 1–5 and 8. Points they raised fo
 | Q7 | KS3 pins for keyboard, joysticks, PS/2, `sd_miso` | Check against the Next's pin file before phase 3 |
 | Q8 | KS3 details shared with retro68k | SRAM size, accelerator pins, Next core format |
 | Q9 | Z80 faster than 28 MHz | Parked. Best value: 56 MHz with a wait on SRAM plus 128 KB block-RAM fast RAM |
-| Q10 | 3D filled polygons | Parked. Best value: maths unit (multiply/divide ports) plus a span-fill mode in the DMA engine |
+| Q10 | 3D filled polygons | Branch 10: flat-shaded; a geometry unit first (two matrices, camera × object, perspective, multiply and divide), retro-z80 only, specified after the DMA engine. Drawing help (span fill or triangle job) still open |
 
 ## 7. Next phase: phase 1, the simulated CPU
 

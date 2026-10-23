@@ -498,5 +498,5 @@ The sprite row store and line buffer are spec 5's. The design plan's block RAM t
 | V9 | The boot console's SRAM addresses and the 8 × 8 font (a public-domain code page 437 font) are to be fixed in spec 7 |
 | V10 | Plain DVI has no info packets; add the HDMI AVI InfoFrame later, as in retro68k |
 | V11 | Check in Vivado that the clock crossings are constrained and the draw pipeline (now an 8-way priority choice) meets 56 MHz |
-| V12 | Border colours: the 8 Spectrum colours are taken as level `0xD` (about 85 %, the Spectrum's non-bright level). Could be set to match a particular emulator's palette |
+| V12 | Closed: the 8 border colours use level `0xD` (about 85 %, the Spectrum's non-bright level) |
 | V13 | TLSCRY is now 2 bytes (`0x6A`–`0x6B`); copper programs must write TLSCRY1 to commit it, even for maps 32 rows high |
