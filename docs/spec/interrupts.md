@@ -2,13 +2,13 @@
 
 Status: **draft**
 
-The interrupt controller gathers the interrupt requests of every unit and passes them to the Z80's /INT input. It follows retro68k's controller (its spec 13 and the "Interrupts and Timers" chapter of its guide): each unit keeps its own flags and enables and raises one request line; the controller has a master enable, set/clear enables, pending and raw views, a vector base, a software interrupt and an ID register, with retro68k's source names and numbers. In **IM 2** it puts a vector byte on the bus during the interrupt-acknowledge cycle, so each source has its own handler. **IM 1** also works: the handler at `0x0038` reads INTID. The controller also drives /NMI, from the Multiface button and a "break" sent over USB. Its registers are system ports `0x00`–`0x0E`.
+The interrupt controller gathers the interrupt requests of every unit and passes them to the Z80's /INT input. It follows retro68k's controller (its spec 13 and the "Interrupts and Timers" chapter of its guide): each unit keeps its own flags and enables and raises one request line; the controller has a master enable, set/clear enables, pending and raw views, a vector base, a software interrupt and an ID register, with retro68k's source names and numbers. In **IM 2** it puts a vector byte on the bus during the interrupt-acknowledge cycle, so each source has its own handler. **IM 1** also works: the handler at `0x0038` reads INTID. The controller also drives /NMI, from the Multiface button and a "break" sent over USB. Its registers are registers `0x00`–`0x0E` of the system page `0x00`: ports `0x0000`–`0x0E00` (spec 3).
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
-| Sources | 21 numbers (0–20), retro68k's numbering; 12 in use in version 1, the rest reserved or not used |
+| Sources | 21 numbers (0–20), retro68k's numbering; 15 in use in version 1, the rest reserved or not used |
 | Request lines | Each unit raises a level line while one of its flags is set and enabled in the unit. The controller keeps no request flags of its own, except SOFT |
 | Priority | Fixed: a lower source number goes first (one /INT line) |
 | Enables | INTENA, three set/clear bytes (Amiga style), and INTCON.MASTER |
@@ -16,11 +16,11 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | IM 1 | `RST 38h`; INTID gives the source chosen at that acknowledge |
 | IM 0 | Not supported (section 7) |
 | Spurious acknowledge | Entry 23 of the table (NONE) |
-| NMI | Multiface button and USB BREAK; NMICON turns each off, NMISTAT says which. The NMI monitor paging is a Spectrum extra (spec 7, section 9.1) |
+| NMI | Multiface button and USB BREAK; NMICON turns each off, NMISTAT says which. The NMI monitor paging is a Spectrum extra (spec 7, section 10.1) |
 | Software interrupt | Source SOFT (18), raised and cleared through SOFTINT |
 | RETI | Not needed by the controller (section 8) |
-| Ports | `0x00`–`0x0E`; `0x0F` reserved. Also at register page offsets `0x000`–`0x00F` |
-| Who can write them | The CPU only. The copper and the DMA engine cannot reach the system ports |
+| Registers | System page `0x00`, registers `0x00`–`0x0E` (`0x0F` reserved): port = register × 256, `0x0000`–`0x0E00`. Also at register page offsets `0x0000`–`0x000F` |
+| Who can write them | The CPU only. The copper cannot reach the system page, and a DMA job that tries is stopped with an error (spec 14, section 4) |
 | Memory cycles | None |
 
 ## 2. Comparison with retro68k
@@ -35,19 +35,19 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | Spurious | Vector 24, the 68000's spurious vector | Source number 23 (NONE): entry VECBASE + 46 | Forced: the Z80 has no spurious vector |
 | INTENA | Two 16-bit set/clear halves (bits 15 and 31) | Three 8-bit set/clear bytes, bit 7 SETCLR in each | Forced: 8-bit ports |
 | INTID | For debugging only | Also how an IM 1 handler finds its source | Forced: IM 1 gives no vector. It replaces the earlier draft's INTHIGH port |
-| DMA sources | DMA0–DMA3 (4–7) | DMA0 (4); 5–7 reserved | The DMA engine has one channel (spec 14) |
+| DMA sources | DMA0–DMA3 (4–7) | The same | – |
 | AUDIO | Source 9 | Source 9 reserved | Sound is parked (design plan Q1) |
 | SD | Source 16, from SDIRQ; not used in version 1 | Source 16, not used in version 1: the SD controller is polled (spec 11) | As retro68k's version 1 |
 | Reserved 19–23 | Free | 19 reserved for the geometry unit (spec 15, branch 10), 20 free | Geometry unit is retro-z80 only |
 | Sprites | No sprite source: a sprite running short raises VIDERR; collisions are polled | The same | – |
 | Watchdog | No interrupt: it resets | The same | – |
 | NMI | Level 7, vector 31 | /NMI, `0x0066` | Forced |
-| NMI paging | None | Window 0 switched to the boot ROM's monitor page (spec 7, section 9.1) | Spectrum extra (Multiface style) |
-| Register width | 32-bit registers | 8-bit ports, `0x00`–`0x0E` | Forced |
+| NMI paging | None | Window 0 switched to the boot ROM's monitor page (spec 7, section 10.1) | Spectrum extra (Multiface style) |
+| Registers | 32-bit registers in the system area | 8-bit registers `0x00`–`0x0E` of system page `0x00` (ports `0x0000`–`0x0E00`) | Forced: 8-bit ports |
 
 ## 3. How an interrupt reaches the CPU
 
-1. Something happens in a unit, for example the video reaches the start of vertical blanking. The unit sets a **status flag** (here VIDSTAT.VBLANK, spec 4). If the unit's own **enable** for that flag is on (here VIDINTEN.VBLANK), the unit raises its **request line**. INTRAW shows the request lines.
+1. Something happens in a unit, for example the display beam reaches the start of vertical blanking. The unit sets a **status flag** (here VIDSTAT.VBLANK, spec 4). If the unit's own **enable** for that flag is on (here VIDINTEN.VBLANK), the unit raises its **request line**. INTRAW shows the request lines.
 2. If the source's INTENA bit is on and INTCON.MASTER is on, the request is **pending**. INTPEND shows the pending sources.
 3. While any source is pending, the controller holds /INT low.
 4. The Z80 samples /INT at the end of each instruction. If its IFF1 flag is set (after `EI`), it runs an **interrupt-acknowledge cycle** (an M1 cycle with /IORQ low instead of /MREQ, spec 1, section 8.1).
@@ -67,12 +67,14 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 
 | Number | Name | From | Request while | Cleared in |
 |--------|------|------|---------------|------------|
-| 0 | VBLANK | Video: start of the frame and of vertical blanking (beam line 0) | VIDSTAT.VBLANK and VIDINTEN.VBLANK (spec 4) | VIDSTAT.VBLANK |
-| 1 | LINE | Video: line compare, at the start of beam line LINECMP | VIDSTAT.LINE and VIDINTEN.LINE (spec 4) | VIDSTAT.LINE |
+| 0 | VBLANK | Video: start of the frame and of vertical blanking (display beam line 0, spec 4) | VIDSTAT.VBLANK and VIDINTEN.VBLANK (spec 4) | VIDSTAT.VBLANK |
+| 1 | LINE | Video: line compare, at the start of display beam line LINECMP | VIDSTAT.LINE and VIDINTEN.LINE (spec 4) | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ and COPCON.IRQEN (spec 6) | COPSTAT.IRQ |
-| 3 | VIDERR | Video problems: a layer ran short (OVERRUN), the sprites ran short (spec 5) | VIDSTAT error bits and their VIDINTEN bits (spec 4) | VIDSTAT |
-| 4 | DMA0 | DMA engine: a job with IRQ finished, or an error | DMXINT and DMXINTEN (spec 14) | DMXINT |
-| 5–7 | – | Reserved (retro68k's DMA1–DMA3; this engine has one channel) | – | – |
+| 3 | VIDERR | Video problems: a layer's fetch was late (OVERRUN), a sprite's FIFO ran dry (SPRUNDER, spec 5) | VIDSTAT error bits and their VIDINTEN bits (spec 4) | VIDSTAT |
+| 4 | DMA0 | DMA engine channel 0: a descriptor with IRQ finished, or an error | DMXINT.CH0 and DMXINTEN.CH0 (spec 14) | DMXINT.CH0 |
+| 5 | DMA1 | DMA engine channel 1 | DMXINT.CH1 and DMXINTEN.CH1 | DMXINT.CH1 |
+| 6 | DMA2 | DMA engine channel 2 | DMXINT.CH2 and DMXINTEN.CH2 | DMXINT.CH2 |
+| 7 | DMA3 | DMA engine channel 3 | DMXINT.CH3 and DMXINTEN.CH3 | DMXINT.CH3 |
 | 8 | – | Not used, as in retro68k | – | – |
 | 9 | AUDIO | Reserved for sound (spec 13, parked) | – | – |
 | 10 | – | Not used, as in retro68k | – | – |
@@ -91,7 +93,7 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 
 Reserved sources request nothing, so their INTRAW bits read 0.
 
-**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the DMA engine, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
+**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the DMA engine's channels, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
 
 ## 5. IM 2 vectors
 
@@ -114,7 +116,8 @@ INTID keeps its value until the next acknowledge, and the next acknowledge canno
 ```
 isr38:  push af
         push hl
-        in   a,(INTID)       ; source chosen at this acknowledge, 0-20 or 23
+        ld   a,INTID         ; register number on A15-A8
+        in   a,(SYSPAGE)     ; source chosen at this acknowledge, 0-20 or 23
         add  a,a             ; × 2: offset in the table
         ld   l,a
         ld   h,high(table)   ; table of handler addresses, 48 bytes, not crossing a page
@@ -156,7 +159,7 @@ The Z80's /NMI is edge-triggered and cannot be masked by `DI`. The CPU jumps to 
 - Both enables are on after reset. INTCON.MASTER and INTENA do not affect the NMI. An event from a source that is turned off is ignored and sets no flag.
 - An enabled event sets its NMISTAT flag (sticky, W1C) and sets an internal **NMI request**. The controller holds /NMI low while the request is set, and the bus interface clears the request when the CPU starts its NMI response (an nmi_ack pulse, spec 1, section 8.2). So **each press or break gives exactly one NMI**, and the handler does not have to clear anything for the NMI to stop. It should still clear NMISTAT, so that next time it can tell which source it was.
 - Events that come in before the CPU has taken the request add to that one NMI; NMISTAT shows every source involved.
-- **NMI monitor paging** (a Spectrum extra, spec 7, section 9.1): with NMICTL.EN = 1, taking an NMI switches window 0 to the boot ROM's monitor page, and `RETN` switches it back. While NMICTL.INNMI is 1, the controller holds /NMI high: events still set their flags and the request, and the request gives a new NMI straight after `RETN`. So the monitor is never entered twice. With NMICTL.EN = 0, INNMI stays 0 and an NMI can interrupt an NMI handler, as on a plain Z80.
+- **NMI monitor paging** (a Spectrum extra, spec 7, section 10.1): with NMICTL.EN = 1, taking an NMI switches window 0 to the boot ROM's monitor page, and `RETN` switches it back. While NMICTL.INNMI is 1, the controller holds /NMI high: events still set their flags and the request, and the request gives a new NMI straight after `RETN`. So the monitor is never entered twice. With NMICTL.EN = 0, INNMI stays 0 and an NMI can interrupt an NMI handler, as on a plain Z80.
 - The KS3's DivMMC button is not an interrupt source; software reads it in SYSBTN (spec 7).
 
 ## 11. Latency
@@ -168,45 +171,53 @@ The Z80's /NMI is edge-triggered and cannot be masked by `DI`. The CPU jumps to 
 | IM 2 acknowledge, push PC, read the table | 19 |
 | IM 1 acknowledge, push PC | 13 |
 | NMI, push PC | 11 |
-| Controller | The request is registered once: 1 system clock (under 20 ns) |
+| Controller | The request is registered once: 1 system clock (10 ns) |
 
-| CPU speed | IM 2 worst case (23 + 19 T) | IM 1 worst case (23 + 13 T), before the dispatch code |
+| CPU speed (CPUSPEED, spec 7) | IM 2 worst case (23 + 19 T) | IM 1 worst case (23 + 13 T), before the dispatch code |
 |-----------|-----------------------------|----------------------------------------|
-| 28 MHz | 1.5 µs | 1.3 µs |
-| 14 MHz | 3.0 µs | 2.6 µs |
-| 7 MHz | 6.0 µs | 5.1 µs |
-| 3.5 MHz | 12.0 µs | 10.3 µs |
+| 20 MHz (n = 1) | 2.1 µs | 1.8 µs |
+| 10 MHz (n = 2) | 4.2 µs | 3.6 µs |
+| 6.67 MHz (n = 3) | 6.3 µs | 5.4 µs |
+| 5 MHz (n = 4) | 8.4 µs | 7.2 µs |
+| 4 MHz (n = 5) | 10.5 µs | 9.0 µs |
+| 3.33 MHz (n = 6) | 12.6 µs | 10.8 µs |
+| 2.86 MHz (n = 7) | 14.7 µs | 12.6 µs |
+| 2.5 MHz (n = 8) | 16.8 µs | 14.4 µs |
+| 3.57 MHz (SPECTRUM) | 11.8 µs | 10.1 µs |
 
-Code that runs with interrupts disabled adds its own time. A 576p line is 32 µs, 896 T-states at 28 MHz. Effects that must land on an exact pixel belong to the copper (spec 6), not to a LINE handler.
+Code that runs with interrupts disabled adds its own time. A 576p line is 32 µs, 640 T-states at 20 MHz. Effects that must land on an exact pixel belong to the copper (spec 6), not to a LINE handler.
 
 ## 12. Registers
 
-System ports, decoded on A7–A0 (spec 3). The same registers are at register page offsets `0x000`–`0x00F`.
+Registers `0x00`–`0x0F` of the system page `0x00` (spec 3). Port = (register << 8) | `0x00`, so INTCON is port `0x0000` and NMISTAT port `0x0E00`. The same registers are at register page offsets `0x0000`–`0x000F`.
 
-| Port | Name | Access | Bits | Reset | Description |
-|------|------|--------|------|-------|-------------|
-| `0x00` | INTCON | RW | MASTER (0) | `0x00` | All interrupts except the NMI on. Bits 7–1 read 0 |
-| `0x01` | INTENA0 | Set/clear | SETCLR (7), sources 6–0 (6–0) | `0x00` | Enables of sources 0–6. Writing with SETCLR = 1 sets the bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reads give the enables, bit 7 reads 0 |
-| `0x02` | INTENA1 | Set/clear | SETCLR (7), sources 13–7 (6–0) | `0x00` | As INTENA0, sources 7–13 |
-| `0x03` | INTENA2 | Set/clear | SETCLR (7), sources 20–14 (6–0) | `0x00` | As INTENA0, sources 14–20 |
-| `0x04` | INTPEND0 | R | Sources 6–0 (6–0) | `0x00` | Pending: requesting, enabled in INTENA, and MASTER on. Bit 7 reads 0 |
-| `0x05` | INTPEND1 | R | Sources 13–7 (6–0) | `0x00` | As INTPEND0 |
-| `0x06` | INTPEND2 | R | Sources 20–14 (6–0) | `0x00` | As INTPEND0 |
-| `0x07` | INTRAW0 | R | Sources 6–0 (6–0) | `0x00` | Request lines, before INTENA and MASTER. Bit 7 reads 0 |
-| `0x08` | INTRAW1 | R | Sources 13–7 (6–0) | `0x00` | As INTRAW0 |
-| `0x09` | INTRAW2 | R | Sources 20–14 (6–0) | `0x00` | As INTRAW0 |
-| `0x0A` | VECBASE | RW | VEC (7–1); bit 0 reads 0 | `0x00` | Low byte of the IM 2 table: source n uses VECBASE + 2n (section 5) |
-| `0x0B` | SOFTINT | W | SET (0), CLR (1) | – | Write 1 to raise or clear the software interrupt. Reads `0x00` |
-| `0x0C` | INTID | R | SRC (4–0) | `0x00` | Source given at the last acknowledge: 0–20, or 23 (NONE) for a spurious one. Not changed by the NMI. Bits 7–5 read 0 |
-| `0x0D` | NMICON | RW | BUTTONEN (0), USBEN (1) | `0x03` | Allow each NMI source. Bits 7–2 read 0 |
-| `0x0E` | NMISTAT | W1C | BUTTON (0), USB (1) | `0x00` | Which caused NMIs since last cleared; sticky. Bits 7–2 read 0 |
-| `0x0F` | – | – | – | – | Reserved: reads `0xFF`, writes ignored (spec 3, rule 11) |
+- **Writing:** `LD BC,port` then `OUT (C),r`. C stays `0x00` for the whole system page, so the next register is `LD B,register` (or `INC B`). `OUT (n),A` cannot write a register: it puts A on A15–A8 as the register number.
+- **Reading:** `LD A,register` then `IN A,(0x00)` (A goes on A15–A8), or `IN r,(C)` with B = register and C = `0x00`.
+
+| Register | Port | Name | Access | Bits | Reset | Description |
+|----------|------|------|--------|------|-------|-------------|
+| `0x00` | `0x0000` | INTCON | RW | MASTER (0) | `0x00` | All interrupts except the NMI on. Bits 7–1 read 0 |
+| `0x01` | `0x0100` | INTENA0 | Set/clear | SETCLR (7), sources 6–0 (6–0) | `0x00` | Enables of sources 0–6. Writing with SETCLR = 1 sets the bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reads give the enables, bit 7 reads 0 |
+| `0x02` | `0x0200` | INTENA1 | Set/clear | SETCLR (7), sources 13–7 (6–0) | `0x00` | As INTENA0, sources 7–13 |
+| `0x03` | `0x0300` | INTENA2 | Set/clear | SETCLR (7), sources 20–14 (6–0) | `0x00` | As INTENA0, sources 14–20 |
+| `0x04` | `0x0400` | INTPEND0 | R | Sources 6–0 (6–0) | `0x00` | Pending: requesting, enabled in INTENA, and MASTER on. Bit 7 reads 0 |
+| `0x05` | `0x0500` | INTPEND1 | R | Sources 13–7 (6–0) | `0x00` | As INTPEND0 |
+| `0x06` | `0x0600` | INTPEND2 | R | Sources 20–14 (6–0) | `0x00` | As INTPEND0 |
+| `0x07` | `0x0700` | INTRAW0 | R | Sources 6–0 (6–0) | `0x00` | Request lines, before INTENA and MASTER. Bit 7 reads 0 |
+| `0x08` | `0x0800` | INTRAW1 | R | Sources 13–7 (6–0) | `0x00` | As INTRAW0 |
+| `0x09` | `0x0900` | INTRAW2 | R | Sources 20–14 (6–0) | `0x00` | As INTRAW0 |
+| `0x0A` | `0x0A00` | VECBASE | RW | VEC (7–1); bit 0 reads 0 | `0x00` | Low byte of the IM 2 table: source n uses VECBASE + 2n (section 5) |
+| `0x0B` | `0x0B00` | SOFTINT | W | SET (0), CLR (1) | – | Write 1 to raise or clear the software interrupt. Reads `0x00` |
+| `0x0C` | `0x0C00` | INTID | R | SRC (4–0) | `0x00` | Source given at the last acknowledge: 0–20, or 23 (NONE) for a spurious one. Not changed by the NMI. Bits 7–5 read 0 |
+| `0x0D` | `0x0D00` | NMICON | RW | BUTTONEN (0), USBEN (1) | `0x03` | Allow each NMI source. Bits 7–2 read 0 |
+| `0x0E` | `0x0E00` | NMISTAT | W1C | BUTTON (0), USB (1) | `0x00` | Which caused NMIs since last cleared; sticky. Bits 7–2 read 0 |
+| `0x0F` | `0x0F00` | – | – | – | – | Reserved: reads `0xFF`, writes ignored (spec 3, rule 11) |
 
 **Bit positions:** source n is in byte n div 7 (INTENA0/1/2, INTPEND0/1/2, INTRAW0/1/2), bit n mod 7. INTENA, INTPEND and INTRAW use the same positions, so a mask built for one works on the others.
 
 **INTENA is not a multi-byte value.** Each byte takes effect when it is written, with no latch (an exception to spec 3's multi-byte rule). Never read INTENA, change a bit and write it back: write only the bits to change, with SETCLR. Two pieces of code, or a handler and the main program, can then each turn their own sources on and off safely.
 
-**Names** (`fpga/regmap.def`, as retro68k's `hw.inc`): `INT_VBLANK` … `INT_SOFT` and `INT_NONE` = 23 are the source numbers; `INTB_name` is the bit within its byte and `INTR_name` the byte (0, 1 or 2), so a source is turned on with `INTENA0 + INTR_name` and `INTENA_SETCLR_M | (1 << INTB_name)`. `NMICON_BUTTONEN_M`, `NMISTAT_USB_M`, `SOFTINT_SET_M` and so on follow the same pattern.
+**Names** (`fpga/regmap.def`, as retro68k's `hw.inc`): `INT_VBLANK` … `INT_SOFT` and `INT_NONE` = 23 are the source numbers; `INTB_name` is the bit within its byte and `INTR_name` the byte (0, 1 or 2), so a source is turned on by writing `INTENA_SETCLR_M | (1 << INTB_name)` to register `INTENA0 + INTR_name`. A system register's name is its register number, which is also its register page offset; `name_P` is its port (spec 3, section 8). `SYSPAGE` = `0x00` is the system page. `NMICON_BUTTONEN_M`, `NMISTAT_USB_M`, `SOFTINT_SET_M` and so on follow the same pattern.
 
 **After reset:** MASTER off, every INTENA bit off, VECBASE `0x00`, SOFT not raised, both NMI sources on, NMISTAT clear. The boot ROM sets I, VECBASE and its table, chooses `IM 2`, enables the units and sources it wants, sets MASTER and then does `EI`.
 
@@ -216,20 +227,23 @@ System ports, decoded on A7–A0 (spec 3). The same registers are at register pa
         di
         ld   a,0xBF
         ld   i,a
+        ld   bc,VECBASE_P             ; C = 0x00, the system page
         ld   a,0xD0
-        out  (VECBASE),a              ; table at 0xBFD0
+        out  (c),a                    ; table at 0xBFD0
         im   2
-        ld   bc,VIDSTAT_P             ; custom block port (spec 3, section 8)
+        ld   bc,VIDSTAT_P             ; custom block port (spec 3)
         ld   a,VIDSTAT_VBLANK_M
         out  (c),a                    ; clear any old VBLANK flag
         ld   bc,VIDINTEN_P
         in   a,(c)
         or   VIDINTEN_VBLANK_M
         out  (c),a                    ; the unit's enable
+        ld   bc,INTENA0_P+(INTR_VBLANK<<8)
         ld   a,INTENA_SETCLR_M|(1<<INTB_VBLANK)
-        out  (INTENA0+INTR_VBLANK),a  ; the controller's enable
+        out  (c),a                    ; the controller's enable
+        ld   b,INTCON
         ld   a,INTCON_MASTER_M
-        out  (INTCON),a               ; the master enable
+        out  (c),a                    ; the master enable
         ei
         ...
 vbl:    push af
@@ -254,7 +268,7 @@ vbl:    push af
 
 ## 14. Test plan
 
-- **Vectors:** each source in use, raised by its unit (SOFT by software), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
+- **Vectors:** each source in use, raised by its unit (SOFT by software; DMA0–DMA3 by a job with IRQ on each channel), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
 - **Priority:** with several sources pending, they are served lowest number first; INTID agrees with the vector at every step.
 - **IM 1:** `RST 38h` with INTID dispatch serves every source; a spurious acknowledge gives INTID = 23.
 - **Request path:** INTRAW follows unit flag AND unit enable; INTPEND follows INTRAW AND INTENA AND MASTER; reserved sources read 0.
@@ -276,6 +290,7 @@ vbl:    push af
 | I2 | AUDIO (9) is reserved until spec 13 |
 | I3 | GEOM (19): does the geometry unit need an interrupt at all? It finishes in under 1 µs (design plan, branch 10). Keep the number reserved until spec 15 decides |
 | I4 | Check that tv80 samples /INT and runs the IM 2 acknowledge as a real Z80 does (design plan Q3), including the vector read timing in spec 1 |
-| I5 | Should an IM 0 option drive `0xFF` (`RST 38h`) in the acknowledge, so IM 0 behaves like IM 1? Cheap, but nothing needs it now |
+| I5 | Closed: no IM 0 option (design plan, branch 11). Software sets IM 1 or IM 2 before the first `EI` (section 7) |
 | I6 | Closed: IM 1 uses INTID (the source at the last acknowledge) instead of a separate "highest pending" port. INTHIGH is gone |
-| I7 | Whether any accelerator-port pins should raise interrupts (retro68k I1); source 20 is free for it |
+| I7 | Deferred (design plan, branch 11): interrupts from accelerator-port pins (retro68k I1). Source 20 is kept free for it |
+| I8 | Closed: the four DMA engine channels are sources 4–7, DMA0–DMA3, as retro68k (spec 14) |

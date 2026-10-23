@@ -2,51 +2,67 @@
 
 Status: **draft**
 
-This spec covers the three kinds of input: a **PS/2 keyboard**, the KS3's **membrane keyboard** and its two **joystick ports**. The PS/2 keyboard is retro68k's (its spec 16, version 1): a raw byte FIFO with the same registers, names and bits, cut to bytes. The joysticks and the membrane's extra keys are on retro68k's "later versions" list; here they are in version 1, in the same port range. Their ports are `0x60`–`0x6F` in the system block (spec 3).
+This spec covers the three kinds of input: a **PS/2 keyboard**, the KS3's **membrane keyboard** and its two **joystick ports**. The PS/2 keyboard is retro68k's (its spec 16, version 1): a raw byte FIFO with the same registers, names and bits, cut to bytes. The joysticks, the membrane and its key map are on retro68k's "later versions" list; here they are in version 1. Their registers are `0x60`–`0x6F` and `0x10`–`0x16` of page `0x00`, the system block (spec 3): KBCON is port `0x6000`. KBDATA is also the low-byte-only port `0x62`, so `INIR` works on it.
 
-The Spectrum's own ways in, port `0xFE` (keyboard rows) and the Kempston port `0x1F`, are kept as **Spectrum extras** in section 8, outside the retro68k-shaped core.
+The Spectrum's own ways in, port `0xFE` (keyboard rows, with PS/2 keys mapped onto them) and the Kempston port `0x1F`, are kept as **Spectrum extras** in section 8, outside the retro68k-shaped core.
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
 | PS/2 keyboard | Any PS/2 keyboard, scan code set 2. Checked bytes into a 16-byte FIFO, unchanged; software decodes. Bytes can be sent to the keyboard |
-| Membrane keyboard | The KS3's 8 × 7 matrix, scanned and debounced in hardware. The 40 Spectrum keys are read through port `0xFE` (section 8); the 16 extra Next keys also in KEYX5 and KEYX6 |
-| Joysticks | 2 ports, Atari (1 or 2 buttons) or Mega Drive 3-button pads. Kempston bit order, 1 = pressed |
+| Membrane keyboard | The KS3's 8 × 7 matrix, scanned and debounced in hardware. All 56 keys in the key map KEYMAP0–6; the 40 Spectrum keys also through port `0xFE` (section 8) |
+| Joysticks | 2 ports: Atari (1 or 2 buttons), Mega Drive 3-button and 6-button pads. Kempston bit order, 1 = pressed; X, Y, Z and MODE in JOY1X and JOY2X |
 | Interrupt | Source KEYB (spec 8) from the PS/2 keyboard: FIFO not empty, or an error. The membrane and the joysticks are polled |
-| Ports | `0x60`–`0x6B` used, `0x6C`–`0x6F` reserved; Spectrum extras `0xFE` and `0x1F` |
+| Spectrum extras | Port `0xFE` reads the membrane rows **and the PS/2 keys mapped onto the Spectrum matrix**; Kempston port `0x1F`; KEYROW0–7 (section 8) |
+| Registers | Page `0x00`: `0x10`–`0x16` key map, `0x60`–`0x68`, `0x6B`–`0x6D`; low-byte-only ports `0x1F`, `0x62` (KBDATA) and `0xFE`. KEYROW0–7 in the register page only, offsets `0x0100`–`0x0107` (section 8.1) |
 | Memory cycles | None |
 
 ## 2. Comparison with retro68k
 
 | retro68k (spec 16, version 1) | retro-z80 | Why |
 |-------------------------------|-----------|-----|
-| 32-bit registers at `0xF00400` | 8-bit ports `0x60`–`0x65`, in the same order | Z80 (8-bit ports) |
+| 32-bit registers at `0xF00400` | 8-bit registers `0x60`–`0x65` of page `0x00`, in the same order | Z80 (8-bit registers) |
 | KBSTAT: COUNT (4–0), TXBUSY (8) | COUNT (4–0), TXBUSY (**7**) | Z80: no bit 8 in a byte |
 | KBDATA: EMPTY (8), BYTE (7–0) | The byte only; an empty FIFO reads `0x00` and nothing is taken. Software checks KBSTAT.COUNT or KBIRQ.DATA first | Z80: no bit 8 |
+| KBDATA at a normal address | KBDATA is also **port `0x62` whatever the high byte** | So `INIR`, which puts the count B on A15–A8, reaches it |
 | KBCON, KBSEND, KBIRQ, KBIRQEN | The same, bits unchanged | – |
-| Controller samples at 100 MHz | At 56 MHz | System clock |
-| Joysticks: a later version | JOY1, JOY2, JOYCON in version 1 (section 4) | The KS3's joystick ports are for games; the Next's games machine use |
-| Spectrum (membrane) keyboard: a later version | Scanned in version 1; extra keys in KEYX5, KEYX6 (section 5); the Spectrum keys through port `0xFE` | The KS3's own keyboard; Spectrum extra |
-| — | Port `0xFE` reads, KEYCON, KEYROW0–7 in the register page, Kempston port `0x1F` (section 8) | Spectrum extras |
+| Controller samples at 100 MHz | The same | Same system clock |
+| Joysticks: a later version | JOY1, JOY2, JOYCON, JOY1X, JOY2X in version 1 (section 4) | The KS3's joystick ports are for games |
+| Spectrum keyboard and a key map: a later version | Scanned in version 1; the key map KEYMAP0–6 (section 5) | The KS3's own keyboard |
+| — | Port `0xFE` reads with PS/2 keys mapped on, KEYCON, KEYROW0–7, Kempston port `0x1F` (section 8) | Spectrum extras |
 | Ctrl + Alt + Delete in software, writing SYSRESET | The same (spec 7) | – |
 
 ## 3. PS/2 keyboard
 
 ### 3.1 Receiving
 
-- The keyboard sends 11-bit frames: a start bit (0), 8 data bits (lowest first), odd parity and a stop bit (1), on its own clock of about 10–17 kHz. The controller samples `ps2_clk` and `ps2_data` at 56 MHz, with a short filter on the clock line against noise.
-- A good byte goes into the 16-byte FIFO, unchanged.
+- The keyboard sends 11-bit frames: a start bit (0), 8 data bits (lowest first), odd parity and a stop bit (1), on its own clock of about 10–17 kHz. The controller samples `ps2_clk` and `ps2_data` at 100 MHz, with a short filter on the clock line against noise, as retro68k's.
+- The receiver runs while KBCON.EN or KEYCON.PS2MAP is 1 (section 8.3).
+- A good byte goes into the 16-byte FIFO, unchanged, if KBCON.EN is 1. Every good byte also goes to the Spectrum key mapper when KEYCON.PS2MAP is 1 (section 8.3).
 - A bad byte is dropped. Bad parity sets KBIRQ.PARITY; a bad start or stop bit sets KBIRQ.FRAME. Software can send `FE` (resend) if it wants the byte again.
-- If the FIFO is full, the new byte is dropped and KBIRQ.OVERFLOW is set.
-- With KBCON.EN = 0 nothing is received and the FIFO is empty.
+- If the FIFO is full, the new byte is dropped and KBIRQ.OVERFLOW is set. The mapper still sees it.
+- With KBCON.EN = 0 the FIFO is empty and takes nothing.
 
 ### 3.2 Reading the FIFO
 
 - KBSTAT.COUNT says how many bytes are waiting (0–16).
-- Reading KBDATA takes one byte. Reading it when the FIFO is empty returns `0x00` and takes nothing.
+- Reading KBDATA takes one byte. Reading it when the FIFO is empty returns `0x00` and takes nothing, so check COUNT first.
 - KBIRQ.DATA is 1 while the FIFO is not empty. It is not sticky. With KBIRQEN.DATA set, this gives the interrupt.
-- Every read of KBDATA takes a byte, through a port or the register page. Don't use read-modify-write instructions on it through the register page.
+- KBDATA ignores the high byte: `IN A,(0x62)` reads it, and `INIR` with B = COUNT and C = `0x62` reads every byte waiting.
+- Every read of KBDATA takes a byte, through port `0x62`, port `0x6200` or the register page (offset `0x0062`). Don't use read-modify-write instructions on it through the register page.
+
+```
+; take every PS/2 byte waiting to (HL); B, C, A changed
+        ld   a,0x61             ; KBSTAT
+        in   a,(0x00)           ; page 0x00: port 0x6100
+        and  KBSTAT_COUNT_M     ; bits 4-0
+        jr   z,.none
+        ld   b,a
+        ld   c,0x62             ; KBDATA
+        inir
+.none:
+```
 
 ### 3.3 Decoding (software)
 
@@ -89,7 +105,7 @@ The KEYB request (spec 8 gives its number) is on while any bit is set in both KB
 
 ### 4.1 The ports
 
-The KS3 has two 9-pin joystick ports. They share one set of FPGA input pins through a multiplexer, switched by the FPGA's `joysel` output (pin U14 in the KS3 pin list). The FPGA switches `joysel` back and forth on its own, about every 2 µs, waits for the lines to settle and samples each port in turn, so software sees both ports at once.
+The KS3 has two 9-pin joystick ports. They share one set of FPGA input pins through a multiplexer, switched by the FPGA's `joysel` output (pin U14 in the KS3 pin list). The FPGA switches `joysel` on its own, waits for the lines to settle and samples each port in turn, so software sees both ports at once.
 
 | Pin | Atari joystick | Mega Drive pad, select high | Mega Drive pad, select low |
 |-----|----------------|-----------------------------|----------------------------|
@@ -106,17 +122,32 @@ All inputs are active low at the pins and are inverted, so the registers give **
 
 ### 4.2 Mega Drive pads
 
-With JOYCON.MD1 (or MD2) set, the FPGA also drives the select line low for one sample in each scan and reads A and START from that port. A pad that is present pulls pins 3 and 4 low while select is low; JOYCON.MDPRES1 (or MDPRES2) reports this. With MDn = 0 the select line stays high and the port reads as an Atari stick (A and START read 0). Six-button pads are not read in version 1 (open point J3).
+With JOYCON.MD1 (or MD2) clear, that port is read as an Atari stick, as often as the multiplexer allows (every few microseconds), with select high. A, START and JOYnX read 0.
+
+With MDn set, the FPGA reads that port as a Mega Drive pad, in a **burst** every 2 ms. A 6-button pad counts the falling edges of select and resets its count after about 1.5 ms without one, so the bursts must be at least that far apart and the select line must stay high between them. A burst is 8 steps of about 10 µs, select high and low in turn:
+
+| Step | Select | Pins 1–4 give | Pins 6, 9 give |
+|------|--------|---------------|----------------|
+| 1 | High | Up, Down, Left, Right | B, C |
+| 2 | Low | Up, Down; pins 3–4 low = a pad is there (MDPRESn) | A, START |
+| 3, 4 | High, low | (as 1, 2: not used) | |
+| 5 | High | (not used) | |
+| 6 | Low | All four low = a 6-button pad (SIXn) | (not used) |
+| 7 | High | Z, Y, X, MODE (pins 1, 2, 3, 4), on a 6-button pad | (not used) |
+| 8 | Low | (not used) | |
+
+A 3-button pad answers steps 1 and 2 and ignores the rest; then SIXn is 0 and JOYnX reads 0. Each register is updated at the end of a burst, so software reads a set of buttons all taken in the same 80 µs. A 2 ms update is 8–10 readings a frame, more than any game needs.
 
 ### 4.3 Bit order
 
-The low 5 bits follow the **Kempston** interface, so joystick 1 can also be the Kempston port (section 8.4):
+The low 5 bits follow the **Kempston** interface, so joystick 1 can also be the Kempston port (section 8.5):
 
 | Bit | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |-----|---|---|---|---|---|---|---|---|
 | JOY1 / JOY2 | Right | Left | Down | Up | Fire 1 / B | Fire 2 / C | A | START |
+| JOY1X / JOY2X | X | Y | Z | MODE | 0 | 0 | 0 | 0 |
 
-Pad detection (MDPRES1, MDPRES2) is read in JOYCON, not in JOYn, so a Kempston-style read sees only buttons.
+Pad detection (MDPRESn, SIXn) is read in JOYCON, not in JOYn, so a Kempston-style read sees only buttons.
 
 ## 5. The membrane keyboard
 
@@ -126,34 +157,47 @@ The KS3 membrane is a matrix of 8 rows and 7 columns (56 keys). Columns 0–4 ho
 
 ### 5.2 Scanning
 
-The FPGA scans the matrix all the time: it drives one row line low at a time and reads the 7 column lines (low = pressed), about every 64 µs per row (a full scan every 0.5 ms). A key's state changes only after two scans in a row agree (debounce, 0.5–1 ms). The result is a 56-bit key map. The CPU never drives the matrix; every read comes from the key map, so any CPU speed works. The membrane has no diodes, so, as on a Spectrum, three keys held at three corners of a rectangle can make the fourth corner look pressed (ghosting).
+The FPGA scans the matrix all the time: it drives one row line low at a time and reads the 7 column lines (low = pressed), about every 64 µs per row (a full scan every 0.5 ms). A key's state changes only after two scans in a row agree (debounce, 0.5–1 ms). The CPU never drives the matrix; every read comes from the scanned state, so any CPU speed works. The membrane has no diodes, so, as on a Spectrum, three keys held at three corners of a rectangle can make the fourth corner look pressed (ghosting).
 
-### 5.3 Extra Next keys
+### 5.3 The key map
 
-The 16 extra keys are: EXTEND MODE, EDIT, CAPS LOCK, TRUE VIDEO, INV VIDEO, GRAPH, DELETE, BREAK, the four cursor keys, and `;` `"` `,` `.`. Their exact positions in columns 5–6 are taken from the Next's own keyboard code (open point K1).
+**KEYMAP0–6** (registers `0x10`–`0x16`) give the whole membrane, one register per column, **1 = pressed**: bit r of KEYMAPc is the key at row r, column c. They show the membrane alone: PS/2 keys are not in them, and KEYCON.KXMAP does not change them.
 
-**KEYX5** and **KEYX6** give columns 5 and 6 of all 8 rows, one bit per row, **1 = pressed** (bit n = row n). Software reads the extra keys here. With KEYCON.KXMAP they also show on port `0xFE` as Spectrum key pairs (section 8.2).
+| Register | Name | Bits 7–0 |
+|----------|------|----------|
+| `0x10`–`0x14` | KEYMAP0–4 | Column c of the Spectrum keys, rows 7–0. For example KEYMAP0 bit 0 is CAPS SHIFT, bit 1 is A, bit 7 is SPACE (section 8.1) |
+| `0x15`–`0x16` | KEYMAP5–6 | Columns 5–6: the 16 extra Next keys, rows 7–0 |
+
+A program reads all 56 keys with `LD BC,0x1000` and seven `IN r,(C)` / `INC B` pairs, or as 7 bytes at register page offset `0x0010` with `LDIR`. (`INIR` does not suit: it counts B down.) The Spectrum keys as rows are in KEYROW0–7 and port `0xFE` (section 8.1).
+
+### 5.4 Extra Next keys
+
+The 16 extra keys are: EXTEND MODE, EDIT, CAPS LOCK, TRUE VIDEO, INV VIDEO, GRAPH, DELETE, BREAK, the four cursor keys, and `;` `"` `,` `.`. Their exact positions in columns 5–6 are taken from the Next's own keyboard code (open point K1). Software reads them in KEYMAP5 and KEYMAP6. With KEYCON.KXMAP they also show on port `0xFE` as Spectrum key pairs (section 8.2).
 
 ## 6. Registers
 
-| Port | Name | Access | Bits | Description | Reset |
-|------|------|--------|------|-------------|-------|
-| `0x60` | KBCON | RW | EN (0) | PS/2 receiver on. Turning it off empties the FIFO. Bits 7–1 read 0 | `0x00` |
-| `0x61` | KBSTAT | R | COUNT (4–0), TXBUSY (7) | Bytes waiting (0–16); a byte is being sent | `0x00` |
-| `0x62` | KBDATA | R | 7–0 | Reading takes one byte from the FIFO (`0x00` if empty) | – |
-| `0x63` | KBSEND | W | 7–0 | Send this byte to the keyboard (ignored while TXBUSY) | – |
-| `0x64` | KBIRQ | R, W1C | DATA (0), PARITY (1), FRAME (2), OVERFLOW (3), TIMEOUT (4) | DATA follows the FIFO (1 = not empty) and ignores writes. The others are sticky, write 1 to clear. Bits 7–5 read 0 | `0x00` |
-| `0x65` | KBIRQEN | RW | Same layout as KBIRQ | Interrupt enables | `0x00` |
-| `0x66` | JOY1 | R | 7–0 | Joystick port 1 (section 4.3), 1 = pressed | – |
-| `0x67` | JOY2 | R | 7–0 | Joystick port 2 | – |
-| `0x68` | JOYCON | RW | MD1 (0), MD2 (1), MDPRES1 (6), MDPRES2 (7) | Read a Mega Drive pad on port 1 / port 2. MDPRES1/2 are read only: a Mega Drive pad answered on that port | `0x00` |
-| `0x69` | KEYX5 | R | 7–0 | Membrane column 5, bit n = row n, 1 = pressed | – |
-| `0x6A` | KEYX6 | R | 7–0 | Membrane column 6, as KEYX5 | – |
-| `0x6B` | KEYCON | RW | KXMAP (0), EAR6 (1) | Spectrum extra (section 8): show the extra keys on port `0xFE`; the value of port `0xFE` bit 6 | `0x03` |
-| `0x6C`–`0x6F` | – | – | – | Reserved: read `0xFF`, writes ignored (spec 3) | – |
+System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; register page offset = `0x0000` + register. KBDATA is also port `0x62` with any high byte. The copper cannot reach these registers.
 
-- KBDATA is one of the system block's FIFO data ports, where reading takes data out (spec 3).
-- All these ports also appear in the register page at offset = port (spec 2, section 6.5).
+| Register | Port | Name | Access | Bits | Reset | Description |
+|----------|------|------|--------|------|-------|-------------|
+| `0x10`–`0x16` | `0x1000`–`0x1600` | KEYMAP0–6 | R | 7–0 | – | Membrane column c (c = register − `0x10`), bit r = row r, 1 = pressed (section 5.3) |
+| `0x17`–`0x1E` | `0x1700`–`0x1E00` | – | – | – | – | Free: read `0xFF`, writes ignored. KEYROW0–7 are in the register page only (section 8.1) |
+| `0x60` | `0x6000` | KBCON | RW | EN (0) | `0x00` | PS/2 FIFO on. Turning it off empties the FIFO. Bits 7–1 read 0 |
+| `0x61` | `0x6100` | KBSTAT | R | COUNT (4–0), TXBUSY (7) | `0x00` | Bytes waiting (0–16); a byte is being sent |
+| `0x62` | `0x6200`, and `0x62` with any high byte | KBDATA | R | 7–0 | – | Reading takes one byte from the FIFO (`0x00` if empty) |
+| `0x63` | `0x6300` | KBSEND | W | 7–0 | – | Send this byte to the keyboard (ignored while TXBUSY). Reads `0x00` |
+| `0x64` | `0x6400` | KBIRQ | R, W1C | DATA (0), PARITY (1), FRAME (2), OVERFLOW (3), TIMEOUT (4) | `0x00` | DATA follows the FIFO (1 = not empty) and ignores writes. The others are sticky, write 1 to clear. Bits 7–5 read 0 |
+| `0x65` | `0x6500` | KBIRQEN | RW | Same layout as KBIRQ | `0x00` | Interrupt enables |
+| `0x66` | `0x6600` | JOY1 | R | 7–0 | – | Joystick port 1 (section 4.3), 1 = pressed |
+| `0x67` | `0x6700` | JOY2 | R | 7–0 | – | Joystick port 2 |
+| `0x68` | `0x6800` | JOYCON | RW | MD1 (0), MD2 (1), SIX1 (4), SIX2 (5), MDPRES1 (6), MDPRES2 (7) | `0x00` | MD1/MD2: read a Mega Drive pad on port 1 / port 2 (section 4.2). Read only: SIXn, a 6-button pad answered; MDPRESn, a Mega Drive pad answered. Bits 3–2 read 0 |
+| `0x69`–`0x6A` | `0x6900`–`0x6A00` | – | – | – | – | Reserved: read `0xFF`, writes ignored (the earlier KEYX5 and KEYX6 are now KEYMAP5 and KEYMAP6) |
+| `0x6B` | `0x6B00` | KEYCON | RW | KXMAP (0), EAR6 (1), PS2MAP (2) | `0x07` | Spectrum extras (section 8): show the extra keys on port `0xFE`; the value of port `0xFE` bit 6; show PS/2 keys on port `0xFE`. Bits 7–3 read 0 |
+| `0x6C` | `0x6C00` | JOY1X | R | X (0), Y (1), Z (2), MODE (3) | `0x00` | Joystick port 1's extra 6-button pad buttons, 1 = pressed; 0 without a 6-button pad or with MD1 = 0. Bits 7–4 read 0 |
+| `0x6D` | `0x6D00` | JOY2X | R | As JOY1X | `0x00` | Joystick port 2's |
+| `0x6E`–`0x6F` | `0x6E00`–`0x6F00` | – | – | – | – | Reserved: read `0xFF`, writes ignored |
+
+- KBDATA is a register where reading takes data out (spec 3).
 - Which joystick port is "1" (left or right as seen from the front) is to be checked on the board (open point J2).
 
 ## 7. FPGA resources
@@ -161,8 +205,9 @@ The 16 extra keys are: EXTEND MODE, EDIT, CAPS LOCK, TRUE VIDEO, INV VIDEO, GRAP
 | Item | Resource |
 |------|----------|
 | PS/2 receiver and sender, 16-byte FIFO, registers | Estimate 100–150 LUTs |
+| PS/2 to Spectrum key mapper: decode table, about 70 held-key bits, prefix state | Estimate 150–250 LUTs |
 | Matrix scanner, debounce, 56-bit key map, port `0xFE` read logic, KXMAP | Estimate 100–150 LUTs |
-| Joystick multiplexer and Mega Drive select | Estimate 30–50 LUTs |
+| Joystick multiplexer, Mega Drive burst sequencer | Estimate 50–80 LUTs |
 | Block RAM, DSP | None |
 | Pins | PS/2: `ps2_clk`, `ps2_data`. Membrane: 8 row outputs, 7 column inputs (`keyb_row_o[7:0]`, `keyb_col_i[6:0]`). Joysticks: `joysel` (U14), the shared direction and button inputs and the select output (open point J1) |
 | Request lines | KEYB (level) to spec 8 |
@@ -173,7 +218,7 @@ These are outside the retro68k-shaped core. They let Spectrum code that reads th
 
 ### 8.1 Port 0xFE reads: the keyboard rows
 
-Port `0xFE` is the one system port that looks at A15–A8 (spec 1, section 6). `IN A,(0xFE)` (which puts A on A15–A8) and `IN r,(C)` (which puts B there, with C = `0xFE`) read the membrane exactly like a Spectrum, the upper address byte selecting the rows:
+Port `0xFE` ignores the high byte for its decode and uses it instead to pick the rows (spec 3): `IN A,(0xFE)` (which puts A on A15–A8) and `IN r,(C)` (which puts B there, with C = `0xFE`) read the keyboard exactly like a Spectrum:
 
 | Row | Selected by | Bit 0 | Bit 1 | Bit 2 | Bit 3 | Bit 4 |
 |-----|-------------|-------|-------|-------|-------|-------|
@@ -188,14 +233,16 @@ Port `0xFE` is the one system port that looks at A15–A8 (spec 1, section 6). `
 
 | Bit | Value |
 |-----|-------|
-| 4–0 | Columns 0–4: 0 = a key in that column is pressed in **any** selected row (rows with their address line at 0 are combined, as on a Spectrum, so A15–A8 = 0 reads all rows) |
+| 4–0 | Columns 0–4: 0 = a key in that column is pressed in **any** selected row (rows with their address line at 0 are combined, as on a Spectrum, so A15–A8 = 0 reads all rows). A key counts as pressed if it is held on the membrane, given by an extra key (KXMAP, section 8.2) or given by a PS/2 key (PS2MAP, section 8.3) |
 | 5 | 1 |
 | 6 | KEYCON.EAR6 (the Spectrum's EAR input; there is no tape input, so it is a fixed value, 1 after reset) |
 | 7 | 1 |
 
 - The whole low byte `0xFE` is decoded. A Spectrum decodes only A0 = 0, so code that reads the keyboard through another even port must be changed to use `0xFE`.
 - Reading port `0xFE` changes nothing, so it can be read any number of times.
-- **Through memory:** a memory read has no A15–A8 for row select. Offset `0x00FE` of the register page reads as port `0xFE` with all rows selected, and **KEYROW0–7** at offsets `0x0100`–`0x0107` give each row alone, in port `0xFE`'s format (row r = the row selected by A(8 + r) = 0). They are read only, and only in the register page (spec 2, section 6.5).
+- **Without a row select:** the page form, register `0xFE` of page `0x00` (port `0xFE00`, register page offset `0x00FE`), has no row select and reads all rows at once.
+- **KEYROW0–7** give each row alone, in port `0xFE`'s format (row r = the row selected by A(8 + r) = 0), including the extra keys and PS/2 keys as port `0xFE` shows them. They are for memory reads, where there is no A15–A8 to pick rows. They are read only.
+- **Memory only:** KEYROW0–7 are at register page offsets `0x0100`–`0x0107` (spec 2, section 10.1), outside every I/O page (I/O page `0x01` is reserved and reads `0xFF`). Through I/O, port `0xFE` with A15–A8 gives the same rows. Registers `0x17`–`0x1E` of page `0x00` stay free.
 
 ### 8.2 Extra keys on port 0xFE (KXMAP)
 
@@ -214,44 +261,73 @@ With **KEYCON.KXMAP = 1** (after reset), an extra key also shows on port `0xFE` 
 | EXTEND MODE | CAPS SHIFT + SYMBOL SHIFT |
 | `;` `"` `,` `.` | SYMBOL SHIFT + O, P, N, M |
 
-With KXMAP = 0, port `0xFE` shows only the 40 Spectrum keys, and a program can treat the extra keys as separate keys (for example cursor keys for a game without CAPS SHIFT held). KEYX5 and KEYX6 show them either way.
+With KXMAP = 0, port `0xFE` shows only the 40 Spectrum keys of the membrane, and a program can treat the extra keys as separate keys (for example cursor keys for a game without CAPS SHIFT held). KEYMAP5 and KEYMAP6 show them either way.
 
-### 8.3 Port 0xFE writes
+### 8.3 PS/2 keys on port 0xFE (PS2MAP)
+
+With **KEYCON.PS2MAP = 1** (after reset), a key held on the PS/2 keyboard also shows on port `0xFE` and KEYROW0–7 as the Spectrum key, or key pair, it stands for, as the Next does. So a Spectrum game can be played on a PS/2 keyboard with no software help.
+
+The **mapper** watches the bytes the PS/2 receiver takes, before the FIFO, so it works whether or not KBCON.EN is set and whatever software does with KBDATA. It follows the `E0` prefix and the `F0` release code, and keeps a held bit for each mapped key. A Spectrum key shows as pressed while any held PS/2 key gives it.
+
+| PS/2 key (set 2 code) | Spectrum key(s) |
+|-----------------------|-----------------|
+| A–Z (`1C` A, `32` B, `21` C, `23` D, `24` E, `2B` F, `34` G, `33` H, `43` I, `3B` J, `42` K, `4B` L, `3A` M, `31` N, `44` O, `4D` P, `15` Q, `2D` R, `1B` S, `2C` T, `3C` U, `2A` V, `1D` W, `22` X, `35` Y, `1A` Z) | The same letter |
+| 1–0 on the main row (`16`, `1E`, `26`, `25`, `2E`, `36`, `3D`, `3E`, `46`, `45`) | The same digit |
+| Keypad 0–9 (`70`, `69`, `72`, `7A`, `6B`, `73`, `74`, `6C`, `75`, `7D`, no `E0`) | The same digit |
+| Enter (`5A`), keypad Enter (`E0 5A`) | ENTER |
+| Space (`29`) | SPACE |
+| Left Shift (`12`), Right Shift (`59`) | CAPS SHIFT |
+| Left Ctrl (`14`), Right Ctrl (`E0 14`), Left Alt (`11`), Right Alt (`E0 11`) | SYMBOL SHIFT |
+| Backspace (`66`) | CAPS SHIFT + 0 (DELETE) |
+| Cursor left, down, up, right (`E0 6B`, `E0 72`, `E0 75`, `E0 74`) | CAPS SHIFT + 5, 6, 7, 8 |
+| Escape (`76`) | CAPS SHIFT + SPACE (BREAK) |
+| Caps Lock (`58`) | CAPS SHIFT + 2 |
+| Tab (`0D`) | CAPS SHIFT + SYMBOL SHIFT (EXTEND MODE) |
+| `,` (`41`), `.` (`49`), `;` (`4C`), `'` (`52`), `/` (`4A`), `-` (`4E`), `=` (`55`) | SYMBOL SHIFT + N, M, O, 7, V, J, L |
+
+- Every other key, including the function keys and Pause (`E1` …), maps to nothing. The keyboard's "fake shift" codes `E0 12` and `E0 59`, which some keyboards send round the grey cursor keys, are ignored.
+- The map is per key and does not look at the PC's shift state: Shift + `,` gives CAPS SHIFT + SYMBOL SHIFT + N, not `<`. Software that wants the PC's own characters reads KBDATA.
+- The held bits are cleared at reset, when PS2MAP is cleared, when the receiver stops, and when the keyboard sends `AA` (self-test passed, after it is plugged in or reset), so a key cannot stay stuck.
+- The receiver runs while KBCON.EN or PS2MAP is 1, so after reset the PS/2 keyboard already reaches port `0xFE`. While software sends a byte (KBSEND) nothing is received, and a key pressed or released then may be missed by the mapper until the next press.
+- KEYMAP0–6 never show PS/2 keys.
+
+### 8.4 Port 0xFE writes
 
 `OUT (0xFE),A` works as on a Spectrum. The whole low byte `0xFE` is decoded; A15–A8 are ignored on writes. The bits belong to other specs:
 
 | Bit | Spectrum use | Here |
 |-----|--------------|------|
-| 2–0 | Border colour | The background colour, one of the 8 Spectrum colours (spec 4) |
+| 2–0 | Border colour | BGCOLOR is set to that Spectrum colour at level `0xD7` (spec 4) |
 | 3 | MIC (tape out) | Ignored |
 | 4 | EAR (beeper) | The beeper (spec 7) |
 | 7–5 | Unused | Ignored |
 
-Every write sets both the border and the beeper. Offset `0x00FE` of the register page takes the same writes.
+Every write sets both the border and the beeper. The page form (port `0xFE00`, register page offset `0x00FE`) takes the same writes.
 
-### 8.4 Kempston port 0x1F
+### 8.5 Kempston port 0x1F
 
-Port `0x1F` reads **joystick 1**: the same value as JOY1, at the same moment. Writes to it are ignored. Like every system port it is decoded on A7–A0 only, so `IN A,(0x1F)` and `IN r,(C)` with C = `0x1F` both work, and it is also at offset `0x001F` of the register page.
+Port `0x1F` reads **joystick 1**: the same value as JOY1, at the same moment. Writes to it are ignored. It ignores the high byte, so `IN A,(0x1F)` and `IN r,(C)` with C = `0x1F` both work; it is also register `0x1F` of page `0x00` (port `0x1F00`, register page offset `0x001F`).
 
 - Bits 4–0 are Right, Left, Down, Up, Fire as on a Kempston interface. Bits 7–5 carry Fire 2, A and START, where a real Kempston reads 0. With an Atari one-button stick they read 0, so a game that tests the whole byte against 0 sees only what is pressed.
 - A real Kempston decodes only A5 = 0; code that reads it through another port (for example `0xDF`) must be changed to use `0x1F`.
 - Joystick 2 has no Kempston alias; it is read at JOY2.
 
-### 8.5 Ports
+### 8.6 Ports
 
 | Port | Name | Access | Bits | Description |
 |------|------|--------|------|-------------|
-| `0x1F` | KEMPSTON | R | 7–0 | Joystick 1, the same value as JOY1. Writes ignored |
-| `0xFE` | (keyboard, border, beeper) | RW | 7–0 | Read: membrane rows selected by A15–A8 (section 8.1). Write: bits 2–0 border (spec 4), bit 4 beeper (spec 7), others ignored |
-| Register page `0x0100`–`0x0107` | KEYROW0–7 | R | 7–0 | Membrane row r alone, in port `0xFE`'s format |
+| `0x1F`, any high byte; also register `0x1F` (`0x1F00`) | KEMPSTON | R | 7–0 | Joystick 1, the same value as JOY1. Writes ignored |
+| `0xFE`, high byte picks the rows; also register `0xFE` (`0xFE00`, all rows) | (keyboard, border, beeper) | RW | 7–0 | Read: keyboard rows selected by A15–A8 (section 8.1). Write: bits 2–0 border (spec 4), bit 4 beeper (spec 7), others ignored |
+| No port: register page offsets `0x0100`–`0x0107` | KEYROW0–7 | R | 7–0 | Row r alone, in port `0xFE`'s format (section 8.1) |
 
 ## 9. Test plan
 
-- **PS/2, simulation:** a keyboard model sends bytes; they come out of KBDATA in order, and COUNT is right; KBIRQ.DATA and the KEYB request follow the FIFO and KBIRQEN. Bad parity and stop bits set PARITY and FRAME and drop the byte; a 17th byte sets OVERFLOW. A byte sent through KBSEND arrives with the right parity; TXBUSY follows the transfer; a silent model gives TIMEOUT. KBCON.EN = 0 empties the FIFO.
-- **Membrane, simulation:** a matrix model with keys held: KEYX5 and KEYX6 show the extra keys; bounce shorter than the debounce time is ignored.
-- **Joysticks:** a model of both ports through the multiplexer: every direction and button on each port, Atari and Mega Drive 3-button pads, pad detection; Kempston bit order.
-- **Spectrum extras:** each of the 8 row addresses reads the right bits on port `0xFE`; several rows selected at once combine; `IN A,(0xFE)` and `IN A,(C)` with every value of A15–A8; ports other than `0xFE` never read the keyboard; with KXMAP each extra key gives its pair, with KXMAP = 0 it does not; KEYROW0–7 match port `0xFE`; EAR6 reaches bit 6. Port `0x1F` and offset `0x001F` equal JOY1 for every direction and button; writes to `0x1F` change nothing. Port `0xFE` writes reach the border (spec 4) and beeper (spec 7) logic.
-- **On the board:** every membrane key, including the 16 extra keys; a few PS/2 keyboards (every key, lights, plugged in while running: `AA` arrives); Atari sticks and Mega Drive pads in both ports; a Spectrum game's keyboard and Kempston code unchanged (when it uses ports `0xFE` and `0x1F`).
+- **PS/2, simulation:** a keyboard model sends bytes; they come out of KBDATA in order, and COUNT is right; KBIRQ.DATA and the KEYB request follow the FIFO and KBIRQEN. Bad parity and stop bits set PARITY and FRAME and drop the byte; a 17th byte sets OVERFLOW. A byte sent through KBSEND arrives with the right parity; TXBUSY follows the transfer; a silent model gives TIMEOUT. KBCON.EN = 0 empties the FIFO. `INIR` on port `0x62` with B = COUNT reads them all.
+- **PS/2 mapper:** every key in the table of section 8.3, pressed and released, sets and clears its Spectrum key(s) on port `0xFE` and KEYROW0–7; `E0` keys are told from plain ones (cursor up against keypad 8); fake shifts are ignored; two PS/2 keys giving one Spectrum key keep it held until both are released; `AA`, PS2MAP = 0 and reset clear every held bit; the mapper works with KBCON.EN = 0 and with a full FIFO; KEYMAP0–6 never change.
+- **Membrane, simulation:** a matrix model with keys held: KEYMAP0–6 show every key at its row and column; bounce shorter than the debounce time is ignored.
+- **Joysticks:** a model of both ports through the multiplexer: every direction and button on each port; Atari sticks, Mega Drive 3-button and 6-button pad models; MDPRESn and SIXn; X, Y, Z and MODE in JOYnX; select stays high for at least 1.5 ms between bursts; Kempston bit order.
+- **Spectrum extras:** each of the 8 row addresses reads the right bits on port `0xFE`; several rows selected at once combine; `IN A,(0xFE)` and `IN A,(C)` with every value of A15–A8; ports whose low byte is not `0xFE` never read the keyboard, except the page form `0xFE00` (all rows); with KXMAP each extra key gives its pair, with KXMAP = 0 it does not; KEYROW0–7 match port `0xFE`; EAR6 reaches bit 6. Port `0x1F` with every high byte, `0x1F00` and offset `0x001F` equal JOY1 for every direction and button; writes to `0x1F` change nothing. Port `0xFE` writes reach the border (spec 4) and beeper (spec 7) logic.
+- **On the board:** every membrane key, including the 16 extra keys; a few PS/2 keyboards (every key, lights, plugged in while running: `AA` arrives; a Spectrum game played on PS/2); Atari sticks and Mega Drive 3- and 6-button pads in both ports; a Spectrum game's keyboard and Kempston code unchanged (when it uses ports `0xFE` and `0x1F`).
 
 ## 10. Open points
 
@@ -263,11 +339,13 @@ Pin facts checked in retro68k's KS3 files: the Multiface, DivMMC and reset butto
 | K2 | Pin locations of `keyb_row_o[7:0]`, `keyb_col_i[6:0]`, `ps2_clk`, `ps2_data` (not in retro68k's pin file yet). Whether the row outputs must be open drain to avoid shorting two rows when two keys in one column are pressed |
 | K3 | Scan and debounce times (64 µs per row, two agreeing scans) to be checked on the real membrane, which is slow to settle |
 | K4 | Closed: port `0xFE` writes set the border with bits 2–0 (spec 4) and the beeper with bit 4 (spec 7); MIC is ignored |
-| K5 | Should PS/2 keys also show on port `0xFE` (a PS/2 to Spectrum matrix map, as the Next does)? Costs a decoder in hardware; left out for now |
+| K5 | Closed: PS/2 keys also show on port `0xFE` (branch 11), through the mapper of section 8.3, turned off with KEYCON.PS2MAP |
 | K6 | Should port `0xFE` bit 6 have a better default for games that test it (issue 2 / issue 3 behaviour)? KEYCON.EAR6 lets software choose |
 | K7 | Some USB keyboards also speak PS/2 through a passive adapter; most new ones don't. List keyboards known to work (retro68k's K3) |
-| K8 | retro68k's later-version ideas (a key map of all keys, decoded key events, a send queue that waits for `FA`) are left out, as in retro68k version 1. A membrane key map in the core (instead of only port `0xFE` and KEYX5/6) would need 7 more ports; `0x6C`–`0x6F` leave room for 4 |
-| J1 | Joystick pin names and locations: the shared inputs (expected as `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i`) and the Mega Drive select output (`joyp7_o`), and whether select goes to both ports or only the selected one |
+| K8 | Closed: the membrane key map is KEYMAP0–6 at registers `0x10`–`0x16` (branch 11), one register per column. retro68k's other later-version ideas (decoded key events, a send queue that waits for `FA`) stay out, as in retro68k version 1 |
+| K9 | Closed: KEYROW0–7 are memory only, at register page offsets `0x0100`–`0x0107` (spec 2, section 10.1); registers `0x17`–`0x1E` of page `0x00` stay free |
+| K10 | The PS/2 map: whether more keys are wanted (for example `[` `]` as SYMBOL SHIFT + 8, 9, or the function keys as the Next maps them), and whether it should match the Next's own table exactly |
+| J1 | Joystick pin names and locations: the shared inputs (expected as `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i`) and the Mega Drive select output (`joyp7_o`), and whether select goes to both ports or only the selected one. If it goes to both, the two ports' bursts are run together |
 | J2 | `joysel` polarity (which level selects which port) and the settle time after switching it; which port is joystick 1 |
-| J3 | Six-button Mega Drive pads (X, Y, Z, MODE) need a select pulse sequence; add later if wanted, with a JOYnX register in `0x6C`–`0x6F` |
-| J4 | Closed: port `0x1F` reads joystick 1 as a Kempston interface (section 8.4) |
+| J3 | Closed: six-button Mega Drive pads are read (branch 11), X, Y, Z and MODE in JOY1X and JOY2X at registers `0x6C`–`0x6D` (section 4.2). The burst timing (10 µs steps, every 2 ms) is to be checked with real pads |
+| J4 | Closed: port `0x1F` reads joystick 1 as a Kempston interface (section 8.5) |
