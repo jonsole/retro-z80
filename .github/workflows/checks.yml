@@ -47,5 +47,7 @@ jobs:
           tar xJf sjasmplus.tar.xz -C sjasmplus-src --strip-components=1
           make -C sjasmplus-src -j4 > /dev/null
           echo "$PWD/sjasmplus-src" >> "$GITHUB_PATH"
-      - name: Tool-chain smoke tests (Icarus and Verilator)
+      - name: RTL lint (Verilator, widths cut short as errors)
+        run: sh fpga/lint.sh
+      - name: Smoke tests, and the system ("hello" and the system test ROM)
         run: make -C sim
