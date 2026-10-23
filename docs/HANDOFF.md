@@ -1,94 +1,74 @@
 # retro-z80 handoff
 
-Where the project stands, what is unfinished, and how to carry on. Written at the end of the first planning session (October 2026).
+Where the project stands, what is unfinished, and how to carry on. Updated on 23 October 2026, after the specs were realigned with retro68k (branch 9).
 
 ## 1. The project
 
-retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a new Z80 computer (not a copy of an existing machine) inside the FPGA of a **ZX Spectrum Next KS3**, for use as a home computer and a games machine. A 6502 version may follow, so the chipset is kept independent of the CPU.
+retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a Z80 computer inside the FPGA of a **ZX Spectrum Next KS3**, for use as a home computer and a games machine. Since branch 9 it is **retro68k narrowed to 8 bits**: the same blocks, register names, bit layouts and programming model, cut to byte-wide registers, differing only where the Z80 or the memory bandwidth forces it, plus a few Spectrum extras kept in sections of their own.
 
 - **Repo:** `jonsole/retro-z80`. Work goes on `main`.
-- **retro68k** (`jonsole/retro68k`) is the model for structure, writing style and shared logic. Clone it next to this repo; the specs refer to its files (RTL, sim models, register-map generator).
+- **retro68k** (`jonsole/retro68k`) is the model. Clone it next to this repo; the specs refer to its files and its programmer's guides (`docs/guide/`).
 - **Phase:** 0 (planning). Nothing in `fpga/`, `firmware/` or `hardware/` exists yet.
 
 ## 2. Where things are
 
 | File | What |
 |------|------|
-| `docs/design-plan.md` | Decision table (section 1), key decisions D1–D11, port map, spec list, phases, open questions Q1–Q10 |
-| `docs/spec/bus-interface.md` | Spec 1: tv80 wrapper, clock enable, memory and I/O cycles, the 28 MHz swap, register page accesses, interrupts, NMI paging |
-| `docs/spec/memory.md` | Spec 2: slots and cycle owners, SRAM controller, MMU (read and write pages), register page, physical addresses |
-| `docs/spec/registers.md` | Spec 3: rules for all registers, every port, the register page layout, interrupt numbers |
-| `docs/spec/video.md` | Spec 4: 576p, fetch/draw/show pipeline, FIFOs and repeat buffers, bitmap, tiles, attribute layer, palette, budget |
-| `docs/spec/sprites.md` | Spec 5: 32 sprites, fractional scaling, fetch and render, limits, collisions |
-| `docs/spec/copper.md` | Spec 6: 16-bit instruction set, timing, worked programs |
-| `docs/spec/system.md` | Spec 7: ID and control ports, reset, boot ROM, buttons, NMI monitor, beeper, board pins |
-| `docs/spec/interrupts.md` … `input.md` | Specs 8–12: interrupts, timers, USB serial, SD card, keyboards and joysticks |
-| Spec 13 (sound) | Not written: sound is undecided (Q1) |
+| `docs/design-plan.md` | Decision table (section 1; branch 9 is the realignment, branch 10 the 3D geometry unit), key decisions D1–D11, port map, spec list, phases, open questions |
+| `docs/spec/bus-interface.md` | Spec 1: tv80 wrapper, clock enable, memory and I/O cycles (8-bit system ports, 16-bit custom block ports), the 28 MHz swap, register page, interrupts, NMI paging |
+| `docs/spec/memory.md` | Spec 2: slots and cycle owners, SRAM controller, MMU, register page |
+| `docs/spec/registers.md` | Spec 3: register rules and exceptions, every system port, every custom offset, register page, interrupt sources, the generator |
+| `docs/spec/video.md` | Spec 4: layers L0 and L1 (bitmap or tile map), PRIO, palettes, globals, fetch and draw, budget; attribute layer and `0xFE` border as Spectrum extras |
+| `docs/spec/sprites.md` | Spec 5: retro68k's 8 sprites, row-store fetch, write timing, collisions |
+| `docs/spec/copper.md` | Spec 6: retro68k's copper in 16-bit words, timing, worked programs |
+| `docs/spec/system.md` … `input.md` | Specs 7–12: system, interrupts, timers, USB serial, SD card, input |
+| `docs/spec/dma-engine.md` | Spec 14: one-channel copy and fill |
+| Spec 13 (sound), spec 15 (geometry) | Not written: sound is parked (Q1); geometry is next (branch 10) |
+
+Every spec has a "Comparison with retro68k" section.
 
 ## 3. The machine in one page
 
-- **CPU:** tv80 (Verilog Z80) at 3.5/7/14/28 MHz by clock enable on a 56 MHz system clock; 28 MHz after reset; never waits for memory. IM 2 vectored interrupts (IM 1 also works, IM 0 not supported).
-- **Memory:** 4 MB SRAM (2 MB on some boards), 16-bit, 35.7 ns cycles, slots of 4 cycles (143 ns; 224 per 576p line). Cycles 0 and 2 = CPU, 1 = display fetch, 3 = urgent display FIFO, then copper, then sprites, then display top-up. At 28 MHz a read can "swap" into cycle 1 or 3 and hand back the CPU's next cycle (owners keep their count, sometimes 35.7 ns late).
-- **MMU:** eight 8 KB windows, each with a read page (ports `0x08`–`0x17`) and a write page (`0xA8`–`0xB7`); setting the read page also sets the write page. Pages: `0x000`–`0x1FF` SRAM, `0x3F8` register page, `0x3FB` NONE, `0x3FC`–`0x3FF` boot ROM (32 KB).
-- **Registers:** 8-bit, in Z80 I/O space (low byte decoded) and also as memory through the register page (ports at offsets `0x00`–`0xFF`, keyboard rows, sprite table, palette). Multi-byte values: low byte first, the highest byte commits.
-- **Video:** 576p HDMI + VGA; 360×288 picture at 2×; per-layer window, scroll, hi-res (720 across) and height (288/576). Background colour, bitmap (1/2/4/8 bpp), 8×8 tiles (1/2/4/8 bpp), attribute layer (8×8 or 8×1 cells setting the palette bank of the bitmap or tiles), sprites. 512-entry palette of 12-bit RGB. Fetch through per-source FIFOs; draw one line ahead into a line buffer of final colours; 288-line layers replay from a repeat buffer.
-- **Sprites:** 32, 8/16/32 px each way, 1/2/4/8 bpp, patterns in SRAM, X and Y scale 1/16× to 16× (4.12 steps), flips, collisions.
-- **Copper:** follows the draw beam, 16-bit instructions, MOVE/WAIT/SKIP, loops, pointers X and Y, paced indirect moves (MOVX).
-- **I/O:** FT232H USB serial, SD (SPI), PS/2, Spectrum keyboard on `0xFE`, two joysticks (also Kempston at `0x1F`), 2 timers and a frame counter.
+- **CPU:** tv80 at 3.5/7/14/28 MHz by clock enable on a 56 MHz system clock; 28 MHz after reset; never waits for memory. IM 2 (IM 1 also works).
+- **Memory:** 4 MB SRAM, 16-bit, slots of 4 cycles (143 ns; 224 per line). Cycles 0 and 2 CPU, 1 display, 3 urgent display FIFO, then copper, then sprites, then display top-up; the DMA engine takes spare cycles. The 28 MHz swap as before.
+- **MMU:** eight 8 KB windows, read pages at ports `0x80`–`0x8F`, write pages at `0x90`–`0x9F`.
+- **Registers:** the system block on 8-bit ports (`0x00` interrupts, `0x20` timers, `0x50` serial, `0x58` SD, `0x60` input, `0x70` system, `0x80` MMU, `0xA0` geometry); the chipset as a 1 KB custom block on 16-bit ports (`LD BC,reg` then `OUT (C),A`); both also in the register page.
+- **Video:** 576p HDMI + VGA; layers L0 and L1, each a bitmap (1/2/4/8 bpp) or a tile map, 1× or 2× each way, with PRIO, PALETTE0/1 and SPRPALETTE (12-bit), SHAREPAL.
+- **Sprites:** 8, any size, 2/4/8 bpp, ×1/2/4 magnify, DEPTH, collisions, manual mode.
+- **Copper:** retro68k's MOVE/WAIT/SKIP/JUMP, MOVR, ALU, SKIPC, CALL/RET in 16-bit words; MOVE reaches custom offsets `0x000`–`0x0EF`.
+- **I/O:** serial, SD, PS/2, joysticks, 4 timers, TIME, watchdog, I2C; Spectrum extras `0xFE`, `0x1F`, NMI monitor paging.
 - **Software:** sjasmplus; boot ROM monitor, then BBC BASIC (Z80); CP/M 3 later.
 
 ## 4. How decisions are made
 
-The user prefers a **decision tree**: one branch at a time, 1–4 multiple-choice questions per step, the recommended option first, then the answers written into the plan. Decisions are recorded in the design plan's table (section 1) and are binding for the specs; anything a spec has to decide on its own goes into that spec's open points for review.
+The user prefers a **decision tree**: 1–4 multiple-choice questions per step, the recommended option first, then the answers written into the plan. Decisions go into the design plan's table (section 1) first and are binding for the specs; anything a spec decides on its own goes into its open points for review.
 
-**Spec style** (follow retro68k's specs): plain, short sentences; British spelling; `# Spec N: Name`, `Status: **draft**`, a summary table, register tables with bit fields, a test plan and an open-points table (IDs such as B1, M1, V1). No marketing words. Specs refer to each other as "spec N, section M".
+**Spec style** (follow retro68k's specs): plain, short sentences; British spelling; `# Spec N: Name`, `Status: **draft**`, a summary table, a "Comparison with retro68k" section, register tables with bit fields, a test plan and an open-points table. Specs refer to each other as "spec N, section M".
+
+**Check against retro68k.** Before inventing anything, look at what retro68k does (its specs, guides and RTL). The first planning round drifted into a different machine; branch 9 undid that.
 
 ## 5. Unfinished work (do this first)
 
-### 5.1 The review round ("CHANGE 3")
-
-The user reviewed the choices the spec writers had made and decided the following. Items marked **done** are in the committed specs; the rest still have to be written in.
-
-| # | Decision | Where | State |
-|---|----------|-------|-------|
-| 1 | Tile map size selectable: width 32, 64 or 128 entries, height 32 or 64 (TLCTL.MAPW, MAPH); TLSCRY grew to 2 bytes (`0x6A`–`0x6B`) | Spec 4 | Done |
-| 2 | A VIDCTL swap bit puts the bitmap in front of the tiles (default behind); the two are then the back and front layer | Spec 4 | Done (VIDCTL.BMFRONT) |
-| 3 | Sprite DEPTH, 2 bits, in attribute byte 12 bits 1–0 (XH bit 6, the old BEHIND, becomes reserved). Order, back to front: background < DEPTH 3 sprites < back layer < DEPTH 2 sprites < front layer < DEPTH 1 sprites < PRI tile pixels < DEPTH 0 sprites. So PRI tiles cover DEPTH 1–3 sprites but never DEPTH 0 | Specs 4, 5 | Done |
-| 4 | Sprite pipeline shortened from 3 lines to 2: fetch and render share one line, so attribute writes act 2 lines later. The fetch and render limits then interact; keep the lowest-numbered sprites, predictably. Rule: a write committed while the draw beam is on line N is used from line N + 2 (writes during the scan, the last 32 clocks, from N + 3) | Spec 5 | Done |
-| 5 | Cycle-3 order: urgent display FIFO first, then copper, sprites, display top-up. The copper may slip and sets COPSTAT.LATE | Specs 2, 4, 5 done; **spec 6 to do** |
-| 6 | Copper second counter D (8-bit, like C), port `0x9C` COPD, with a loop instruction or a select bit | Spec 3 done; **spec 6 to do** |
-| 7 | Port `0x1F` reads joystick 1 (Kempston); INTHIGH moves to `0xB8` | Done (specs 3, 8, 12) |
-| 8 | Port `0xFE` writes: bits 2–0 border (sets BGCOL to one of 8 fixed Spectrum colours), bit 4 beeper into the audio output, bit 3 ignored | Done (specs 3, 4, 7, 12) |
-| 9 | NMI pages in a monitor: window 0 → boot ROM page `0x3FF` (write page NONE), old pages saved in `0xBA`–`0xBD`, NMICTL at `0xB9`; RETN restores window 0 right after its opcode fetch (before its stack reads). Nested NMIs are held off | Done (specs 1, 2, 3, 7) |
-| – | Kept as drafted: the attribute layer uses its target's window; the sprite fetch stops at the first sprite that doesn't fit; over-wide lines cut a sprite off; copper pacing in 2-pixel steps; no watchdog; IM 0 not supported | – | – |
-
-### 5.2 Video and sprite specs
-
-Done: `video.md` and `sprites.md` carry items 1–5 and 8. Points they raised for review:
-
-- **V12:** the border colours use level `0xD` for the Spectrum's non-bright colours.
-- **V13:** TLSCRY is now 2 bytes, so a copper program must write both.
-- **S8:** SPRLIMIT's reset value of 192 leaves only 28 of the 220 cycle-3 cycles per line to the copper and urgent display fetches.
-- **S11:** the sprite renderer waits for fixed due clocks so results never depend on timing, and loses time when the copper and display use less than their share.
-- **Order quirk:** sprites among themselves are ordered by number whatever their DEPTH, so a low-numbered DEPTH 3 sprite hides a higher-numbered DEPTH 0 sprite where they overlap (as on the SNES). Worth a decision.
-
-### 5.3 Then
-
-1. **Copper spec (`copper.md`):** counter D (item 6), the new cycle-3 order (item 5: the copper is no longer first, so state its rate as best effort after urgent display fetches, and when LATE is set), sprite reuse timing from spec 5 (write a reused sprite during draw line M − 2; its section 3 still says N + 3 and (M − 3, 16), and its "216 cycles" is now SPRLIMIT out of 220), and TLSCRY as 2 bytes; fix the examples and tests.
-2. **Design plan:** update the decision table and D5–D9 for items 1–9, the port map (section 3: `0x1F`, `0x9C`, `0xB8`–`0xBD`), and close Q6 (Kempston).
-3. **Consistency pass:** grep all specs for stale text: "BEHIND", "3 lines", "N+3", "copper first", "INTHIGH" at `0x1F`, "64×32", "read-only bit".
-4. Commit and push.
+1. **Review the choices the spec writers made** in the branch 9 rewrite (each spec's open points). The main ones:
+   - Sprites: placed by DEPTH first, then number (retro68k's rule; replaces the earlier "number order" decision). One gap line to reuse a sprite. No SPRLIMIT: over-budget results depend on spare cycles, as in retro68k.
+   - Copper: X and Y are 8-bit registers, not SRAM pointers (per-cell colour from a table is left to the attribute layer). `CMOVEL` is the one-byte any-offset MOVE; wide writes are `CMOVEW`, `CMOVEA`, `CMOVEN`.
+   - Video: software sees the draw beam (one line ahead of the screen); the layer pointer is taken per source line, not live; separate MAPPT and PATPT for tile mode.
+   - Registers: one commit rule for CPU and copper (bytes not written keep their value); unused ports read `0xFF`.
+   - Serial: retro68k's control sequence, so one PC tool serves both machines; SERDROP left out for lack of ports.
+   - Ports still wanted: SERDROP (spec 10, U6), a membrane key map (spec 12, K8), more system registers (spec 7, SY11).
+2. **Geometry unit (spec 15)**, branch 10: write it against the new register map (ports `0xA0`–`0xBF`, interrupt source 19 reserved).
+3. Then phase 1 (section 7).
 
 ## 6. Open questions (design plan section 6)
 
 | # | Question | Notes |
 |---|----------|-------|
-| Q1 | Sound hardware | Parked by the user. Ports `0x30`–`0x3F` and interrupt 10 reserved; the beeper already exists |
+| Q1 | Sound hardware | Parked. Custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved; retro68k's 4 channels narrowed is the default; the beeper already exists |
 | Q2 | 6502 version: build option here or own repo | Parked. Registers through the register page; slots give a 6502 14 MHz with no waits |
 | Q3 | Is tv80 exact enough? | Run ZEXDOC/ZEXALL first in phase 1; fallback T80 (VHDL) |
 | Q4 | Early-signal → MMU → SRAM pad path at 56 MHz | First Vivado build |
-| Q5 | Copper priority | Largely answered by item 5 (display first) |
-| Q6 | Kempston port | Answered by item 7; close it |
+| Q5 | Copper priority | Closed: urgent display fetches first, then the copper |
+| Q6 | Kempston port | Closed: `0x1F` reads joystick 1 |
 | Q7 | KS3 pins for keyboard, joysticks, PS/2, `sd_miso` | Check against the Next's pin file before phase 3 |
 | Q8 | KS3 details shared with retro68k | SRAM size, accelerator pins, Next core format |
 | Q9 | Z80 faster than 28 MHz | Parked. Best value: 56 MHz with a wait on SRAM plus 128 KB block-RAM fast RAM |
@@ -99,7 +79,7 @@ Done: `video.md` and `sprites.md` carry items 1–5 and 8. Points they raised fo
 Done when the boot ROM prints "hello" over simulated USB serial at all four speeds and ZEXDOC passes.
 
 1. **Tools:** Icarus Verilog, Verilator, sjasmplus, Python 3 (the first session's container had none of the first three).
-2. **Skeleton:** folders as in retro68k (`fpga/rtl`, `fpga/rtl/platform/{artix7,sim}`, `firmware/boot`, `firmware/include`, `tools`, `sim`); copy `tools/regmap.py` from retro68k and adapt it to 8-bit ports and the register page; write `fpga/regmap.def` from spec 3.
+2. **Skeleton:** folders as in retro68k (`fpga/rtl`, `fpga/rtl/platform/{artix7,sim}`, `firmware/boot`, `firmware/include`, `tools`, `sim`); copy `tools/regmap.py` from retro68k and adapt it to byte registers, the two blocks and the register page (spec 3, section 8); write `fpga/regmap.def` from spec 3.
 3. **tv80 first:** add tv80 (as a submodule or vendored under `fpga/third_party/`, BSD-style licence) and run ZEXDOC on the bare core in Verilator, to answer Q3 before building on it.
 4. **CPU side:** `fpga/rtl/z80_cpu.v` (spec 1: brings out cen, the early cycle signals and `nmicycle`; `TV80_REFRESH`; Mode 0, T2Write 1, IOWait 1), the bus interface, the slot and SRAM controller with the swap, the MMU with read and write pages and the register page, the boot ROM in block RAM.
 5. **USB serial** adapted from retro68k's `serial.v`, with its `ft232h_model.v` and `sram_model.v` for simulation.

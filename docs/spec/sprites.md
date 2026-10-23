@@ -2,401 +2,465 @@
 
 Status: **draft**
 
-Sprites are small images drawn over (or between) the layers at any position, without touching the layers' memory. retro-z80 has 32 of them. Each sprite's image (its pattern) is in SRAM, given by a pointer; its position, size, scale and settings are sixteen bytes in a sprite attribute table, which the CPU writes through an index port and a data port, so two OTIRs upload all 32 sprites. Each sprite can be scaled, larger or smaller, by any fraction across and down. The copper writes the same ports, so it can reuse a sprite further down the screen after it has been drawn (multiplexing).
+Sprites are small images drawn over (or between) the layers at any position, without touching the layers' memory. retro-z80 has retro68k's eight sprites, narrowed to 8-bit registers. Each has a pointer into SRAM for its image (SPRxPT), and its window and settings are plain registers (SPRxH, SPRxV, SPRxCTL) that the CPU or copper writes: the copper resets the pointers every frame, and can reuse a sprite further down the screen by writing its registers again.
 
-The sprite unit works in two steps, one output line apart: at the end of a line it finds the sprites on the line after next; during the next line it fetches their rows from SRAM (in cycle 3 of each slot) and renders them into a sprite line buffer; on the line after that, the draw beam mixes that buffer with the layers (spec 4). Each sprite has a depth that puts it in front of, between or behind the bitmap and tile layers.
+The programming model is retro68k's. Inside, the fetch is different, because retro-z80 has far less memory bandwidth: each sprite's row for a line is fetched whole, at any time during the line before, into a row store; on the line itself a pixel unit per sprite reads the row out at the draw beam, as retro68k's pixel units read their FIFOs.
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
-| Sprites | 32 (sprite 0 to sprite 31) |
-| Pattern size | Width 8, 16 or 32 pixels; height 8, 16 or 32 rows; set separately |
-| Colours | 1, 2, 4 or 8 bits per pixel. Value 0 is transparent. A palette bank gives the high bits of the 9-bit palette index (512-entry palette, shared with the layers) |
-| Patterns | In SRAM, anywhere: a 22-bit pointer per sprite, rows one after another, row stride = width × bpp ÷ 8 bytes |
-| Position | X, Y in beam coordinates (beam pixel and beam line of the top left corner), 11-bit signed |
-| Scale | X step and Y step per sprite, 16 bits each, 4.12 fixed point (source pixels per beam pixel, source rows per beam line). 0x0800 = normal size (one sprite pixel = one 2 × 2 picture pixel); from 0x0080 (16× normal) to 0xFFFF (about 1/32×). Nearest pixel, no filtering |
-| Flip | X flip and Y flip, per sprite |
-| Depth | Per sprite, 2 bits (DEPTH): behind both layers, between them, in front of both, or in front of priority tiles too (section 3). Reset: in front of everything |
-| Sprite order | Lower number in front |
-| Collisions | Sprite–sprite and sprite–playfield, per sprite, sticky; interrupt line SPRITE |
-| Attributes | 32 × 16 bytes, through an index port + data port |
-| Ports | `0x80`–`0x8F` |
-| Fetch | Cycle 3, after urgent display fetches and the copper. Scan at the end of line N − 2, fetch and render during line N − 1, shown on line N |
-| Write timing | A write committed while the draw beam is on line N (pixels 0–863) is used from line N + 2 (section 4.4) |
-| Per-line limits | Fetch: a budget of memory cycles (SPRLIMIT, at most 220). Render: each sprite drawn, one beam pixel per clock plus 4, from the clock its row is due, all by clock 1760; with light fetches about 8 × SPRLIMIT beam pixels of sprite in all. Lowest numbers are kept; status flags show when sprites were left out (section 5) |
-| Block RAM | 3 blocks of 18 Kb; 1 DSP slice (section 8) |
+| Sprites | 8 (SPR0–SPR7). Each can be reused further down the screen by the copper rewriting its registers |
+| Window | HSTART–HSTOP across, VSTART–VSTOP down, in beam coordinates, as a layer's window. The image's size follows from the window and the magnify |
+| Size | Any, set by the window. The row store holds 512 bytes of each line (section 4.2); the memory budget (section 5) limits how big and how many |
+| Colours | 2, 4 or 8 bits per pixel. 2 and 4 bpp: 3 or 15 colours + transparent, from any 16-colour block of the sprite palette; 8 bpp: 255 colours + transparent, the whole sprite palette. The sprites have a 256-entry palette of their own, SPRPALETTE (spec 4) |
+| Position | Any beam pixel and line, unsigned; clipped by the hardware at all four edges (section 3.2) |
+| Magnify | ×1, ×2 or ×4, across and down separately |
+| Depth | Per sprite: in front of both layers, between them (in PRIO order), or behind both |
+| Order | Among sprites at the same depth, the lower number is in front |
+| Collisions | Sprite–sprite and sprite–layer, per pixel, sticky (SPRCOLL) |
+| Fetch | A whole row per sprite per line, during the line before, lowest number first, in cycle 3 after urgent display fetches and the copper, and in spare cycles (spec 2, section 4) |
+| Manual mode | With a sprite's DMA off, the CPU or copper writes its rows through SPRxDAT, a byte at a time |
+| Write timing | A write to SPRxPT, SPRxH, SPRxV or SPRxCTL committed while the draw beam is on line L restarts the sprite: it shows nothing on line L + 1, and its new settings from line L + 2 (section 4.4) |
+| Per-line limit | The rows of a line must be fetched by the end of the line before. A row that is not shows nothing on its line and sets VIDSTAT.SPRUNDER (section 5) |
+| Registers | Custom block: 16 bytes per sprite at `0x060` + n × `0x10` (copper MOVE reaches them); SPRDMA and SPRCOLL at `0x0F8`–`0x0FF` |
+| Interrupts | None of their own: SPRUNDER raises VIDERR, as in retro68k (spec 4, spec 8) |
+| Block RAM | 4 RAMB18 (section 8) |
 
-## 2. Sprite attributes
+## 2. Comparison with retro68k
 
-### 2.1 The attribute table
+The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxDAT, with retro68k's fields and bit positions; any size, set by the window; chunky 2, 4 and 8 bpp, first pixel in the high bits; value 0 transparent; PAL blocks of SPRPALETTE, and VIDCON.SHAREPAL; HMAG and VMAG ×1, ×2, ×4; DEPTH among the layers in PRIO order; lower number in front; unsigned beam positions clipped at all edges; no flips; SPRxPT moves as the image is fetched and is rewritten every frame; a write to PT, H, V or CTL restarts the sprite; SPRDMA (set/clear) with DMACON.SPREN and DMAEN; SPRCOLL; SPRUNDER in VIDSTAT, raising VIDERR; reuse down the screen by the copper.
 
-Each sprite has 16 bytes in the attribute table, at index n × 16 (n = 0–31); the table is 512 bytes. The index (9 bits) is set through SPRIDX and SPRIDXH, and the data is read and written through SPRDATA (section 6). The index steps by 1 after each SPRDATA read or write, wrapping from 511 to 0, so two `OTIR`s with B = 0 write the whole table. The same table also appears as plain memory at offsets `0x0200`–`0x03FF` of the register page (sprite n at `0x0200` + 16n, spec 3, section 5), with the same latches and commit rules and without touching the index; `LD (nn),HL` then writes a 2-byte field in one instruction.
+| Item | retro68k | retro-z80 | Why |
+|------|----------|-----------|-----|
+| Register width | 32-bit registers | Bytes. Each register is its bytes in order, low byte first; writing the highest byte commits it (spec 3) | Z80 |
+| Sprite registers | 32 bytes per sprite at `0x520` + n × `0x20` | 16 bytes per sprite at custom offset `0x060` + n × `0x10`, so a one-word copper MOVE reaches them | Z80, copper word |
+| SPRxPT | Bits 22–1 (8 MB Chip RAM), 4 bytes | Bits 21–1 (22-bit physical address, spec 2), 3 bytes; the fourth byte is SPRxDAT | Memory size |
+| SPRDMA, SPRCOLL | `0x500`, `0x504` | `0x0F8`, `0x0FC`; the copper reaches them with MOVR or MOVEL only | Copper word |
+| SPRCOLL | SPR, L0, L1, L2 (32 bits) | SPR, L0, L1 (3 bytes) | Two layers (spec 4) |
+| DEPTH | 0 in front, 1 and 2 between the three layers, 3 behind all | 0 in front, 1 between the two layers, 2 and 3 behind both | Two layers |
+| Tile priority | No tile layers | A tile-map layer's tile with PRI set covers DEPTH 1–3 sprites, never DEPTH 0 (section 3.4) | Tile layers (spec 4) |
+| Fetch | Just in time into a 32-word FIFO per sprite, deadline first with the layers; may take the CPU's cycle | A whole row per line, at any time in the line before, into a row store; cycle 3 after urgent display fetches and the copper, and spare cycles; never the CPU's cycles | Bandwidth: 224 shared cycles a line (spec 2) |
+| What adds up | Sprites over the same pixels at the same time | All rows fetched for a line, wherever the sprites are | Row fetch |
+| VMAG | A repeated line is fetched again | A repeated line reuses the row and costs nothing; SPRxPT does not move on it | Bandwidth |
+| Row length | Any | 512 bytes per sprite per line are fetched and shown; the rest of a longer row is transparent (only 8 bpp at ×1 wider than 512 pixels is affected) | Block RAM; such a row is over the guaranteed budget anyway |
+| Underrun | The sprite shows nothing more until it next starts | The sprite shows nothing on that one line; the next line is fetched normally | Row fetch: each line's address is known |
+| When writes take effect | From the next line, as far as the FIFO's lead allows | Exactly: committed during draw line L, nothing on line L + 1, new settings from line L + 2 | Deterministic timing for the copper |
+| First lines | A sprite should not start on beam lines 0–1 | The same advice; line 0 never shows sprites (section 4.4) | Row fetched the line before |
+| SPRxDAT | 16-bit pushes into the FIFO (up to 32 words ahead); read: words in the FIFO | 8-bit writes into the next row; no lead beyond that row; write-only | Z80, row store |
+| Interrupt | None for sprites; SPRUNDER through VIDERR | The same. The SPRITE source of the earlier retro-z80 draft is dropped | – |
+| Colours | 24-bit palette entries | 12-bit palette entries (spec 4) | KS3 VGA |
+| Dropped from the earlier retro-z80 draft | – | 32 sprites; the attribute table and its index/data ports (SPRIDX, SPRDATA) and register-page copy; fractional scaling (XSTEP, YSTEP); X and Y flip; 1 bpp; SPRLIMIT and due clocks; SPRCTL, SPRSTAT, SPRIEN, SPRDROP; the DROP, WIDE and LATE flags; the sprite line buffer and renderer | Branch 9: retro68k's model |
+| Later (retro68k section 11) | A sprite table; fractional scaling; sprites in direct colour at any depth | Not planned | – |
 
-| Byte | Name | Bits | Field | Meaning |
-|------|------|------|-------|---------|
-| 0 | XL | 7–0 | X[7:0] | Low byte of X |
-| 1 | XH | 2–0 | X[10:8] | High bits of X (X is signed, −1024 to 1023). **Writing XH commits X and the fields below** |
-| | | 4–3 | W | Pattern width: 0 = 8, 1 = 16, 2 = 32 pixels; 3 = reserved (taken as 32) |
-| | | 5 | XFLIP | 1 = mirror left to right |
-| | | 6 | — | Reserved, write 0 |
-| | | 7 | EN | 1 = sprite on. 0 = never shown, never fetched |
-| 2 | YL | 7–0 | Y[7:0] | Low byte of Y |
-| 3 | YH | 2–0 | Y[10:8] | High bits of Y (signed). **Writing YH commits Y and the fields below** |
-| | | 4–3 | H | Pattern height: 0 = 8, 1 = 16, 2 = 32 rows; 3 = reserved (taken as 32) |
-| | | 5 | YFLIP | 1 = mirror top to bottom |
-| | | 7–6 | BPP | 0 = 1, 1 = 2, 2 = 4, 3 = 8 bits per pixel |
-| 4 | PL | 7–0 | PTR[7:0] | Pattern pointer, low byte |
-| 5 | PM | 7–0 | PTR[15:8] | Pattern pointer, middle byte |
-| 6 | PH | 5–0 | PTR[21:16] | Pattern pointer, high bits (bits 7–6 ignored). **Writing PH commits PTR** |
-| 7 | BANK | 7–0 | BANK | Palette bank (section 2.4). Takes effect when written |
-| 8 | XSL | 7–0 | XSTEP[7:0] | X step, low byte |
-| 9 | XSH | 7–0 | XSTEP[15:8] | X step, high byte. **Writing XSH commits XSTEP** |
-| 10 | YSL | 7–0 | YSTEP[7:0] | Y step, low byte |
-| 11 | YSH | 7–0 | YSTEP[15:8] | Y step, high byte. **Writing YSH commits YSTEP** |
-| 12 | DEPTH | 1–0 | DEPTH | Place among the layers: 0 = in front of everything, 1 = behind priority tiles, 2 = between the back and front layers, 3 = behind both (section 3). Bits 7–2 reserved, read 0. Takes effect when written |
-| 13–15 | — | | | Reserved: read 0, writes ignored |
+## 3. Sprites: pointer, window and settings
 
-**Latching**, as for every multi-byte value (spec 3): a write to XL, YL, PL, PM, XSL or YSL goes to a latch for that byte of that sprite; the write to the value's highest byte commits the whole value at once. Each sprite has its own latches, so writing XH alone commits X with the XL last written for that sprite. Reads return the committed value. Bits above 21 of PTR are ignored, and bit 21 too on a 2 MB board (spec 2).
+Each sprite has four registers (section 6):
 
-**Reset:** the whole table is 0, so every sprite is off (EN = 0), its DEPTH is 0 (in front of everything), and its steps (0) mean normal size (section 2.3).
+- **SPRxPT** points at the sprite's image in SRAM: its lines one after another, top line first, each a whole number of 16-bit words. As in retro68k it moves through the image as it is fetched, so the hardware does not reset it: the copper (or the CPU) writes the eight pointers every frame.
+- **SPRxH** and **SPRxV** give the sprite's window, and **SPRxCTL** its settings. They stay as written until written again. The image in memory is pixels only.
+- **SPRxDAT** feeds a sprite whose DMA is off (section 4.5).
 
-### 2.2 Position
+### 3.1 The window
 
-X is the beam pixel of the sprite's left edge and Y the beam line of its top edge, in beam coordinates (spec 4: the picture is pixels 144–863, lines 49–624). Picture pixel (x, y) of a 360 × 288 layer is at beam position (144 + 2x, 49 + 2y). Positions have beam precision whatever the scale.
+In beam coordinates (spec 4: the picture is pixels 144–863, lines 49–624):
 
-Both are signed, so a sprite can slide in from the left or rise out of the top of the picture with any part of it off screen. Only picture pixels are drawn and take part in collisions. A sprite with X ≥ 864 or Y ≥ 625 is not shown. To hide a sprite, clear EN.
+| Register | Bits | Field | Meaning |
+|----------|------|-------|---------|
+| SPRxH | 10–0 | HSTART | First beam pixel of the sprite (0–863; 864 or more: not shown). Pixels before 144 are in the horizontal blank: fetched, not shown |
+| SPRxH | 26–16 | HSTOP | Beam pixel just after the sprite (above 864 counts as 864) |
+| SPRxV | 10–0 | VSTART | First beam line of the sprite (0–624; 625 or more: not shown). Lines before 49 are in the vertical blank: fetched, not shown |
+| SPRxV | 26–16 | VSTOP | Beam line just after the sprite (above 625 counts as 625) |
 
-### 2.3 Scale
+The image's size follows from the window: **source width** = (HSTOP − HSTART) ÷ HMAG pixels and **source height** = (VSTOP − VSTART) ÷ VMAG lines, each rounded up. A source line is stored in whole words: ⌈source width × BPP ÷ 16⌉ words, twice that in bytes. If HSTOP is not above HSTART, or VSTOP not above VSTART, the window is empty and the sprite does not show. After reset every window is empty.
 
-XSTEP is the number of source pixels the sprite moves on per beam pixel; YSTEP the number of source rows per beam line. Both are 4.12 fixed point: 4 integer bits and 12 fraction bits. A step of **0 is taken as 0x0800**, normal size, so a program that does not scale need not set the steps (and the table's reset state shows sprites at normal size).
+A sprite shows inside its window once per frame. To hide it, turn its DMA off (SPRDMA), or set VSTART to 625 or more.
 
-| Step | Source per beam pixel/line | Size against normal | A 32-pixel pattern on screen |
-|------|---------------------------|---------------------|------------------------------|
-| 0x0080 | 1/32 | 16× | 1,024 beam pixels |
-| 0x0200 | 1/8 | 4× | 256 |
-| 0x0400 | 1/4 | 2× | 128 |
-| 0x0800 (or 0) | 1/2 | 1× (normal: 2 beam pixels per sprite pixel) | 64 |
-| 0x1000 | 1 | 1/2× (1 beam pixel per sprite pixel, as a hi-res layer) | 32 |
-| 0x2000 | 2 | 1/4× | 16 |
-| 0x8000 | 8 | 1/16× | 4 |
-| 0xFFFF | about 16 | about 1/32× | 2 |
+### 3.2 Clipping
 
-On-screen width = ⌈W × 4096 ÷ XSTEP⌉ beam pixels, height = ⌈H × 4096 ÷ YSTEP⌉ beam lines. Steps below 0x0080 are allowed (larger still) but are not tested. The pattern sizes W and H stay the source size; the hardware never divides: it steps an accumulator.
+The hardware clips at all four edges. A sprite's line is a beam line, and its frame the beam's frame:
 
-**Down: the Y accumulator.** Each sprite has a Y accumulator (6.12 bits) and an active bit, kept by the line scan (section 4.1):
+- **Left:** pixels before beam pixel 144 are fetched but not shown. HSTART can be 0, so a sprite can hang 144 pixels off the left edge.
+- **Top:** lines before beam line 49 are fetched and used up but not shown, so the first line that shows is the right line of the image. A sprite can hang up to 48 lines off the top, 47 if its registers are written in line 0 (section 4.4).
+- **Right:** pixels from beam pixel 864 on are neither fetched nor shown.
+- **Bottom:** lines from beam line 625 on are neither fetched nor shown.
 
-- At the scan for line 0 of each frame every sprite is made inactive; a sprite with Y < 0 is started at once with its accumulator at (−Y) × YSTEP (one multiply, section 8).
-- When the scan reaches line L = Y, the sprite starts: active, accumulator 0. This also restarts a sprite that is still active from an earlier use.
-- On each line while active, the row is r = accumulator ÷ 4096 (its integer part). If r ≥ H the sprite ends (inactive). Otherwise the sprite is on the line with row r (H − 1 − r if YFLIP), and YSTEP is added for the next line.
-- Clearing EN ends the sprite. Setting it again shows nothing until the scan next reaches line Y.
+### 3.3 SPRxCTL
 
-**Across: the X accumulator.** The renderer draws a sprite from beam pixel p0 = max(X, 144). It starts an X accumulator at (p0 − X) × XSTEP, and for each beam pixel takes source pixel c = accumulator ÷ 4096 (W − 1 − c if XFLIP), then adds XSTEP. It stops when c ≥ W or at pixel 863.
+| Bits | Field | Meaning |
+|------|-------|---------|
+| 13–12 | BPP | 0 = 2, 1 = 4, 2 = 8 bits per pixel; 3 reserved (taken as 8) |
+| 17–16 | HMAG | Each source pixel shown 1, 2 or 4 times across (0, 1, 2); 3 reserved (taken as 4) |
+| 19–18 | VMAG | Each source line shown on 1, 2 or 4 beam lines (0, 1, 2); 3 reserved (taken as 4) |
+| 21–20 | DEPTH | 0 = in front of both layers; 1 = behind the front layer; 2 and 3 = behind both layers (in PRIO order) |
+| 27–24 | PAL | 2 and 4 bpp: the 16-colour block of the sprite palette (colour = PAL × 16 + value). Not used at 8 bpp |
 
-Sampling is nearest pixel (the integer part), with no filtering. Enlarging repeats pixels and rows and costs no extra memory; shrinking skips them.
+Other bits are reserved: write 0, read 0. The bit positions are retro68k's; as bytes (section 6), BPP is in byte 1, HMAG, VMAG and DEPTH in byte 2, PAL in byte 3, and byte 0 is unused.
 
-### 2.4 Patterns and colours
+### 3.4 Pixels, colours and depth
 
-A pattern is H rows, top row first, at PTR, PTR + stride, PTR + 2 × stride and so on, with **stride = W × BPP ÷ 8 bytes** (1, 2, 4, 8, 16 or 32). Pixels are packed as in the bitmap layer (spec 4): within each byte the leftmost pixel is in the highest bits, and bytes go left to right at rising addresses.
+Image lines are **chunky**: 2, 4 or 8 bits per pixel, packed as the bitmap layers' are (spec 4): bytes left to right at rising addresses, the first pixel in the high bits of each byte. A value of 0 is transparent. Other values are entries of **SPRPALETTE**, the sprite palette (spec 4), which the layers do not use: at 8 bpp the value itself; at 2 and 4 bpp, PAL × 16 + the value. With VIDCON.SHAREPAL set, sprites use L0's palette instead, as the layers then do.
 
-| W | 1 bpp | 2 bpp | 4 bpp | 8 bpp |
-|---|-------|-------|-------|-------|
-| 8 | 1 byte | 2 | 4 | 8 |
-| 16 | 2 | 4 | 8 | 16 |
-| 32 | 4 | 8 | 16 | 32 |
+There is no flip: for an object that faces either way, store both images.
 
-A row of 1 byte (8 pixels at 1 bpp) may be at any address. Longer rows must start at an even address: PTR bit 0 is ignored for them. Animation is a change of PTR.
+**Depth.** Each sprite's DEPTH puts it among the two layers in their PRIO order (spec 4). From the front:
 
-**Colour.** A pixel value of 0 is transparent. Any other value v gives the palette index
+| From the front | |
+|----------------|--|
+| 1 | Sprites with DEPTH 0 |
+| 2 | Pixels of tiles with PRI set (either layer, the front layer's first) |
+| 3 | The front layer |
+| 4 | Sprites with DEPTH 1 |
+| 5 | The back layer |
+| 6 | Sprites with DEPTH 2 or 3 |
+| 7 | The background colour (BGCOLOR) |
 
-    index = (BANK × 2^BPP + v) mod 512
+- Within each group of sprites, the **lower number is in front**: sprite 0 in front of sprite 1, and so on. A sprite at a front depth is in front of a lower-numbered sprite at a deeper one, as in retro68k.
+- A layer's transparent pixels (TRANSP set, value 0), and pixels outside its window, show what is behind them. A layer without TRANSP hides everything behind it inside its window.
+- **Tile priority.** A tile-map layer's map entry has a PRI bit (spec 4). The opaque pixels of such a tile cover sprites of DEPTH 1–3 and the other layer, but never DEPTH 0 sprites: score panels and foreground scenery go over most sprites, while a cursor or a player at DEPTH 0 stays in view. With PRI clear, a tile's pixels are at their layer's place.
+- The attribute layer (Spectrum extra, spec 4) does not act on sprites.
 
-so the bank bits used are BANK[7:0] at 1 bpp (256 pairs; one colour plus transparent), BANK[6:0] at 2 bpp (128 banks of 4), BANK[4:0] at 4 bpp (32 banks of 16) and BANK[0] at 8 bpp (the low or high 256 entries). This is the same rule as the attribute layer's (spec 4). The attribute layer does not act on sprites.
+### 3.5 Collisions
 
-### 2.5 Flip
+The hardware checks every picture pixel for sprites touching, as retro68k does, and sets bits in **SPRCOLL** (section 6):
 
-XFLIP and YFLIP walk the source backwards: source pixel W − 1 − c in place of c, and row H − 1 − r in place of r. Each is a subtract on an accumulator's integer part, a few LUTs. They save a mirrored copy of every left/right facing image, and with it the Z80's time to build the copies. They also match the tile layer, which has X and Y flip.
+| Byte | Bit n set when |
+|------|----------------|
+| 0, SPR | An opaque pixel of sprite n was on the same pixel as an opaque pixel of another sprite |
+| 1, L0 | An opaque pixel of sprite n was on an opaque pixel of layer 0 |
+| 2, L1 | The same, against layer 1 |
 
-## 3. Display order, transparency and collisions
+- A sprite pixel is opaque if its value is not 0. A layer pixel is opaque if it is inside the layer's window and not transparent. Depth does not matter: a sprite behind a layer still collides with it, and a PRI tile counts as its layer.
+- Only picture pixels count (beam pixels 144–863 on lines 49–624), not those clipped or in the blanking. A sprite not shown on a line (underrun, section 5.3) takes part in no collision on that line.
+- The sprite bits do not say which other sprite was hit: if bits 0 and 3 are set, sprites 0 and 3 might have touched each other, or each another sprite.
+- The bits are set as the draw beam draws each pixel, and are **sticky** until cleared by writing 1. A frame's collisions are all in SPRCOLL when the draw beam reaches (0, 0) of the next frame. Read SPRCOLL once a frame, in the vertical blank, and clear the bits read.
 
-**Depth.** Each sprite's DEPTH (byte 12, bits 1–0) puts it at one of four places among the layers (spec 4, section 3.2). The bitmap and the tile layer are the **back layer** and the **front layer**; VIDCTL.BMFRONT (spec 4) says which is which (after reset the bitmap is the back layer). Back to front:
-
-1. background colour
-2. sprites with DEPTH = 3
-3. back layer
-4. sprites with DEPTH = 2
-5. front layer
-6. sprites with DEPTH = 1
-7. tile pixels whose map entry has PRI = 1
-8. sprites with DEPTH = 0
-
-DEPTH 0, the reset value, puts a sprite in front of everything. A tile with its PRI bit covers sprites of DEPTH 1–3 (and the bitmap, when the bitmap is the front layer), but never DEPTH 0 sprites: score panels and foreground scenery go over most sprites, while a cursor or a player at DEPTH 0 stays in view. DEPTH 3 puts a sprite behind both layers, so it shows only through their transparent pixels (value 0 of a layer with TRANSP set, or outside its window). Tile pixels of entries with PRI = 0 are at the tile layer's own place.
-
-Where sprites overlap, the **lower-numbered sprite is in front**, whatever their DEPTHs: the sprite unit keeps only the front sprite's pixel at each position (section 4.3), and that pixel then goes to its place by its own DEPTH. So a low-numbered sprite with a larger DEPTH than a higher-numbered one hides that one where they overlap, even where the layers then hide the low-numbered sprite too. Sprites that overlap each other should have the same DEPTH, or be numbered in depth order. A transparent sprite pixel (value 0) shows what is behind it, including higher-numbered sprites.
-
-**Collisions** are found per pixel, on picture pixels only, after scaling (what is on the screen), whatever the DEPTHs:
-
-- **Sprite–sprite:** when an opaque pixel of a sprite lands on a pixel already taken by an opaque pixel of a lower-numbered sprite, both sprites' bits in SPRCOLL are set. So each sprite that touches any other has its bit set.
-- **Sprite–playfield:** when the front sprite's opaque pixel lands on an opaque pixel (value ≠ 0, inside its window) of the tile layer or the bitmap layer, that sprite's bit in SPRPFC is set. SPRCTL.CTILE and CBMP choose which layers count. Only the front sprite at each pixel is checked. A sprite hidden behind the layer it touches still collides with it.
-- Sprites, or parts of sprites, left out by a per-line limit (section 5) take part in no collision on that line.
-
-The bits are sticky until cleared by writing 1. SPRSTAT.COLL and PFCOLL are set with them and can raise the SPRITE interrupt (section 6).
+There is no collision interrupt, as in retro68k.
 
 ## 4. Fetch and draw
 
-### 4.1 Pipeline
+### 4.1 Overview
 
-The draw beam runs one output line ahead of the display beam (spec 4). The sprite unit works one more line ahead: a line's sprites are found by a scan at the end of the line two before it is drawn, then fetched and rendered during the line before it is drawn. While the draw beam is on output line N (system clocks 0–1791 of that draw line):
+The draw beam runs one output line ahead of the display beam (spec 4). Sprites work one more line ahead: during draw line L the sprite unit fetches each sprite's row for line L + 1 into the row store, while the pixel units read the rows for line L out at the draw beam.
 
-| Step | For line | Clocks of draw line N | Work |
-|------|----------|-----------------------|------|
-| Fetch and render | N + 1 | 0–1759 (slots 0–219) | Fetch the kept sprites' rows, lowest number first, into the row store, in cycle 3 (section 4.2). Render them, lowest number first, from the row store into the sprite line buffer, one beam pixel per clock, each sprite from the clock its row is due (sections 4.3 and 5.3) |
-| Scan | N + 2 | 1760–1791 (slots 220–223) | Check the 32 sprites, one per clock, lowest number first: step the Y accumulators, find which sprites are on the line and their rows, apply the fetch budget (section 5.2). Copy each kept sprite's row address, X, XSTEP, W, BPP, XFLIP, DEPTH and BANK into the line list |
-| Draw | N | At the draw beam | Read line N's sprite line buffer, mix it with the layers (section 3), clear it |
+| When (draw beam) | For line | Work |
+|------------------|----------|------|
+| (L, 0) | L + 1 | **Set-up:** each sprite takes its registers (window, CTL, the pointer, its DMA enable) for line L + 1, and works out whether it is on that line and whether the line starts a new source line |
+| Draw line L, clocks 0–1791 | L + 1 | **Fetch:** the rows that line L + 1 needs, lowest-numbered sprite first, each row whole, into the row store (section 4.2) |
+| (L + 1, 0) | L + 1 | **Hand-over:** the rows and settings of line L + 1 pass to the pixel units. A row not complete now shows nothing (section 5.3) |
+| Draw line L + 1 | L + 1 | **Draw:** each pixel unit gives its sprite's pixel at the draw beam; the mixer places it among the layers (section 3.4) and checks collisions |
 
-So the attribute table reaches the picture in two lines: scanned at the end of line N, fetched and rendered during line N + 1, drawn on line N + 2. The scan's clocks 1760–1791 are after the draw beam's last pixel (pixel 863 is at clock 1727), so no copper wait names them. The scan runs on every line, 0–624, so that the Y accumulators keep step in the vertical blank; fetch and render work for picture lines (49–624) only.
+The set-up runs on every line, 0–624, so that sprites hanging off the top use up their lines. The first set-up of a frame is at (0, 0), for line 1.
 
-Fetch and render share the line, so the renderer may have to wait for a row, and the fetch and render limits act together (section 5). The line list and the row store have one copy each: the scan rewrites the line list after the render that used it has ended, and a sprite's row is replaced only after the sprite was drawn.
+### 4.2 The row store
 
-### 4.2 Fetch and the row store
+Each sprite has two rows in the row store: one being drawn, one being filled. Each row holds **512 bytes**: 512 pixels at 8 bpp, 1,024 at 4 bpp, 2,048 at 2 bpp.
 
-The row store holds one row per sprite (32 × 32 bytes). A row is fetched whole, 16 bits per memory cycle, whatever the scale: enlarging needs no more memory, and shrinking may skip rows. The fetcher uses **cycle 3** of each slot, in the order set by spec 2 and spec 4:
+On each line of its window the sprite either starts a **new source line** or **repeats** the line before (VMAG ×2 or ×4):
 
-1. a display FIFO below its low mark (urgent);
-2. the copper;
-3. **sprites**;
-4. display top-up.
+- **New source line:** during the line before, its row is fetched from SPRxPT into the row being filled: one 16-bit word per memory cycle, in order. Each word fetched moves SPRxPT on by 2. Words for pixels from beam pixel 864 on, and words past the row's first 512 bytes, are not fetched. At the end of the line, SPRxPT goes to the line's start + one line (⌈source width × BPP ÷ 16⌉ words), whatever was fetched or skipped. At (L + 1, 0) the two rows swap.
+- **Repeated line:** nothing is fetched and SPRxPT does not move. The pixel unit draws the same row again.
 
-It also takes cycles 0–2 when their owners leave them free; that only makes rows arrive sooner. Which sprites are drawn, and where a sprite is cut, is set by the rules of section 5 alone, never by how busy the CPU is or when the copper and the display take their cycles.
+So VMAG costs no memory cycles. A sprite's lines are counted from its last restart (section 4.4): the first window line after a restart starts a new source line, from SPRxPT; then every VMAG-th line does.
 
-**Row reuse.** When a sprite's row on a line is the same row as on the line before (enlarged sprites, and normal-size sprites on every second line), it is not fetched again: the renderer reads the row where it already is, and the fetch costs nothing. This holds when the sprite's row was fetched on the line before and its row address, W and BPP are the same; otherwise the row is fetched again.
+The **memory cycles** are cycle 3 of each slot after urgent display fetches and the copper, and any spare cycle in the same order (spec 2, section 4): urgent display fetch, copper, sprites, display top-up. Sprites never take the CPU's cycles. The fetch works through the sprites in number order: sprite 0's row whole, then sprite 1's, and so on, so when cycles run short the higher numbers go without.
 
-**Late fetch.** If a sprite's row is not in the row store at the clock it is due (section 5.3), because the urgent display fetches and the copper took more than the 220 − SPRLIMIT cycle-3 cycles left to them, that sprite and every higher-numbered one are left out of that line and SPRSTAT.LATE is set. LATE means SPRLIMIT is set too high for that copper program and layer set-up: a programming error, as OVERRUN is for the layers.
+### 4.3 Pixel units
 
-### 4.3 Render and the sprite line buffer
+Each sprite has a pixel unit, as in retro68k. At (L, 0) it takes line L's settings (HSTART, HSTOP, BPP, HMAG, DEPTH, PAL) and the row; then, as the draw beam passes beam pixel x (from HSTART to the earlier of HSTOP and 864), it gives source pixel (x − HSTART) ÷ HMAG of the row, rounded down. Pixels before beam pixel 144 are counted but not shown. A pixel past the bytes in the row (past 512 bytes, or past the bytes written in manual mode) is transparent.
 
-The sprite line buffer has two banks, one per line parity, each in its own block RAM: the renderer fills bank (N + 1) mod 2 while the draw beam reads bank N mod 2. A bank holds 720 entries, one per picture beam pixel (144–863). An entry is 16 bits:
+The mixer takes the eight pixels and the two layers' pixels at each beam pixel and picks the front-most opaque one (section 3.4). Everything a pixel unit uses was taken at (L, 0), so register writes never change the line being drawn.
 
-| Bits | Field |
-|------|-------|
-| 15–14 | DEPTH |
-| 13–9 | Sprite number |
-| 8–0 | Palette index; 0 = no sprite pixel (free entry) |
+### 4.4 Restart and when writes take effect
 
-An opaque sprite pixel never gives index 0, since its value v ≠ 0 is in the low BPP bits of the index (section 2.4), so no separate opaque bit is needed.
+As in retro68k, **a write to SPRxPT, SPRxH, SPRxV or SPRxCTL restarts the sprite**. With byte registers, the restart happens when the value commits: when its highest byte is written (SPRxPT byte 2, SPRxH byte 3, SPRxV byte 3, SPRxCTL byte 3). Writing a lower byte only fills the latch.
 
-The renderer takes the kept sprites from the lowest number to the highest. It starts each one at the clock section 5.3 gives (no sooner than its row is due, and after the sprite before), and for each beam pixel of the sprite (section 2.3, X accumulator) reads the source pixel from the row store. It reads the entry ahead through the bank's second port, and writes the pixel only if it is opaque and the entry is still free, so lower numbers stay in front. An opaque pixel that finds the entry taken is a sprite–sprite collision: the bits of both sprite numbers are set.
+A restart committed while the draw beam is on line L (at or after (L, 0), before (L + 1, 0)):
 
-The renderer does one beam pixel per clock, at any scale. Each sprite costs its on-screen width plus 4 clocks of start-up (the start offset multiply and the pipeline). The render stops at clock 1760 of the line (section 5.3).
+- stops the sprite's fetch for line L + 1, and empties its row being filled, so **the sprite shows nothing on line L + 1**;
+- does not change line L, which is being drawn with settings taken at (L, 0);
+- makes the set-up at (L + 1, 0) start the sprite again: **from line L + 2 it shows with its new settings**, its first window line from that point fetched from SPRxPT (as the pointer is then).
 
-**Draw.** The draw beam reads each entry of its bank, uses it for the mixer (section 3), checks sprite–playfield collisions, and writes it back as 0, so the bank is clear for its next use. This happens on every picture line, even with sprites off.
+Several writes during the same line restart the sprite only once in effect: the fetch is stopped from the first, so SPRxPT does not move between them. If the writes run on into line L + 1, the sprite shows nothing on line L + 2 either, and shows from L + 3.
 
-### 4.4 When writes take effect
+At the **start of each frame**, (0, 0), every sprite restarts, and the set-up at (0, 0) fetches line 1 from SPRxPT. Line 0's row would have been fetched during the last line of the frame before, so **line 0 never shows sprites**; a window from VSTART 0 starts its image on line 1. A copper list that writes a sprite's registers in line 0, as most do, makes it show from line 2. Lines 0–48 are in the vertical blank, so this matters only for a sprite hanging more than 47 lines off the top. As in retro68k: do not start a sprite on beam line 0 or 1.
 
-The scan for line N + 2 reads the attribute table in clocks 1760–1791 of draw line N, after the draw beam's last pixel, and reads each sprite's committed values in one clock. Writes to the table that arrive during these 32 clocks (from the CPU or the copper, through SPRDATA or the register page) are queued and applied, in order, as soon as the scan ends. So the scan never sees a half-written sprite, and each write belongs to exactly one line:
+Two rules follow, as in retro68k:
 
-- **A write committed while the draw beam is on line N, at any pixel 0–863, is used from line N + 2.** In clocks: a write in clocks 0–1759 of draw line N is used from line N + 2; one in clocks 1760–1791 is queued, counts as line N + 1's, and is used from line N + 3.
-- Everything the fetch and the renderer need is copied into the line list at the scan, so a write never changes a line already scanned: line N + 1, scanned at the end of line N − 1, is fetched and drawn as it was then.
-- A change to YSTEP is added to the accumulator from the next line scanned, so the copper can change the scale down a sprite. A change to XSTEP, X or DEPTH acts on whole lines.
-- SPRCTL and SPRLIMIT are used from the next scan, as attributes are.
-- A read of the table while writes are queued returns the value before them (for at most about 40 clocks).
+1. **Write SPRxPT last.** SPRxPT moves as the image is fetched. If the fetch for line L + 1 had already run when the window is written, a later restart starts from where the pointer had got to. Write the window and CTL first, then the pointer.
+2. **Change a sprite while it is not being drawn:** in the vertical blank, or after its last line. A restart while the sprite is on the screen starts it again partway down, from wherever its pointer had got to, after one empty line.
 
-**Multiplexing.** To reuse sprite n, whose current use ends on line M − 1, for a new use starting on line M (no gap needed): write its new attributes while the draw beam is on line M − 2, for example with the copper after a WAIT for (M − 2, 0), all committed by pixel 863 of that line. The old use's last line, M − 1, was scanned at the end of line M − 3, before the writes; the new use's first line, M, is scanned at the end of line M − 2, after them, and the scan then finds L = Y and restarts the Y accumulator.
+Other writes:
 
-## 5. Per-line limits
+| Register | Takes effect |
+|----------|--------------|
+| SPRxPT, SPRxH, SPRxV, SPRxCTL | Restart, as above: nothing on line L + 1, new settings from L + 2 |
+| SPRDMA, DMACON.SPREN, DMACON.DMAEN | At the next set-up: a change committed during draw line L acts on line L + 2. The fetch for line L + 1 in progress finishes. No restart |
+| SPRxDAT | At once: the byte goes into the row being filled (section 4.5) |
+| SPRCOLL | At once |
+| SPRPALETTE, VIDCON.SHAREPAL, PRIO | Spec 4's rules: at the draw beam |
 
-Fetch and render share each line (section 4.1), so their limits are applied together. Three rules decide which sprites a line shows; each keeps the lowest-numbered sprites and leaves out the rest:
+**Reusing a sprite further down the screen**, as Amiga programs do with their control words: once the old use's last line E has started drawing (draw beam at (E, 0) or later), the copper writes the sprite's window, CTL and pointer. If the writes are all made during draw line M (M ≥ E), the new use can start on line M + 2 or later. So the new use starts at least one line after the old one ends; leave a line between uses, as retro68k advises.
 
-| Rule | Checked | Flag |
-|------|---------|------|
-| Fetch budget: the total fetch cost ≤ SPRLIMIT (section 5.2) | At the scan | DROP |
-| Render deadline: each sprite drawn from the clock its row is due, all by clock 1760 (section 5.3) | As the render goes | WIDE |
-| Late row: a row not there at its due clock (section 4.2) | As the fetch goes | LATE (SPRLIMIT set too high) |
+### 4.5 Manual mode: SPRxDAT
 
-The first two depend only on the sprites and SPRLIMIT, so a program can work out exactly what each line shows.
+With a sprite's DMA off at a set-up (its SPRDMA bit clear, or DMACON.SPREN or DMAEN clear), nothing is fetched for it. The CPU or copper feeds its rows instead, by writing **SPRxDAT**:
 
-### 5.1 Fetch cost
+- Each write puts one byte into the **row being filled**, at the next place: byte 0, 1, 2 and so on, in image order. Writes past 512 bytes are ignored.
+- The row being filled becomes the row drawn at the next window line that starts a new source line, and an empty row then starts being filled. So the bytes written since that row began make up the next source line: with VMAG ×1, the bytes written during draw line L show on line L + 1.
+- Bytes of the row not written are transparent: a row may be written short.
+- A restart (and the start of the frame) empties the row being filled. Write PT, H, V and CTL first, then the row's bytes. Bytes written before the window's first line make up its first line, so the copper can write a row in the vertical blank.
+- Writes to SPRxDAT of a sprite whose DMA is on are ignored. Manual mode never sets SPRUNDER.
+- SPRxDAT is write-only; it reads 0.
 
-A sprite on a line costs ⌈W × BPP ÷ 16⌉ memory cycles (at least 1), or 0 when its row is reused (section 4.2). The scale does not change the cost of a row.
+This is useful for sprites whose image is computed, and for effects that change a sprite line by line. The copper is the natural feeder: one MOVE per byte, at exact beam positions.
 
-| W | 1 bpp | 2 bpp | 4 bpp | 8 bpp |
-|---|-------|-------|-------|-------|
-| 8 | 1 | 1 | 2 | 4 |
-| 16 | 1 | 2 | 4 | 8 |
-| 32 | 2 | 4 | 8 | 16 |
+## 5. Memory budget and limits
 
-### 5.2 Fetch budget: SPRLIMIT
+### 5.1 Cost
 
-A line has 224 slots. The scan takes slots 220–223, so the fetch has the **220 cycle-3 cycles** of slots 0–219. Urgent display fetches and the copper come before sprites in cycle 3, so the sprites get what they leave:
+A sprite costs memory cycles only on lines that start a new source line, and then **W = ⌈source width × BPP ÷ 16⌉ words**, one memory cycle each, fewer if clipped at the right edge or past 512 bytes. HMAG does not change W for a given image; it spreads it over more screen pixels. Repeated lines (VMAG) cost nothing. Unlike retro68k, sprites side by side add up as much as sprites stacked: what counts is the total of the rows fetched for a line.
 
-    cycles for sprites = 220 − display's urgent cycle-3 cycles − copper's cycle-3 cycles
+| Width (source pixels) | 2 bpp | 4 bpp | 8 bpp |
+|-----------------------|-------|-------|-------|
+| 16 | 2 words | 4 | 8 |
+| 32 | 4 | 8 | 16 |
+| 64 | 8 | 16 | 32 |
+| 128 | 16 | 32 | 64 |
+| 256 | 32 | 64 | 128 |
 
-- **Display:** urgent fetches in cycle 3 happen only on lines where the layers need more than cycle 1 gives (448 bytes per output line, spec 4). The worst case is the excess: the display's bytes on that line ÷ 2 − 224 cycles (0 when the layers fit in cycle 1). On the second line of a 288-line layer's pair the layer fetches nothing.
-- **Copper:** a WAITing copper takes almost nothing; each MOVE or indirect move costs its instruction and data reads (spec 6). A copper changing attributes every 8-pixel cell can take 50 to 100 or more cycles of a line.
+### 5.2 The guaranteed budget
 
-**SPRLIMIT** (section 6) is the sprites' share of cycle 3: the fetch budget the scan uses, in cycles, 0–220 (higher values are taken as 220). The other 220 − SPRLIMIT cycles of each line are left to the display and the copper. Reset value: 192, which leaves them 28. The scan adds up the fetch costs of the sprites on the line, lowest number first. The first sprite whose cost would take the total over SPRLIMIT is left out, **with every higher-numbered sprite** on that line; SPRSTAT.DROP is set and SPRDROP records that sprite's number. Give the important objects (the player, the cursor) low numbers.
+The rows for line L + 1 are fetched during draw line L, which has 224 cycle-3 cycles. Urgent display fetches and the copper come first, so the sprites are certain of
 
-SPRLIMIT also sets when rows are due (section 5.3). Setting it from what the display and the copper really use makes the result fixed: it depends only on the sprites, the copper program and the layers, never on the CPU. If the display and the copper take more than 220 − SPRLIMIT in a line, a row may be late (section 4.2).
+> **B = 224 − D − C** words for the rows of line L + 1
 
-Sprites kept by the budget on a line, all alike, all with fresh rows (a reused row costs nothing):
+where D is the display's urgent cycle-3 cycles in draw line L (none on a line whose layers fit in cycle 1's 448 bytes, spec 4) and C is the copper's cycles in draw line L (spec 6). Spare cycles (the CPU's unused cycles, cycle 1 in the blanking and when the layers need no more) add to B; at 28 MHz the CPU alone leaves at least 150 a line (spec 2, section 8), and in the vertical blank nearly all of cycle 1 is spare.
 
-| Sprite | Cost | SPRLIMIT 220 | 192 (reset) | 120 (busy copper) |
-|--------|------|--------------|-------------|-------------------|
-| 8 px, any bpp; 16 px up to 4 bpp; 32 px up to 2 bpp | ≤ 4 | 32 | 32 | 30 |
-| 16 px 8 bpp; 32 px 4 bpp | 8 | 27 | 24 | 15 |
-| 32 px 8 bpp | 16 | 13 | 12 | 7 |
+The fetch goes in number order, so: **sprite k's row is always complete when the words of the rows of sprites 0 to k on that line add up to no more than B.** Beyond that it depends on spare cycles.
 
-The render deadline (section 5.3) may then cut the last of them. **Worst case:** all 32 sprites 32 pixels wide at 8 bpp starting on one line cost 512 cycles; at SPRLIMIT 220, sprites 0–12 are kept (208 cycles) and 13–31 are left out. At normal size, the rows are reused on every second line, which then costs nothing.
+All eight sprites alike, on the same line, each starting a new source line, with the guaranteed budget only:
 
-### 5.3 Render deadline: when rows are due
+| Sprites | Words for the line | B = 224 (no copper, layers within cycle 1) | B = 160 (busy copper) |
+|---------|--------------------|---------------------------------------------|------------------------|
+| 8 × 16 px at 8 bpp, or 32 px at 4 bpp | 64 | All | All |
+| 8 × 32 px at 8 bpp, or 64 px at 4 bpp | 128 | All | All |
+| 8 × 48 px at 8 bpp | 192 | All | Sprites 0–5 (144) |
+| 8 × 64 px at 8 bpp, or 128 px at 4 bpp | 256 | Sprites 0–6 (224) | Sprites 0–4 (160) |
+| 1 × 256 px at 8 bpp | 128 | All | All |
 
-The renderer draws one beam pixel per clock, in clocks 0–1759 of the line. It cannot know when the display and the copper will take their cycles, so it assumes the worst: that they take all of their 220 − SPRLIMIT cycles first. Kept sprite k's row is then **due** at clock
+The other sprites are likely to be fetched too, from spare cycles; they are not certain.
 
-    due(k) = 1760 − 8 × (SPRLIMIT − F(k))
+**Tips:** sprites magnified ×2 or ×4 down cost words only on their new source lines, so a ×2 sprite costs half as often; two such sprites whose windows start on lines of opposite parity fetch on alternate lines, and so spread the load. Magnify across rather than storing a wider image. Keep the copper's busy runs away from lines with many sprites.
 
-where F(k) is the total fetch cost of the kept sprites up to and including k (lowest numbers first, a reused row adding 0) and 8 clocks is one slot: the row comes in by then whenever the display and copper keep to their share. Sprite k is drawn from
+### 5.3 Underrun: SPRUNDER
 
-    start(k) = the later of due(k) and end(k − 1)
-    end(k)   = start(k) + width(k) + 4
+If a sprite's row for line L + 1 is not complete at (L + 1, 0), the sprite **underruns**:
 
-where end is 0 before the first kept sprite, width(k) is the sprite's on-screen width on that line in beam pixels (picture pixels only, after scaling and clipping), and 4 clocks are its start-up. The renderer waits until due(k) even when the row came sooner, so the result depends only on the sprites and SPRLIMIT. In hardware due(k) is a counter, 1760 − 8 × SPRLIMIT at the start of the line, plus 8 for each fetch cycle of the kept sprites: no multiply.
+- it shows nothing on line L + 1 (and takes part in no collision there);
+- **VIDSTAT.SPRUNDER** (bit 7, spec 4) is set: sticky, cleared by writing 1, and with its enable in VIDINTEN it raises the **VIDERR** interrupt, as the layers' OVERRUN bits do;
+- SPRxPT goes to the next line's start as usual, so the sprite's next line is fetched and shown normally.
 
-If end(k) would pass 1760, sprite k is **cut** at clock 1760 (the pixels drawn so far stay, so part of it shows), the higher-numbered sprites are left out, SPRSTAT.WIDE is set and SPRDROP records the cut sprite. Since the width needs a divide to know in advance, the deadline is applied as the render goes, not at the scan.
-
-What this means:
-
-- **Light fetches** (rows reused, or cheap): all rows are due at about 1760 − 8 × SPRLIMIT, and the render has about 8 × SPRLIMIT clocks: Σ (width + 4) ≤ 8 × SPRLIMIT, that is 1,760 clocks at SPRLIMIT 220, 1,536 at the reset value 192 and 960 at 120.
-- A lower SPRLIMIT leaves more of cycle 3 to the copper, but makes the rows due later and so shortens the render; a higher one does the opposite.
-- **Heavy fetches:** the rows come one by one and the render follows them. A sprite's row is due 8 × (SPRLIMIT − F(k)) clocks before the end of the line, so the last kept sprite needs (width + 4) ÷ 8 cycles of budget left unused after it. On a line whose fetches fill SPRLIMIT exactly, the last kept sprite is due at clock 1760 and shows nothing.
-
-Examples at SPRLIMIT 192 (rows due from clock 224), all sprites alike, all on the line:
-
-| Sprites | Rows | Result |
-|---------|------|--------|
-| 8 px, normal (16 wide) | Reused | All 32, done at clock 224 + 32 × 20 = 864 |
-| 16 px 4 bpp, normal (32 wide) | Fetched, cost 4 | All 32: due every 32 clocks, each takes 36; done at 1,408 |
-| 32 px, normal (64 wide) | Reused | 22 whole (done at 1,720), the 23rd cut |
-| 32 px 8 bpp, normal (64 wide) | Fetched, cost 16 | The budget keeps 12, due at 352, 480, …, 1,760; each takes 68, so 11 show whole and the 12th shows nothing (WIDE) |
-| 32 px, 2× (step 0x0400, 128 wide) | Reused | 11 whole (done at 1,676), the 12th cut |
-| 32 px, 16× (step 0x0080, clipped to 720) | Reused | 2 whole (done at 1,672), the third cut after about 80 pixels |
-
-**Tip:** sprites whose Y values differ in parity, at normal size, fetch on alternate lines, and so spread the fetch load, as layers with windows of opposite parity do (spec 4). The render deadline is per line and cannot be spread.
+Since the fetch goes in number order, the sprites that underrun are always the highest-numbered ones on the line. Give the important objects (the player, the cursor) low numbers. An underrun means that line asks too much of the memory: use fewer bits per pixel, magnify instead of a wider image, spread the sprites over more lines, or move copper work elsewhere.
 
 ## 6. Registers
 
-| Port | Name | Access | Bits | Meaning |
-|------|------|--------|------|---------|
-| `0x80` | SPRIDX | RW | 7–0 | Attribute table index, bits 7–0 (sprite × 16 + byte). A write also clears index bit 8 |
-| `0x81` | SPRIDXH | RW | 0 | Index bit 8 (sprites 16–31). Write it after SPRIDX |
-| `0x82` | SPRDATA | RW | 7–0 | Attribute table data at the index (section 2.1); the index steps after each access |
-| `0x83` | SPRCTL | RW | 0 EN, 1 CTILE, 2 CBMP | EN: sprites on. CTILE, CBMP: the tile layer, the bitmap layer count for sprite–playfield collisions. Reset 0 |
-| `0x84` | SPRSTAT | R, W1C | 0 COLL, 1 PFCOLL, 2 DROP, 3 WIDE, 4 LATE | COLL: a sprite–sprite collision. PFCOLL: a sprite–playfield collision. DROP: sprites left out by the fetch budget. WIDE: a sprite cut by the render deadline. LATE: a row was not there when due. Sticky; write 1 to clear |
-| `0x85` | SPRIEN | RW | 0–4, as SPRSTAT | Interrupt enables. SPRITE request = (SPRSTAT AND SPRIEN) ≠ 0. Reset 0 |
-| `0x86` | SPRLIMIT | RW | 7–0 | Sprites' share of cycle 3 per line: the fetch budget in memory cycles, 0–220 (section 5.2); also sets when rows are due (section 5.3). Reset 192 |
-| `0x87` | SPRDROP | R | 4–0 number, 6 CAUSE, 7 VALID | The first sprite left out (or cut) on the latest line that lost sprites. CAUSE: 0 = fetch budget or late, 1 = render deadline. VALID is cleared when DROP, WIDE and LATE are all clear |
-| `0x88`–`0x8B` | SPRCOLL0–3 | R, W1C | 7–0 | Sprite–sprite collision bits: port 0x88 bit k = sprite k, 0x89 = sprites 8–15, 0x8A = 16–23, 0x8B = 24–31 |
-| `0x8C`–`0x8F` | SPRPFC0–3 | R, W1C | 7–0 | Sprite–playfield collision bits, laid out as SPRCOLL |
+Offsets in the custom block (spec 3): port = (offset bits 7–0) × 256 + `0xC0` + (offset bits 9–8), so the sprites' registers are at ports `0x60C0`–`0xDFC0` and the sprite globals at `0xF8C0`–`0xFFC0` (`LD BC,port`, `OUT (C),A`, `INC B` to the next byte). The register page shows the custom block at offsets `0x1000`–`0x13FF` (spec 2, section 6.5), sprite registers at `0x1060`–`0x10FF`. The copper writes sprite n's registers with one-word MOVEs (codes `0x60`–`0xDF`), and SPRDMA and SPRCOLL with MOVR or MOVEL (spec 6).
 
-SPRIDX is an index the hardware steps, not a value, so it is not latched: a write to SPRIDX sets the index at once, so sprites 0–15 need one write and sprites 16–31 two. Like every port, these also appear in the register page at offset = port (spec 3, section 5), and the attribute table itself at offsets `0x0200`–`0x03FF` (section 2.1).
+Sprite n (0–7) at `0x060` + n × `0x10`:
 
-The copper can write all of these ports (it writes 0x30–0x9F). SPRSTAT and the collision bits are usually read and cleared once per frame in the vertical blank.
+| Offset | Name | Access | Bits | Description | Reset |
+|--------|------|--------|------|-------------|-------|
+| `+0x0` | SPRxPT0 | RW | 7–1 | SPRxPT bits 7–1; bit 0 ignored, reads 0 (rows are words) | 0 |
+| `+0x1` | SPRxPT1 | RW | 7–0 | SPRxPT bits 15–8 | 0 |
+| `+0x2` | SPRxPT2 | RW | 5–0 | SPRxPT bits 21–16. **Writing it commits SPRxPT and restarts the sprite.** Bits 7–6 ignored; bit 5 ignored on a 2 MB board (spec 2) | 0 |
+| `+0x3` | SPRxDAT | W | 7–0 | Manual mode: a byte into the row being filled (section 4.5). Reads 0 | – |
+| `+0x4` | SPRxH0 | RW | 7–0 | HSTART bits 7–0 | 0 |
+| `+0x5` | SPRxH1 | RW | 2–0 | HSTART bits 10–8 | 0 |
+| `+0x6` | SPRxH2 | RW | 7–0 | HSTOP bits 7–0 | 0 |
+| `+0x7` | SPRxH3 | RW | 2–0 | HSTOP bits 10–8. **Writing it commits SPRxH and restarts the sprite** | 0 |
+| `+0x8` | SPRxV0 | RW | 7–0 | VSTART bits 7–0 | 0 |
+| `+0x9` | SPRxV1 | RW | 2–0 | VSTART bits 10–8 | 0 |
+| `+0xA` | SPRxV2 | RW | 7–0 | VSTOP bits 7–0 | 0 |
+| `+0xB` | SPRxV3 | RW | 2–0 | VSTOP bits 10–8. **Writing it commits SPRxV and restarts the sprite** | 0 |
+| `+0xC` | SPRxCTL0 | – | – | Reserved (CTL bits 7–0): writes ignored, reads 0 | 0 |
+| `+0xD` | SPRxCTL1 | RW | 5–4 | BPP (CTL bits 13–12) | 0 |
+| `+0xE` | SPRxCTL2 | RW | 1–0, 3–2, 5–4 | HMAG, VMAG, DEPTH (CTL bits 17–16, 19–18, 21–20) | 0 |
+| `+0xF` | SPRxCTL3 | RW | 3–0 | PAL (CTL bits 27–24). **Writing it commits SPRxCTL and restarts the sprite** | 0 |
 
-**Interrupt line:** SPRITE (spec 8 gives its number and vector). It stays raised while (SPRSTAT AND SPRIEN) ≠ 0.
+- Unused bits are written 0 and read 0. Each sprite has its own latches. Writing only the highest byte commits it with the other bytes unchanged (spec 3, rule 2).
+- Reads give the committed value. SPRxPT moves as the image is fetched, so **reading SPRxPT0 captures all three bytes**, and SPRxPT1 and SPRxPT2 read the captured copy (spec 3's rule for values that change by themselves).
+
+Sprite globals:
+
+| Offset | Name | Access | Bits | Description | Reset |
+|--------|------|--------|------|-------------|-------|
+| `0x0F8` | SPRDMA0 | RW | 7–0 | SPR: DMA on for sprite n (bit n). Latched | `0xFF` |
+| `0x0F9` | SPRDMA1 | W | 7 | SETCLR (SPRDMA bit 15). **Writing it commits:** SETCLR = 1 sets the SPR bits written as 1 in SPRDMA0; SETCLR = 0 clears them. Others unchanged. Reads 0 | – |
+| `0x0FA`–`0x0FB` | – | – | – | Reserved (SPRDMA bits 31–16) | – |
+| `0x0FC` | SPRCOLL0 | R, W1C | 7–0 | SPR: sprite n touched another sprite (section 3.5) | 0 |
+| `0x0FD` | SPRCOLL1 | R, W1C | 7–0 | L0: sprite n touched layer 0 | 0 |
+| `0x0FE` | SPRCOLL2 | R, W1C | 7–0 | L1: sprite n touched layer 1 | 0 |
+| `0x0FF` | – | – | – | Reserved (SPRCOLL bits 31–24, retro68k's L2) | – |
+
+- A sprite fetches only while its SPRDMA bit, DMACON.SPREN and DMACON.DMAEN are all set; otherwise it is in manual mode (section 4.5).
+- SPRCOLL's bytes are status bits: each byte is read and cleared on its own, with no latch (spec 3, rule 5).
+
+Bits elsewhere:
+
+| Register | Bit | Function |
+|----------|-----|----------|
+| DMACON (spec 4) | 2, SPREN | Sprite DMA, with DMAEN (bit 6): retro68k's enables, in one byte (spec 4, section 7.1) |
+| VIDSTAT (spec 4) | 7, SPRUNDER | A sprite's row was not complete in time. W1C |
+| VIDINTEN (spec 4) | 7, SPRUNDER | Raise VIDERR on SPRUNDER |
+| VIDCON (spec 4) | SHAREPAL | Sprites use L0's palette |
+| SPRPALETTE (spec 4) | – | The sprites' 256-entry palette |
+
+**State after reset:** DMACON.SPREN is clear, SPRDMA has all eight sprites on, every sprite's PT, H, V and CTL are 0 (empty windows, nothing shows), SPRCOLL is 0. The row store is not cleared.
+
+**Equates** (`hw.inc`, as retro68k's where the thing is the same):
+
+| Equate | Value |
+|--------|-------|
+| `SPR0` … `SPR7` | `0x060`, `0x070` … `0x0D0` |
+| `SPR_PT`, `SPR_DAT`, `SPR_H`, `SPR_V`, `SPR_CTL` | `0x0`, `0x3`, `0x4`, `0x8`, `0xC` |
+| `SPRDMA`, `SPRCOLL` | `0x0F8`, `0x0FC` |
+| `SPR_CTL_BPP_B`, `SPR_CTL_HMAG_B`, `SPR_CTL_VMAG_B`, `SPR_CTL_DEPTH_B`, `SPR_CTL_PAL_B` | 12, 16, 18, 20, 24 (bit numbers in the 32-bit value; `_M` masks) |
+| `SPRDMA_SETCLR_M`, `DMACON_SPREN_M`, `VIDSTAT_SPRUNDER_M` | The enables and status |
+| `CPORT(off)` | The custom port of an offset: `((off & 0xFF) << 8) \| 0xC0 \| (off >> 8)` |
 
 ## 7. Examples
 
-Upload the whole attribute table from memory (sjasmplus):
+sjasmplus syntax. A 32 × 24 sprite at 4 bpp, in colours 32–47 (PAL 2), behind the front layer (DEPTH 1), on sprite 0 at picture pixel 200, line 100 (beam pixel 144 + 200, line 49 + 100). The image is 24 lines of 16 bytes at physical address `ship`.
+
+Once, from the CPU, with ports:
 
 ```
-        xor  a
-        out  (SPRIDX),a          ; index 0
-        ld   hl,sprtab           ; 512 bytes: 32 sprites x 16
-        ld   bc,0x0000+SPRDATA   ; B = 0: 256 bytes
-        otir                     ; sprites 0-15
-        otir                     ; sprites 16-31 (B is 0 again)
-        ld   a,SPRCTL_EN
-        out  (SPRCTL),a
+X0      equ  VID_X0+200
+Y0      equ  VID_Y0+100
+        ld   bc,CPORT(SPR0+SPR_H)
+        ld   hl,X0
+        ld   de,X0+32
+        out  (c),l           ; HSTART bits 7-0
+        inc  b
+        out  (c),h           ; HSTART bits 10-8
+        inc  b
+        out  (c),e           ; HSTOP bits 7-0
+        inc  b
+        out  (c),d           ; HSTOP bits 10-8: commits SPR0H
+        ; ... SPR0V the same way, with Y0 and Y0+24
+        ld   bc,CPORT(SPR0+SPR_CTL+1)
+        ld   a,1<<4          ; BPP = 4 bpp
+        out  (c),a
+        inc  b
+        ld   a,1<<4          ; HMAG x1, VMAG x1, DEPTH 1
+        out  (c),a
+        inc  b
+        ld   a,2             ; PAL 2: commits SPR0CTL
+        out  (c),a
 ```
 
-A 16 × 16 sprite at 4 bpp at normal size (32 × 32 beam pixels), at picture position (100, 60) of the 360 × 288 picture, colours 0x50–0x5F (BANK 5), as sprite 3:
+The same window through the register page, mapped into window 7 (`REGS` = `0xE000`; the custom block at `REGS + 0x1000`):
 
 ```
-X       equ  144+2*100
-Y       equ  49+2*60
-        ld   a,3*16
-        out  (SPRIDX),a
-        ld   hl,sprite3
-        ld   bc,0x0D00+SPRDATA   ; 13 bytes
-        otir
-        ...
-sprite3 db   low X, high X | (1<<3) | SPR_EN        ; W = 16
-        db   low Y, high Y | (1<<3) | (2<<6)        ; H = 16, 4 bpp
-        db   low ship, high ship, ship>>16          ; 22-bit pointer
-        db   5                                      ; BANK
-        dw   0x0800, 0x0800                         ; X step, Y step: normal
-        db   0                                      ; DEPTH 0: in front of everything
+        ld   hl,X0
+        ld   (REGS+0x1000+SPR0+SPR_H),hl     ; HSTART
+        ld   hl,X0+32
+        ld   (REGS+0x1000+SPR0+SPR_H+2),hl   ; HSTOP: commits
 ```
 
-To let the same sprite pass behind the tile layer's scenery but stay in front of a bitmap backdrop (bitmap at the back, VIDCTL.BMFRONT = 0), write 2 to its byte 12.
-
-To grow the same sprite to twice the size about its centre, write steps of 0x0400 and move X and Y back by 16 beam pixels and lines.
-
-Multiplexing in the copper (syntax of spec 6): sprite 0 shows a ship on lines 100–131; the same sprite shows a second ship from line 132:
+In the copper list, every frame (in the vertical blank), the pointer, last:
 
 ```
-        CWAIT  130,0             ; line 131 was scanned at the end of line 129
-        CMOVE  SPRIDX,0
-        CMOVE  SPRDATA,low X2
-        CMOVE  SPRDATA,high X2 | (1<<3) | SPR_EN
-        CMOVE  SPRDATA,low 132
-        CMOVE  SPRDATA,high 132 | (1<<3) | (2<<6)
-        CMOVE  SPRDATA,low ship2
-        CMOVE  SPRDATA,high ship2
-        CMOVE  SPRDATA,ship2>>16 ; all committed during line 130: used from line 132
+        CMOVE   SPR0+SPR_PT,ship & 0xFF
+        CMOVE   SPR0+SPR_PT+1,(ship >> 8) & 0xFF
+        CMOVE   SPR0+SPR_PT+2,ship >> 16     ; commits: shows from two lines on
+```
+
+To move the ship, write SPR0H and SPR0V and then SPR0PT, in the vertical blank.
+
+**Reusing sprite 0** for a second ship from picture line 300: the first ship's last line is picture line 123; the copper waits for the line after it, then writes sprite 0 again (all in that line, so the new use can start two lines later):
+
+```
+        CWAIT   VID_Y0+124,0
+        CMOVE   SPR0+SPR_H,(VID_X0+400) & 0xFF
+        CMOVE   SPR0+SPR_H+1,(VID_X0+400) >> 8
+        CMOVE   SPR0+SPR_H+2,(VID_X0+432) & 0xFF
+        CMOVE   SPR0+SPR_H+3,(VID_X0+432) >> 8
+        CMOVE   SPR0+SPR_V,(VID_Y0+300) & 0xFF
+        CMOVE   SPR0+SPR_V+1,(VID_Y0+300) >> 8
+        CMOVE   SPR0+SPR_V+2,(VID_Y0+324) & 0xFF
+        CMOVE   SPR0+SPR_V+3,(VID_Y0+324) >> 8
+        CMOVE   SPR0+SPR_PT,ship2 & 0xFF
+        CMOVE   SPR0+SPR_PT+1,(ship2 >> 8) & 0xFF
+        CMOVE   SPR0+SPR_PT+2,ship2 >> 16
+```
+
+Eleven MOVEs: 11 cycle-3 cycles of that line (section 5.2). Writing only the bytes that change is enough: the others keep their values, and the highest byte commits.
+
+**Collisions,** once a frame in the vertical blank:
+
+```
+        ld   bc,CPORT(SPRCOLL)
+        in   a,(c)           ; sprite-sprite bits
+        out  (c),a           ; clear exactly the bits read
+        bit  0,a             ; sprite 0 hit another sprite?
+        jr   nz,hit_sprite
+        inc  b
+        inc  b
+        in   a,(c)           ; SPRCOLL2: against layer 1 (the walls)
+        out  (c),a
+        bit  0,a
+        jr   nz,hit_wall
+```
+
+**Manual mode:** sprite 1, 16 pixels wide at 2 bpp (4 bytes a line), fed by the copper with a pattern that changes every line. With SPRDMA bit 1 clear, after a wait for the line before each sprite line:
+
+```
+        CMOVE   SPR1+SPR_DAT,0x1B
+        CMOVE   SPR1+SPR_DAT,0x1B
+        CMOVE   SPR1+SPR_DAT,0xE4
+        CMOVE   SPR1+SPR_DAT,0xE4    ; shown on the next line
 ```
 
 ## 8. FPGA resources
 
+Estimates, to be measured:
+
 | Item | Resource |
 |------|----------|
-| Attribute table (512 bytes, 416 used, + 192 bytes of latches) | Distributed RAM, about 100 LUTs |
-| Write queue during the scan (32 writes × 18 bits) | Distributed RAM, about 20 LUTs |
-| Scan: Y accumulators (32 × 19 bits), row, fetch cost, budget adder, line list (32 × 80 bits) | About 350 LUTs |
-| Start offsets: (−Y) × YSTEP at line 0, (p0 − X) × XSTEP per sprite | 1 DSP48 slice, shared (the scan uses it in clocks 1760–1791, the renderer in 0–1759) |
-| Fetcher: row addresses, cycle-3 requests, reuse bits | About 150 LUTs |
-| Row store: 32 rows × 32 bytes (1 KB) | 1 block RAM (18 Kb, half used) |
-| Renderer: X accumulator, flip, pixel select, bank, read-ahead, due-clock counter, render deadline | About 250 LUTs |
-| Sprite line buffer: 2 banks × 720 × 16 bits | 2 block RAMs (18 Kb each) |
-| Collisions, registers, interrupt | About 150 LUTs |
-| Total | About 1,000–1,200 LUTs; 3 blocks of 18 Kb; 1 DSP slice |
+| Registers and latches, 8 × 16 bytes, per-sprite fetch state (pointer, line start, line counter, row byte count), worked on one sprite a clock in distributed RAM (retro68k's area technique) | About 250 LUTs |
+| Set-up and fetcher: size from the window (shifts only), word count, cycle-3 requests, number order | About 250 LUTs |
+| Row store: 8 sprites × 2 rows × 512 bytes, in 4 RAMB18 of 1K × 16, two sprites each. Port A: fetch and SPRxDAT writes (byte enables); port B: the two sprites' pixel units, alternate clocks (each needs a word at most every 4 clocks) | 4 RAMB18 |
+| 8 pixel units (source counter, magnify, pixel select) | About 60 each, 480 in all |
+| Mixer (depth, PRI tiles), collisions | About 200 LUTs |
+| Total | About 1,200 LUTs; 4 RAMB18; no DSP slice |
 
-The 3 blocks are in the design plan's block RAM table (D11).
+The design plan's block RAM table (D11) lists 3 blocks for sprites; this spec needs 4.
 
 ## 9. Test plan
 
-- **Golden images:** every width, height and bpp; normal size; X and Y flip; BANK at each bpp; clipping at all four picture edges, with negative X and Y; compared pixel by pixel with the Python video model extended with sprites.
-- **Scaling:** steps 0x0080, 0x0400, 0x0800, 0x0801, 0x0C00, 0x1000, 0x8000, 0xFFFF and step 0 (taken as 0x0800), across and down separately, with and without flip, against the model's accumulator arithmetic bit for bit; on-screen sizes match ⌈W × 4096 ÷ step⌉; start offsets right for sprites clipped at the left and top at every scale; YSTEP changed by the copper part way down a sprite; shrunk sprites skip rows, enlarged sprites fetch each row once (counted fetch cycles).
-- **Order:** overlapping sprites (lower number in front, whatever their DEPTHs); each DEPTH against opaque and transparent pixels of both layers, with VIDCTL.BMFRONT each way; PRI tiles over DEPTH 1–3 sprites and under DEPTH 0 ones; a low-numbered DEPTH 3 sprite hiding a higher-numbered DEPTH 0 one; DEPTH changed by the copper between lines.
-- **Collisions:** known overlaps, at several scales, set exactly the expected SPRCOLL and SPRPFC bits, with CTILE and CBMP each way; none in the blanking or from left-out sprites; SPRITE interrupt with each SPRIEN bit.
-- **Fetch budget:** lines with sprite sets just under and just over SPRLIMIT leave out exactly the expected sprites; DROP and SPRDROP right; reused rows cost nothing.
-- **Render deadline:** the Python model computes due, start and end (section 5.3) for random sprite sets and SPRLIMIT values; the hardware cuts the same sprite at the same pixel, with WIDE and SPRDROP.CAUSE right; every example of section 5.3; the result does not change when the copper and the CPU are idle (rows early) or busy within their share.
-- **Late fetch:** a copper program that takes more than 220 − SPRLIMIT cycle-3 cycles of a line sets LATE and leaves out only the sprites from the first late row; a CPU running flat out at 28 MHz never changes which sprites are drawn.
-- **Timing:** attribute writes committed at draw beam (N, 0) and (N, 863) are used from line N + 2; a write in clocks 1760–1791 of line N is queued and used from line N + 3, and a burst of writes during the scan is applied in order; back-to-back multiplexing of one sprite with no gap line (writes during line M − 2); two OTIRs of the whole table and INIR read-back; latching (XH alone uses the last XL); SPRIDXH.
-- **Measure** in simulation: the renderer's start-up per sprite (4 clocks assumed), the row's arrival against its due clock, and the margins (open point S1).
+- **Golden images:** sprites of many window sizes at 2, 4 and 8 bpp; every HMAG and VMAG; PAL blocks; SHAREPAL; clipped at all four edges (HSTART 0, VSTART 2, HSTOP and VSTOP past the edges); every DEPTH against layers in both PRIO orders, over transparent and opaque layer pixels; PRI tiles over DEPTH 1–3 sprites and under DEPTH 0; lower numbers in front within a depth, and a front-depth sprite over a lower-numbered deeper one; compared pixel by pixel with the Python video model extended with sprites.
+- **Collisions:** known overlaps set exactly the expected SPRCOLL bits; none from clipped pixels, the blanking, or an underrun line; W1C clears only the bits written.
+- **Pointer:** SPRxPT after a frame equals the image's start + lines × line length, also with right clipping, rows over 512 bytes, VMAG (repeated lines do not move it) and underruns; reading SPRxPT0 captures all three bytes.
+- **Write timing:** a commit of each of PT, H, V, CTL at draw beam (L, 0) and at clock 1791 of line L: nothing on line L + 1, new settings on L + 2; line L unchanged; writes of only lower bytes change nothing; several writes in one line act once; writes spread over two lines show from L + 3; SPRDMA and SPREN changes act on L + 2 without a restart.
+- **Frame start:** line 0 never shows sprites; a sprite written by the copper in line 0 shows from line 2; VSTART 1 with no writes in line 0 shows on line 1.
+- **Reuse:** one sprite shown three times down the screen by the copper (retro68k's three ships), with one gap line; writes during the old use's last line leave that line whole.
+- **Manual mode:** a copper-fed sprite, with VMAG ×1 and ×2; a short row (transparent remainder); a row written in the vertical blank for the first line; writes past 512 bytes ignored; writes with DMA on ignored; no SPRUNDER.
+- **Budget and underrun:** each line of section 5.2's table with the copper using C cycles and the layers within cycle 1, the CPU at 28 MHz flat out: the certain sprites always show; a deliberate overload sets SPRUNDER, hides only the highest-numbered sprites on that line, and the next line is right; VIDERR raised with VIDINTEN.SPRUNDER set.
+- **CPU never loses a cycle** with all eight sprites fetching (spec 2's test).
+- **Measure** in simulation the spare cycles sprites get in typical screens (open point S1).
 
 ## 10. Open points
 
 | # | Item |
 |---|------|
-| S1 | Confirm in simulation the renderer's 4-clock start-up per sprite (which also covers a row's last cycle reaching the row store before its due clock), the 32-clock scan at clocks 1760–1791 and the end of the render at 1760; adjust the 1,760 and 220 figures if not |
-| S2 | Closed: a tile with PRI set covers sprites of DEPTH 1–3 and never DEPTH 0 ones (section 3, spec 4 section 3.2) |
-| S3 | Closed: the pipeline is two lines (scan at the end of line N − 2; fetch and render in line N − 1; draw on line N). The fetch and render limits act together through the due clock (section 5.3) |
-| S4 | The render deadline cuts the sprite being drawn at clock 1760 (part of it shows). Knowing the width in advance needs a divide (or the width given by software); kept simple for now |
-| S5 | Step 0 is taken as 0x0800 (normal size), so the reset table and programs that never scale show normal sprites. The brief suggested 0x0001; to be confirmed |
-| S6 | Should LATE also set VIDSTAT.OVERRUN (spec 4), so one flag shows all late data? |
-| S7 | Closed: the fetch budget stops at the first sprite that does not fit ("lowest numbers kept"), and an over-wide line cuts a sprite off |
-| S8 | Reset value of SPRLIMIT (192, leaving 28 cycles to the copper and the display and about 1,536 clocks of render with light fetches): to be checked against typical copper programs with spec 6's cycle costs |
-| S9 | SPRIDX is not latched (an exception to spec 3's rule for multi-byte values), so one write reaches sprites 0–15. To be listed in spec 3 |
-| S10 | Width/height code 3 is reserved; it could be 64 pixels later if the budgets allow |
-| S11 | The renderer waits for each row's due clock even when the row came sooner, so that the result never depends on timing. When the copper and display use less than their share, that time is lost. A control bit that ignores the due clocks, for programs whose copper and layers leave cycle 3 to the sprites, could win it back (at the cost of results that depend on timing if they do not) |
-| S12 | Writes to the attribute table during the scan are queued (32 entries, enough for one write per clock) and a read meanwhile returns the old value. To be listed in spec 3's exceptions if kept |
+| S1 | Measure in simulation how many spare cycles sprites get at each CPU speed, and confirm that urgent display fetches happen only on lines whose layers need more than cycle 1 (spec 4), so that B = 224 − D − C holds |
+| S2 | Which sprites show beyond the guaranteed budget depends on spare cycles, so on what the CPU is doing, as in retro68k. The earlier draft's SPRLIMIT and due clocks made it exact but were dropped for simplicity. Proposed: keep it so; reopen if games need exact results over budget |
+| S3 | Row store 512 bytes per row (4 RAMB18). 8 RAMB18 would give 1,024 bytes, enough for any row (864 bytes at 8 bpp ×1), but such rows are over the guaranteed budget anyway. Proposed: 512 |
+| S4 | A restart empties the row being filled, so the sprite misses line L + 1 even when that row was complete. Keeping it would save a line between reuses, but would mix old and new settings. Proposed: as written (retro68k's restart empties the FIFO too) |
+| S5 | Tile PRI over sprites (section 3.4) needs spec 4 to keep a PRI bit in tile-map entries, and to place PRI pixels of either layer in front of both layers |
+| S6 | Direct colour: retro68k draws sprites in front of a direct-colour picture. If spec 4 has a direct-colour mode, do the same; otherwise drop the point |
+| S7 | SPRxDAT is write-only. A read of the bytes written to the row being filled could be added (retro68k reads the FIFO count) |
+| S8 | Closed: SPRDMA (set/clear, SETCLR in its high byte) and SPRCOLL (separate W1C bytes) are listed in spec 3, section 3.1 |
+| S9 | Line 0 never shows sprites (section 4.4); VSTART 0 acts as a window starting at line 1, one line lower than retro68k. Invisible (blank), but noted |

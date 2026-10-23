@@ -4,7 +4,7 @@ Status: **draft**
 
 This spec connects the Z80 to everything else. It covers how the tv80 core is clocked, how its speed is set, how its memory, opcode fetch and I/O cycles become requests on the internal chipset bus, how each memory access is fitted into the CPU's memory cycles so that the Z80 never waits, and how interrupts, NMI, reset and HALT work.
 
-The memory side (slots, the SRAM controller, the MMU) is spec 2. The I/O ports are listed in spec 3.
+The memory side (slots, the SRAM controller, the MMU, the register page) is spec 2. The registers are listed in spec 3: the **system block** on 8-bit ports and the **custom block** (the chipset, as retro68k's custom block) on 16-bit ports.
 
 ## 1. Summary
 
@@ -15,12 +15,27 @@ The memory side (slots, the SRAM controller, the MMU) is spec 2. The I/O ports a
 | CPU speed | A T-state every 2, 4, 8 or 16 clocks: 28, 14, 7 or 3.5 MHz. 28 MHz after reset. Set by CPUSPEED (spec 7), taking effect at the next M-cycle |
 | Memory | Every opcode fetch, read and write goes through the MMU (spec 2): reads to the window's read page, writes to its write page. SRAM accesses use one memory cycle; boot ROM and register page accesses use none |
 | Wait states | None, ever. wait_n is tied high |
-| I/O | IN and OUT become one strobe on the register bus. Only A7–A0 are decoded (A15–A8 are passed on for port `0xFE`). Unmapped ports read `0xFF` |
+| I/O | IN and OUT become one strobe on the register bus. **System ports** decode A7–A0 only (A15–A8 are passed on for port `0xFE`). The **custom block** decodes all 16 bits: low byte `0xC0`–`0xC3`, high byte the register offset (section 6.1). Unmapped ports read `0xFF` |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
-| Interrupts | IM 2: the interrupt controller (spec 8) puts the vector byte on the bus in the acknowledge cycle. IM 1 also works. NMI from the interrupt controller |
-| NMI paging | Taking an NMI switches window 0 to the boot ROM's monitor page before the fetch at `0x0066`; `RETN` fetched in NMI mode switches it back (section 8.2) |
+| Interrupts | IM 2: the interrupt controller (spec 8) puts the vector byte VECBASE + 2 × source on the bus in the acknowledge cycle. IM 1 also works. NMI from the interrupt controller |
+| NMI paging | Spectrum extra: taking an NMI switches window 0 to the boot ROM's monitor page before the fetch at `0x0066`; `RETN` fetched in NMI mode switches it back (section 8.2) |
 | Not used | busrq_n (tied high), busak_n, IM 0 |
 | Chipset bus | A memory port to the slot controller and a byte-wide register bus. Neither depends on the Z80, so a 6502 bus interface could later sit on the same bus |
+
+### 1.1 Comparison with retro68k
+
+| retro68k (spec 1) | retro-z80 | Why |
+|-------------------|-----------|-----|
+| fx68k at 20 MHz, clocked at 40 MHz with phase enables | tv80 at 28, 14, 7 or 3.5 MHz, a clock enable on the 56 MHz system clock | Z80 |
+| A 40/100 MHz clock crossing | One clock domain | The Z80 runs on the system clock |
+| Wait states: 2 when an urgent display fetch or a nasty copper takes the CPU's cycle | None, ever; at 28 MHz a read may swap cycles instead (section 5.3) | Z80 (and spec 2: nobody takes the CPU's cycles) |
+| Registers in the memory map: custom block `0xE00000`, system block `0xF00000` | System block on 8-bit I/O ports (A7–A0); custom block on 16-bit I/O ports (section 6.1); both also in the register page (section 5.6) | Z80: 64 KB address space, I/O instructions |
+| Registers 32 bits, written and read in 16-bit halves | Registers 8 bits; wider values are consecutive bytes, low byte first, committed by the highest byte | Z80 (8-bit data bus) |
+| Bus errors: unmapped addresses, ROM writes, user-mode access (SYSCON.PROTECT); BUSERRADDR, BUSERRWHY | None: unmapped ports and pages read `0xFF` and ignore writes | Z80: no bus error input, no user mode |
+| Interrupt acknowledge: level on A3–A1, vector number from the controller, 7 levels | IM 2 acknowledge on one /INT line: vector byte VECBASE + 2 × source, fixed priority (spec 8) | Z80: one /INT line |
+| The RESET instruction resets the devices | No such instruction: a soft reset is a write to SYSRESET (spec 7) | Z80 |
+| A double bus fault halts the CPU: SYSSTAT.HALTED, SYSCON.HALTRESET, RESETWHY.HALTED | Left out: `HALT` is an ordinary instruction that waits for an interrupt | Z80 |
+| NMI (level 7) runs the program's own vector | The same, plus the NMI monitor paging of section 8.2 | Spectrum extra (the Multiface) |
 
 ## 2. The tv80 core and its signals
 
@@ -91,15 +106,15 @@ The slot controller sends SRAM pages to the SRAM, boot ROM pages to the ROM bloc
 
 | Signal | Meaning |
 |--------|---------|
-| rb_addr[12:0] | Register offset: the port number (A7–A0, bits 12–8 = 0) for an I/O cycle, or the offset A12–A0 for a register page access (spec 3, section 5) |
-| rb_hi[7:0] | A15–A8 for an I/O cycle, used only by port `0xFE` (spec 12); `0x00` for a register page access (all keyboard rows) |
+| rb_addr[12:0] | The register's offset in the register page (spec 2, section 6.5): `0x0000` + port for a system port; `0x1000` + custom offset for the custom block (section 6.1); A12–A0 for a register page access |
+| rb_hi[7:0] | A15–A8 for an I/O cycle to a system port, used only by port `0xFE` (spec 12); `0x00` for a custom block or register page access (all keyboard rows) |
 | rb_wr | One-clock write strobe |
 | rb_rd | One-clock read strobe. Units with read side effects (FIFO data, stepping index ports) act on it once |
 | rb_wdata[7:0] | Write data |
 | rb_rdata[7:0] | Read data, valid the clock after rb_rd: the OR of all units' outputs (a unit not addressed outputs 0) |
 | rb_hit | Some unit decoded the port. If none did, the bus interface returns `0xFF` |
 
-There are two masters: the CPU bus interface (I/O cycles and register page accesses) and the copper (spec 6, writes to ports `0x30`–`0x9F` only). If both want the register bus in the same clock, the copper goes first and the CPU's strobe moves one clock later; the I/O cycle has room for this (section 6).
+Every unit decodes rb_addr, so one address names a register however it is reached. There are two masters: the CPU bus interface (I/O cycles and register page accesses) and the copper (spec 6), which writes custom offsets only: `0x000`–`0x0EF` with MOVE, any custom offset with MOVEL. The DMA engine (spec 14) works on SRAM only and is not a register bus master. If the CPU and the copper want the register bus in the same clock, the copper goes first and the CPU's strobe moves one clock later; the I/O cycle has room for this (section 6).
 
 ### 4.3 A 6502 later
 
@@ -210,7 +225,7 @@ tv80 with `IOWait = 1` makes a 4-T-state I/O cycle: T1, T2, an automatic wait st
 |-----------------|---------|--------------|
 | 0 | T1 | A valid (port in A7–A0; B, A or the count register in A15–A8 depending on the instruction) |
 | 2 | T2 | iorq_n and rd_n or wr_n low, dout valid for OUT |
-| 3 | | Bus interface sends one rb_rd or rb_wr, with rb_addr = A7–A0, rb_hi = A15–A8 |
+| 3 | | Bus interface sends one rb_rd or rb_wr, with rb_addr and rb_hi made from A15–A0 (section 4.2: a system port or the custom block) |
 | 4 | TW | Read data on rb_rdata (or `0xFF` if rb_hit is low), held at di |
 | 6 | T3 | Core takes the byte (end of TW) |
 | 8 | | Next M-cycle |
@@ -219,11 +234,43 @@ If the copper has the register bus at clock 3, the strobe goes at clock 4 and th
 
 Rules (spec 3 gives the full list):
 
-- **Only A7–A0 are decoded.** A15–A8 are ignored by every port except `0xFE`, which uses them to pick keyboard rows as on a Spectrum (spec 12). So `OUT (n),A`, `OUT (C),r` and `OTIR` (which puts the falling count in B on A15–A8) all reach the same port.
+- **System ports decode only A7–A0.** A15–A8 are ignored by every system port except `0xFE`, which uses them to pick keyboard rows as on a Spectrum (a Spectrum extra, spec 12). So `OUT (n),A`, `OUT (C),r` and `OTIR` (which puts the falling count in B on A15–A8) all reach the same port.
+- **The custom block decodes all 16 bits** (section 6.1). Low bytes `0xC0`–`0xC3` are never system ports.
 - **One strobe per I/O cycle.** A read of a FIFO or an index port has its side effect exactly once.
 - **Multi-byte values** (pointers, positions) are at consecutive ports, low byte at the lowest port. Writing a lower byte only fills a latch; writing the highest byte commits the whole value at once, so the hardware never sees half a value. Reading returns the committed value. This is done inside each unit, not by the bus interface.
 - **Unmapped ports** read `0xFF` and ignore writes. No port gives an error.
 - I/O cycles use no memory cycle.
+
+### 6.1 The custom block on 16-bit ports
+
+The custom block is 1 KB of byte registers (offsets `0x000`–`0x3FF`, spec 3). Its port number is
+
+```
+port = (offset bits 7-0) * 256 + 0xC0 + (offset bits 9-8)
+```
+
+so the low byte `0xC0`–`0xC3` says "custom block, quarter 0–3", and the high byte (A15–A8) is the offset within the quarter. The bus interface sees a low byte of `0xC0`–`0xC3` at clock 3 of the I/O cycle and sends rb_addr = `0x1000` + offset, the same address the register page uses. The timing is that of any I/O cycle above: same clock, same data point, same room for a copper write. Nothing waits.
+
+The Z80 puts different registers on A15–A8, depending on the instruction:
+
+| Instruction | A15–A8 | Use with the custom block |
+|-------------|--------|---------------------------|
+| `OUT (C),r`, `IN r,(C)` | B | The normal way: `LD BC,reg` (B = offset bits 7–0, C = `0xC0` + bits 9–8), then `OUT (C),A`. `INC B` steps to the next register, `DEC B` to the one before |
+| `IN A,(n)` | A | Reading: `LD A,offset` then `IN A,(0xC0)` reads custom offset A of quarter 0 |
+| `OUT (n),A` | A | Writes the value A to the register numbered A: of little use |
+| `INI`, `INIR`, `IND`, `INDR` | B before it is decremented | `INIR` reads offsets B, B − 1, … into rising addresses |
+| `OUTI`, `OTIR`, `OUTD`, `OTDR` | B after it is decremented | `OUTI` writes the offset B − 1. For rising offsets (low byte first, as multi-byte values need), use `OUTI` then `INC B` twice; start with B = first offset + 1 |
+
+A typical write of a 2-byte register, low byte first:
+
+```
+        ld   bc,REG                ; B = offset bits 7-0, C = 0xC0 + bits 9-8
+        out  (c),e                 ; low byte: latched
+        inc  b
+        out  (c),d                 ; high byte: commits
+```
+
+The copper and the register page reach the same registers by offset; only the CPU's I/O instructions need the 16-bit port form.
 
 ## 7. Refresh
 
@@ -236,18 +283,18 @@ With `TV80_REFRESH` defined, T3 and T4 of every M1 put I and R on the address bu
 The interrupt controller (spec 8) drives int_n low while an enabled source is pending. The core takes it at the end of an instruction (if interrupts are enabled) and runs an acknowledge M1 cycle: intcycle_n low during T1, then m1_n and iorq_n low together from T2 (no mreq_n, no rd_n).
 
 - The bus interface sees intcycle_n during T1, asks the interrupt controller for the vector, and holds it at di. It makes no memory request.
-- The controller freezes its choice of source when asked for the vector. At the end of the cycle the bus interface sends one **acknowledge pulse** (int_ack), which ends the freeze (spec 8, section 2). The acknowledge clears nothing; the handler clears its source.
-- The core takes the vector byte at the same point as an opcode. In **IM 2** it is the low byte of the table address, with I as the high byte; the two following reads of the table are ordinary memory reads. Vector values are assigned in spec 8.
-- In **IM 1** the byte is ignored and the core does RST `0x38`; the handler reads the controller's status register to find the source (spec 8).
+- The controller freezes its choice of source when asked for the vector. At the end of the cycle the bus interface sends one **acknowledge pulse** (int_ack), which ends the freeze (spec 8, section 3). The acknowledge clears nothing; the handler clears its source.
+- The core takes the vector byte at the same point as an opcode. In **IM 2** it is VECBASE + 2 × source (spec 8), the low byte of the table address, with I as the high byte; the two following reads of the table are ordinary memory reads. Source numbers are assigned in spec 8.
+- In **IM 1** the byte is ignored and the core does RST `0x38`; the handler reads INTID, which the controller set in the acknowledge (spec 8), to find the source.
 - IM 0 is not supported: the byte would be run as an instruction.
 
 The acknowledge cycle uses no memory cycle and no wait states.
 
-### 8.2 NMI
+### 8.2 NMI, and the NMI monitor paging (Spectrum extra)
 
-nmi_n comes from the interrupt controller, which drives it from the Multiface button and the USB serial BREAK command (spec 8, spec 10). The core takes a falling edge, finishes the instruction, runs the NMI response (a dummy M1 and two writes that push PC) and then fetches the opcode at `0x0066`.
+nmi_n comes from the interrupt controller, which drives it from the Multiface button and the USB serial BREAK command, as NMICON allows; NMISTAT says which (spec 8, spec 10). The core takes a falling edge, finishes the instruction, runs the NMI response (a dummy M1 and two writes that push PC) and then fetches the opcode at `0x0066`.
 
-Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers (NMICTL `0xB9`, saved pages `0xBA`–`0xBD`) and the monitor itself are in spec 7, section 4.4. The bus interface keeps one flag, **INNMI** (read in NMICTL), and an ED-prefix flag.
+The rest of this section is a Spectrum extra, outside the retro68k-shaped core. Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers (NMICTL and the saved-page registers NMISAVL, NMISAVWL and NMISAVH, in the system ports `0x70`–`0x7F`) and the monitor itself are in spec 7. The bus interface keeps one flag, **INNMI** (read in NMICTL), and an ED-prefix flag.
 
 **Entry.** While NMICTL.EN = 1 and INNMI = 0:
 
@@ -262,7 +309,7 @@ Like a Multiface, the bus interface pages a monitor into window 0 for the NMI an
 - `RETI` (`ED 4D`), the undocumented `RETN` copies (`ED 55`, `ED 5D`, …) and every other byte change nothing. A `DD` or `FD` before `ED 45` does not matter: the pair is still seen.
 - If the monitor wrote MMU0 or MMU0W meanwhile, those values are lost: the exit always puts back the saved pages.
 
-**Nesting.** While INNMI is 1 the interrupt controller holds nmi_n high (spec 8, section 9), so no second NMI is taken; a pending event gives a new NMI right after `RETN`. If an NMI response were seen while INNMI is 1, nothing would be saved or changed.
+**Nesting.** While INNMI is 1 the interrupt controller holds nmi_n high (spec 8), so no second NMI is taken; a pending event gives a new NMI right after `RETN`. If an NMI response were seen while INNMI is 1, nothing would be saved or changed.
 
 **EN = 0.** With NMICTL.EN = 0 an NMI changes no window and sets no INNMI, and `RETN` is not watched: the NMI runs whatever window 0 holds at `0x0066`, as on a plain Z80. EN is looked at only on entry.
 
@@ -276,7 +323,7 @@ Like a Multiface, the bus interface pages a monitor into window 0 for the NMI an
 
 ## 9. Reset
 
-- The system reset (spec 7, section 2) drives reset_n. The MMU, the speed (back to 28 MHz) and the bus interface reset together with the core.
+- The system reset (spec 7, section 3) drives reset_n. The MMU, the speed (back to 28 MHz) and the bus interface reset together with the core.
 - reset_n is released on a fixed slot clock (slot clock 0 of a slot), so the core's first T1 always starts at the same point in the slot grid, and simulations match the board cycle for cycle.
 - After reset the core fetches from `0x0000`, which is boot ROM page 0 through MMU window 0 (spec 2, section 6.4).
 - The core has no RESET output, and nothing in the Z80 resets the devices; a soft reset is a write to SYSRESET (spec 7).
@@ -303,9 +350,10 @@ Like a Multiface, the bus interface pages a monitor into window 0 for the NMI an
 - **Read and write pages:** in a split window, reads and opcode fetches use the read page and writes the write page, at all four speeds.
 - **Register page:** reads and writes through REGS give one strobe each, at all four speeds and with a copper write in the same clock; a FIFO read through memory takes one byte; an opcode fetch from REGS gives `0xFF` and no strobe; `LD (nn),HL` commits a 2-byte register.
 - **Instruction tests:** ZEXDOC and ZEXALL in Verilator, from SRAM and from the boot ROM, at all four speeds (design plan, Q3).
-- **I/O:** one strobe per IN or OUT; A15–A8 reach port `0xFE` only; INIR and OTIR stream to one port; unmapped ports read `0xFF`; a copper write in the same clock delays the CPU's strobe by one clock and the data still arrives in time.
+- **I/O:** one strobe per IN or OUT; A15–A8 reach port `0xFE` only among the system ports; INIR and OTIR stream to one system port; unmapped ports read `0xFF`; a copper write in the same clock delays the CPU's strobe by one clock and the data still arrives in time.
+- **Custom block:** every offset `0x000`–`0x3FF` answers at its 16-bit port and at register page offset `0x1000` + offset, with the same value and latch; `INC B` steps registers; `IN A,(0xC0)` with A = offset reads it; `OUTI` writes offset B − 1 and `INI` offset B; low bytes `0xC0`–`0xC3` never reach a system port, and register page offsets `0x00C0`–`0x00C3` read `0xFF`.
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.
-- **Interrupts:** in IM 2 each source's vector reaches the core and one int_ack is sent; IM 1 runs RST `0x38`; NMI from the button and from USB BREAK reaches `0x0066`.
+- **Interrupts:** in IM 2 each source's vector (VECBASE + 2 × source) reaches the core and one int_ack is sent; IM 1 runs RST `0x38`; NMI from the button and from USB BREAK reaches `0x0066`.
 - **NMI paging:** at all four speeds, with the NMI taken during every kind of instruction, during `HALT`, in a repeat (`LDIR`) and during a posted write: the PC push goes through the old window 0; the fetch at `0x0066` comes from page `0x3FF`; MMU0/MMU0W and the saved pages are as in the table above. `ED 45` restores window 0 before its stack reads (SP in window 0 and elsewhere); `ED 4D`, `ED 55`, `DD ED 45`, an `ED` data byte and `0x45` fetched without `ED` before it behave as specified; EN = 0 pages nothing; reset ends NMI mode.
 - **Reset:** the first T1 after every reset starts at slot clock 0; the core starts at `0x0000` in the boot ROM at 28 MHz.
 
@@ -317,6 +365,8 @@ Like a Multiface, the bus interface pages a monitor into window 0 for the NMI an
 | B6 | The register page read path (MMU page decode, rb_rd, unit decode, rb_rdata back to di) must fit at 28 MHz, also when a copper write moves the strobe by a clock (section 5.6) |
 | B2 | Is tv80 exact enough (flags, undocumented instructions, interrupt timing)? ZEXDOC and ZEXALL in phase 1; fallback T80 (VHDL) (design plan, Q3) |
 | B3 | A hardware debugger: stop cen to pause the CPU, single-step, breakpoints, from the PC over USB |
-| B4 | Decided: an NMI pages the boot ROM's monitor page into window 0 and `RETN` restores it (section 8.2; spec 7, section 4.4) |
+| B4 | Decided: an NMI pages the boot ROM's monitor page into window 0 and `RETN` restores it (section 8.2; spec 7) |
 | B7 | tv80's `NMICycle` must be brought out of `tv80_core` (section 2, item 4). In tv80 it is set at the start of the response's M1 and cleared as the next M1 (the fetch at `0x0066`) starts; check in simulation that the response is always M1 plus two writes, also from `HALT`. Fallback without touching the core: page at the first opcode fetch at `0x0066` that follows a falling nmi_n edge and two memory writes |
+| B8 | tv80 must put B on A15–A8 as a real Z80 does in the block I/O instructions: after the decrement for `OUTI`/`OTIR`/`OUTD`/`OTDR`, before it for `INI`/`INIR`/`IND`/`INDR` (section 6.1). Check in simulation against a known-good Z80 model |
+| B9 | The custom block's decode adds a compare of A7–A2 with `110000` to the I/O path; check it fits clock 3 at 56 MHz with the rest of the decode |
 | B5 | The swap at 28 MHz is a refinement of the fixed cycle owners in the design plan (D4): owners keep their number of cycles per slot but not always their exact cycle. Specs 4–6 must allow one cycle (35.7 ns) of delay |
