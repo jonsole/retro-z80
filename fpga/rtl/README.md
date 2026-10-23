@@ -15,10 +15,10 @@ Lint everything with `sh fpga/lint.sh` (or `make -C sim lint`); it fails on any 
 
 | File | What | Spec |
 |------|------|------|
-| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial | 1, 2, 7 |
+| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial. `CHIPMB = 2` builds for a 2 MB board: physical bit 21 ignored | 1, 2, 7 |
 | `z80_cpu.v` | tv80 with retro-z80's own wrapper: cen, early cycle-type outputs | 1, section 2 |
-| `bus_if.v` | Bus interface: memory requests at E + 3, posted writes, boot ROM, I/O decode and register bus strobes | 1, sections 4–6 |
-| `mmu.v` | The MMU's reset mapping only (windows 0–1 boot ROM, 2–7 SRAM pages 0–5); the page registers come with the MMU ticket | 2, section 9.4 |
+| `bus_if.v` | Bus interface: page looked up in T1, memory requests at E + 3, posted writes, boot ROM, NONE and reserved pages, the register page, I/O decode and register bus strobes | 1, sections 4–6 |
+| `mmu.v` | The MMU: read and write page registers MMUn and MMUnW (byte 1 commits; a read-page commit sets the write page), reset mapping. retro-z80's own | 2, section 9 |
 | `timebase.v` | Slot edge counter `sc` | 2, section 3 |
 | `dmac.v` | Scheduler: CPU on cycles 0 and 2, never turned away | 2, section 5 |
 | `sram_ctl.v` | SRAM controller, 20 ns cycles | 2, section 8 |
