@@ -24,7 +24,7 @@ To add or change a register:
 - every value a spec or the guide quotes as `` `NAME` = `value` `` against the generated names; in spec 3 the name must exist;
 - that the generated files are up to date.
 
-`make -C tools check` runs the verify, the self-test `test/test_regmap.py` (the real files pass; about twenty deliberately broken definitions and specs fail), and checks the generated headers: `test/hw_test.asm` includes `hw.inc` and asserts values quoted in the specs (sjasmplus), `test/hw_test.c` does the same for `hw.h` and checks `CPORT` against the `_P` names, and `test/regmap_test.v` checks `regmap.vh`'s decodes (Icarus). GitHub runs it on every push. On Windows run it from MSYS2, as `make -C sim` (main README), with `CC=gcc`.
+`make -C tools check` runs the verify, the self-test `test/test_regmap.py` (the real files pass; about twenty deliberately broken definitions and specs fail), and checks the generated headers: `test/hw_test.asm` includes `hw.inc` and asserts values quoted in the specs (sjasmplus), `test/hw_test.c` does the same for `hw.h` and checks `CPORT` against the `_P` names, and `test/regmap_test.v` checks `regmap.vh`'s decodes (Icarus; linted by Verilator with WIDTH warnings as errors, as `fpga/rtl/README.md` asks). GitHub runs it on every push. On Windows run it from MSYS2, as `make -C sim` (main README), with `CC=gcc`.
 
 ### The file
 
