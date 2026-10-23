@@ -30,7 +30,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 4 | Sprites | 32 sprites, 8 to 32 pixels, 1, 2, 4 or 8 bits per pixel, patterns in SRAM |
 | 4 | Sprite scaling | Fractional, X and Y separately, 1/16× to 16× (16-bit steps, 4.12 fixed point) |
 | 5 | Sound | **Open** (Q1) |
-| 6 | Registers | 8-bit, in Z80 I/O space only; 16- and 24-bit values are byte groups latched on the last byte |
+| 6 | Registers | 8-bit, in Z80 I/O space and also as memory through a register page any window can map; 16- and 24-bit values are byte groups latched on the last byte |
+| 6 | MMU read/write | Each window has a read page and a write page; setting the read page also sets the write page; ROM, RAM or registers in any window |
 | 6 | DMA engine | Later |
 | 7 | BASIC | BBC BASIC (Z80) |
 | 7 | CP/M | Later (CP/M 3) |
@@ -71,7 +72,7 @@ Defined in [spec 2: memory](spec/memory.md). In short:
 
   A cycle its owner does not use goes to the others. **The Z80 never waits, even at 28 MHz.**
 - **The swap.** tv80 leaves room for exactly one memory cycle in a read, and at 28 MHz that cycle can fall on 1 or 3. The CPU then takes that cycle and hands its own next one (which it can never need) to the owner. Every owner keeps its number of cycles per slot but is sometimes one cycle (35.7 ns) late; specs 4–6 allow for it. No swap at 14 MHz or slower, nor for writes (spec 1, section 5).
-- **MMU.** Eight 8 KB windows (MMU0–MMU7, ports `0x08`–`0x17`), each with a 10-bit page number: `0x000`–`0x1FF` SRAM (4 MB; on a 2 MB board the top half mirrors the bottom), `0x3FC`–`0x3FF` the 32 KB boot ROM, others reserved. A read-only bit per window. Reset: windows 0–1 = ROM, 2–7 = SRAM pages 0–5.
+- **MMU.** Eight 8 KB windows, each with a **read page** (MMU0–MMU7, ports `0x08`–`0x17`) and a **write page** (MMU0W–MMU7W, ports `0xA8`–`0xB7`). Setting the read page also sets the write page; setting the write page afterwards splits the window, for ROM shadowing, registers behind ROM, read-only windows and similar tricks. 10-bit page numbers: `0x000`–`0x1FF` SRAM (4 MB; on a 2 MB board the top half mirrors the bottom), `0x3F8` the register page, `0x3FB` NONE (writes ignored, for read-only windows), `0x3FC`–`0x3FF` the 32 KB boot ROM, others reserved. Reset: windows 0–1 = ROM, 2–7 = SRAM pages 0–5.
 - The chipset uses 22-bit physical SRAM addresses, not the MMU.
 
 ### D5. Video
@@ -114,7 +115,7 @@ Defined in [spec 6: copper](spec/copper.md). In short:
 
 ### D8. Registers
 
-Defined in [spec 3: register map](spec/registers.md). All registers are **8-bit**, in **Z80 I/O space only**, decoded on A7–A0 (`OUT (n),A` and `OTIR` work). Multi-byte values sit at consecutive ports, low byte first, and commit when the highest byte is written; reading the low byte of a counter captures the whole value. Big tables use an index port and a data port. The copper has its own latch, and goes first when it and the CPU write in the same clock. Sources: `fpga/regmap.def` → `tools/regmap.py` → sjasmplus, C and Verilog headers.
+Defined in [spec 3: register map](spec/registers.md). All registers are **8-bit**, in **Z80 I/O space**, decoded on A7–A0 (`OUT (n),A` and `OTIR` work), and **also as memory**: MMU page `0x3F8` (the register page) shows the 256 ports at offsets `0x00`–`0xFF`, the 8 Spectrum keyboard rows, the sprite attribute table and the palette, so `LD`, `LD (nn),HL`, `SET`/`RES` and `INC (IX+d)` work on registers. Both ways reach the same registers. Multi-byte values sit at consecutive ports, low byte first, and commit when the highest byte is written; reading the low byte of a counter captures the whole value. Big tables use an index port and a data port. The copper has its own latch, and goes first when it and the CPU write in the same clock. Sources: `fpga/regmap.def` → `tools/regmap.py` → sjasmplus, C and Verilog headers.
 
 ### D9. I/O and interrupts
 
@@ -158,7 +159,7 @@ The full list is in [spec 3](spec/registers.md).
 | Ports | Block | Copper can write |
 |-------|-------|------------------|
 | `0x00`–`0x07` | System: ID, version, CPU speed, reset cause, config, control, buttons | |
-| `0x08`–`0x17` | MMU0–MMU7 | |
+| `0x08`–`0x17` | MMU0–MMU7 read pages | |
 | `0x18`–`0x1F` | Interrupt controller | |
 | `0x20`–`0x27` | Timers, frame counter | |
 | `0x28`–`0x2B` | USB serial | |
@@ -168,7 +169,8 @@ The full list is in [spec 3](spec/registers.md).
 | `0x80`–`0x8F` | Sprites | Yes |
 | `0x90`–`0x9F` | Copper | Yes |
 | `0xA0`–`0xA7` | PS/2 keyboard, extra keys, joysticks | |
-| `0xA8`–`0xFD` | Reserved (DMA engine later) | |
+| `0xA8`–`0xB7` | MMU write pages | |
+| `0xB8`–`0xFD` | Reserved (DMA engine later) | |
 | `0xFE` | Spectrum keyboard rows | |
 | `0xFF` | Reserved | |
 
@@ -210,7 +212,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | # | Item | Plan |
 |---|------|------|
 | Q1 | Sound hardware: AY-style chip(s), sample channels, or both | To be decided; ports `0x30`–`0x3F` and interrupt 10 kept for it |
-| Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. With registers in I/O space only, a 6502 would see them through a memory page in its bus interface; the slots would give it 14 MHz with no waits |
+| Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. A 6502 sees the registers through the register page, as the Z80 can; the slots would give it 14 MHz with no waits |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
 | Q4 | Does the path from tv80's early cycle signals through the MMU to the SRAM pads meet 56 MHz? | Check in the first Vivado build (spec 1, B1); fallback: start a read speculatively in every T1 |
 | Q5 | Is the copper's priority in cycle 3 too strong for sprites and the display? | Measure in simulation; a control bit could limit it to every other cycle 3 (spec 6, C3) |

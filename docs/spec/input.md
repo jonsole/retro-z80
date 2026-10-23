@@ -79,6 +79,7 @@ The FPGA scans the matrix all the time: it drives one row line low at a time and
 - The whole low byte `0xFE` is decoded. A Spectrum decodes only A0 = 0, so code that reads the keyboard through another even port must be changed to use `0xFE`.
 - Writes to port `0xFE` (border colour, beeper and MIC on a Spectrum) are ignored in version 1 (open point K4).
 - Reading port `0xFE` changes nothing, so it can be read any number of times.
+- **Through memory:** a memory read has no A15–A8 for row select, so the register page gives each row its own byte, KEYROW0–7 at offsets `0x0100`–`0x0107` (row r = the row selected by A(8 + r) = 0, in port `0xFE`'s format). Offset `0x00FE` reads as port `0xFE` with all rows selected (spec 3, section 5).
 
 ### 3.4 Extra Next keys
 

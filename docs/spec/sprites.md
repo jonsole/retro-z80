@@ -30,7 +30,7 @@ The sprite unit works in three steps, each one output line apart: it finds the s
 
 ### 2.1 The attribute table
 
-Each sprite has 16 bytes in the attribute table, at index n × 16 (n = 0–31); the table is 512 bytes. The index (9 bits) is set through SPRIDX and SPRIDXH, and the data is read and written through SPRDATA (section 6). The index steps by 1 after each SPRDATA read or write, wrapping from 511 to 0, so two `OTIR`s with B = 0 write the whole table.
+Each sprite has 16 bytes in the attribute table, at index n × 16 (n = 0–31); the table is 512 bytes. The index (9 bits) is set through SPRIDX and SPRIDXH, and the data is read and written through SPRDATA (section 6). The index steps by 1 after each SPRDATA read or write, wrapping from 511 to 0, so two `OTIR`s with B = 0 write the whole table. The same table also appears as plain memory at offsets `0x0200`–`0x03FF` of the register page (sprite n at `0x0200` + 16n, spec 3, section 5), with the same latches and commit rules and without touching the index; `LD (nn),HL` then writes a 2-byte field in one instruction.
 
 | Byte | Name | Bits | Field | Meaning |
 |------|------|------|-------|---------|

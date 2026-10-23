@@ -41,7 +41,7 @@ RESETWHY shows the cause of the last reset; exactly one bit is set. Ctrl + Alt +
 Every source gives the same **full reset**:
 
 - The Z80 is reset and starts at `0x0000` (spec 1, section 9), at **28 MHz** (CPUSPEED = 3).
-- The MMU goes back to its reset state (spec 2, section 6.4): boot ROM pages 0–1 in windows 0–1, SRAM pages 0–5 in windows 2–7, no window read-only.
+- The MMU goes back to its reset state (spec 2, section 6.4): boot ROM pages 0–1 in windows 0–1, SRAM pages 0–5 in windows 2–7, each window's write page the same as its read page.
 - Every chipset port goes back to its reset value: video shows only the background colour, sprites and copper stopped, interrupts off, timers stopped, serial and keyboard FIFOs empty.
 - SYSCON.ROMWE is cleared. ROMLOCK is cleared only at power-on.
 - **The SRAM keeps its contents.** Static RAM needs no refresh, so after anything except power-on, memory holds what it held before. A debugger can look at what a crashed program left, and software can keep data across resets.
@@ -85,7 +85,7 @@ At reset, windows 0 and 1 hold ROM pages 0 and 1, so the Z80 starts in the ROM a
 
 Rebuilding the FPGA takes minutes. To try new boot ROM code quickly:
 
-- Setting **SYSCON.ROMWE** makes the boot ROM pages writable through the MMU (unless the window is also read-only).
+- Setting **SYSCON.ROMWE** makes the boot ROM pages writable through any window whose write page is a ROM page.
 - A program or the USB upload loader writes a new image through the ROM pages, then writes SYSRESET.
 - The new ROM runs from the next reset onwards, until the FPGA is reloaded.
 - **SYSCON.ROMLOCK** stops ROMWE being set again until the next power-on. The boot ROM sets it, unless the development key (D) is held during reset (section 6).

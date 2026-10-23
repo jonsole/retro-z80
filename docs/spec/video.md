@@ -117,6 +117,7 @@ The output pixel is the front-most non-transparent source. Sprites among themsel
 So an entry is the 16-bit value `0x0RGB`. BGCOL has the same format.
 
 - **Access:** PALIDX0 and PALIDX1 hold the 9-bit index (writing PALIDX1 commits it, as for any 2-byte value). PALDAT reads or writes the entry at the index, low byte then high byte; a flip-flop picks the byte and is reset when the index is committed. A low-byte write is held; the **high-byte write changes the entry** and steps the index (from 511 to 0). A high-byte read steps it too. So `OTIR` with B = 2n writes n entries.
+- **Through memory:** the palette also appears at offsets `0x0400`–`0x07FF` of the register page (entry n at `0x0400` + 2n, spec 3, section 5): the even byte is held and the odd byte changes the entry, with the same timing. This does not use or change PALIDX.
 - **Timing:** a palette write acts at the draw beam: pixels drawn after it use the new colour, so the copper changes a colour at an exact pixel.
 - The palette is not cleared by reset. Its contents at configuration are a default set by the bitstream (open point V8); the boot ROM writes the colours it uses.
 

@@ -13,7 +13,7 @@ The memory side (slots, the SRAM controller, the MMU) is spec 2. The I/O ports a
 | CPU | tv80 (Verilog Z80) inside the Artix-7 FPGA, Mode 0 (Z80), with its refresh option on |
 | Clock | The 56 MHz system clock, with a clock enable (cen) |
 | CPU speed | A T-state every 2, 4, 8 or 16 clocks: 28, 14, 7 or 3.5 MHz. 28 MHz after reset. Set by CPUSPEED (spec 7), taking effect at the next M-cycle |
-| Memory | Every opcode fetch, read and write goes through the MMU (spec 2) to the SRAM or the boot ROM. Each access uses one memory cycle |
+| Memory | Every opcode fetch, read and write goes through the MMU (spec 2): reads to the window's read page, writes to its write page. SRAM accesses use one memory cycle; boot ROM and register page accesses use none |
 | Wait states | None, ever. wait_n is tied high |
 | I/O | IN and OUT become one strobe on the register bus. Only A7–A0 are decoded (A15–A8 are passed on for port `0xFE`). Unmapped ports read `0xFF` |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
@@ -77,26 +77,26 @@ The bus interface turns Z80 cycles into requests on two internal buses. Both are
 |--------|---------|
 | cpu_req | A request for this CPU cycle (held for one cycle) |
 | cpu_we | 1 = write |
-| cpu_page[9:0], cpu_off[12:0] | MMU page and offset within the 8 KB page (from the MMU, spec 2, section 6) |
+| cpu_page[9:0], cpu_off[12:0] | MMU page and offset within the 8 KB page (from the MMU, spec 2, section 6): the window's read page for opcode fetches and reads, its write page for writes. The early cycle-type outputs say which, in T1 |
 | cpu_wdata[7:0] | Byte to write |
 | cpu_rdata[7:0] | Byte read (the slot controller picks the byte from the 16-bit word by address bit 0) |
 | cpu_swap | Ask for the swap of section 5.3 (28 MHz only) |
 
-The slot controller sends SRAM pages to the SRAM, boot ROM pages to the ROM block RAM, and answers reserved pages with `0xFF` (spec 2, section 6).
+The slot controller sends SRAM pages to the SRAM, boot ROM pages to the ROM block RAM, and answers NONE and reserved pages with `0xFF` (spec 2, section 6). Accesses to the register page (REGS, `0x3F8`) do not go to the slot controller at all: the bus interface turns them into register bus cycles (section 5.6).
 
 ### 4.2 Register bus (I/O ports)
 
 | Signal | Meaning |
 |--------|---------|
-| rb_addr[7:0] | Port number (A7–A0) |
-| rb_hi[7:0] | A15–A8, used only by port `0xFE` (spec 12) |
+| rb_addr[12:0] | Register offset: the port number (A7–A0, bits 12–8 = 0) for an I/O cycle, or the offset A12–A0 for a register page access (spec 3, section 5) |
+| rb_hi[7:0] | A15–A8 for an I/O cycle, used only by port `0xFE` (spec 12); `0x00` for a register page access (all keyboard rows) |
 | rb_wr | One-clock write strobe |
 | rb_rd | One-clock read strobe. Units with read side effects (FIFO data, stepping index ports) act on it once |
 | rb_wdata[7:0] | Write data |
 | rb_rdata[7:0] | Read data, valid the clock after rb_rd: the OR of all units' outputs (a unit not addressed outputs 0) |
 | rb_hit | Some unit decoded the port. If none did, the bus interface returns `0xFF` |
 
-There are two masters: the CPU bus interface and the copper (spec 6, writes to ports `0x30`–`0x9F` only). If both want the register bus in the same clock, the copper goes first and the CPU's strobe moves one clock later; the I/O cycle has room for this (section 6).
+There are two masters: the CPU bus interface (I/O cycles and register page accesses) and the copper (spec 6, writes to ports `0x30`–`0x9F` only). If both want the register bus in the same clock, the copper goes first and the CPU's strobe moves one clock later; the I/O cycle has room for this (section 6).
 
 ### 4.3 A 6502 later
 
@@ -132,7 +132,8 @@ T-states start on even slot clocks. Call the clock where T1 starts E, and the cl
 | Read or opcode fetch, 14 MHz and slower | The first CPU cycle whose pins start at E+1 or later. With T ≥ 4 this is always E+1 or E+3, and its data is captured by E+5, before the end of T2 (E+2T) |
 | Read or opcode fetch, 28 MHz | The cycle whose pins start at **E+1** (the only one whose data is ready at E+4). If that is cycle 0 or 2, the CPU just uses it. If it is cycle 1 or 3, the CPU and that cycle's owner swap (section 5.3) |
 | Write, any speed | Posted: the first CPU cycle whose pins start at E+T+1 or later (after dout is valid). At 28 MHz, E+3 or E+5. It always ends before the next M-cycle's read starts |
-| Boot ROM or reserved page | No SRAM cycle: the ROM's block RAM answers in one clock, at any time |
+| Boot ROM, NONE or reserved page | No SRAM cycle: the ROM's block RAM answers in one clock, at any time |
+| Register page | No SRAM cycle: a register bus cycle (section 5.6) |
 
 ### 5.3 The swap at 28 MHz
 
@@ -183,6 +184,20 @@ At 14, 7 and 3.5 MHz the same steps happen with more clocks in between.
 The SRAM is 16 bits wide. A CPU read fetches a whole word and the bus interface keeps the byte chosen by address bit 0 (0 = low byte, D7–D0, /LB; 1 = high byte, D15–D8, /UB). A CPU write drives the byte on both halves of the data bus and pulls only /LB or /UB low. So the Z80 is little-endian in SRAM as everywhere else, and chipset units reading 16-bit words see the even byte in the low half (spec 2, section 5.3).
 
 The byte read is held at di until the next read, so the core can take it at any point up to the end of T2 at every speed.
+
+### 5.6 Register page accesses
+
+A memory access whose page is REGS (`0x3F8`, spec 2, section 6.5) becomes one register bus cycle instead of a memory cycle. The core sees an ordinary 3-T-state memory read or write, or a 4-T-state opcode fetch, with no waits.
+
+| Access | What the bus interface does |
+|--------|-----------------------------|
+| Read | One rb_rd with rb_addr = A12–A0 and rb_hi = `0x00`, sent in T1 once the early outputs say "memory read" (clock 1 at 28 MHz). The data is on rb_rdata a clock later and held at di, well before the end of T2 (clock 4). If the copper has the bus, the strobe moves one clock and the data still arrives by clock 3 |
+| Write | One rb_wr with rb_addr = A12–A0 at the clock after dout is valid (clock 3 at 28 MHz), as for an OUT |
+| Opcode fetch | No strobe. di = `0xFF` (`RST 38h`), so code that runs into the register page by mistake traps instead of reading FIFOs |
+
+- The strobe is sent only when the cycle type is certain, so reading a FIFO data port through memory takes exactly one byte. This rules out the B1 fallback (a read started in every T1) for the register page; the fallback may still start SRAM and ROM reads early.
+- A read uses the read page of its window and a write the write page, so in a window that reads ROM and writes REGS, `LD (HL),A` writes a register and `LD A,(HL)` reads the ROM.
+- Through the register page, `LD (nn),HL` writes L to nn and then H to nn + 1, which is the low-then-high order that commits a 2-byte register (spec 3, rule 10).
 
 ## 6. I/O cycles
 
@@ -255,6 +270,8 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 - **No waits:** run code from SRAM at 28 MHz with the display, sprites and copper all busy; check that every read lands in the cycle of section 5.2, that wait_n is never used, and that the CPU's cycles 0 and 2 are never given to anyone else while it needs them.
 - **Swap:** with T1 on every slot clock (0, 2, 4, 6), check reads use cycle 0, 1, 2, 3, and that after a swap the owner gets the next cycle; check no unit loses a cycle per slot.
 - **Writes:** byte writes to even and odd addresses change only that byte; a read straight after a write sees the new data.
+- **Read and write pages:** in a split window, reads and opcode fetches use the read page and writes the write page, at all four speeds.
+- **Register page:** reads and writes through REGS give one strobe each, at all four speeds and with a copper write in the same clock; a FIFO read through memory takes one byte; an opcode fetch from REGS gives `0xFF` and no strobe; `LD (nn),HL` commits a 2-byte register.
 - **Instruction tests:** ZEXDOC and ZEXALL in Verilator, from SRAM and from the boot ROM, at all four speeds (design plan, Q3).
 - **I/O:** one strobe per IN or OUT; A15–A8 reach port `0xFE` only; INIR and OTIR stream to one port; unmapped ports read `0xFF`; a copper write in the same clock delays the CPU's strobe by one clock and the data still arrives in time.
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.
@@ -265,7 +282,8 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 
 | # | Item |
 |---|------|
-| B1 | Timing at 56 MHz of the path from the core's early cycle-type outputs (microcode decode) through the MMU to the SRAM address pads, in one clock. Fallback: start a read in every T1 whatever the cycle type (reads have no side effects; the result is dropped for I/O and writes) |
+| B1 | Timing at 56 MHz of the path from the core's early cycle-type outputs (microcode decode) through the MMU to the SRAM address pads, in one clock. Fallback: start an SRAM or ROM read in every T1 whatever the cycle type (those reads have no side effects; the result is dropped for I/O and writes). Never for the register page (section 5.6) |
+| B6 | The register page read path (MMU page decode, rb_rd, unit decode, rb_rdata back to di) must fit at 28 MHz, also when a copper write moves the strobe by a clock (section 5.6) |
 | B2 | Is tv80 exact enough (flags, undocumented instructions, interrupt timing)? ZEXDOC and ZEXALL in phase 1; fallback T80 (VHDL) (design plan, Q3) |
 | B3 | A hardware debugger: stop cen to pause the CPU, single-step, breakpoints, from the PC over USB |
 | B4 | Should an NMI also page a monitor into window 0 (as the Multiface did)? Not in version 1: the NMI handler at `0x0066` is whatever window 0 holds |

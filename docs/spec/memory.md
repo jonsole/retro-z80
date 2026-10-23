@@ -19,7 +19,7 @@ The CPU side of each access (when the Z80 asks, and which cycle it uses) is spec
 | Spare cycles | A cycle its owner leaves goes to the others, in the cycle 3 order |
 | Z80 waits | Never (spec 1, section 5) |
 | Bandwidth | 56 MB/s in all; 14 MB/s per cycle number |
-| MMU | Eight 8 KB windows, MMU0–MMU7, ports `0x08`–`0x17`. 10-bit page numbers: SRAM, boot ROM (32 KB) or reserved. A read-only bit per window |
+| MMU | Eight 8 KB windows, each with a read page (MMU0–MMU7, ports `0x08`–`0x17`) and a write page (MMU0W–MMU7W, ports `0xA8`–`0xB7`); the write page follows the read page unless set apart. 10-bit page numbers: SRAM, boot ROM (32 KB), the register page, NONE or reserved |
 | Chipset addresses | 22-bit physical byte addresses straight into the SRAM, not through the MMU |
 | Refresh | None needed |
 
@@ -29,7 +29,8 @@ The CPU side of each access (when the Z80 asks, and which cycle it uses) is spec
 |--------|-------|----------------|
 | **SRAM** | The board's 4 MB (or 2 MB) SRAM | The Z80 through the MMU; video, sprites and copper by physical address |
 | **Boot ROM** | 32 KB of block RAM in the FPGA, loaded with the bitstream (spec 7, section 4) | The Z80 only, through MMU pages `0x3FC`–`0x3FF` |
-| **Other block RAM** | Palette, line buffers, display FIFOs and repeat buffers, serial and keyboard FIFOs | Reached through I/O ports only; uses no memory cycles |
+| **Register page** | Not memory: page `0x3F8` shows the chipset registers, the palette and the sprite attribute table (section 6.5) | The Z80 only, through the MMU; uses no SRAM cycle |
+| **Other block RAM** | Palette, line buffers, display FIFOs and repeat buffers, serial and keyboard FIFOs | Through I/O ports or the register page; uses no memory cycles |
 
 There is no other RAM. The chipset cannot read the boot ROM; the boot ROM copies anything the chipset needs (such as the console font) into SRAM.
 
@@ -130,34 +131,38 @@ The cycle is nearly twice as long as retro68k's 20 ns, so there is plenty of mar
 
 ### 6.1 Windows
 
-The Z80's 64 KB address space is cut into eight 8 KB windows. Address bits A15–A13 pick the window; A12–A0 are the offset within it.
+The Z80's 64 KB address space is cut into eight 8 KB windows. Address bits A15–A13 pick the window; A12–A0 are the offset within it. Each window has **two page registers**: a **read page** (used by opcode fetches and reads) and a **write page** (used by writes). Most of the time they are the same page; splitting them gives ROM shadowing, registers behind ROM, and similar tricks (section 6.6).
 
-| Window | Z80 addresses | Register | Ports |
-|--------|---------------|----------|-------|
-| 0 | `0x0000`–`0x1FFF` | MMU0 | `0x08`, `0x09` |
-| 1 | `0x2000`–`0x3FFF` | MMU1 | `0x0A`, `0x0B` |
-| 2 | `0x4000`–`0x5FFF` | MMU2 | `0x0C`, `0x0D` |
-| 3 | `0x6000`–`0x7FFF` | MMU3 | `0x0E`, `0x0F` |
-| 4 | `0x8000`–`0x9FFF` | MMU4 | `0x10`, `0x11` |
-| 5 | `0xA000`–`0xBFFF` | MMU5 | `0x12`, `0x13` |
-| 6 | `0xC000`–`0xDFFF` | MMU6 | `0x14`, `0x15` |
-| 7 | `0xE000`–`0xFFFF` | MMU7 | `0x16`, `0x17` |
+| Window | Z80 addresses | Read page | Write page |
+|--------|---------------|-----------|------------|
+| 0 | `0x0000`–`0x1FFF` | MMU0 (`0x08`, `0x09`) | MMU0W (`0xA8`, `0xA9`) |
+| 1 | `0x2000`–`0x3FFF` | MMU1 (`0x0A`, `0x0B`) | MMU1W (`0xAA`, `0xAB`) |
+| 2 | `0x4000`–`0x5FFF` | MMU2 (`0x0C`, `0x0D`) | MMU2W (`0xAC`, `0xAD`) |
+| 3 | `0x6000`–`0x7FFF` | MMU3 (`0x0E`, `0x0F`) | MMU3W (`0xAE`, `0xAF`) |
+| 4 | `0x8000`–`0x9FFF` | MMU4 (`0x10`, `0x11`) | MMU4W (`0xB0`, `0xB1`) |
+| 5 | `0xA000`–`0xBFFF` | MMU5 (`0x12`, `0x13`) | MMU5W (`0xB2`, `0xB3`) |
+| 6 | `0xC000`–`0xDFFF` | MMU6 (`0x14`, `0x15`) | MMU6W (`0xB4`, `0xB5`) |
+| 7 | `0xE000`–`0xFFFF` | MMU7 (`0x16`, `0x17`) | MMU7W (`0xB6`, `0xB7`) |
+
+The copper cannot reach any MMU register.
 
 ### 6.2 Register format
 
-Each MMU register is a 2-byte value at two ports (spec 3, multi-byte rule):
+Each page register is a 2-byte value at two ports (spec 3, multi-byte rule):
 
 | Port | Name | Bits | Meaning |
 |------|------|------|---------|
-| `0x08` + 2n | MMUnL | 7–0 | Page number bits 7–0 |
-| `0x09` + 2n | MMUnH | 1–0 | Page number bits 9–8 |
-| | | 6–2 | Unused: write 0, read 0 |
-| | | 7 | RO: 1 = window is read-only |
+| `0x08` + 2n | MMUnL | 7–0 | Read page bits 7–0 |
+| `0x09` + 2n | MMUnH | 1–0 | Read page bits 9–8 |
+| | | 7–2 | Unused: write 0, read 0 |
+| `0xA8` + 2n | MMUnWL | 7–0 | Write page bits 7–0 |
+| `0xA9` + 2n | MMUnWH | 1–0 | Write page bits 9–8 |
+| | | 7–2 | Unused: write 0, read 0 |
 
-- Writing MMUnL only fills a latch. Writing MMUnH commits the latch and the high byte together, so the window never points at a half-changed page. Changing a window is two OUTs, low byte first.
-- Reading either port returns the committed value.
-- The latch holds the last value written to MMUnL. At reset it holds the reset page's low byte.
-- The new mapping applies from the next memory access after the OUT to MMUnH, including the next opcode fetch. Code can change the window it runs in, as long as the next instruction is at the same address in the new page.
+- **Write follows read.** Committing a read page (writing MMUnH) sets the window's write page to the same page. Ordinary code therefore changes a window with one register, as on any 8-bit MMU. Writing MMUnWH afterwards sets only the write page and splits the window.
+- Writing a low byte only fills the latch; writing the high byte commits, so a window never points at a half-changed page. Reading returns the committed value.
+- The new mapping applies from the next memory access after the commit, including the next opcode fetch. Code can change the window it runs in, as long as the next instruction is at the same address in the new page.
+- The page registers can also be written through the register page (section 6.5): `LD (nn),HL` writes the low byte then the high byte, so one instruction (16 T-states) changes a window.
 
 ### 6.3 Pages
 
@@ -165,25 +170,55 @@ Each MMU register is a 2-byte value at two ports (spec 3, multi-byte rule):
 |------|---------|
 | `0x000`–`0x0FF` | SRAM, physical `0x000000`–`0x1FFFFF` (every board) |
 | `0x100`–`0x1FF` | SRAM, physical `0x200000`–`0x3FFFFF` (4 MB boards). On 2 MB boards these mirror pages `0x000`–`0x0FF` |
-| `0x200`–`0x3FB` | Reserved: reads give `0xFF`, writes are ignored |
+| `0x200`–`0x3F7` | Reserved (for example fast RAM in block RAM later, design plan Q9): reads give `0xFF`, writes are ignored |
+| `0x3F8` | **REGS: the register page** (section 6.5) |
+| `0x3F9`–`0x3FA` | Reserved |
+| `0x3FB` | **NONE:** reads give `0xFF`, writes are ignored; kept unused for ever, so it is the way to make a window read-only |
 | `0x3FC`–`0x3FF` | Boot ROM pages 0–3 (ROM offsets `0x0000`–`0x7FFF`) |
 
 The physical byte address of a Z80 access to an SRAM page is page × `0x2000` + A12–A0, that is {page[8:0], A12–A0}.
 
-- **Read-only windows:** with RO set, writes through that window are ignored (no SRAM cycle is used, no error). Reads are normal. This lets software keep a ROM image (a BASIC, or a Spectrum ROM for a port) in SRAM and protect it.
-- **Boot ROM pages** are read-only unless SYSCON.ROMWE is set (spec 7, section 4.3). They use no SRAM cycle: the block RAM answers in one clock, and the CPU's cycle becomes spare.
-- **Reserved pages** use no SRAM cycle either.
-- The same page can be in several windows at once.
+- **Read-only windows:** set the write page to NONE. Reads are normal; writes use no SRAM cycle and give no error. This keeps a ROM image (a BASIC, or a Spectrum ROM for a port) in SRAM safe.
+- **Boot ROM pages** ignore writes unless SYSCON.ROMWE is set (spec 7, section 4.3). They use no SRAM cycle: the block RAM answers in one clock, and the CPU's cycle becomes spare.
+- **REGS, NONE and reserved pages** use no SRAM cycle either.
+- The same page can be in several windows at once, and in a window's read and write page at once.
 
 ### 6.4 Reset state
 
-| Window | Page | RO |
-|--------|------|----|
-| 0 | `0x3FC` (boot ROM page 0) | 0 |
-| 1 | `0x3FD` (boot ROM page 1) | 0 |
-| 2–7 | `0x000`–`0x005` (SRAM pages 0–5) | 0 |
+| Window | Read page | Write page |
+|--------|-----------|------------|
+| 0 | `0x3FC` (boot ROM page 0) | `0x3FC` |
+| 1 | `0x3FD` (boot ROM page 1) | `0x3FD` |
+| 2–7 | `0x000`–`0x005` (SRAM pages 0–5) | The same |
 
 So the Z80 starts at `0x0000` in the boot ROM, with 16 KB of ROM at the bottom and 48 KB of SRAM above it, like a Spectrum 48K. Boot ROM pages 2 and 3 are reached by mapping them into a window. Every reset (spec 7, section 2) puts the MMU back to this state.
+
+### 6.5 The register page
+
+Page `0x3F8` shows the chipset's registers as memory, in any window, so the Z80 can use LD, LDI, read-modify-write instructions (`SET`, `INC (HL)`, `INC (IX+d)`) and 16-bit loads on them. The registers are the same ones as in I/O space (spec 3); both ways of reaching them always work. The layout is in spec 3, section 5:
+
+| Offset | Contents |
+|--------|----------|
+| `0x0000`–`0x00FF` | The 256 ports, in port order (offset = port number) |
+| `0x0100`–`0x0107` | Spectrum keyboard rows 0–7, one byte each (the memory form of port `0xFE`) |
+| `0x0200`–`0x03FF` | Sprite attribute table, 32 × 16 bytes (spec 5) |
+| `0x0400`–`0x07FF` | Palette, 512 × 2 bytes (spec 4) |
+| Others | Reserved: read `0xFF`, writes ignored |
+
+- **No SRAM cycle:** register page accesses go to the register bus, as I/O accesses do, and leave the CPU's memory cycle spare.
+- **Side effects are the same as for I/O:** reading a FIFO data port (serial, keyboard, SD) through the register page takes a byte. The bus interface only reads the register page on a real read (spec 1).
+- **Opcode fetches** from the register page read `0xFF` (`RST 38h`) and have no side effect.
+- **Write order matters for multi-byte values:** `LD (nn),HL`, `LD (nn),DE`, `LDI` and `LDIR` write low byte first and work; `PUSH` and `LDDR` write the high byte first, which commits before the low byte arrives. Don't use them on registers.
+
+### 6.6 What split read and write pages are for
+
+| Read page | Write page | Use |
+|-----------|------------|-----|
+| ROM | SRAM page | Shadow the ROM: `LDIR` the window onto itself, then map the SRAM page for reads too |
+| ROM | REGS | Code and tables run from ROM while plain writes in the same window go to the registers |
+| SRAM | NONE | A read-only window (ROM image kept in RAM) |
+| SRAM page A | SRAM page B | Read one buffer while writing another at the same addresses (copy with a transform, or draw into a back buffer behind code) |
+| REGS | REGS | All registers as memory |
 
 ## 7. Physical address map (chipset units)
 
@@ -247,7 +282,7 @@ During vertical blanking (lines 0–48) the video fetches nothing until it prefi
 | Item | Resource |
 |------|----------|
 | Slot controller and SRAM controller | Estimate 150–250 LUTs |
-| MMU: 8 × 11-bit registers, latches, page decode | Estimate 60–100 LUTs |
+| MMU: 16 × 10-bit page registers, latches, page decode | Estimate 100–150 LUTs |
 | Boot ROM | 16 block RAMs (spec 7) |
 
 ## 11. Test plan
@@ -257,7 +292,8 @@ During vertical blanking (lines 0–48) the video fetches nothing until it prefi
 - **Swap:** at 28 MHz, a read in cycle 1 or 3 gives the next cycle to that cycle's owner, and no owner loses a cycle per slot.
 - **SRAM model:** run the controller against an SRAM simulation model (from retro68k) with the datasheet checks on: set-up, hold, pulse widths, bus turnaround, at 35.7 ns cycles.
 - **Byte writes:** writing an even or odd byte changes only that byte; chipset word reads see even bytes in the low half.
-- **MMU:** reset state; a low-byte write alone changes nothing; the high-byte write commits both; read back; read-only windows ignore writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build.
+- **MMU:** reset state; a low-byte write alone changes nothing; the high-byte write commits both; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build.
+- **Register page:** every port answers at its offset with the same value and side effects as through I/O; keyboard rows, sprite table and palette at their offsets; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` commits a 2-byte register; no SRAM cycle is used; a copper write in the same clock goes first.
 - **Physical addresses:** a pattern written by the CPU through every page is read by a chipset test port at page × `0x2000` + offset; bits 23–22 of pointers are ignored.
 - **Board test:** a full RAM test from the CPU at 28 MHz with the display, sprites and copper all busy.
 
@@ -267,6 +303,7 @@ During vertical blanking (lines 0–48) the video fetches nothing until it prefi
 |---|------|
 | M1 | Check the 35.7 ns read and write cycles and the read/write turnaround against the IS61WV204816BLL-10 datasheet and the KS3's board timing (shared with retro68k, its M2) |
 | M2 | Is the KS3 fitted with 4 MB or 2 MB, and how does the design know? Proposed: a build parameter sets SYSCFG.RAM4M; the boot ROM can also test for the mirror (design plan, Q6) |
-| M3 | Changing a window always takes two OUTs (22 T-states). If games need faster paging, a later version could add a port that sets page bits 7–0 and clears bits 9–8 in one write |
+| M3 | Changing a window takes two OUTs (22 T-states), or one `LD (nn),HL` (16 T-states) through the register page. If games need faster paging, a later version could add a port that sets page bits 7–0 and clears bits 9–8 in one write |
+| M6 | The register page's read must fit tv80's read window at 28 MHz, also when a copper write moves it by a clock (spec 1, B6) |
 | M4 | The swap at 28 MHz (section 4.2) refines the fixed cycle owners of the design plan (D4); specs 4–6 must allow one cycle of delay |
 | M5 | Exact display FIFO depth and low mark are set in spec 4 (about 128–256 bytes per source) |

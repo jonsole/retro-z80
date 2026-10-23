@@ -8,7 +8,7 @@ This is the one place that lists every port in the machine and the rules every r
 
 | Item | Value |
 |------|-------|
-| Where | Z80 I/O space only; no registers in memory |
+| Where | Z80 I/O space, and also memory through the register page (MMU page `0x3F8`) in any window. Both ways reach the same registers |
 | Decoding | Low 8 bits of the port address (A7–A0); A15–A8 are ignored, except at port `0xFE` (spec 12) |
 | Size | Every register is 8 bits; wider values are 2 or 3 consecutive ports |
 | Unmapped and reserved ports | Read `0xFF`; writes are ignored |
@@ -17,26 +17,29 @@ This is the one place that lists every port in the machine and the rules every r
 
 ## 2. Memory map
 
-The Z80 has no registers in memory: all 64 KB is RAM or ROM, through eight 8 KB windows (spec 2).
+The Z80's 64 KB is eight 8 KB windows (spec 2, section 6). Each window has a read page and a write page; committing the read page also sets the write page.
 
-| Z80 address | Window | Reset mapping |
-|-------------|--------|---------------|
-| `0x0000`–`0x1FFF` | MMU0 | Boot ROM page `0x3FC` |
-| `0x2000`–`0x3FFF` | MMU1 | Boot ROM page `0x3FD` |
-| `0x4000`–`0x5FFF` | MMU2 | SRAM page `0x000` |
-| `0x6000`–`0x7FFF` | MMU3 | SRAM page `0x001` |
-| `0x8000`–`0x9FFF` | MMU4 | SRAM page `0x002` |
-| `0xA000`–`0xBFFF` | MMU5 | SRAM page `0x003` |
-| `0xC000`–`0xDFFF` | MMU6 | SRAM page `0x004` |
-| `0xE000`–`0xFFFF` | MMU7 | SRAM page `0x005` |
+| Z80 address | Window | Reset mapping (read and write) |
+|-------------|--------|-------------------------------|
+| `0x0000`–`0x1FFF` | 0 | Boot ROM page `0x3FC` |
+| `0x2000`–`0x3FFF` | 1 | Boot ROM page `0x3FD` |
+| `0x4000`–`0x5FFF` | 2 | SRAM page `0x000` |
+| `0x6000`–`0x7FFF` | 3 | SRAM page `0x001` |
+| `0x8000`–`0x9FFF` | 4 | SRAM page `0x002` |
+| `0xA000`–`0xBFFF` | 5 | SRAM page `0x003` |
+| `0xC000`–`0xDFFF` | 6 | SRAM page `0x004` |
+| `0xE000`–`0xFFFF` | 7 | SRAM page `0x005` |
 
 | Page | Meaning |
 |------|---------|
 | `0x000`–`0x1FF` | SRAM, 8 KB each (4 MB); on a 2 MB board `0x100`–`0x1FF` mirror `0x000`–`0x0FF` |
+| `0x200`–`0x3F7` | Reserved: reads give `0xFF`, writes are ignored |
+| `0x3F8` | REGS: the register page (section 5) |
+| `0x3F9`–`0x3FA` | Reserved |
+| `0x3FB` | NONE: reads give `0xFF`, writes are ignored (a write page of NONE makes a window read-only) |
 | `0x3FC`–`0x3FF` | Boot ROM (32 KB of block RAM) |
-| Others | Reserved: reads give `0xFF`, writes are ignored |
 
-The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, not the MMU: physical address = page × 8192 + offset.
+The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, not the MMU: physical address = page × 8192 + offset. It cannot see the register page.
 
 ## 3. Rules for all registers
 
@@ -47,7 +50,9 @@ The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, n
 5. **Status bits.** Sticky flags are cleared by writing 1 to them; writing 0 leaves them alone. Live bits ignore writes.
 6. **Reserved bits** read 0 and should be written 0.
 7. **Index and data ports.** Big tables (palette, sprite attributes) are reached through an index port and a data port. The index steps after each data access, so `OTIR` and `INIR` stream a whole table.
-8. **Bus timing.** An I/O access takes the Z80's normal 4 T-states (one automatic wait), with no extra waits. If the copper writes a register in the same clock, the copper goes first and the CPU's access slips by one clock, inside its spare time (spec 1).
+8. **Bus timing.** An I/O access takes the Z80's normal 4 T-states (one automatic wait), with no extra waits; a register page access takes a normal 3 T-state memory cycle. If the copper writes a register in the same clock, the copper goes first and the CPU's access slips by one clock, inside its spare time (spec 1).
+9. **I/O and memory are the same registers.** A write through a port and a write through the register page go to the same register and the same CPU latch, so a value can even be started through one and committed through the other. Reads have the same side effects both ways.
+10. **Write order through memory.** `LD (nn),HL`, `LD (nn),DE/BC/IX/IY`, `LDI` and `LDIR` write the low byte first, so they write multi-byte registers correctly. `PUSH`, `EX (SP),HL` and `LDDR` write the high byte first: don't use them on registers.
 
 ### 3.1 Exceptions
 
@@ -74,7 +79,7 @@ The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, n
 | `0x06` | SYSRESET | W | `0xA5` = soft reset | 7 |
 | `0x07` | SYSBTN | R | Multiface and DivMMC buttons | 7 |
 | `0x08`+2n | MMUnL | R/W | Window n page, bits 7–0 (latched) | 2 |
-| `0x09`+2n | MMUnH | R/W | Page bits 9–8 (bits 1–0), read-only window (bit 7); commits | 2 |
+| `0x09`+2n | MMUnH | R/W | Page bits 9–8 (bits 1–0); commits the read page and sets the write page to it | 2 |
 
 ### 4.2 Interrupts and timers (`0x18`–`0x27`), not reachable by the copper
 
@@ -186,11 +191,35 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 | `0xA7` | INCTL | Mega Drive pads, extra-key mapping, bit 6 of `0xFE` | |
 | `0xFE` | KEYROWS | Spectrum keyboard: A15–A8 select rows, bits 4–0 active low | |
 
-### 4.9 Reserved
+### 4.9 MMU write pages (`0xA8`–`0xB7`), not reachable by the copper
 
-`0xA8`–`0xFD` and `0xFF`: reserved for the DMA engine, sound and later blocks.
+| Port | Name | Access | Meaning | Spec |
+|------|------|--------|---------|------|
+| `0xA8`+2n | MMUnWL | R/W | Window n write page, bits 7–0 (latched) | 2 |
+| `0xA9`+2n | MMUnWH | R/W | Write page bits 9–8 (bits 1–0); commits the write page only | 2 |
 
-## 5. Interrupt sources
+### 4.10 Reserved
+
+`0xB8`–`0xFD` and `0xFF`: reserved for the DMA engine, sound and later blocks.
+
+## 5. The register page
+
+MMU page `0x3F8` (REGS) shows the registers as memory. Map it into any window, for reads, writes or both (spec 2, section 6.6).
+
+| Offset | Contents | Notes |
+|--------|----------|-------|
+| `0x0000`–`0x00FF` | Ports `0x00`–`0xFF` | Offset = port number; same values, latches and side effects as I/O. Offset `0x00FE` reads the keyboard with all rows selected (any key) |
+| `0x0100`–`0x0107` | KEYROW0–7 | Spectrum keyboard row r alone, in port `0xFE`'s format (bits 4–0 active low, bit 6 from INCTL.EAR6, bits 7 and 5 = 1); read only. Row r is the row port `0xFE` selects with address line A(8 + r) = 0 (spec 12) |
+| `0x0108`–`0x01FF` | Reserved | |
+| `0x0200`–`0x03FF` | Sprite attribute table | Sprite n at `0x0200` + 16n, in spec 5's byte layout and with its commit rules; no index port needed |
+| `0x0400`–`0x07FF` | Palette | Entry n at `0x0400` + 2n: the even byte (green, blue) is held, the odd byte (red) commits the entry (spec 4). Does not touch PALIDX |
+| `0x0800`–`0x1FFF` | Reserved | Read `0xFF`, writes ignored (room for later tables: copper, DMA engine, sound) |
+
+- Opcode fetches from the register page read `0xFF` and have no side effect.
+- Register page accesses use no SRAM cycle.
+- Because a window's read and write pages are separate, a window can read ROM or RAM while its writes go to the registers: for example `LD (IX+d),A` stores to registers while code and tables are read from the same addresses.
+
+## 6. Interrupt sources
 
 Numbers are the fixed priority (lower first); the IM 2 vector is INTVEC + 2 × number (spec 8).
 
@@ -211,7 +240,7 @@ Numbers are the fixed priority (lower first); the IM 2 vector is INTVEC + 2 × n
 
 NMI (to `0x0066`): Multiface button, USB BREAK.
 
-## 6. regmap.def
+## 7. regmap.def
 
 As in retro68k, `fpga/regmap.def` is the source of truth. Each line names a port, its width in bytes, its access and its block; `tools/regmap.py` checks that no two registers overlap, that multi-byte values are consecutive, and that the copper's reach is right, then writes:
 
@@ -219,19 +248,21 @@ As in retro68k, `fpga/regmap.def` is the source of truth. Each line names a port
 - `firmware/include/hw.h` for z88dk C
 - `fpga/rtl/regmap.vh` for the Verilog decoders
 
-## 7. Test plan
+## 8. Test plan
 
 1. `regmap.py` builds from `regmap.def` and its checks pass in CI.
 2. In simulation, every port in this list answers at its address and nowhere else; reserved ports read `0xFF`; A15–A8 do not change any port but `0xFE`.
 3. For each multi-byte register: writing only the low byte changes nothing; writing the high byte commits; a copper write between the CPU's two writes does not disturb either.
 4. For counters and the beam: reading the low byte captures; the high byte read later matches the capture.
 5. The copper can only name ports `0x30`–`0x9F` (its 7-bit port field); the reserved port codes stop it and set COPSTAT.ERR (spec 6).
+6. Register page: each port answers at its offset with the same value and side effects as through I/O; a 2-byte value started through a port commits through memory and the other way round; `LD (nn),HL` commits a 2-byte register in one instruction; the sprite table and palette read and write at their offsets; KEYROW0–7 match port `0xFE`; opcode fetches read `0xFF`.
 
-## 8. Open points
+## 9. Open points
 
 | # | Item | Plan |
 |---|------|------|
 | R1 | Kempston joysticks are at port `0x1F` on a Spectrum, which is INTHIGH here | Ports keep the Kempston bit order; ported code changes the port. Could move INTHIGH and alias JOY1 at `0x1F` if porting matters more |
 | R2 | Port `0xFE` writes (border, beeper) are ignored | Decide with sound (spec 13) |
 | R3 | 59 of 64 video ports are used, 16 of 16 sprite ports | A second video bank or index port if later features need more |
-| R4 | DMA engine ports | Take from `0xA8` up when it is specified |
+| R4 | DMA engine ports | Take from `0xB8` up when it is specified |
+| R5 | Should the copper and DMA engine also see the palette and sprite table directly (as in the register page) rather than through index ports? | Not needed for version 1 |
