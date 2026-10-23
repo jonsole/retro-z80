@@ -2,7 +2,7 @@
 
 Status: **draft**
 
-The copper is a small coprocessor that follows the beam, as on the Amiga and in retro68k: it runs a list of instructions from SRAM every frame and writes custom registers at chosen beam positions. It changes colours partway down the screen, resets the layer and sprite pointers for each frame, sets a layer's line address on every line (the Spectrum screen layout), opens split screens, and so on, without the CPU.
+The copper is a small coprocessor that follows the beam, as on the Amiga and in retro68k: it runs a list of instructions from SRAM every frame and writes custom registers at chosen beam positions. It changes colours partway down the screen, resets the layer and sprite pointers and starts the sprites for each frame, sets a layer's line address on every line (the Spectrum screen layout), opens split screens, and so on, without the CPU.
 
 It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed to 8 bits: the same instructions, registers, macros, memory channel and programming model, with 16-bit instruction words that carry 8 bits of data.
 
@@ -66,7 +66,7 @@ The copper follows the **display beam**, as retro68k's does and as software sees
 | BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1. On a 2×-tall layer, write after the **last** copy of a source line |
 | CTRL, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144): write in line L's horizontal blank, or earlier |
-| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: every byte written restarts the sprite, with its new settings from the next line; write SPRxPT last, with the sprite's DMA off. Reuse needs one gap line |
+| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: only a CTL write restarts the sprite, which fetches from SPRxPT from the next line. H, V and STEP act from the next line; PT is the fetch pointer. Write PT, H, V and STEP, then CTL last. No restart at the frame start: each frame the list writes each sprite's PT, then its CTL. Reuse needs one gap line |
 
 Spec 4 has the full list; where it differs, spec 4 wins.
 
@@ -120,7 +120,7 @@ A MOVE or MOVEF writes one byte, **straight to its register**, with no latch (sp
 
 - A line setting (spec 4, section 5.6): in the horizontal blank after beam pixel 0, or in the visible part of the line before the one it is for.
 - A live pointer (BPL0PT): while the layer is not fetching, in the vertical blank, or after the layer's last fetch on a line and before the next line starts. A fetch between its bytes would move the pointer on from a mixed value (spec 4, section 4.4).
-- A sprite register: every byte restarts the sprite; write the pointer last, with the sprite's DMA off (spec 5, section 4.2).
+- A sprite register: write PT, H, V and STEP in any order, then CTL last; only the CTL write restarts the sprite. Write the pointer while the sprite is not fetching (spec 5, section 4.2).
 - **Colours are the exception** (spec 3, rule 7): MOVEs to a colour's blue and green bytes (BGCOLOR, or PALDAT) go into the copper's **colour assembly buffer**, its own, separate from the CPU's and the DMA engine's, and the red MOVE writes the colour whole. Other instructions may come between them. The buffer is one for all colours, not one per entry.
 
 MOVR follows the same rules. A CPU write between two copper MOVEs to one register lands between them, and the last write to each byte wins.
@@ -536,26 +536,23 @@ Cost: 11 words in the vertical blank; 9 at the panel. The five MOVEs after the W
 
 ### 8.4 Sprite reuse down the screen
 
-Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rule (section 4.2): the writes come after the old use's last line has been shown, and the new use starts at least one gap line later. So the copper waits for line 132, turns the sprite's DMA off, writes its window and then its pointer, and turns its DMA on again; the second use may start on line 133 or later. Each byte written restarts the sprite, and SPRxPT goes last with the DMA off, since the fetch moves it (spec 5, section 4.2).
+Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rule (section 4.2): only a CTL write restarts a sprite, and it fetches from SPRxPT from the next line; there is no restart at the frame start, so the list starts the first use in the vertical blank too. The reuse writes come after the old use's last line has been shown, and the new use starts at least one gap line after the CTL write. So the copper waits for line 132, writes the window and the pointer, then CTL; the second use may start on line 133 or later. The old use's image has finished by then, so the pointer is safe to write.
 
 ```
             ALIGN   2
-ships:      CMOVEF  SPRDMA,1                     ; sprite 0 ...
-            CMOVEF  SPRDMA+1,0                   ; ... DMA off
-            CMOVEL  SPR0+SPR_V,SHIP1_V           ; first use: window down ...
+ships:      CMOVEL  SPR0+SPR_V,SHIP1_V           ; first use: window down ...
             CMOVEL  SPR0+SPR_H,SHIP1_H           ; ... and across
-            CMOVEA  SPR0+SPR_PT,ship             ; image, last
-            CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M     ; DMA on
+            CMOVEA  SPR0+SPR_PT,ship             ; image
+            CMOVE   SPR0+SPR_CTL,SHIP_CTL        ; last: starts the sprite
             CWAIT   132,0                        ; the first use has been shown
-            CMOVEF  SPRDMA+1,0                   ; DMA off (SPRDMA0 still 1)
             CMOVEL  SPR0+SPR_V,SHIP2_V
             CMOVEL  SPR0+SPR_H,SHIP2_H
             CMOVEA  SPR0+SPR_PT,ship
-            CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M     ; DMA on
+            CMOVE   SPR0+SPR_CTL,SHIP_CTL        ; last: starts the second use
             CSTOP
 ```
 
-Cost: 2 + 2 + 4 + 4 + 3 + 2 = 17 words per reuse (WAIT, SPRDMA off, SPRxV, SPRxH, SPRxPT, SPRDMA on): the last write lands about 1.3 µs (36 pixels) after the WAIT, in line 132's horizontal blank. The sprite registers are in a MOVE's reach; SPRDMA needs MOVEF.
+Cost: 2 + 4 + 4 + 3 + 1 = 14 words per reuse (WAIT, SPRxV, SPRxH, SPRxPT, SPRxCTL): the CTL write lands about 1.1 µs (30 pixels) after the WAIT, in line 132's horizontal blank. CTL is written even when its value does not change, since only that write restarts the sprite. All the sprite registers are in a MOVE's reach.
 
 ### 8.5 Per-cell colours
 
