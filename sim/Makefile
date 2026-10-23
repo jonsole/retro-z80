@@ -5,8 +5,10 @@
 #   make vsmoke     the same test built with Verilator
 #   make hello      the system: the boot ROM prints "hello" over USB serial,
 #                   twice (the second time after the RESET control command)
+#   make hello2mb   the same on a build for a 2 MB board (CHIPMB = 2): the
+#                   self-test sees pages 0x100-0x1FF mirror 0x000-0x0FF
 #   make systest    the system test ROM: system registers, I/O decode, SRAM
-#                   bytes, writable boot ROM, soft reset
+#                   bytes, writable boot ROM, the self-test, soft reset
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #
 # Needs: iverilog, verilator, sjasmplus, python3. Tools can be given
@@ -27,8 +29,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello systest lint clean
-all: smoke vsmoke hello systest
+.PHONY: all smoke vsmoke hello hello2mb systest lint clean
+all: smoke vsmoke hello hello2mb systest
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -77,9 +79,17 @@ $(BUILD)/%.hex: $(BUILD)/%.bin
 $(BUILD)/tb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
 
+# The same testbench for a 2 MB build (spec 2, section 11)
+$(BUILD)/tb2mb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -Ptb.CHIPMB=2 -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
+
 hello: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +dma | tee hello.log
 	@grep -q "^TEST PASSED" $(BUILD)/hello.log
+
+hello2mb: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb2mb.vvp +rom=boot.hex +hello +dma | tee hello2mb.log
+	@grep -q "^TEST PASSED" $(BUILD)/hello2mb.log
 
 systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=systest.hex +dma | tee systest.log

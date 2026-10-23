@@ -97,6 +97,7 @@ module tb #(
     // ---------------------------------------------------------------- DMA load
     // Random word reads and writes in 0x380000-0x3FFFFF (SRAM page 0x1C0 up,
     // far from the Z80's pages), checked against a copy (as retro68k's +dma).
+    // On a 2 MB build they land in 0x180000-0x1FFFFF (pages 0x0C0-0x0FF).
     reg  [15:0] shadow [0:(1<<18)-1];
     reg  [17:0] pend_q [0:7];
     reg  [15:0] pend_v [0:7];
@@ -105,7 +106,7 @@ module tb #(
     reg         dma_on = 0;
     initial begin
         for (i = 0; i < (1<<18); i = i + 1) shadow[i] = 16'h0000;
-        for (i = 0; i < (1<<18); i = i + 1) sram.mem[21'h1C0000 + i] = 16'h0000;
+        for (i = 0; i < (1<<18); i = i + 1) sram.mem[(CHIPMB == 6'd2 ? 21'h0C0000 : 21'h1C0000) + i] = 16'h0000;
         dma_on = $test$plusargs("dma");
     end
     always @(posedge clk) begin

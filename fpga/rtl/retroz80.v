@@ -170,9 +170,14 @@ module retroz80 #(
     );
     assign dma_rdata = mem_rdata;
 
+    // A 2 MB build ignores physical address bit 21, for every master, so
+    // 0x200000-0x3FFFFF (MMU pages 0x100-0x1FF) mirrors the bottom half
+    // (spec 2, section 11). SYSCFG.CHIPMB reports the build's size.
+    wire [21:1] sram_addr = {go_addr[21] && CHIPMB != 6'd2, go_addr[20:1]};
+
     sram_ctl mem (
         .clk(clk), .rst(por), .sc(sc),
-        .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(go_wdata), .go_be(go_be),
+        .go(go), .go_we(go_we), .go_addr(sram_addr), .go_wdata(go_wdata), .go_be(go_be),
         .go_tag(go_tag), .start_next(m_start), .next_cycle(m_cycle),
         .rvalid(m_rvalid), .rtag(m_rtag), .rdata(mem_rdata),
         .sram_a(sram_a), .sram_ce_n(sram_ce_n), .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n),
