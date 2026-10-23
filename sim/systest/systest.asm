@@ -1,11 +1,14 @@
-; System test ROM (ticket #4): the system registers, the I/O decode, SRAM
-; byte writes, the writable boot ROM and a soft reset. Runs in place of the
+; System test ROM (tickets #4 and #5): the system registers, the I/O
+; decode, SRAM byte writes, the writable boot ROM, the boot ROM's memory and
+; MMU self-test (firmware/boot/selftest.asm, checks 0x41 up) and a soft
+; reset. Runs in place of the
 ; boot ROM (tb.v +rom=systest.hex) and prints "PASS" or "FAIL" with the
 ; number of the first check that failed.
 ;
 ; The first run (RESETWHY = POWER) checks everything, leaves a mark in SRAM
 ; and writes SYSRESET. The second run (RESETWHY = SOFTWARE) checks that the
-; mark survived and ROMLOCK stayed set, then prints the result.
+; mark survived, ROMLOCK stayed set and the MMU is back at its reset
+; mapping, then prints the result.
 
         DEVICE  NOSLOT64K
         include "hw.inc"
@@ -17,7 +20,12 @@ ROMTEST equ     0x3FF0                  ; boot ROM page 1, unused by this progra
         ORG     0x0000
 
 reset:  di
-        ld      sp,0x0000
+        jp      start
+
+        ds      0x38 - $, 0xFF
+        jp      st_rst38                ; RST 38h: the self-test's register page fetch
+
+start:  ld      sp,0x0000
         ld      bc,SERCON_P
         ld      a,SERCON_EN_M | SERCON_CTLEN_M
         out     (c),a
@@ -143,9 +151,29 @@ reset:  di
         cp      0x3C
         jp      nz,fail
 
+        ; ---- MMU (spec 2, section 9)
+        ld      d,21                    ; check 21 (0x15): IN A,(n) with A = MMU0_0 reads it
+        ld      a,MMU0_0
+        in      a,(SYSPAGE)
+        cp      0xFC
+        jp      nz,fail
+        call    selftest                ; checks 0x41 up
+        ld      d,a
+        jp      nz,fail
+
         ; ---- soft reset
         ld      hl,0x5AA5
         ld      (MARK),hl
+        ld      hl,0x0040
+        ld      bc,MMU3_0_P
+        out     (c),l
+        inc     b
+        out     (c),h                   ; window 3: page 0x040
+        ld      hl,PG_NONE
+        ld      b,MMU4W_0
+        out     (c),l
+        inc     b
+        out     (c),h                   ; window 4: writes to NONE
         ld      bc,SYSRESET_P
         ld      a,0x12                  ; a wrong value does nothing
         out     (c),a
@@ -171,6 +199,19 @@ second: ld      d,18                    ; check 18: SRAM kept across the soft re
         ld      d,20                    ; check 20: the ROM write made before the reset is kept
         ld      a,(ROMTEST)
         cp      0x3C
+        jp      nz,fail
+        ld      d,22                    ; check 22 (0x16): the reset put the MMU back
+        ld      bc,MMU3_0_P
+        in      a,(c)
+        cp      1
+        jp      nz,fail
+        ld      b,MMU4W_0
+        in      a,(c)
+        cp      2
+        jp      nz,fail
+        inc     b
+        in      a,(c)
+        or      a
         jp      nz,fail
         ld      hl,pass
         call    puts
@@ -220,6 +261,8 @@ putc:   push    bc
         out     (SERDATA_PORT),a
         pop     bc
         ret
+
+        include "selftest.asm"
 
 pass:   db      "PASS", 13, 10, 0
 failmsg: db     "FAIL ", 0
