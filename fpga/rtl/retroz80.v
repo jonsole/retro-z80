@@ -1,10 +1,10 @@
 // retro-z80: the computer, without board-specific parts (clocks, pads).
 // After retro68k's retro68k.v.
 //
-// Version for ticket #4 (phase 1): tv80 at 20 MHz behind the bus interface,
-// the scheduler and SRAM controller, the boot ROM, the system registers and
-// USB serial. One DMA port stands in for the DMA users still to come, so
-// tests can load the memory while the Z80 runs.
+// Version for ticket #6 (phase 1): tv80 at every CPUSPEED speed behind the
+// bus interface, the scheduler and SRAM controller, the boot ROM, the system
+// registers and USB serial. One DMA port stands in for the DMA users still
+// to come, so tests can load the memory while the Z80 runs.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4
@@ -84,15 +84,17 @@ module retroz80 #(
         else if (sc == 4'd4)  cpu_rst_n <= !sys_rst;
 
     // ---------------------------------------------------------------- CPU (spec 1)
-    // 20 MHz: a T-state every 5 clocks, starting on slot edges 0 and 5.
-    // CPUSPEED (spec 7, section 6.1) comes later.
-    wire cen = cpu_rst_n && (sc == 4'd4 || sc == 4'd9);
-
     wire [15:0] c_a;
     wire [7:0]  c_dout, c_di;
     wire [6:0]  c_mcycle, c_tstate;
     wire        c_m1_n, c_mreq_n, c_iorq_n, c_rd_n, c_wr_n, c_rfsh_n, c_halt_n, c_busak_n;
     wire        c_iorq, c_no_read, c_write, c_intcycle_n;
+
+    // A T-state every 5n clocks on slot edges 0 and 5, or every 28 clocks,
+    // as CPUSPEED says (spec 1, section 3; spec 7, section 6.1)
+    wire [3:0] cpuspeed;
+    wire       cen;
+    cpu_cen cdiv (.clk(clk), .rst(!cpu_rst_n), .sc(sc), .cpuspeed(cpuspeed), .t1(c_tstate[1]), .cen(cen));
 
     z80_cpu cpu (
         .clk(clk), .cen(cen), .reset_n(cpu_rst_n),
@@ -186,7 +188,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_sys), .rb_hit(hit_sys),
         .resetwhy(resetwhy), .buttons(buttons),
-        .romwe(romwe), .soft_reset(soft_reset)
+        .romwe(romwe), .soft_reset(soft_reset), .cpuspeed(cpuspeed)
     );
 
     // ---------------------------------------------------------------- USB serial (spec 10)

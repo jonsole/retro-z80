@@ -17,14 +17,15 @@ Lint everything with `sh fpga/lint.sh` (or `make -C sim lint`); it fails on any 
 |------|------|------|
 | `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial | 1, 2, 7 |
 | `z80_cpu.v` | tv80 with retro-z80's own wrapper: cen, early cycle-type outputs | 1, section 2 |
+| `cpu_cen.v` | The CPU's clock enable, set by CPUSPEED: a T-state every 5n clocks on slot edges 0 and 5, or every 28; a new speed from the next T1 | 1, section 3; 7, section 6.1 |
 | `bus_if.v` | Bus interface: memory requests at E + 3, posted writes, boot ROM, I/O decode and register bus strobes | 1, sections 4–6 |
 | `mmu.v` | The MMU's reset mapping only (windows 0–1 boot ROM, 2–7 SRAM pages 0–5); the page registers come with the MMU ticket | 2, section 9.4 |
 | `timebase.v` | Slot edge counter `sc` | 2, section 3 |
 | `dmac.v` | Scheduler: CPU on cycles 0 and 2, never turned away | 2, section 5 |
 | `sram_ctl.v` | SRAM controller, 20 ns cycles | 2, section 8 |
 | `bootrom.v` | 32 KB boot ROM in block RAM, writable with SYSCON.ROMWE | 7, section 4 |
-| `sysregs.v` | SYSID, SYSVER, SYSCFG, RESETWHY, SYSCON, SYSRESET, SYSBTN | 7, section 11.1 |
+| `sysregs.v` | SYSID, SYSVER, SYSCFG, RESETWHY, SYSCON, SYSRESET, SYSBTN, CPUSPEED | 7, section 11.1 |
 | `serial.v`, `fifo8.v` | USB serial (FT232H, 245 FIFO mode) and its FIFOs | 10 |
 | `platform/sim/oddr.v` | Behavioural DDR output register | – |
 
-The CPU runs at 20 MHz only so far (CPUSPEED comes later). tv80 needs `TV80_REFRESH` defined for the whole build (`-DTV80_REFRESH`).
+The CPU runs at every CPUSPEED speed (20 MHz ÷ 1–8, or 3.57 MHz). tv80 needs `TV80_REFRESH` defined for the whole build (`-DTV80_REFRESH`).
