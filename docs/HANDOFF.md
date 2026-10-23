@@ -56,7 +56,8 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
 2. **Programmer's guide:** the playfields chapter (`docs/guide/playfields.md`) is written; the user is checking its style and depth before the other chapters. Its spec gaps: no generated names for WINX/WINY/BEAMPOS halves, tile-map entry fields and MMU page numbers; what a loaded program inherits from the boot ROM (spec 16); level-sensitive VBLANK re-entering ported Spectrum handlers; the boot console font as a public resource.
 3. **Geometry unit (spec 15)**, branch 10, in the other session, against the new register map.
-4. **Boot ROM spec (16).**
+4. **Boot ROM spec (16)**, including how it loads the BASIC image (branch 13).
+4a. **BBC BASIC (Z80)** (branch 13): ask R. T. Russell about the name; after phase 1, break the port into tickets (host layer, loader, files, VDU). Research: `docs/notes/bbc-basic.md`.
 5. Then phase 1 (section 7) and the KS2 bring-up build (phase 3, branch 12).
 
 ## 6. Open questions (design plan section 6)
