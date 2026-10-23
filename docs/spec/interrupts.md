@@ -215,7 +215,7 @@ Registers `0x00`–`0x0F` of the system page `0x00` (spec 3). Port = (register <
 
 **Bit positions:** source n is in byte n div 7 (INTENA0/1/2, INTPEND0/1/2, INTRAW0/1/2), bit n mod 7. INTENA, INTPEND and INTRAW use the same positions, so a mask built for one works on the others.
 
-**INTENA is not a multi-byte value.** Each byte takes effect when it is written, with no latch (an exception to spec 3's multi-byte rule). Never read INTENA, change a bit and write it back: write only the bits to change, with SETCLR. Two pieces of code, or a handler and the main program, can then each turn their own sources on and off safely.
+**INTENA is not a multi-byte value.** INTENA0–2 are three separate set/clear bytes, and each takes effect when it is written, as every register byte does (spec 3, rule 2). Never read INTENA, change a bit and write it back: write only the bits to change, with SETCLR. Two pieces of code, or a handler and the main program, can then each turn their own sources on and off safely.
 
 **Names** (`fpga/regmap.def`, as retro68k's `hw.inc`): `INT_VBLANK` … `INT_SOFT` and `INT_NONE` = 23 are the source numbers; `INTB_name` is the bit within its byte and `INTR_name` the byte (0, 1 or 2), so a source is turned on by writing `INTENA_SETCLR_M | (1 << INTB_name)` to register `INTENA0 + INTR_name`. A system register's name is its register number, which is also its register page offset; `name_P` is its port (spec 3, section 8). `SYSPAGE` = `0x00` is the system page. `NMICON_BUTTONEN_M`, `NMISTAT_USB_M`, `SOFTINT_SET_M` and so on follow the same pattern.
 

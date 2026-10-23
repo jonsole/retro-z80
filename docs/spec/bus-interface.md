@@ -152,6 +152,7 @@ The MMU sends SRAM pages to the scheduler, boot ROM pages to the ROM's block RAM
 | rb_wdata[7:0] | Write data |
 | rb_rdata[7:0] | Read data, valid the clock after rb_rd: the OR of all units' outputs (a unit not addressed outputs 0) |
 | rb_hit | Some unit decoded the address. If none did, the master gets `0xFF` |
+| rb_cdata[31:0], rb_cap | With a read of a capturing register's low byte (spec 3, rule 4): the register's whole value and a flag that it is one. The reading master stores it in its one tagged capture and answers that register's higher bytes from it |
 
 Every unit decodes rb_addr, so one address names a register however it is reached. The bus has three masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
 
@@ -297,7 +298,7 @@ A memory access whose page is REGS (`0x3F8`, spec 2, section 10) becomes one reg
 
 - Reading a FIFO data register through memory takes exactly one byte. A speculative read started in every T1 (the B1 fallback) is never used for the register page.
 - A read uses the read page of its window and a write the write page, so in a window that reads ROM and writes REGS, `LD (HL),A` writes a register and `LD A,(HL)` reads the ROM.
-- Through the register page, `LD (nn),HL` writes L to nn and then H to nn + 1, which is the low-then-high order that commits a 2-byte register (spec 3).
+- Through the register page, `LD (nn),HL` writes L to nn and then H to nn + 1: a 2-byte register in one instruction, low byte first, the order the MMU pages and the colours need (spec 3, section 3.1). Every other register takes its bytes in any order.
 - At slower speeds there is more room; the strobe always comes the clock after the strobe from the core.
 
 ## 6. I/O cycles
@@ -316,7 +317,7 @@ tv80 with `IOWait = 1` makes a 4-T-state I/O cycle: T1, T2, an automatic wait st
 | E + 20 | 200 | | Next M-cycle |
 
 - **One strobe per I/O cycle.** A read of a FIFO or an index register has its side effect exactly once.
-- **Multi-byte values** (pointers, positions) are at consecutive registers, low byte at the lowest. Writing a lower byte only fills a latch; writing the highest byte commits the whole value at once. This is done inside each unit (spec 3), not by the bus interface.
+- **Multi-byte values** (pointers, positions) are at consecutive registers, low byte at the lowest. Each byte is written straight through to its register when it is written; there are no latches (spec 3, rule 2). The exceptions, the MMU pages and the colours, hold their lower bytes inside their own units. The CPU's one tagged capture for live counters (spec 3, rule 4) follows retro68k's `bus_if.v` (`rh_valid`, `rh_tag`, `rh_data`). The unit hands over the whole value on rb_cdata with the low byte (section 4.2); the capture sits in the bus interface, which answers a higher byte of the tagged register from it.
 - **Unmapped ports** read `0xFF` and ignore writes. No port gives an error.
 
 ### 6.1 Decoding: register and page
@@ -342,17 +343,17 @@ The decode is a compare of A7–A0 against the five low-byte-only ports, then of
 | `IN A,(n)` | A | **Reading:** `LD A,reg` then `IN A,(page)` reads register A of page n. With a low-byte-only port, A picks keyboard rows (port `0xFE`) or is ignored |
 | `OUT (n),A` | A | Writes the value A to the register numbered A: of no use with pages. With a low-byte-only port it works as on a Spectrum: `OUT (0xFE),A` sets the border and beeper, `OUT (0x53),A` sends a byte |
 | `INI`, `INIR`, `IND`, `INDR` | B before it is decremented | With C = a stream port (`0x53`, `0x5B`, `0x62`), B is a plain count: `INIR` reads B bytes. With C = a page, `INIR` reads registers B, B − 1, … 1 into rising addresses |
-| `OUTI`, `OTIR`, `OUTD`, `OTDR` | B after it is decremented | With C = a stream port, `OTIR` sends B bytes. With C = a page, `OTIR` writes registers B − 1, B − 2, … 0: high byte first, so it cannot write multi-byte registers. Use `OUT (C),r` with `INC B` |
+| `OUTI`, `OTIR`, `OUTD`, `OTDR` | B after it is decremented | With C = a stream port, `OTIR` sends B bytes. With C = a page, `OUTI` writes register B − 1 and `OTIR` writes registers B − 1, B − 2, … 0, stepping downwards to register 0. Registers are written directly (spec 3), so unrolled `OUTI`s can write a multi-byte register, its bytes held high byte first in memory; not the MMU pages or the colours, which need the low byte first. `OUT (C),r` with `INC B` is the usual way |
 
 A 3-byte custom register (SPR0PT, a pointer at custom offset k), low byte first. Its port is (k bits 7–0) × 256 + `0x10` + (k bits 9–8); the generated headers give it as a constant (spec 3):
 
 ```
         ld   bc,SPR0_PT_P          ; B = offset bits 7-0, C = 0x10 + offset bits 9-8
-        out  (c),l                 ; bits 7-0: latched
+        out  (c),l                 ; bits 7-0
         inc  b
-        out  (c),h                 ; bits 15-8: latched
+        out  (c),h                 ; bits 15-8
         inc  b
-        out  (c),e                 ; bits 23-16: commits
+        out  (c),e                 ; bits 23-16
 ```
 
 A register in page `0x00`, read:
@@ -463,9 +464,9 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 - **One CPU cycle per slot:** over a long run of every instruction, the CPU never asks for both cycles of one slot.
 - **Writes:** byte writes to even and odd addresses change only that byte; a read straight after a write sees the new data; a posted write goes to the page mapped in its own T1.
 - **Read and write pages:** in a split window, reads and opcode fetches use the read page and writes the write page, at all speeds.
-- **Register page:** reads and writes through REGS give one strobe each, at all speeds and with a copper write in the same clock; a FIFO read through memory takes one byte; an opcode fetch from REGS gives `0xFF` and no strobe; `LD (nn),HL` commits a 2-byte register.
-- **I/O decode:** every page `0x00` register at port r × 256, every custom offset at its port in pages `0x10`–`0x13`, with the same value and latch as at its register page offset; `INC B` steps registers; `IN A,(0x00)` with A = r reads register r; the five low-byte-only ports answer with any high byte, and port `0xFE` gets A15–A8; other pages read `0xFF` with no strobe; `OUT (0xFE),A` sets the border.
-- **Block I/O:** `INIR` and `OTIR` with C = `0x53` stream B bytes through SERDATA; with C = a page, `INI` reads register B and `OUTI` writes register B − 1 (B8).
+- **Register page:** reads and writes through REGS give one strobe each, at all speeds and with a copper write in the same clock; a FIFO read through memory takes one byte; an opcode fetch from REGS gives `0xFF` and no strobe; `LD (nn),HL` writes a 2-byte register, low byte first, in one instruction.
+- **I/O decode:** every page `0x00` register at port r × 256, every custom offset at its port in pages `0x10`–`0x13`, with the same value as at its register page offset; `INC B` steps registers; `IN A,(0x00)` with A = r reads register r; the five low-byte-only ports answer with any high byte, and port `0xFE` gets A15–A8; other pages read `0xFF` with no strobe; `OUT (0xFE),A` sets the border.
+- **Block I/O:** `INIR` and `OTIR` with C = `0x53` stream B bytes through SERDATA; with C = a page, `INI` reads register B and `OUTI` writes register B − 1 (B8); three `OUTI`s with C = a custom page write a 3-byte register from a table held high byte first.
 - **Register bus:** a copper write in the same clock as a CPU strobe goes first; the CPU's strobe moves one clock and its access still completes in time; a DMA engine access waits for both and never delays them.
 - **Instruction tests:** ZEXDOC and ZEXALL in Verilator, from SRAM and from the boot ROM, at 20 MHz and 3.57 MHz (design plan, Q3).
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.

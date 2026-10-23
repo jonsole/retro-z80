@@ -266,26 +266,26 @@ The MMU registers are system registers, so the copper and the DMA engine cannot 
 
 ### 9.2 Register format
 
-Each page register is 2 bytes (spec 3, multi-byte rule):
+Each page register is 2 bytes. Unlike the other registers, which are written directly (spec 3, rule 2), a page register **commits on its high byte**: this is one of spec 3's three exceptions (section 3.1).
 
 | Register | Port | Name | Access | Bits | Meaning | Reset |
 |----------|------|------|--------|------|---------|-------|
-| `0x80` + 2n | `0x8000` + 0x200n | MMUn_0 | RW | 7–0 | Read page bits 7–0 (latched) | Section 9.4 |
+| `0x80` + 2n | `0x8000` + 0x200n | MMUn_0 | RW | 7–0 | Read page bits 7–0 (held until MMUn_1 is written) | Section 9.4 |
 | `0x81` + 2n | `0x8100` + 0x200n | MMUn_1 | RW | 1–0 | Read page bits 9–8; writing commits the read page **and** the write page | Section 9.4 |
 | | | | | 7–2 | Unused: read 0 | |
-| `0x90` + 2n | `0x9000` + 0x200n | MMUnW_0 | RW | 7–0 | Write page bits 7–0 (latched) | Section 9.4 |
+| `0x90` + 2n | `0x9000` + 0x200n | MMUnW_0 | RW | 7–0 | Write page bits 7–0 (held until MMUnW_1 is written) | Section 9.4 |
 | `0x91` + 2n | `0x9100` + 0x200n | MMUnW_1 | RW | 1–0 | Write page bits 9–8; writing commits the write page only | Section 9.4 |
 | | | | | 7–2 | Unused: read 0 | |
 
 - **Write follows read.** Committing a read page (writing MMUn_1) sets the window's write page to the same page. Ordinary code changes a window with one register, as on any 8-bit MMU. Writing MMUnW_1 afterwards sets only the write page and splits the window.
-- Writing a low byte only fills the latch; writing the high byte commits, so a window never points at a half-changed page. Reading returns the committed value.
+- Writing byte 0 only holds it; writing byte 1 commits the page, so a window never points at a half-changed page, even while code runs from it. Write byte 0 first: `LD (nn),HL` or `OUT (C),r` with `INC B`, not `PUSH` or `LDDR`. Writing byte 1 alone commits it with the held byte 0, which is the page's current bits 7–0 if byte 0 has not been written since the last commit. Reading returns the committed value.
 - The new mapping applies from the next memory access after the commit, including the next opcode fetch. Code can change the window it runs in, as long as the next instruction is at the same address in the new page.
 
 Changing a window through ports (38 T-states):
 
 ```
         ld   bc,0x8600             ; MMU3_0: register 0x86 of page 0x00
-        out  (c),l                 ; page bits 7-0: latched
+        out  (c),l                 ; page bits 7-0: held
         inc  b                     ; MMU3_1
         out  (c),h                 ; page bits 9-8: commits read and write page
 ```
@@ -364,7 +364,7 @@ Four palettes of 256 entries, each entry 3 bytes (blue, green, red; spec 4), nee
 | `0x1A00`–`0x1CFF` | PALETTE2 (layer L2) |
 | `0x1D00`–`0x1FFF` | SPRPALETTE |
 
-Entry i of a palette starting at base B is at B + 3i: blue at B + 3i, green at B + 3i + 1, red at B + 3i + 2. The blue and green bytes are held; the **red byte commits** the entry (spec 4), as through PALDAT. So a rising `LDIR` of 768 bytes copies a whole palette, and the byte stream is the same as PALDAT's (spec 4), so one table serves `OTIR` through PALDAT and `LDIR` through the page. This path does not use or change PALIDX.
+Entry i of a palette starting at base B is at B + 3i: blue at B + 3i, green at B + 3i + 1, red at B + 3i + 2. The blue and green bytes are held in the CPU's colour assembly buffer; the **red byte commits** the entry (spec 4), as through PALDAT. This is one of spec 3's three exceptions to direct writes (section 3.1). So a rising `LDIR` of 768 bytes copies a whole palette, and the byte stream is the same as PALDAT's (spec 4), so one table serves `OTIR` through PALDAT and `LDIR` through the page. This path does not use or change PALIDX.
 
 retro68k's 4-byte entries (`0x00RRGGBB`) would need 4 KB, which does not fit beside the custom block in an 8 KB page. The palettes have no I/O page of their own (I/O pages `0x14`–`0x1F` are reserved); through I/O they are reached by PALIDX and PALDAT (spec 4).
 
@@ -373,7 +373,7 @@ retro68k's 4-byte entries (`0x00RRGGBB`) would need 4 KB, which does not fit bes
 - **No SRAM cycle:** register page accesses go to the register bus (spec 1, section 4.2), as I/O accesses do, and the CPU's memory cycle goes to the free pool. On that bus the copper goes first, then the CPU, then the DMA engine (spec 3, section 3.2).
 - **Side effects are the same as for I/O:** reading a FIFO data register (SERDATA, KBDATA, SDDATA) through the register page takes a byte. The bus interface sends the strobe only for a real read or write (spec 1, section 5.7).
 - **Opcode fetches** from the register page read `0xFF` (`RST 38h`) and have no side effect.
-- **Write order matters for multi-byte values:** `LD (nn),HL`, `LD (nn),DE`, `LDI` and `LDIR` write the low byte first and work; `PUSH` and `LDDR` write the high byte first, which commits before the low byte arrives. Don't use them on registers.
+- **Write order:** registers are written directly (spec 3, rule 2), so any instruction works on them, in any order: `LD (nn),HL`, `LDI`, `LDIR`, `PUSH`, `LDDR`. Two exceptions need the low byte first: the MMU page registers (byte 1 commits, section 9.2) and the colours (the red byte commits, section 10.2). Use `LD (nn),HL`, `LD (nn),DE`, `LDI` or `LDIR` for them, not `PUSH` or `LDDR`.
 - A read uses its window's read page and a write its write page, so in a window that reads ROM and writes REGS, `LD (HL),A` writes a register and `LD A,(HL)` reads the ROM.
 
 ## 11. Physical addresses
@@ -405,7 +405,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | Item | Resource |
 |------|----------|
 | Scheduler and SRAM controller (`dmac.v`, `sram_ctl.v`, from retro68k without HIGH) | Estimate 150–250 LUTs |
-| MMU: 16 × 10-bit page registers, latches, page decode | Estimate 100–150 LUTs |
+| MMU: 16 × 10-bit page registers, held low bytes, page decode | Estimate 100–150 LUTs |
 | Boot ROM | 16 block RAMs (spec 7) |
 
 ## 14. Test plan
@@ -417,8 +417,8 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 - **DMACON:** each user turned off asks for no cycles, and its cycles go to the others; DMAEN off turns all of them off; the CPU is not affected.
 - **SRAM model:** run the controller against retro68k's SRAM simulation model with the datasheet checks on (set-up, hold, pulse widths, bus turnaround), at 20 ns cycles, with every mix of reads and writes back to back.
 - **Byte writes:** writing an even or odd byte changes only that byte, from the CPU and from the DMA engine; chipset word reads see even bytes in the low half.
-- **MMU:** reset state; a low-byte write alone changes nothing; the high-byte write commits both; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build; ports `0x8000`–`0x9F00` and register page offsets `0x0080`–`0x009F` reach the same registers; `IN A,(0x00)` with A = `0x80` reads MMU0_0.
-- **Register page:** every page `0x00` register answers at its offset with the same value and side effects as through I/O; every custom register answers at `0x1000` + its offset as at its port; KEYROW0–7 at `0x0100`–`0x0107` match port `0xFE`; palette entries at `0x1400` + 0x300p + 3i commit on the red byte, and an `LDIR` of 768 bytes copies a palette without touching PALIDX; reserved offsets read `0xFF`; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` commits a 2-byte register; no SRAM cycle is used.
+- **MMU:** reset state; a byte 0 write alone changes nothing; the byte 1 write commits both; byte 1 written alone keeps bits 7–0; a write to another register between the two bytes changes nothing; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build; ports `0x8000`–`0x9F00` and register page offsets `0x0080`–`0x009F` reach the same registers; `IN A,(0x00)` with A = `0x80` reads MMU0_0.
+- **Register page:** every page `0x00` register answers at its offset with the same value and side effects as through I/O; every custom register answers at `0x1000` + its offset as at its port; KEYROW0–7 at `0x0100`–`0x0107` match port `0xFE`; palette entries at `0x1400` + 0x300p + 3i commit on the red byte, and an `LDIR` of 768 bytes copies a palette without touching PALIDX; reserved offsets read `0xFF`; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` writes a 2-byte register in one instruction; `PUSH` writes a 2-byte custom register correctly; no SRAM cycle is used.
 - **Physical addresses:** a pattern written by the CPU through every page is read by the DMA port at page × `0x2000` + offset; bits 23–22 of pointers are ignored.
 - **Board test:** a full RAM test from the CPU at 20 MHz and from the DMA engine at once, with the display, sprites and copper busy.
 

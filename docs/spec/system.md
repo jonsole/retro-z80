@@ -394,7 +394,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. T
 | `0x7E` | `0x7E00` | NMISAVW0 | R | 7–0 | `0xFC` | Window 0's write page at the last NMI entry, bits 7–0 |
 | `0x7F` | `0x7F00` | NMISAVHI | R | READ (1–0), WRITE (5–4) | `0x33` | Bits 9–8 of the saved read page (1–0) and write page (5–4). Bits 7–6 and 3–2 read 0 |
 
-The saved pages reset to `0x3FC`, window 0's reset page, and keep their values after `RETN` until the next NMI entry. They are read only: the restore always puts back exactly what was saved. The high bits of both pages share one register, so the whole saved state fits in the system range. The names follow spec 3's byte names: NMISAV0 is byte 0 of the saved read page and NMISAVW0 byte 0 of the saved write page, as MMU0_0 and MMU0W_0. NMISAVHI is not a byte of one value: it holds bits 9–8 of both, so it has a name of its own rather than NMISAV1. The three are separate read-only bytes, with no latch and no capture (spec 3, section 3.1).
+The saved pages reset to `0x3FC`, window 0's reset page, and keep their values after `RETN` until the next NMI entry. They are read only: the restore always puts back exactly what was saved. The high bits of both pages share one register, so the whole saved state fits in the system range. The names follow spec 3's byte names: NMISAV0 is byte 0 of the saved read page and NMISAVW0 byte 0 of the saved write page, as MMU0_0 and MMU0W_0. NMISAVHI is not a byte of one value: it holds bits 9–8 of both, so it has a name of its own rather than NMISAV1. The three are separate read-only bytes, with no capture (spec 3, section 3.1).
 
 ## 12. FPGA resources
 

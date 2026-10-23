@@ -30,13 +30,13 @@ The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxSTEP with retro68
 
 | Item | retro68k | retro-z80 | Why |
 |------|----------|-----------|-----|
-| Register width | 32-bit registers | Bytes. Each register is its bytes in order, low byte first; writing the highest byte commits it (spec 3) | Z80 |
+| Register width | 32-bit registers | Bytes. Each register is its bytes in order, low byte first; each byte is written directly, with no latch (spec 3) | Z80 |
 | Sprite registers | 32 bytes per sprite at `0x520` + n × `0x20`: PT, H, V, CTL, DAT, STEP at `+0x00`–`+0x14` | 16 bytes per sprite at custom offset `0x010` + n × `0x10`: PT (3 bytes), H (4), V (4), CTL (1), STEP (4) | Z80: a one-word copper MOVE reaches offsets below `0x0F0` only (spec 6) |
 | SPRxPT | Bits 22–1, 4 bytes | Bits 21–1 (22-bit physical SRAM address, spec 2), 3 bytes | Memory size |
 | SPRxCTL | 32 bits: BPP (13–12), DEPTH (21–20), PAL (27–24) | One byte: BPP (1–0), DEPTH (3–2), PAL (7–4). Every field fits; nothing is lost. It is the packing retro68k's `sprites.v` keeps inside | Byte registers |
 | Manual mode | SPRxDAT pushes words into the FIFO with the sprite's DMA off; a read gives the words in the FIFO | None: no SPRxDAT. A sprite with its DMA off shows what is left in its FIFO, then nothing (section 4.4) | Branch 11: 16 bytes per sprite |
 | SPRDMA, SPRCOLL | `0x500`, `0x504` | `0x120`, `0x124`; the copper reaches them with MOVEF only | Custom block layout (spec 3) |
-| SPRDMA write | One 16-bit write: SPR (7–0) and SETCLR (15) | Two bytes: SPR in byte 0 (held), SETCLR in byte 1 bit 7, which commits | Byte registers |
+| SPRDMA write | One 16-bit write: SPR (7–0) and SETCLR (15) | Two bytes: SPR in byte 0, SETCLR in byte 1 bit 7; writing byte 1 sets or clears the bits of byte 0 | Byte registers |
 | CPU cycles | An urgent sprite fetch may take the CPU's cycle 0; the CPU waits one slot | An urgent fetch never takes a cycle the CPU is using; the CPU never waits (spec 2). Sprites get cycles 1 and 3 by deadline, then spare cycles | Z80: no wait states (spec 1) |
 | Spare cycles | The 68000 leaves at least every other cycle 0 | The Z80 at 20 MHz makes at most one access in 1.5 slots, so at least one of its two cycles (0, 2) is spare in every slot (spec 2) | Memory timing (spec 2) |
 | Colours | 24-bit palette entries | The same, 3 bytes per entry (spec 4) | – |
@@ -166,23 +166,23 @@ Each sprite has a **FIFO of 32 words**, its data registers. The fetcher pushes t
 
 ### 4.2 Starting again
 
-At the start of each frame (beam line 0, pixel 0), and whenever a write **commits** SPRxPT, SPRxH, SPRxV, SPRxCTL or SPRxSTEP, the sprite **starts again**, as in retro68k: its FIFO is emptied, reads still on their way are dropped, and it fetches its image afresh from SPRxPT and shows it from VSTART. With byte registers, the commit is the write of the highest byte (SPRxPT byte 2, SPRxH byte 3, SPRxV byte 3, SPRxCTL, SPRxSTEP byte 3); writing a lower byte only fills the latch (spec 3). It is the copper's job to point SPRxPT at the image's first line each frame.
+At the start of each frame (beam line 0, pixel 0), and whenever **any byte** of SPRxPT, SPRxH, SPRxV, SPRxCTL or SPRxSTEP is written, the sprite **starts again**, as in retro68k: its FIFO is emptied, reads still on their way are dropped, and it fetches its image afresh from SPRxPT and shows it from VSTART. Each byte is written directly, with no latch (spec 3), so writing a 4-byte register restarts the sprite 4 times; the last restart wins. It is the copper's job to point SPRxPT at the image's first line each frame.
 
 **When writes take effect.** The pixel side takes each sprite's settings at the end of each line for the next one. A restart's new settings apply from the next line, as far as the FIFO can be filled in time. Two rules follow, as in retro68k:
 
-1. **Write SPRxPT last.** SPRxPT moves as the image is fetched, and the fetch starts as soon as the sprite starts again. If the pointer is written first and then the window, the restart from the window write takes the pointer where the fetch had already moved it. Write the window, CTL and STEP first, then the pointer.
+1. **Write SPRxPT last, with the sprite's DMA off.** SPRxPT moves as the image is fetched, and the fetch starts as soon as the sprite starts again. If the pointer is written first and then the window, the restart from the window write takes the pointer where the fetch had already moved it. The same can happen between the pointer's own bytes: the restart from SPRxPT0 starts a fetch, which can move the pointer on before SPRxPT1 and SPRxPT2 arrive. So clear the sprite's SPRDMA bit, write the window, CTL, STEP and then the pointer, and set the bit again: with its DMA off a restart fetches nothing and the pointer keeps what was written (section 4.4; open point S10).
 2. **Change a sprite while it is not being drawn:** in the vertical blank, or after its last line. A restart while the sprite is on the screen starts it again partway down, from wherever its pointer had got to.
 
 | Register | Takes effect |
 |----------|--------------|
-| SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP | On commit: restart. New settings from the next line |
+| SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP | On each byte written: restart. New settings from the next line |
 | SPRDMA, DMACON.SPREN, DMACON.DMAEN | At once. No restart (section 4.4) |
 | SPRCOLL | At once |
 | SPRPALETTE, VIDCON.SHAREPAL, PRIO | Spec 4's rules |
 
-The copper has its own latch (spec 6), so its byte writes and the CPU's never mix. Software and the copper see the display beam (spec 4), as in retro68k.
+The copper's byte writes and the CPU's land in the order the register bus takes them, and the last write to each byte wins (spec 3, rule 3): let one of them own each sprite. Software and the copper see the display beam (spec 4), as in retro68k.
 
-**Reusing a sprite further down the screen**, as Amiga programs do with their control words: after the sprite's last line, the copper WAITs, then writes the sprite's window, CTL and STEP as needed, and its pointer last. The rules, as retro68k's:
+**Reusing a sprite further down the screen**, as Amiga programs do with their control words: after the sprite's last line, the copper WAITs, clears the sprite's SPRDMA bit, writes the sprite's window, CTL and STEP as needed and its pointer last, and sets the SPRDMA bit again. The rules, as retro68k's:
 
 - the writes come after the old use's last line has been shown: for a last line E, a WAIT for (E + 1, 0);
 - the new use starts on a later line than the old one ends, with **at least one gap line** (VSTART ≥ E + 2), so that the fetch has time to fill the FIFO before the new use's first line.
@@ -202,6 +202,7 @@ A sprite fetches only while its SPRDMA bit, DMACON.SPREN and DMACON.DMAEN are al
 
 - Turning a sprite's DMA off stops its fetch at once. The sprite still shows the words already in its FIFO (at most 32), then nothing; it does not set SPRUNDER. The next frame start empties the FIFO, so from then on it shows nothing. To hide a sprite at once, set VSTART to 625 or more.
 - Turning it on again part-way down a frame resumes the fetch where it stopped, so the sprite may show from the wrong line until it next starts. Change SPRDMA in the vertical blank, or write the sprite's SPRxPT after it.
+- A sprite whose DMA is off still restarts on every write, but fetches nothing, so its pointer keeps what was written. This is how the pointer is written safely (section 4.2): DMA off, the registers, DMA on.
 
 ## 5. Memory budget
 
@@ -238,30 +239,31 @@ Sprite n (0–7) at `0x010` + n × `0x10`:
 |--------|------|--------|------|-------------|-------|
 | `+0x0` | SPRxPT0 | RW | 7–1 | SPRxPT bits 7–1; bit 0 ignored, reads 0 (lines are words) | 0 |
 | `+0x1` | SPRxPT1 | RW | 7–0 | SPRxPT bits 15–8 | 0 |
-| `+0x2` | SPRxPT2 | RW | 5–0 | SPRxPT bits 21–16. **Writing it commits SPRxPT and restarts the sprite.** Bits 7–6 ignored; bit 5 ignored on a 2 MB board (spec 2) | 0 |
+| `+0x2` | SPRxPT2 | RW | 5–0 | SPRxPT bits 21–16. Bits 7–6 ignored; bit 5 ignored on a 2 MB board (spec 2) | 0 |
 | `+0x3` | SPRxH0 | RW | 7–0 | HSTART bits 7–0 | 0 |
 | `+0x4` | SPRxH1 | RW | 2–0 | HSTART bits 10–8 | 0 |
 | `+0x5` | SPRxH2 | RW | 7–0 | HSTOP bits 7–0 | 0 |
-| `+0x6` | SPRxH3 | RW | 2–0 | HSTOP bits 10–8. **Writing it commits SPRxH and restarts the sprite** | 0 |
+| `+0x6` | SPRxH3 | RW | 2–0 | HSTOP bits 10–8 | 0 |
 | `+0x7` | SPRxV0 | RW | 7–0 | VSTART bits 7–0 | 0 |
 | `+0x8` | SPRxV1 | RW | 2–0 | VSTART bits 10–8 | 0 |
 | `+0x9` | SPRxV2 | RW | 7–0 | VSTOP bits 7–0 | 0 |
-| `+0xA` | SPRxV3 | RW | 2–0 | VSTOP bits 10–8. **Writing it commits SPRxV and restarts the sprite** | 0 |
-| `+0xB` | SPRxCTL | RW | 1–0, 3–2, 7–4 | BPP, DEPTH, PAL (section 3.3). **Writing it restarts the sprite** | 0 |
+| `+0xA` | SPRxV3 | RW | 2–0 | VSTOP bits 10–8 | 0 |
+| `+0xB` | SPRxCTL | RW | 1–0, 3–2, 7–4 | BPP, DEPTH, PAL (section 3.3) | 0 |
 | `+0xC` | SPRxSTEP0 | RW | 7–0 | XSTEP bits 7–0 | 0 |
 | `+0xD` | SPRxSTEP1 | RW | 7–0 | XSTEP bits 15–8 | 0 |
 | `+0xE` | SPRxSTEP2 | RW | 7–0 | YSTEP bits 7–0 | 0 |
-| `+0xF` | SPRxSTEP3 | RW | 7–0 | YSTEP bits 15–8. **Writing it commits SPRxSTEP and restarts the sprite** | 0 |
+| `+0xF` | SPRxSTEP3 | RW | 7–0 | YSTEP bits 15–8 | 0 |
 
-- Unused bits are written 0 and read 0. Writing only the highest byte commits it with the other bytes unchanged (spec 3).
-- Reads give the committed value. SPRxPT reads give where the fetch has got to: the start of the image line being fetched, as retro68k's `sprites.v`. It changes by itself, so **reading SPRxPT0 captures all three bytes**, and SPRxPT1 and SPRxPT2 read the captured copy (spec 3's rule for values that change by themselves).
+- **Writing any byte of `+0x0`–`+0xF` restarts the sprite** (section 4.2). Each byte is written directly; the others keep their values.
+- Unused bits are written 0 and read 0.
+- Reads give the value written. SPRxPT reads give where the fetch has got to: the start of the image line being fetched, as retro68k's `sprites.v`. It changes by itself, so **reading SPRxPT0 captures all three bytes**, and SPRxPT1 and SPRxPT2 read the captured copy (spec 3, rule 4: one tagged capture for the CPU).
 
 Sprite globals:
 
 | Offset | Port | Name | Access | Bits | Description | Reset |
 |--------|------|------|--------|------|-------------|-------|
-| `0x120` | `0x2011` | SPRDMA0 | RW | 7–0 | SPR: DMA on for sprite n (bit n). Write: held in the latch. Read: the enables | `0xFF` |
-| `0x121` | `0x2111` | SPRDMA1 | W | 7 | SETCLR (SPRDMA bit 15). **Writing it commits:** SETCLR = 1 sets the SPR bits written as 1 in SPRDMA0; SETCLR = 0 clears them. Others unchanged. Reads 0 | – |
+| `0x120` | `0x2011` | SPRDMA0 | RW | 7–0 | SPR: DMA on for sprite n (bit n). Write: the bits SPRDMA1 acts on; they act only when SPRDMA1 is written. Read: the enables | `0xFF` |
+| `0x121` | `0x2111` | SPRDMA1 | W | 7 | SETCLR (SPRDMA bit 15). **Writing it acts**, a trigger like a strobe: SETCLR = 1 sets the SPR bits written as 1 in SPRDMA0; SETCLR = 0 clears them. Others unchanged. Reads 0 | – |
 | `0x122`–`0x123` | | – | – | – | Reserved (SPRDMA bits 31–16) | – |
 | `0x124` | `0x2411` | SPRCOLL0 | R, W1C | 7–0 | SPR: sprite n touched another sprite (section 3.6) | 0 |
 | `0x125` | `0x2511` | SPRCOLL1 | R, W1C | 7–0 | L0: sprite n touched layer 0 | 0 |
@@ -269,7 +271,7 @@ Sprite globals:
 | `0x127` | `0x2711` | SPRCOLL3 | R, W1C | 7–0 | L2: sprite n touched layer 2 | 0 |
 | `0x128`–`0x12F` | | – | – | – | Reserved: read `0xFF`, writes ignored (spec 3) | – |
 
-- SPRCOLL's bytes are status bits: each byte is read and cleared on its own, with no latch (spec 3).
+- SPRCOLL's bytes are status bits: each byte is read and cleared on its own (spec 3).
 
 Bits elsewhere:
 
@@ -300,11 +302,17 @@ Bits elsewhere:
 
 sjasmplus syntax. `VID_X0` (144) and `VID_Y0` (49) are the picture's top left corner in beam coordinates. A 32 × 24 sprite at 4 bpp, in colours 32–47 (PAL 2), behind the front layer (DEPTH 1), on sprite 0 at picture pixel 200, line 100. The image is 24 lines of 16 bytes at physical address `ship`.
 
-**Once, from the CPU, with ports.** H, V and CTL are consecutive, so `INC B` walks through them; the pointer goes last:
+**Once, from the CPU, with ports.** H, V and CTL are consecutive, so `INC B` walks through them; the pointer goes last, with the sprite's DMA off:
 
 ```
 X0      equ  VID_X0+200
 Y0      equ  VID_Y0+100
+        ld   bc,CPORT(SPRDMA)
+        ld   a,1             ; sprite 0
+        out  (c),a           ; SPRDMA0: the bits to act on
+        inc  b
+        xor  a
+        out  (c),a           ; SPRDMA1, SETCLR = 0: sprite 0's DMA off
         ld   bc,CPORT(SPR0+SPR_H)
         ld   hl,X0
         ld   de,X0+32
@@ -314,7 +322,7 @@ Y0      equ  VID_Y0+100
         inc  b
         out  (c),e           ; HSTOP bits 7-0
         inc  b
-        out  (c),d           ; HSTOP bits 10-8: commits SPR0H
+        out  (c),d           ; HSTOP bits 10-8
         inc  b
         ld   hl,Y0
         ld   de,Y0+24
@@ -324,7 +332,7 @@ Y0      equ  VID_Y0+100
         inc  b
         out  (c),e           ; VSTOP
         inc  b
-        out  (c),d           ; commits SPR0V
+        out  (c),d
         inc  b
         ld   a,2<<SPR_CTL_PAL_B | 1<<SPR_CTL_DEPTH_B | 1<<SPR_CTL_BPP_B
         out  (c),a           ; SPR0CTL: PAL 2, DEPTH 1, 4 bpp
@@ -336,7 +344,13 @@ Y0      equ  VID_Y0+100
         out  (c),a
         inc  b
         ld   a,ship >> 16
-        out  (c),a           ; commits SPR0PT, last
+        out  (c),a           ; SPR0PT, last
+        ld   bc,CPORT(SPRDMA)
+        ld   a,1
+        out  (c),a
+        inc  b
+        ld   a,SPRDMA_SETCLR_M
+        out  (c),a           ; sprite 0's DMA on again
 ```
 
 The same window through the register page, mapped into window 7 (`REGS` = `0xE000`; the custom block at `REGS + 0x1000`). `LD (nn),HL` writes the low byte first:
@@ -345,36 +359,44 @@ The same window through the register page, mapped into window 7 (`REGS` = `0xE00
         ld   hl,X0
         ld   (REGS+0x1000+SPR0+SPR_H),hl     ; HSTART
         ld   hl,X0+32
-        ld   (REGS+0x1000+SPR0+SPR_H+2),hl   ; HSTOP: commits
+        ld   (REGS+0x1000+SPR0+SPR_H+2),hl   ; HSTOP
 ```
 
-**In the copper list**, every frame (in the vertical blank), the pointer, last (`CMOVEA` writes a 3-byte register, spec 6):
+**In the copper list**, every frame (in the vertical blank), the pointer, last, with the sprite's DMA off (`CMOVEA` writes a 3-byte register, spec 6):
 
 ```
-        CMOVEA  SPR0+SPR_PT,ship         ; 3 MOVEs, the last commits
+        CMOVEF  SPRDMA,1                 ; sprite 0 ...
+        CMOVEF  SPRDMA+1,0               ; ... DMA off
+        CMOVEA  SPR0+SPR_PT,ship         ; 3 MOVEs
+        CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M ; sprite 0's DMA on (SPRDMA0 still 1)
 ```
 
-To move the ship, write SPR0H and SPR0V and then SPR0PT, in the vertical blank.
+To move the ship, write SPR0H and SPR0V and then SPR0PT, in the vertical blank, with the sprite's DMA off.
 
 **The same ship at 1.5× its size:** a 48 × 36 window, and steps of 2048 ÷ 1.5 = `0x0555` across and down (the image is still 32 × 24: ⌈48 × `0x555` ÷ 2048⌉ = 32):
 
 ```
+        CMOVEF  SPRDMA,1
+        CMOVEF  SPRDMA+1,0                                      ; sprite 0's DMA off
         CMOVEL  SPR0+SPR_H,((VID_X0+200+48)<<16)|(VID_X0+200)
         CMOVEL  SPR0+SPR_V,((VID_Y0+100+36)<<16)|(VID_Y0+100)
         CMOVEL  SPR0+SPR_STEP,($0555<<16)|$0555
         CMOVEA  SPR0+SPR_PT,ship
+        CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M                        ; on again
 ```
 
 **Reusing sprite 0** for a second ship from picture line 300: the first ship's last line is picture line 123, so the copper waits for line 124 and writes sprite 0 again; the second use starts well after the gap line:
 
 ```
         CWAIT   VID_Y0+124,0                                    ; ship 1 has been shown
+        CMOVEF  SPRDMA+1,0                                      ; DMA off (SPRDMA0 still 1)
         CMOVEL  SPR0+SPR_H,((VID_X0+432)<<16)|(VID_X0+400)
         CMOVEL  SPR0+SPR_V,((VID_Y0+324)<<16)|(VID_Y0+300)
         CMOVEA  SPR0+SPR_PT,ship2                               ; pointer last
+        CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M                        ; DMA on
 ```
 
-Thirteen words: 2 for the WAIT, 4 + 4 + 3 MOVEs. At the copper's PRI 1 rate (one word per slot, spec 6) the last MOVE lands about 1 µs after the WAIT. Writing only the bytes that change is enough: the others keep their values, and the highest byte commits.
+Seventeen words: 2 for the WAIT, 4 + 4 + 3 MOVEs and two MOVEFs of 2 words each, with SPRDMA0 left at 1 from the vertical blank (write it again first if other code changes it). At the copper's PRI 1 rate (one word per slot, spec 6) the last MOVEF lands about 1.3 µs after the WAIT. Writing only the bytes that change is enough: each byte is written directly, and the others keep their values.
 
 **Collisions,** once a frame in the vertical blank:
 
@@ -400,7 +422,7 @@ The sprite RTL is retro68k's `sprites.v` and `sprite_pix.v`, with a byte registe
 | `sprites.v`: registers, sizes, fetcher, deadlines, 8 FIFOs of 32 × 16 bits (distributed RAM) | About 2,000 |
 | 8 pixel units (`sprite_pix.v`) | About 90 each, 730 in all |
 | Mixing with the layers (depth), collisions | A few hundred |
-| Byte register front end (latches, commit on the highest byte, SPRxPT capture) | About 50 more |
+| Byte register front end (byte writes, restart on any byte, SPRxPT capture) | About 20 more |
 | Total | About 3,000; no block RAM |
 
 The per-sprite state lives in distributed RAM, worked on one sprite a clock, as in retro68k. The earlier draft's 4 RAMB18 for a row store are no longer needed.
@@ -414,8 +436,8 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 - **Golden images:** sprites of many window sizes at 2, 4 and 8 bpp; many steps (bigger, smaller, odd steps, different across and down, the limits, step 0); PAL blocks; SHAREPAL; clipped at all four edges (HSTART 0, VSTART 2, HSTOP and VSTOP past the edges); every DEPTH against three layers in several PRIO orders, over transparent and opaque layer pixels; DEPTH first then number; direct colour; compared pixel by pixel with the Python video model extended with sprites (retro68k's model, narrowed).
 - **Collisions:** known overlaps set exactly the expected SPRCOLL bits in all four bytes; none from clipped pixels, the blanking, or an underrun sprite; W1C clears only the bits written.
 - **Pointer:** SPRxPT after a frame equals the image's start + lines × line length, also with right clipping and YSTEP above and below `0x0800`; reading SPRxPT0 captures all three bytes.
-- **Byte registers:** a write of each register's lower bytes alone changes nothing; the highest byte commits and restarts; the copper's and the CPU's latches never mix; SPRDMA set and clear through SPRDMA1.
-- **Restart:** each of PT, H, V, CTL and STEP committed mid-frame empties the FIFO and takes the new settings from the next line; writes in the order window, CTL, STEP, pointer show the image from its first line.
+- **Byte registers:** each byte of PT, H, V, CTL and STEP takes effect when written and restarts the sprite, whatever its order; a 4-byte register written whole restarts it 4 times and ends with the last byte's settings; copper and CPU writes to the same sprite land in bus order; SPRDMA0 alone changes nothing; SPRDMA set and clear through SPRDMA1.
+- **Restart:** each of PT, H, V, CTL and STEP written mid-frame empties the FIFO and takes the new settings from the next line; writes in the order window, CTL, STEP, pointer, with the sprite's DMA off, show the image from its first line; the pointer written with DMA on while a fetch runs between its bytes shows the case section 4.2 warns of.
 - **Reuse:** one sprite shown three times down the screen by the copper (retro68k's three ships), with one gap line.
 - **DMA off:** SPRDMA cleared mid-sprite shows the FIFO's words then nothing, with no SPRUNDER; the next frame shows nothing; SPRDMA set in the vertical blank shows the sprite from its first line.
 - **Budget and underrun:** each row of section 5's table, with the CPU at 20 MHz running a memory-heavy loop: the sprites the table allows always show; a deliberate overload sets SPRUNDER, the sprite shows nothing more that frame, and VIDERR is raised with VIDINTEN.SPRUNDER set.
@@ -435,3 +457,4 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 | S7 | Closed: manual mode (SPRxDAT) dropped (branch 11), so 16 bytes per sprite |
 | S8 | Closed: the earlier draft's row store, 512-byte limit, exact L + 2 write rule, line-0 rule and budget B = 224 − D − C are replaced by retro68k's FIFOs and rules (branch 11) |
 | S9 | Closed: SPRDMA (set/clear, SETCLR in its high byte) and SPRCOLL (separate W1C bytes) are listed in spec 3 |
+| S10 | With direct writes (design plan, branch 11) every byte of SPRxPT restarts the sprite, and the restart's fetch can move the pointer before its other bytes arrive. Section 4.2 asks for the pointer to be written with the sprite's DMA off, which costs a list two or three MOVEFs per sprite. Other ways out, each a change to retro68k's sprite unit: a restart's fetch could wait until SPRxPT2 is written or the next line starts; or SPRxPT could hold the image's start while a separate fetch address moves (reads would then give the start, and SPRxPT would need no capture). To be decided |

@@ -28,12 +28,12 @@ It is retro68k's DMA engine as decided for its version 1 (its spec 11), narrowed
 | Item | retro68k (spec 11) | retro-z80 | Why |
 |------|--------------------|-----------|-----|
 | Channels, jobs, descriptors, chains | 4 channels; COPY, FILL, KEYCOPY, LOGIC, ADD; 32-byte descriptors with NEXT; START, RUN, STOP, PAUSE | The same | – |
-| Registers | 32-bit | 8-bit; each of retro68k's long words is the same bits in consecutive bytes, low byte first, committed by its highest used byte (spec 3, rule 2) | Z80: 8-bit ports |
+| Registers | 32-bit | 8-bit; each of retro68k's long words is the same bits in consecutive bytes, low byte first, each written directly (spec 3, rule 2) | Z80: 8-bit ports |
 | STRIDE | One register: SRCSTRIDE in bits 31–16, DSTSTRIDE in bits 15–0 | Two 2-byte registers, DSTSTRIDE then SRCSTRIDE, in the same bytes | 8-bit registers: each stride can be written alone |
 | Register offsets | Channel n at `0x300 + n × 0x40`; DMXINT `0x3F0`, DMXINTEN `0x3F4` | Channel n at `0x140 + n × 0x40`; DMXINT `0x230`, DMXINTEN `0x234` (the same place after channel 3: base + `0xF0`, + `0xF4`) | The custom block is 1 KB (spec 3) |
 | Addresses | 24-bit CPU addresses | Physical: MMU page × `0x2000` + offset (23 bits), so the custom registers are at `0x7F1000` (section 4) | Z80: 64 KB address space; chipset units do not use the MMU windows (spec 2) |
-| Register accesses | 32-bit; addresses, lengths and strides multiples of 4 | Bytes, at any address, through each channel's own latch | 8-bit registers |
-| Palettes | 4-byte entries (`0x00RRGGBB`) at `0xE04000` | 3-byte entries (blue, green, red; the red byte commits) in the register page (spec 4) | retro-z80's palette format (branch 11) |
+| Register accesses | 32-bit; addresses, lengths and strides multiples of 4 | Bytes, at any address, each written directly; no latch (spec 3, rule 3) | 8-bit registers; no latches (design plan, branch 11) |
+| Palettes | 4-byte entries (`0x00RRGGBB`) at `0xE04000` | 3-byte entries (blue, green, red; the red byte changes the entry) in the register page (spec 4) | retro-z80's palette format (branch 11) |
 | Descriptor RAM | 2 KB inside the FPGA at `0xE06000` | None in version 1: descriptors in SRAM only. Open point D5 | Block RAM |
 | Boot ROM | A source, on the register bus | A source too, read only, at `0x7F8000`–`0x7FFFFF`, through the ROM's second block RAM port (spec 2, section 2) | The CPU reaches the ROM through the MMU, not the register bus |
 | HIGH, CPUSHARE | A job may take some of the CPU's cycle 0s | Left out: CTRL bit 11 is ignored, CHCTRL bits 5–4 reserved | The Z80 never waits for SRAM (design plan, branch 11) |
@@ -157,12 +157,12 @@ A program finds the physical address of something it has mapped from the window'
 
 - Register accesses are bytes, at any address, with BPP = 8 and no DESC. A job with DESC or another BPP on registers is an error.
 - Only COPY and FILL may write registers. A COPY from SRAM into a block of registers sets up a whole layer, or several, in one job; a COPY into another channel's CHCTRL starts that channel, just as a CPU write does, so one chain can start others. COPY can also read registers into SRAM, for example to save a screen setup or to log beam positions.
-- **Multi-byte values:** each channel writes registers through **its own latch**, which follows spec 3, rules 2 and 3 (lower bytes held, the highest byte commits). So a channel's writes never mix with the CPU's, the copper's or another channel's. A job that writes a register must write its highest byte, or the value is not committed.
-- **Reading:** a register read by the engine has no side effect. For registers that capture (spec 3, rule 4), the engine has its own capture, separate from the CPU's: a job that reads the lowest byte first reads one consistent value.
+- **Multi-byte values:** the engine writes each byte of a register **directly**, as the CPU does (spec 3, rules 2 and 3). There is no latch. A CPU or copper write can land between two of a job's bytes, and the last write to each byte wins. So a job that changes wide display registers (layer pointers, scroll, windows, sprites) runs in the vertical blank, or is started by the copper at a set position, as the CPU's writes are.
+- **Reading:** a register read by the engine has no side effect. For registers that capture (spec 3, rule 4), the engine has **one tagged capture**, separate from the CPU's: a job that reads the low byte first reads one consistent value. The capture is shared by the four channels, so two channels that read counters at the same time replace each other's capture (open point D11).
 - A DMA register write has exactly the same effect as a CPU write to the same register, including its timing rules (for example, a layer setting for line n written before line n starts, spec 4). Writes ignored by the CPU (read-only registers, reserved offsets) are ignored for the engine too, without an error.
 - Register and palette accesses take one 100 MHz clock each on the FPGA's register bus. The copper goes first, then the CPU, then the engine (spec 1, section 4.2; spec 3, rule 8): a job waits a clock when either of the others is using the bus. Boot ROM reads also take one clock each, on the ROM's own port.
 
-**Palettes** are memory to the engine: any operation can use them, a byte at a time, at any address, with no DESC (DESC on palettes is an error). An entry changes when its red byte is written, as for the CPU through the register page (spec 4); each channel has its own latch for this. A job that covers whole entries forwards therefore changes them entry by entry. A saturating ADD over a palette's bytes fades it.
+**Palettes** are memory to the engine: any operation can use them, a byte at a time, at any address, with no DESC (DESC on palettes is an error). An entry changes when its red byte is written, as for the CPU through the register page (spec 4). The blue and green bytes wait in the engine's colour assembly buffer, one for the whole engine, as the CPU and the copper each have one (spec 3, section 3.1). A job that covers whole entries forwards therefore changes them entry by entry. Two channels writing colours at the same time share the buffer and can mix their bytes (open point D11). A saturating ADD over a palette's bytes fades it.
 
 **Ports:**
 
@@ -247,7 +247,7 @@ These figures are worked out from the slot rules; open point D2 is to measure th
 
 ## 8. Channels and registers
 
-Custom block offsets (spec 3, section 5). From the CPU: port = (offset bits 7–0) << 8 | (`0x10` + offset bits 9–8), used with `LD BC,port` then `OUT (C),r` or `IN r,(C)`; `INC B` steps to the next register. In the register page the engine is at `0x1140`–`0x123F` (offset + `0x1000`). The copper reaches it with MOVEF (section 9.2). Multi-byte values are low byte first and commit on their highest byte (spec 3, rule 2). Reserved offsets read `0xFF` and ignore writes (spec 3, rule 11).
+Custom block offsets (spec 3, section 5). From the CPU: port = (offset bits 7–0) << 8 | (`0x10` + offset bits 9–8), used with `LD BC,port` then `OUT (C),r` or `IN r,(C)`; `INC B` steps to the next register. In the register page the engine is at `0x1140`–`0x123F` (offset + `0x1000`). The copper reaches it with MOVEF (section 9.2). Multi-byte values are low byte first, and each byte is written directly (spec 3, rule 2). Reserved offsets read `0xFF` and ignore writes (spec 3, rule 11).
 
 **Channel bases:**
 
@@ -353,14 +353,14 @@ clear:      ld   bc,DMX2_CHSTAT_P
             out  (c),a
             inc  b
             xor  a
-            out  (c),a                ; commits CTRL
+            out  (c),a                ; CTRL bits 23-16
             ld   b,high DMX2_DST_P    ; DST = 0x020000
             out  (c),a
             inc  b
             out  (c),a
             inc  b
             ld   a,0x02
-            out  (c),a                ; commits DST
+            out  (c),a                ; DST bits 23-16
             ld   b,high DMX2_WIDTH_P  ; WIDTH = 103,680 = 0x019500, one row
             xor  a
             out  (c),a
@@ -369,14 +369,14 @@ clear:      ld   bc,DMX2_CHSTAT_P
             out  (c),a
             inc  b
             ld   a,0x01
-            out  (c),a                ; commits WIDTH
+            out  (c),a                ; WIDTH bits 23-16
             ld   b,high DMX2_HEIGHT_P ; HEIGHT = 1, SRCBIT = DSTBIT = 0
             out  (c),a
             inc  b
             xor  a
             out  (c),a
             inc  b
-            out  (c),a                ; commits HEIGHT
+            out  (c),a                ; HEIGHT bits 23-16
             ld   b,high DMX2_VALUE_P  ; VALUE = 0
             out  (c),a
             inc  b
@@ -384,13 +384,13 @@ clear:      ld   bc,DMX2_CHSTAT_P
             inc  b
             out  (c),a
             inc  b
-            out  (c),a                ; commits VALUE
+            out  (c),a                ; VALUE bits 31-24
             inc  b                    ; NEXT = 0: a single job
             out  (c),a
             inc  b
             out  (c),a
             inc  b
-            out  (c),a                ; commits NEXT
+            out  (c),a                ; NEXT bits 23-16
             ld   b,high DMX2_CHCTRL_P
             ld   a,DMX_CHCTRL_RUN_M
             out  (c),a
@@ -432,7 +432,7 @@ draw:       ld   bc,DMX2_CHDESC_P     ; the channel is idle
             out  (c),a
             inc  b
             ld   a,(job1+PHYS)>>16
-            out  (c),a                ; commits CHDESC
+            out  (c),a                ; CHDESC bits 23-16
             ld   b,high DMX2_CHCTRL_P
             ld   a,DMX_CHCTRL_START_M
             out  (c),a                ; DMA2 interrupts when job2 is done
@@ -441,7 +441,7 @@ draw:       ld   bc,DMX2_CHDESC_P     ; the channel is idle
 
 ### 9.2 From the copper
 
-The engine's registers are past `0x0EF`, so the copper writes them with **MOVEF** (spec 6), one byte per instruction of two words. The copper reads its list in the free pool, ahead of the engine, at least one word per slot (cycle 4). Its writes go through its own latch (spec 3, rule 3), so they never mix with a CPU write in progress.
+The engine's registers are past `0x0EF`, so the copper writes them with **MOVEF** (spec 6), one byte per instruction of two words. The copper reads its list in the free pool, ahead of the engine, at least one word per slot (cycle 4). Its writes are direct, as the CPU's are (spec 3, rule 3). Set a job up while the channel is idle (writes are ignored while BUSY), and let one of the CPU and the copper own each channel, so their bytes never mix.
 
 | Copper work | MOVEFs | Words read | Time, at one word per slot |
 |-------------|--------|------------|----------------------------|
@@ -489,7 +489,7 @@ Software decides, but a sensible default, as retro68k's:
 
 | Item | Resource |
 |------|----------|
-| Job registers, CHDESC and latches, 4 channels | Flip-flops, or distributed RAM (about 4 × 40 bytes) |
+| Job registers and CHDESC, 4 channels; one capture and one colour assembly buffer | Flip-flops, or distributed RAM (about 4 × 40 bytes) |
 | Per-channel state (the running job's positions) | Distributed RAM, one channel worked on at a time (as retro68k's `bpldma.v` and `sprites.v`) |
 | Data buffer between reads and writes (16 bytes and the shifter's carry) | Logic |
 | The shared datapath: 2D address units, byte and pixel shifter, edge masks, colour key compare, logic function, per-pixel adder | Estimate 1,500–2,500 LUTs, as retro68k's, to confirm by synthesis; pipelined from the start for 100 MHz |
@@ -503,13 +503,13 @@ Software decides, but a sensible default, as retro68k's:
 - **ADD:** every BPP, wrap and saturate, signed and unsigned, memory and constant sources; carries never cross pixels.
 - **Chains:** a chain of mixed jobs in SRAM; IRQ only on the marked ones; jobs of zero width or height; a CHDESC or NEXT not a multiple of 4.
 - **Direct jobs:** a job written into the job registers and started with RUN, with and without a NEXT chain after it; job register and CHDESC writes ignored while BUSY; the job registers read back as loaded; `LDIR` of a 32-byte image through the register page sets a job.
-- **Registers:** commit on the highest byte; reserved offsets read `0xFF`.
+- **Registers:** each byte takes effect when written, in any order (a descending `LDDR` sets a job as well as `LDIR`); reserved offsets read `0xFF`.
 - **Channels:** all 4 running at once, taking turns; a stalled port channel does not hold up the others; STOP and PAUSE, and a START or RUN while PAUSE is set.
 - **Free cycles only:** with the CPU at 20 MHz, 2.5 MHz and 3.57 MHz, the display, copper and sprites busy, the engine never takes a cycle another user wanted: CPU accesses, layer and sprite fetches (no OVERRUN or SPRUNDER on a screen within budget) and copper reads are exactly the same with and without jobs running.
 - **Boot ROM:** a COPY from the boot ROM to SRAM (the console font) gives the ROM's bytes, with no SRAM read cycles.
 - **Errors:** a bad address (the system block, a write to the boot ROM, past the end of a 2 MB board), a bad OP, MIX, a bad combination, DESC on registers or palettes and a reserved port each stop only that channel, set ERR and CHERR, and raise its interrupt.
-- **Register targets:** a block COPY into a layer's registers gives exactly the same result as CPU writes; a COPY into CHCTRL starts another channel; two channels writing multi-byte registers at once never mix; register reads into SRAM, with a captured register read consistently; a CPU register access is never delayed by the engine.
-- **Palettes:** COPY into a palette changes entries as their red bytes arrive; a saturating ADD fades a palette.
+- **Register targets:** a block COPY into a layer's registers gives exactly the same result as CPU writes; a COPY into CHCTRL starts another channel; a CPU write between two of a job's bytes lands at once and the last write to each byte wins; register reads into SRAM, with a captured register read consistently by one channel; a CPU register access is never delayed by the engine.
+- **Palettes:** COPY into a palette changes entries as their red bytes arrive, through the engine's own assembly buffer, separate from the CPU's and the copper's; a saturating ADD fades a palette.
 - **Ports:** an SD card read of a block through port 0 with SDCOUNT (with the SD model in `sim/`); a USB serial transfer each way through port 1, paced by the FIFOs.
 - **Interrupts:** DMA0–DMA3 requested only with DMXINT and DMXINTEN bits both set; W1C clears them.
 - **Copper and timers:** a job set up and started by MOVEFs; a WAIT with B right after the start waits for every channel; a timer underflow with CTRL.DMA starts channel DMACH as a START write would, and is ignored while it is busy.
@@ -531,3 +531,4 @@ Software decides, but a sensible default, as retro68k's:
 | D8 | Closed: VALUE's byte order is little-endian, unlike retro68k (section 2). It follows the SRAM and the Z80 |
 | D9 | Closed: no HIGH mode (design plan, branch 11). The Z80 never gives up its cycles; CTRL bit 11 is ignored so retro68k's jobs still run |
 | D10 | Closed: DMXINT and DMXINTEN sit in channel 3's spare bytes at `0x230` and `0x234`, where retro68k has them relative to its channel 0, so the engine stays inside `0x140`–`0x23F` |
+| D11 | The engine has one tagged capture and one colour assembly buffer for all four channels (spec 3, rules 3 and 4; design plan, branch 11). Two channels that read capturing registers, or write palette entries, at the same time can disturb each other: one channel's capture is replaced, or blue and green bytes mix. Software keeps such jobs on one channel at a time. A buffer per channel would cost about 4 × 5 bytes more if this proves a problem |

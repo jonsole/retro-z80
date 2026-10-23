@@ -42,7 +42,7 @@ retro-z80's video is retro68k's, narrowed to 8-bit registers, with tile maps add
 | Tile maps | – | Any layer can be a tile map (CTRL0.MODE) |
 | Pointers | BPL0PT–BPL7PT | BPL0PT only |
 | Data registers | BPL0DAT–BPL7DAT, BPLDMA: a layer can be fed by the CPU | Inside the hardware only. A layer cannot be fed by the CPU |
-| Registers | 32 bits, at `0xE00000` | Bytes, through I/O ports and the register page. Wider values low byte first; the highest byte commits |
+| Registers | 32 bits, at `0xE00000` | Bytes, through I/O ports and the register page. Wider values low byte first, each byte written at once, with no latch |
 | CTRL | One 32-bit register | Four byte registers, CTRL0–CTRL3, each written on its own |
 | Layer blocks | `0x80` bytes from custom offset `0x100` | `0x20` bytes from custom offset `0x090` |
 | Fine scroll, chunky layers | SCROLLX taken modulo the pixels in a word | Any SCROLLX from 0 to 15 at any depth |
@@ -69,9 +69,9 @@ Every register is a byte. The video registers are in the **custom block**, 1 KB 
 
 ```asm
         ld   bc,L1_SCROLLY_P        ; a 2-byte register
-        out  (c),l                  ; bits 7-0: held
+        out  (c),l                  ; bits 7-0
         inc  b
-        out  (c),h                  ; bits 15-8: commits the whole value (38 T)
+        out  (c),h                  ; bits 15-8                         (38 T)
 ```
 
 C stays `0x10` for every offset below `0x100`, so `LD B,name` moves to another register of the same page: `ld b,L1_CTRL0` then `out (c),a`.
@@ -83,7 +83,7 @@ To read a register, put its number in A and use `IN A,(n)`, which puts A on A15�
         in   a,(CUSTPAGE)           ; ... of page 0x10: A = VIDSTAT     (18 T)
 ```
 
-`OUT (n),A` is no use here: it would put A, the value, on A15–A8 as the register number. And never use `OTIR`, `PUSH`, `EX (SP),HL` or `LDDR` on a register wider than a byte: they write the high byte first, or step B downwards.
+`OUT (n),A` is no use here: it would put A, the value, on A15–A8 as the register number. Any other instruction can write registers, `PUSH`, `EX (SP),HL` and `LDDR` included, since each byte is written straight through. `OUTI` steps B, the register number, downwards, so unrolled `OUTI`s write a value from a table held high byte first; `OTIR` is no use on a page, since it runs on down to register 0. Only the MMU pages and the colours need their last byte written last (see below).
 
 **Through the register page.** MMU page `0x3F8` is not memory: it shows the registers. Map it into a window and every register is a memory address, so the Z80 can use `LD (nn),A`, `LD (nn),HL`, `LD (IX+d),n`, `SET`, `RES` and `LDIR` on them. Register r of I/O page p is at offset p × 256 + r, the port with its two bytes swapped:
 
@@ -123,10 +123,12 @@ The two ways compare like this (T-states at any speed; at 20 MHz a T-state is 50
 
 Two rules from the register map matter all through this chapter:
 
-- **Low byte first; the highest byte commits.** Writing a lower byte only holds it. Writing the highest byte commits the whole value at once, so the hardware never sees half a value. To change only the high byte, write just the high byte. `LD (nn),HL`, `LDI`, `LDIR` and `OUT (C),r` with `INC B` all write low byte first.
-- **Reading the lowest byte captures.** For registers the hardware changes by itself (BEAMPOS, FRAMECOUNT, BPL0PT), reading the lowest byte captures the whole value, and the higher bytes then read the captured copy. `LD HL,(nn)` reads the low byte first, so it always gives a matching pair.
+- **Low byte first; every byte is written at once.** A value wider than a byte sits in consecutive registers, low byte first. There are no latches: each byte takes effect as soon as it is written, in any order and with any instruction. To change only the high byte, write just the high byte.
+- **Change wide registers between frames.** The hardware can catch a value half written: it copies a layer's settings at the start of each line, and a layer's fetch moves its pointer as it goes. So change pointers, scroll positions, windows and sprite positions in the vertical blank, or let the copper write them at a set position, as on the Amiga. A line setting caught half written spoils one line at most. A pointer written while its layer is fetching can spoil the rest of the frame (see "Writing a new pointer partway down").
+- **Colours and MMU pages wait for their last byte.** A colour (a palette entry or BGCOLOR) changes when its red byte is written; blue and green are held until then. An MMU page changes when its second byte, MMUn_1, is written. So write these low byte first. `LD (nn),HL`, `LDI`, `LDIR` and `OUT (C),r` with `INC B` all do.
+- **Reading the lowest byte captures.** For registers the hardware changes by itself (BEAMPOS, FRAMECOUNT, BPL0PT), reading the lowest byte captures the whole value, and the higher bytes of the same register then read the captured copy. The CPU has one capture: reading the lowest byte of another such register replaces it. So an interrupt handler that reads one of them between your reads spoils your value. `LD HL,(nn)` reads both bytes of a 2-byte value in one instruction, so it always gives a matching pair; for longer values, or through ports, read with interrupts off.
 
-The multi-byte rule has one exception in this chapter: **CTRL0–CTRL3 are four separate byte registers**, not one value. Each acts when it is written.
+**CTRL0–CTRL3 are four separate byte registers**, not one value. Each acts when it is written, on its own fields.
 
 ### Conventions in this chapter
 
@@ -246,8 +248,8 @@ WIN_Y       equ     VID_Y0+(VID_H-2*HEIGHT)/2   ; 49 + 32 = 81
 
         ld   ix,CREG+L0             ; IX = layer 0
         ld   hl,WIN_X+2*WIDTH
-        ld   (ix+L_WINX),l          ; XEND 824: low byte held ...
-        ld   (ix+L_WINX+1),h        ; ... high byte commits
+        ld   (ix+L_WINX),l          ; XEND 824: low byte ...
+        ld   (ix+L_WINX+1),h        ; ... high byte
         ld   hl,WIN_X
         ld   (ix+L_WINX+2),l        ; XSTART 184
         ld   (ix+L_WINX+3),h
@@ -267,9 +269,9 @@ A bitmap layer has one pointer, **BPL0PT**: 3 bytes, the physical address of the
 
 ```asm
 setptr:     ld   hl,SCREEN&0xFFFF
-            ld   (CREG+L0_BPL0PT),hl    ; bits 15-0: held
+            ld   (CREG+L0_BPL0PT),hl    ; bits 15-0
             ld   a,SCREEN>>16
-            ld   (CREG+L0_BPL0PT+2),a   ; bits 21-16: commits
+            ld   (CREG+L0_BPL0PT+2),a   ; bits 21-16
             ret
 ```
 
@@ -453,9 +455,9 @@ main:       halt                        ; (your program's main loop goes here)
 
 ; Layer 0's pointer to the top of the picture
 setptr:     ld      hl,SCREEN&0xFFFF
-            ld      (CREG+L0_BPL0PT),hl ; bits 15-0: held
+            ld      (CREG+L0_BPL0PT),hl ; bits 15-0
             ld      a,SCREEN>>16
-            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16: commits
+            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16
             ret
 
 ; Vertical blank: clear the flag, put the pointer back to the top
@@ -723,7 +725,7 @@ Each layer has its own display window, set by WINX and WINY in beam coordinates:
 | WINY (YEND) | `+0x08`–`+0x09` | 2 | First beam line after the window. Reset 625 |
 | WINY (YSTART) | `+0x0A`–`+0x0B` | 2 | First beam line of the window. Reset 49 |
 
-Each of the four is a 2-byte value on its own, committed by its high byte. The window covers `XSTART ≤ hpixel < XEND` and `YSTART ≤ vline < YEND`. The value after reset is the full screen: 144, 864, 49, 625. Outside its window, a layer is transparent: lower layers or the background colour show through, and nothing is fetched for it.
+Each of the four is a 2-byte value on its own. Change a window in the vertical blank, or with the copper, so that no line reads it half written. The window covers `XSTART ≤ hpixel < XEND` and `YSTART ≤ vline < YEND`. The value after reset is the full screen: 144, 864, 49, 625. Outside its window, a layer is transparent: lower layers or the background colour show through, and nothing is fetched for it.
 
 A window is clamped to the picture. A start in the blank counts as the picture's edge: the layer's first pixel then shows there, at VID_X0 or VID_Y0, so a layer is not clipped as a sprite is. An end past the last pixel or line counts as the picture's end.
 
@@ -971,17 +973,17 @@ scroll_back:
             rr      e                   ; E = x / 2, bytes into the line
             ld      a,e
             and     0xF8                ; whole groups: 8 bytes = 16 pixels
-            ld      (CREG+L1_BPL0PT),a  ; bits 7-0: held
+            ld      (CREG+L1_BPL0PT),a  ; bits 7-0
             ld      a,b
             add     a,a                 ; y * 512: bits 15-9 in A, bit 16 in carry
-            ld      (CREG+L1_BPL0PT+1),a    ; bits 15-8: held
+            ld      (CREG+L1_BPL0PT+1),a    ; bits 15-8
             ld      a,BACK>>16
             adc     a,0
-            ld      (CREG+L1_BPL0PT+2),a    ; bits 21-16: commits
+            ld      (CREG+L1_BPL0PT+2),a    ; bits 21-16
             ret
 ```
 
-Each register write commits only with its highest byte, so the hardware never sees a pointer with some bytes new and some old.
+Call it in the vertical blank, as its header says. The pointer's bytes are written one at a time, and a layer that fetched between them would carry on from a mixed address for the rest of the frame. In the vertical blank nothing is fetched, so the hardware never sees a pointer with some bytes new and some old.
 
 ### Endless scrolling: pointer wrap
 
@@ -1022,13 +1024,13 @@ RING_WRAP   equ     8                   ; 2^(8+9) = 128 KB
 ; y mod 512, address RING + (y mod 512) * 256. About 70 T-states.
 ring_scroll:
             xor     a
-            ld      (CREG+L0_BPL0PT),a  ; bits 7-0: 0 (held)
+            ld      (CREG+L0_BPL0PT),a  ; bits 7-0: 0
             ld      a,l
-            ld      (CREG+L0_BPL0PT+1),a    ; bits 15-8: y mod 256 (held)
+            ld      (CREG+L0_BPL0PT+1),a    ; bits 15-8: y mod 256
             ld      a,h
             and     1                   ; bit 16: y bit 8
             or      RING>>16
-            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16: commits
+            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16
             ret
 ```
 
@@ -1071,9 +1073,9 @@ vblank:     push    af
             ld      a,VIDSTAT_VBLANK_M
             ld      (CREG+VIDSTAT),a
             ld      hl,(shown)
-            ld      (CREG+L0_BPL0PT),hl ; bits 15-0: held
+            ld      (CREG+L0_BPL0PT),hl ; bits 15-0
             ld      a,(shown+2)
-            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16: commits
+            ld      (CREG+L0_BPL0PT+2),a    ; bits 21-16
             pop     hl
             pop     af
             ei
@@ -1685,7 +1687,7 @@ The simplest way is to use one layer for each band. Give each layer a window cov
 
 CTRL0–CTRL3, the window, SCROLLX, SCROLLY, MAPPT and PATPT are read at the start of each line. A write during line L − 1 changes line L. So one layer can show different settings in different bands. For a tile layer, one write to SCROLLY shows another part of the map from that line on.
 
-The LINE interrupt is made for this. It comes at the start of beam line LINECMP (pixel 0), and the handler then has the rest of that line, 640 T-states less the time to start it (at most 42 in IM 2), to commit its writes for the next line.
+The LINE interrupt is made for this. It comes at the start of beam line LINECMP (pixel 0), and the handler then has the rest of that line, 640 T-states less the time to start it (at most 42 in IM 2), to make its writes for the next line. Its 2-byte writes are safe there: the line settings are copied only at the next line's start, after both bytes.
 
 ### Example 3-8: A status panel from the same map
 
@@ -1718,7 +1720,7 @@ line:       push    af
             pop     hl
             pop     af
             ei
-            reti                        ; commits about 4 us into line 560
+            reti                        ; written about 4 us into line 560
 
 ; Vertical blank: the game's scroll for the next frame
 vblank:     push    af
@@ -1791,7 +1793,7 @@ mirror:     push    af
             ld      hl,-STRIDE
             ld      (CREG+L0_BPLSTRIDE),hl  ; -256
             ld      a,(1<<L_CTRL1_VSCALE_B)|(1<<L_CTRL1_PALOFS_B)
-            ld      (CREG+L0_CTRL1),a   ; colours 16-31: one byte, no latch
+            ld      (CREG+L0_CTRL1),a   ; colours 16-31: one byte
             pop     hl
             pop     af
             ei
@@ -1802,7 +1804,7 @@ CTRL1 is a register of its own, so the handler changes PALOFS without touching t
 
 ### Writing a new pointer partway down
 
-A bitmap's pointer is live, so it can be written at any time, but the hardware uses it at once. A pointer committed between the layer's last fetch on line L and the start of line L + 1 (beam pixel 0) becomes line L + 1's start, as written. One committed earlier is used for the rest of line L. With a full-width window the gap is about 1 µs at 1× (2 µs at 2×), 20 to 40 T-states: too short for the CPU to hit reliably. It is a job for the copper, which writes at an exact pixel. The Spectrum screen (see "Spectrum Extras") is built this way.
+A bitmap's pointer is live, so it can be written at any time, but the hardware uses each byte at once. A pointer whose three bytes are all written between the layer's last fetch on line L and the start of line L + 1 (beam pixel 0) becomes line L + 1's start, as written. One written earlier is used for the rest of line L. If the layer fetches between the bytes, the fetch moves the pointer in between, and the rest of the frame comes from a wrong address. With a full-width window the gap is about 1 µs at 1× (2 µs at 2×), 20 to 40 T-states: too short for the CPU to hit reliably. It is a job for the copper, which writes at an exact pixel. The Spectrum screen (see "Spectrum Extras") is built this way.
 
 ---
 
@@ -1926,7 +1928,7 @@ Entry i of palette p is at `PREG + p × 0x300 + 3i`:
 
 Through ports, the palettes are reached by an index and a data register, as many machines' colour hardware is:
 
-- **PALIDX** (`0x009`–`0x00A`) is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number. Writing its high byte commits it and starts PALDAT's byte order again at blue.
+- **PALIDX** (`0x009`–`0x00A`) is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number. Each byte acts when it is written, and writing either byte starts PALDAT's byte order again at blue.
 - **PALDAT** (`0x00B`) takes blue, green and red in turn. The red write changes the entry and steps PALIDX by 1: from entry 255 of one palette to entry 0 of the next.
 
 So a stream of bytes written to PALDAT loads entry after entry. The copper reaches the palettes this way too, as it cannot reach the register page.
@@ -1949,10 +1951,10 @@ Through PALIDX and PALDAT. `OTIR` cannot be used, since it steps B, the register
 ```asm
         ld   bc,PALIDX_P
         xor  a
-        out  (c),a                      ; entry 0: held
+        out  (c),a                      ; entry 0; PALDAT starts at blue
         inc  b
         ld   a,2
-        out  (c),a                      ; palette 2: commits; PALDAT starts at blue
+        out  (c),a                      ; palette 2
         inc  b                          ; B = PALDAT
         inc  b                          ; B = PALDAT + 1
         ld   hl,pal_table
@@ -2027,7 +2029,7 @@ On a Spectrum the border is set through port `0xFE`, and that works here too (se
 
 | Name | Offset | Port | Function |
 |------|--------|------|----------|
-| PALIDX | `0x009`–`0x00A` | `0x0910`–`0x0A10` | Entry (7–0), palette (9–8). The high byte commits and restarts PALDAT's byte order |
+| PALIDX | `0x009`–`0x00A` | `0x0910`–`0x0A10` | Entry (7–0), palette (9–8). Writing either byte restarts PALDAT's byte order |
 | PALDAT | `0x00B` | `0x0B10` | Blue, green, red in turn; red changes the entry and steps PALIDX |
 | Palettes | Register page `0x1400`–`0x1FFF` | – | 4 × 256 entries of 3 bytes; red commits. PALIDX not used |
 | VIDCON.SHAREPAL | `0x000`, bit 5 | `0x0010` | 1: every layer and sprite uses PALETTE0 |
@@ -2248,6 +2250,8 @@ BEAMPOS holds the beam's position in beam coordinates: `hpixel` (2 bytes, `0x0F0
         ld   de,(CREG+BEAMPOS+2)    ; vline, from the same capture
 ```
 
+An interrupt between the two reads could replace the capture, so read BEAMPOS with interrupts off, or in an interrupt handler.
+
 Through ports:
 
 ```asm
@@ -2380,7 +2384,7 @@ You can also poll the flags with interrupts off:
 | VIDCON, palette entries | At once: the next pixel |
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once. DMACON stops or starts the next fetch |
 
-A value wider than a byte takes effect when its highest byte commits. A write that lands in the same few clocks as the hardware's copy of the line settings (at beam pixel 0) may take effect a line later.
+Each byte of a value wider than a byte takes effect when it is written; only colours wait for their red byte. A line setting copied while half written shows the mix on one line, so change wide values in the vertical blank, or with the copper at a set position. A write that lands in the same few clocks as the hardware's copy of the line settings (at beam pixel 0) may take effect a line later.
 
 ---
 
@@ -2484,9 +2488,9 @@ start:      di
             ld      bc,L_SPAN
             ldir
             ld      hl,(SCREEN+6144)&0xFFFF
-            ld      (CREG+ATADDR),hl    ; the attributes: held
+            ld      (CREG+ATADDR),hl    ; the attributes: bits 15-0
             ld      a,(SCREEN+6144)>>16
-            ld      (CREG+ATADDR+2),a   ; commits
+            ld      (CREG+ATADDR+2),a   ; bits 21-16
             ld      a,32
             ld      (CREG+ATSTRIDE),a
             xor     a
@@ -2498,7 +2502,7 @@ start:      di
             ld      hl,(speclist-RAMOFS)&0xFFFF
             ld      (CREG+COP1LC),hl    ; the copper list's physical address
             ld      a,(speclist-RAMOFS)>>16
-            ld      (CREG+COP1LC+2),a   ; commits
+            ld      (CREG+COP1LC+2),a   ; bits 21-16, before the copper is on
             ld      a,COPCON_EN_M
             ld      (CREG+COPCON),a
 
@@ -2619,7 +2623,7 @@ The Spectrum colours in entries 0–15 of every palette at power-on are a Spectr
 
 ## Summary of Playfield Registers
 
-All offsets are custom offsets. The port of offset k is `(k and 0xFF) << 8 | (0x10 + (k >> 8))`; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`). Layer n's registers are at Ln + offset, where L0 = `0x090`, L1 = `0x0B0` and L2 = `0x0D0`; `hw.inc` also gives them ready-added, as `L0_CTRL0` and `L1_BPL0PT`, with `_P` for the port. Values wider than a byte are low byte first; the highest byte commits. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures.
+All offsets are custom offsets. The port of offset k is `(k and 0xFF) << 8 | (0x10 + (k >> 8))`; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`). Layer n's registers are at Ln + offset, where L0 = `0x090`, L1 = `0x0B0` and L2 = `0x0D0`; `hw.inc` also gives them ready-added, as `L0_CTRL0` and `L1_BPL0PT`, with `_P` for the port. Values wider than a byte are low byte first, and each byte is written at once; colours change on their red byte. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures.
 
 ### Global registers
 

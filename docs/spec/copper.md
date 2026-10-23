@@ -14,7 +14,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | Instructions | MOVE (one word), WAIT, SKIP, JUMP, STOP, MOVEF (one byte to any offset, two words); MOVE through X and Y (MOVR); LD, ST, ADD, SUB, AND, OR, CMP; SKIP on a condition (SKIPC); CALL and RET. One or two words each (section 4.1) |
 | Registers | X and Y (8 bits), the flags (Z, N, C), 8 storage registers COPR0–7 (8 bits), a return stack 8 deep. The CPU can read and write all but the stack contents |
 | Can write | The custom block only: MOVE reaches offsets `0x000`–`0x0EF` (video globals, sprites, layers), MOVEF every offset `0x000`–`0x3FF`. Not the system block |
-| Multi-byte registers | Low byte first; the highest byte commits. The copper has its own latch, separate from the CPU's (section 4.2). The macro `CMOVEL` writes a whole 4-byte register, as retro68k's writes a whole 32-bit one |
+| Multi-byte registers | Low byte first; each byte is written directly, with no latch, except a colour, which waits for its red byte in the copper's colour assembly buffer (section 4.2). The macro `CMOVEL` writes a whole 4-byte register, as retro68k's writes a whole 32-bit one |
 | Beam position | The display beam, as retro68k (spec 4); 10-bit line and pixel, pixel exact |
 | Memory | Its own channel in the scheduler (spec 2): cycle 4 and the free pool, as retro68k's copper. COPCON.PRI 1 makes cycle 4 its own |
 | Rate at PRI 1 | One word every slot (100 ns, 2.7 beam pixels): one MOVE per slot, 320 per line, on screens within the display budget (section 5.3) |
@@ -30,7 +30,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | MOVE | 16 bits of data to a register half; offset up to `0x7FFE` | 8 bits of data; the register code is 8 bits, so MOVE reaches offsets `0x000`–`0x0EF`. Codes `0xF0`–`0xFF` are the other instructions | 8-bit registers; one-word MOVE |
 | MOVEF | None | Two words: one byte to any custom offset `0x000`–`0x3FF`. Macro `CMOVEF` | MOVE cannot name offsets `0x0F0`–`0x3FF`: the copper's own registers, the sprite globals, the attribute layer, the DMA engine |
 | `CMOVEL` | Two MOVEs: a whole 32-bit register | The same meaning: a whole 4-byte register, as four MOVEs (or MOVEFs), low byte first. 3-byte pointers and colours use `CMOVEA`, 2-byte registers `CMOVEW`, any width `CMOVEN` (section 7) | Byte registers of 1–4 bytes; pointers are 3 bytes |
-| Halves rule | A high half is held until the low half of the same register | The byte rule: lower bytes are held until the highest byte of the same register (section 4.2) | 8-bit registers (spec 3) |
+| Halves rule | A high half is held until the low half of the same register | No latch: each byte is written directly; only colours wait for their red byte (section 4.2) | Cost; 8-bit registers (spec 3, rule 3) |
 | Beam | 11-bit line and pixel. End-of-list WAIT: line 2047 | The same beam, 10-bit line and pixel. End-of-list WAIT: line 1023 | One-word encoding: 10 bits cover 864 × 625 |
 | X, Y, R0–R7 | 16 bits; X holds a register offset with bit 1 choosing the half; MOVR steps X by 2 | 8 bits; X holds a register code `0x00`–`0xFF`; MOVR steps X by 1; N is bit 7 | 8-bit data |
 | MOVR reach | The whole MOVE reach | Offsets `0x000`–`0x0FF` (an 8-bit code, from X or from the instruction) | One-word MOVR |
@@ -46,7 +46,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | Strobes | Act on a write that reaches the low half | Act on any write: they are single bytes | 8-bit registers |
 | Registers | 32-bit, at `0xE00700` | Bytes at custom offsets `0x100`–`0x11F`, ports `0x0011`–`0x1F11` (spec 3) | Register map |
 
-Kept as retro68k: WAIT with P (pixel only) and B (DMA engine idle), SKIP, JUMP, STOP, COP1LC, COP2LC, COPJMP1, COPJMP2, COPINT, COPSTAT (WAITING, STOPPED, ERR, IRQ), COPPC, COPCON (EN, IRQEN, RESUME, STKKEEP, PRI), COPX, COPY, COPFLAGS, COPSP, COPR0–7, the conditions, CALL and RET with a stack 8 deep, background lists with RESUME (the place only, not the latch), double-buffered lists, the display beam, the memory channel and its free-pool order, the macro names.
+Kept as retro68k: WAIT with P (pixel only) and B (DMA engine idle), SKIP, JUMP, STOP, COP1LC, COP2LC, COPJMP1, COPJMP2, COPINT, COPSTAT (WAITING, STOPPED, ERR, IRQ), COPPC, COPCON (EN, IRQEN, RESUME, STKKEEP, PRI), COPX, COPY, COPFLAGS, COPSP, COPR0–7, the conditions, CALL and RET with a stack 8 deep, background lists with RESUME (the place only), double-buffered lists, the display beam, the memory channel and its free-pool order, the macro names.
 
 ## 3. Beam positions
 
@@ -66,7 +66,7 @@ The copper follows the **display beam**, as retro68k's does and as software sees
 | BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1. On a 2×-tall layer, write after the **last** copy of a source line |
 | CTRL, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144): write in line L's horizontal blank, or earlier |
-| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: a commit restarts the sprite, with its new settings from the next line. Reuse needs one gap line |
+| Sprite registers (SPRxPT, SPRxH, SPRxV, SPRxCTL, SPRxSTEP) | Spec 5, section 4.2: every byte written restarts the sprite, with its new settings from the next line; write SPRxPT last, with the sprite's DMA off. Reuse needs one gap line |
 
 Spec 4 has the full list; where it differs, spec 4 wins.
 
@@ -114,20 +114,20 @@ Bits shown as 0 must be 0. Unused patterns are reserved (section 4.9).
 
 **Loops:** SKIP and JUMP make loops that end at a beam position, as in retro68k. For example, to repeat a block of MOVEs on every line until line 400: `loop: CWAITP 0` … MOVEs … `CSKIP 400,0` / `CJUMP loop`. Loops that end on a count or a value use the registers and SKIPC (sections 4.6, 4.7).
 
-### 4.2 MOVE, MOVEF and the copper latch
+### 4.2 MOVE, MOVEF and direct writes
 
-A MOVE or MOVEF writes one byte. Registers wider than 8 bits are consecutive bytes, **low byte first**, and the write of the **highest byte commits** the whole value (spec 3). The copper follows this rule with **its own latch**, separate from the CPU's, so that a CPU write between two copper MOVEs never mixes with them:
+A MOVE or MOVEF writes one byte, **straight to its register**, with no latch (spec 3, rules 2 and 3). Registers wider than 8 bits are consecutive bytes, **low byte first**, and each byte takes effect when it is written. So a register holds a mixed value between a list's MOVEs to it, and a list writes wide registers where the hardware does not read them:
 
-- A write to a lower byte of a multi-byte register puts the byte in the copper latch, tagged with the register. If the latch holds bytes of another register, they are dropped first. The latch holds up to 3 bytes.
-- A write to the highest byte commits the register: its lower bytes come from the latch where it holds them for this register; bytes it does not hold keep the register's current value. The latch is then empty.
-- MOVEs to single-byte registers, and every other instruction, leave the latch alone. So other instructions (WAITs, other MOVEs) may come between the bytes of one register, but one register's bytes must be finished before another's are started.
-- The frame restart and the COPJMP strobes empty the latch.
+- A line setting (spec 4, section 5.6): in the horizontal blank after beam pixel 0, or in the visible part of the line before the one it is for.
+- A live pointer (BPL0PT): while the layer is not fetching, in the vertical blank, or after the layer's last fetch on a line and before the next line starts. A fetch between its bytes would move the pointer on from a mixed value (spec 4, section 4.4).
+- A sprite register: every byte restarts the sprite; write the pointer last, with the sprite's DMA off (spec 5, section 4.2).
+- **Colours are the exception** (spec 3, rule 7): MOVEs to a colour's blue and green bytes (BGCOLOR, or PALDAT) go into the copper's **colour assembly buffer**, its own, separate from the CPU's and the DMA engine's, and the red MOVE writes the colour whole. Other instructions may come between them. The buffer is one for all colours, not one per entry.
 
-The registers' widths and highest bytes come from the register map (`fpga/regmap.def`, spec 3). MOVR follows the same rule.
+MOVR follows the same rules. A CPU write between two copper MOVEs to one register lands between them, and the last write to each byte wins.
 
 Strobes (COPJMP1, COPJMP2, COPINT and the DMA engine's) act on any write. Read-only registers ignore the copper's writes, as they do the CPU's.
 
-**A value at an exact pixel.** Because lower bytes are held, a list can write a register's lower bytes before a WAIT and its highest byte after it, so that the whole value changes exactly at the WAIT's position (section 5.4), as retro68k's lists do with the high half.
+**A value at an exact pixel.** A one-byte change lands whole after a WAIT (section 5.4). A colour can change whole at a pixel too: write its blue and green before the WAIT, where they wait in the colour assembly buffer, and its red after it, as retro68k's lists do with the high half. Other wide values change over their MOVEs; the first two after a WAIT land 20 ns apart, within a pixel.
 
 ### 4.3 WAIT and SKIP
 
@@ -281,7 +281,7 @@ The copper has a prefetch buffer of **two words**. While it waits, it reads the 
 - The first MOVE after a WAIT is made 10–20 ns after the WAIT ends, within a pixel of its position, as in retro68k.
 - A second prefetched MOVE lands 20 ns (two clocks) after the first, within the same or the next pixel.
 - Each write after those needs its own fetch: one slot apart (2.7 pixels) at PRI 1.
-- To change a 2-byte value exactly at a pixel, write its low byte before the WAIT (it is held in the copper latch) and its high byte after it. A 3-byte value (a colour, a pointer): its two lower bytes before the WAIT.
+- To change a colour exactly at a pixel, write its blue and green before the WAIT (they wait in the copper's colour assembly buffer) and its red after it. Other registers have no latch: a 2-byte value written by the two prefetched MOVEs changes within a pixel, but a wider one changes over a slot or more.
 
 A SKIP that skips throws away the prefetched words of the instruction it skips; JUMP, CALL and RET throw away anything prefetched past them (section 5.2).
 
@@ -289,11 +289,11 @@ A SKIP that skips throws away the prefetched words of the instruction it skips; 
 
 The copper's writes go over the register bus that the CPU's I/O cycles and register page accesses use (spec 1). If both want it in the same clock, **the copper goes first** and the CPU's strobe moves one clock later, which its I/O cycle has room for (spec 1). So a copper write is never delayed and lands on its pixel.
 
-Both can write the same register. The last write wins, and their bytes never mix, because each has its own latch. Let one of them own each register: if the copper resets the layer pointers, the CPU changes the list, not the pointers.
+Both can write the same register. Writes are direct, so the last write to each byte wins, and a CPU write between the copper's bytes of one register mixes with them; only colours are assembled, in a buffer per master (spec 3, rule 3). Let one of them own each register: if the copper resets the layer pointers, the CPU changes the list, not the pointers.
 
 ## 6. Registers
 
-Custom offsets. The CPU reaches them on ports, port = (offset bits 7–0) << 8 | (`0x10` + offset bits 9–8) (spec 3): page `0x11`, `LD BC,port` then `OUT (C),r`, or `LD A,reg` then `IN A,(0x11)`. In the register page they are at `0x1000` + offset (`0x1100`–`0x111F`). The copper writes them with MOVEF. Multi-byte values: low byte at the lowest offset, committed on the highest.
+Custom offsets. The CPU reaches them on ports, port = (offset bits 7–0) << 8 | (`0x10` + offset bits 9–8) (spec 3): page `0x11`, `LD BC,port` then `OUT (C),r`, or `LD A,reg` then `IN A,(0x11)`. In the register page they are at `0x1000` + offset (`0x1100`–`0x111F`). The copper writes them with MOVEF. Multi-byte values: low byte at the lowest offset, each byte written directly.
 
 | Offset | Port | Name | Access | Bits | Description | Reset |
 |--------|------|------|--------|------|-------------|-------|
@@ -329,9 +329,9 @@ The CPU can read and write COPX, COPY, COPFLAGS and COPR0–7 at any time; a wri
 
 - **Starting:** after reset COPCON, COP1LC, COP2LC, X, Y, the flags, R0–R7 and the stack are 0, and the copper is stopped. With COPCON.EN, DMACON.COPEN and DMACON.DMAEN (spec 4) all set, the copper starts from COP1LC at the next frame restart; a write to COPJMP1 starts it at once.
 - **Stopping:** clearing any of the three stops it at once. Setting them again starts it at the next frame restart (or COPJMP1).
-- **Frame restart**, when the beam reaches (0, 0) with the copper on: with RESUME, list 2's place is saved (section 6.5); the PC is loaded from COP1LC; the prefetched words and the copper latch are dropped; the stack is emptied unless STKKEEP is set. X, Y, the flags and R0–R7 are kept.
-- **Restarting** with COPJMP1 or COPJMP2 also drops the prefetched words and the copper latch. A strobe from the CPU wakes a copper that is waiting or stopped.
-- **Double-buffered lists:** build next frame's list in a second buffer, then write its address to COP1LC (three bytes; the highest commits). The copper picks it up at the next frame restart, so a half-built list is never run.
+- **Frame restart**, when the beam reaches (0, 0) with the copper on: with RESUME, list 2's place is saved (section 6.5); the PC is loaded from COP1LC; the prefetched words are dropped; the stack is emptied unless STKKEEP is set. X, Y, the flags and R0–R7 are kept.
+- **Restarting** with COPJMP1 or COPJMP2 also drops the prefetched words. A strobe from the CPU wakes a copper that is waiting or stopped.
+- **Double-buffered lists:** build next frame's list in a second buffer, then write its address to COP1LC. The copper picks it up at the next frame restart, so a half-built list is never run. COP1LC's three bytes are written directly, so write them well away from the frame restart, for example in the VBLANK handler, which runs just after it: a restart between the bytes would start a list at a mixed address.
 
 ### 6.4 Interrupt
 
@@ -343,7 +343,7 @@ As in retro68k, the copper can run a long **background** list, such as a queue o
 
 - The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 1023, or a reserved instruction), and the frame restart clear it. JUMP, CALL, RET and the SKIPs leave it as it is.
 - At the frame restart, if the flag is set, the hardware writes the **resume address** to COP2LC before it reloads from COP1LC. The resume address is the instruction not yet finished: a WAIT still waiting (it runs again, whole), or the next instruction to run.
-- **The latch is not saved**, as in retro68k: if the copper latch holds lower bytes, the resume address is that of the MOVE (or MOVEF) that wrote the first of them, so the register is written again whole.
+- **Nothing else is saved**, as in retro68k. Bytes already written stay written, and list 2 carries on with the next instruction. The colour assembly buffer is not saved: if list 2 is cut off between a colour's blue or green and its red, list 1 may use the buffer meanwhile, so a background list should not write colours (open point C10).
 - List 1 ends with `CMOVEF COPJMP2,0` (two words), and list 2 carries on where it was cut off.
 
 Without RESUME (the default), COP2LC is never changed by the hardware.
@@ -429,9 +429,9 @@ Cost: 5 words per pair, 960 per frame (0.5% of the frame's 200,000 cycle 4s); th
 spec_loop:  CLDI    CX,0                        ; line 0: address bits 7-0
             CLDI    CY,(SCREEN>>8)&$FF          ; address bits 15-8
             CWAIT   144,704                     ; the line before pair 0
-.pair:      CMOVR   L0+L_BPL0PT,CX              ; bits 7-0 (held)
-            CMOVR   L0+L_BPL0PT+1,CY            ; bits 15-8 (held)
-            CMOVE   L0+L_BPL0PT+2,SCREEN>>16    ; bits 21-16: BPL0PT written whole
+.pair:      CMOVR   L0+L_BPL0PT,CX              ; bits 7-0
+            CMOVR   L0+L_BPL0PT+1,CY            ; bits 15-8
+            CMOVE   L0+L_BPL0PT+2,SCREEN>>16    ; bits 21-16, all after the last fetch
             CSKIP   526,704                     ; pair 191 written?
             CJUMP   .down
             CSTOP
@@ -476,7 +476,7 @@ b = b + 1
             CSTOP
 ```
 
-The macros take a value as its bytes go, low byte first, so BGCOLOR's value has blue in bits 7–0, green in 15–8 and red in 23–16. Cost: 5 words per band. The first two MOVEs after each WAIT are prefetched and held; the third, red, commits the colour about one slot later, in the horizontal blank.
+The macros take a value as its bytes go, low byte first, so BGCOLOR's value has blue in bits 7–0, green in 15–8 and red in 23–16. Cost: 5 words per band. The first two MOVEs after each WAIT are prefetched, and blue and green go into the copper's colour assembly buffer; the third, red, commits the colour about one slot later, in the horizontal blank.
 
 **As a loop**, with X the blue and Y the green, and a count of lines in R1:
 
@@ -511,7 +511,7 @@ Cost: 7 words per line while it waits, and about 22 more per band. The colour co
 
 ### 8.3 Split-screen scroll
 
-Layer 0, 2× across and down over the whole picture, scrolls across, with a fixed status panel from beam line 529 (the start of a pair). The CPU leaves the game's pointer in COPR0–2 and its fine scroll in COPR3; the copper puts them in place in the vertical blank, so the scroll changes once per frame, in step with the picture. At the panel the copper writes the panel's pointer after the layer's last fetch on line 528 (the last copy of the pair before; at 2× across the last fetch is about beam pixel 800) and its scroll during line 528, then tells the CPU, which writes the next frame's values while the copper is stopped. SCROLLX is taken here as 2 bytes (bits 9–0 in tile mode, spec 4), so its high byte commits it.
+Layer 0, 2× across and down over the whole picture, scrolls across, with a fixed status panel from beam line 529 (the start of a pair). The CPU leaves the game's pointer in COPR0–2 and its fine scroll in COPR3; the copper puts them in place in the vertical blank, so the scroll changes once per frame, in step with the picture. At the panel the copper writes the panel's pointer after the layer's last fetch on line 528 (the last copy of the pair before; at 2× across the last fetch is about beam pixel 800) and its scroll during line 528, then tells the CPU, which writes the next frame's values while the copper is stopped. SCROLLX is taken here as 2 bytes (bits 9–0 in tile mode, spec 4), so both bytes are written. Every write in the vertical blank lands while the layer is not fetching.
 
 ```
             ALIGN   2
@@ -521,10 +521,10 @@ split:      CMOVEF  COPCON,COPCON_EN_M|1<<COPCON_PRI_B  ; PRI 1 for the burst at
             CLD     CX,CR1
             CMOVR   L0+L_BPL0PT+1,CX
             CLD     CX,CR2
-            CMOVR   L0+L_BPL0PT+2,CX            ; commits
+            CMOVR   L0+L_BPL0PT+2,CX
             CLD     CX,CR3                      ; the game's fine scroll
-            CMOVR   L0+L_SCROLLX,CX             ; (held)
-            CMOVE   L0+L_SCROLLX+1,0            ; commits
+            CMOVR   L0+L_SCROLLX,CX
+            CMOVE   L0+L_SCROLLX+1,0
             CWAIT   528,808                     ; line 528, after the layer's last fetch
             CMOVEA  L0+L_BPL0PT,panel           ; the panel's picture, used as written for line 529
             CMOVEW  L0+L_SCROLLX,0              ; no scroll
@@ -536,21 +536,26 @@ Cost: 11 words in the vertical blank; 9 at the panel. The five MOVEs after the W
 
 ### 8.4 Sprite reuse down the screen
 
-Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rule (section 4.2): the writes come after the old use's last line has been shown, and the new use starts at least one gap line later. So the copper waits for line 132, writes the sprite's window and then its pointer, and the second use may start on line 133 or later. SPRxPT goes last, since the fetch moves it.
+Sprite 0 shows a ship on beam lines 100 to 131, and a second ship lower down, from line 140. Spec 5's rule (section 4.2): the writes come after the old use's last line has been shown, and the new use starts at least one gap line later. So the copper waits for line 132, turns the sprite's DMA off, writes its window and then its pointer, and turns its DMA on again; the second use may start on line 133 or later. Each byte written restarts the sprite, and SPRxPT goes last with the DMA off, since the fetch moves it (spec 5, section 4.2).
 
 ```
             ALIGN   2
-ships:      CMOVEL  SPR0+SPR_V,SHIP1_V           ; first use: window down ...
+ships:      CMOVEF  SPRDMA,1                     ; sprite 0 ...
+            CMOVEF  SPRDMA+1,0                   ; ... DMA off
+            CMOVEL  SPR0+SPR_V,SHIP1_V           ; first use: window down ...
             CMOVEL  SPR0+SPR_H,SHIP1_H           ; ... and across
             CMOVEA  SPR0+SPR_PT,ship             ; image, last
+            CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M     ; DMA on
             CWAIT   132,0                        ; the first use has been shown
+            CMOVEF  SPRDMA+1,0                   ; DMA off (SPRDMA0 still 1)
             CMOVEL  SPR0+SPR_V,SHIP2_V
             CMOVEL  SPR0+SPR_H,SHIP2_H
             CMOVEA  SPR0+SPR_PT,ship
+            CMOVEF  SPRDMA+1,SPRDMA_SETCLR_M     ; DMA on
             CSTOP
 ```
 
-Cost: 2 + 4 + 4 + 3 = 13 words per reuse (WAIT, SPRxV, SPRxH, SPRxPT): the last MOVE lands about 1 µs (27 pixels) after the WAIT, in line 132's horizontal blank. The sprite registers are in a MOVE's reach, so no MOVEF is needed.
+Cost: 2 + 2 + 4 + 4 + 3 + 2 = 17 words per reuse (WAIT, SPRDMA off, SPRxV, SPRxH, SPRxPT, SPRDMA on): the last write lands about 1.3 µs (36 pixels) after the WAIT, in line 132's horizontal blank. The sprite registers are in a MOVE's reach; SPRDMA needs MOVEF.
 
 ### 8.5 Per-cell colours
 
@@ -558,7 +563,7 @@ A colour change at every 8-pixel cell needs a WAIT (2 words) and the writes for 
 
 | Per cell | Words | 2× cells (5 words at PRI 1) | 1× cells (2 words at PRI 1) |
 |----------|-------|-----------------------------|-----------------------------|
-| WAIT and one byte (the highest byte of a pixel register whose lower bytes stay the same) | 3 | Fits | Does not fit |
+| WAIT and one byte (a one-byte change, or a colour's red byte with its blue and green written before the WAIT) | 3 | Fits | Does not fit |
 | WAIT and a 3-byte colour | 5 | Fits, with nothing to spare | Does not fit |
 | WAIT, PALIDX (2 bytes) and a 3-byte palette entry (PALDAT) | 7 | Does not fit | Does not fit |
 
@@ -576,7 +581,7 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 | Beam compare (10-bit line and pixel), P and B | About 50 LUTs |
 | X, Y, the flags, the 8-bit ALU, the conditions | About 80 LUTs, 20 flip-flops |
 | R0–R7 (8 × 8) and the stack (8 × 21) | About 100 LUTs: retro68k's first build found R0–R7 needs three read ports, so flip-flops, not distributed RAM |
-| Copper latch (3 bytes, a 10-bit tag), register-width table from `fpga/regmap.def`, register bus master | About 80 LUTs, 40 flip-flops |
+| Colour assembly buffer (2 bytes), register bus master | About 30 LUTs, 20 flip-flops |
 | Control and status registers, RESUME, PRI to the scheduler | About 60 LUTs, 80 flip-flops |
 | Total | About 500–600 LUTs, 250 flip-flops; no block RAM. retro68k's 16-bit copper's first build is about 1,100 LUTs |
 
@@ -585,9 +590,9 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 - **Encodings:** every instruction and form against a Python copper model; every reserved encoding stops with ERR and COPPC at it; `0xFFFF` stops with ERR.
 - **Reach:** MOVE to `0x000`–`0x0EF`; MOVR to `0x000`–`0x0FF` (writes to `0x0F0`–`0x0FF` ignored); MOVEF to every block up to `0x3FF`, the copper's own registers included; nothing reaches the system block.
 - **Macros:** `CMOVEW`, `CMOVEA`, `CMOVEL` and `CMOVEN` emit MOVEs below `0x0F0` and MOVEFs above, low byte first; `CMOVE` above `0x0EF` is an assembly error.
-- **Copper latch:** a 3-byte register written by three MOVEs is never seen half-written; a CPU write between them changes nothing of the copper's value, and the CPU's own latch is not disturbed; a lower byte of another register drops the held bytes; a highest byte alone keeps the current lower bytes; a WAIT between the lower bytes and the commit.
+- **Direct writes:** each MOVE's byte takes effect when it is written, in any order; a CPU write between two copper MOVEs to one register lands between them and the last write to each byte wins; a colour's blue and green MOVEs change nothing until its red, with a WAIT or other MOVEs between them, through BGCOLOR and PALDAT; a CPU colour write between them does not mix with the copper's buffer.
 - **Waits:** WAIT and SKIP on blank and picture lines, at pixels 0, 143, 144 and 863; positions beyond the frame; the pixel-only forms on the current and the next line; B with each of the four DMA channels busy and all idle, including a job started by the MOVEF just before; line 1023 as the end of a list.
-- **Pixel exactness:** golden images: palette writes after a WAIT land within a pixel of the WAIT's position, and a second prefetched MOVE within the next; a 3-byte value with its lower bytes before the WAIT changes whole at the pixel.
+- **Pixel exactness:** golden images: palette writes after a WAIT land within a pixel of the WAIT's position, and a second prefetched MOVE within the next; a colour with its blue and green before the WAIT changes whole at the pixel.
 - **When writes take effect:** pointer writes between a layer's last fetch and the line's end used as written for the next line; on a 2×-tall layer a pointer written after the first copy changes nothing until the next source line's rules allow (spec 4); spec 5's sprite reuse rule with the example of section 8.4.
 - **Registers and ALU:** every ALU function and source, every flag result (carry and borrow at the 8-bit edges, N from bit 7), every condition, loads and stores of the flags, MOVR in all forms with X + 1 across a multi-byte register and the wrap from `0xFF`.
 - **CALL and RET:** nesting to 8, overflow and underflow set ERR; the stack emptied at the frame restart, or kept with STKKEEP.
@@ -595,7 +600,7 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 - **Register bus:** a copper write in the same clock as a CPU OUT goes first and lands on its pixel; the CPU's strobe moves one clock and its access still completes.
 - **Strobes and lists:** COPJMP1 and COPJMP2 from the CPU and the copper (by MOVEF); COP1LC double buffering; the frame restart at beam (0, 0), in the same clock as VIDSTAT.VBLANK is set.
 - **COPINT:** raises COPPER once per write, only with IRQEN; cleared by writing 1 to COPSTAT.IRQ.
-- **RESUME:** a background list cut off at the frame restart mid-WAITB and between the bytes of a register carries on from the right place, writing the register again whole; without RESUME COP2LC is never changed.
+- **RESUME:** a background list cut off at the frame restart mid-WAITB and between the bytes of a register carries on from the next instruction, with the bytes already written kept; without RESUME COP2LC is never changed.
 - **Examples:** sections 8.1–8.4 run on the full-system simulation and match the model's images.
 
 ## 12. Open points
@@ -607,10 +612,10 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 | C3 | Audio (Q1) is to share cycle 4 with the copper and goes before it. When sound is specified, the PRI 1 rate becomes 320 words per line less audio's few. Proposed: accept |
 | C4 | Closed: COPSTAT.LATE and OVER are dropped with the cycle-3 design. At PRI 1 the copper's rate is certain on screens within the budget, as retro68k's, which has no such bits |
 | C5 | Closed: prefetch depth two words (branch 11) |
-| C6 | Closed: spec 3 gives the CPU and the copper the same byte rule: lower bytes written since the last commit, the register's current value for the rest |
+| C6 | Closed (design plan, branch 11): the copper writes registers directly, with no latch, as the CPU does (spec 3, rule 3). Only colours wait for their red byte, in the copper's own colour assembly buffer. A wide value no longer changes whole at one pixel, except a colour |
 | C7 | Closed: the copper no longer shares cycle 3 with the sprites. Sprites are hard-deadline channels on cycles 1 and 3 (spec 5); the copper has cycle 4 at PRI 1 |
 | C8 | MOVEF reaches the audio offsets (`0x240`–`0x2FF`); writes there do nothing until sound is decided (Q1) |
 | C9 | Exact pixel delay from a WAIT to a palette change, and of the second prefetched MOVE (retro68k's C2: 0 pixels late in its simulation): to be confirmed in simulation |
-| C10 | Closed: RESUME does not save the latch (branch 11), as retro68k; the cut-off MOVE runs again |
+| C10 | RESUME saves only the place (branch 11), as retro68k. With no latch, a cut-off register keeps the bytes already written and list 2 carries on with the next one. The colour buffer is not saved, so a background list that writes colours can mix with list 1's. Proposed: a background list writes no colours |
 | C11 | COPCON.PRI 2 (nasty) is reserved and taken as 1, since the CPU never gives up a cycle it uses. A nasty mode here could only take the CPU's spare cycles, which PRI 1 already gets first. Proposed: as written |
 | C12 | Copper register layout at `0x100`–`0x11F` (COPCON, COP1LC, COP2LC, the strobes, COPPC, COPSTAT, COPX, COPY, COPFLAGS, COPSP at `0x100`–`0x111`; COPR0–7 at `0x118`–`0x11F`) is this spec's choice. Closed: spec 3 lists it (section 5) |

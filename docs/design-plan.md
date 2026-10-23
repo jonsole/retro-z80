@@ -241,6 +241,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 10 | [USB serial](spec/serial.md) | Draft |
 | 11 | [SD card](spec/sd-card.md) | Draft |
 | 11 | Review | Sprite HSTART unsigned, as retro68k's RTL. Port `0xFE` border writes act immediately (mid-line stripes; a Spectrum extra); BGCOLOR written as a register keeps retro68k's line-start rule. Byte names are digits everywhere (NAME0, NAME1 …; `MMU0_0` where the name ends in a digit). The DMA engine reads the boot ROM through its second block-RAM port; port jobs move bytes over the register bus, paced by the unit |
+| 11 | Register writes | **Direct, no latches** (CPU, copper, DMA engine): every register byte is written straight through, in any order, with any instruction. Software changes wide display registers in the vertical blank or with the copper at a set position, as on the Amiga. Three exceptions: MMU pages commit on the high byte; palette entries change when the red byte arrives (the PALDAT assembly); reads of live counters capture on the low byte (one tagged capture per master, as retro68k). Replaces the per-register latches (saves about 1,000–2,000 LUTs) |
 | 12 | [Input](spec/input.md) | Draft |
 | 13 | Sound | Waiting for Q1 |
 | 14 | [DMA engine](spec/dma-engine.md) | Draft |

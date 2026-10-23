@@ -27,11 +27,11 @@ The registers use retro68k's names and bit positions (SDCON with EN, CS0, CS1 an
 | retro68k (spec 15, version 1) | retro-z80 | Why |
 |-------------------------------|-----------|-----|
 | 32-bit registers at `0xF00300` | 8-bit registers `0x58`–`0x5E` of page `0x00` | Z80 (8-bit registers) |
-| SDCON: EN (0), CS0 (1), CS1 (2), CLKDIV (15–8) | The same bits: SDCON0 (register `0x58`) holds bits 7–0, SDCON1 (`0x59`) holds CLKDIV (bits 15–8) and commits the pair | Narrowed, layout kept (open point SD7) |
+| SDCON: EN (0), CS0 (1), CS1 (2), CLKDIV (15–8) | The same bits: SDCON0 (register `0x58`) holds bits 7–0, SDCON1 (`0x59`) holds CLKDIV (bits 15–8); each byte acts when written | Narrowed, layout kept (open point SD7) |
 | — | SDCON.AUTO (bit 7): a read of SDDATA starts the next `0xFF` exchange | Lets `INIR` read a block (section 4). retro-z80 only, placed in the top bit to keep retro68k's low bits free |
 | SDDATA: BYTE (7–0), BUSY (8) on reads | SDDATA is the byte only; BUSY is in SDSTAT (register `0x5A`, bit 0) | Z80: no bit 8 |
 | SDDATA at a normal address | SDDATA is also **port `0x5B` whatever the high byte** | So `INIR` / `OTIR`, which put the count B on A15–A8, reach it |
-| SDCOUNT: 16 bits | Two bytes, SDCOUNT0–1 (registers `0x5D`–`0x5E`), the high byte commits and starts | Narrowed; `0x5C` was already SERDROP's |
+| SDCOUNT: 16 bits | Two bytes, SDCOUNT0–1 (registers `0x5D`–`0x5E`), each written directly; a write to the high byte starts the run | Narrowed; `0x5C` was already SERDROP's |
 | SCLK = 100 MHz ÷ (2 × CLKDIV); CLKDIV 0 and 1 count as 2 | The same | Same system clock |
 | DMA engine port 0 | The same (spec 14) | – |
 | Source SD (16): unused in version 1 | Source SD reserved (spec 8 numbers it) | As retro68k |
@@ -47,18 +47,15 @@ The registers use retro68k's names and bit positions (SDCON with EN, CS0, CS1 an
 
 ### 3.1 Writing SDCON
 
-SDCON is a 2-byte register (spec 3, multi-byte rule): writing SDCON0 (`0x5800`) only fills a latch, and writing SDCON1 (`0x5900`, CLKDIV) commits both bytes. So every change of CS0, CS1, AUTO or EN is two writes, control byte first, with `INC B` between:
+SDCON is a 2-byte register, and each byte acts when it is written (spec 3, rule 2). So a change of CS0, CS1, AUTO or EN is one write to SDCON0 (`0x5800`), and a change of CLKDIV one write to SDCON1 (`0x5900`):
 
 ```
         ld   bc,SDCON0_P               ; port 0x5800
         ld   a,SDCON_EN_M|SDCON_CS0_M  ; select the card, AUTO off
-        out  (c),a                     ; latched
-        inc  b                         ; SDCON1, port 0x5900
-        ld   a,2                       ; CLKDIV = 2 (25 MHz)
-        out  (c),a                     ; commits both
+        out  (c),a                     ; acts at once
 ```
 
-Writing only SDCON1 changes CLKDIV and keeps the control bits. Through the register page, `LD (REGS+SDCON0),HL` with L = the control bits and H = CLKDIV does it in one instruction (spec 2). A change of CLKDIV takes effect at the next exchange; changing it during an exchange is not allowed (the result is undefined).
+Through the register page, `LD (REGS+SDCON0),HL` with L = the control bits and H = CLKDIV writes both in one instruction (spec 2). A change of CLKDIV takes effect at the next exchange; changing it during an exchange is not allowed (the result is undefined).
 
 ## 4. Clock and speed
 
@@ -121,11 +118,11 @@ The first read after setting AUTO returns the byte of the last exchange (the tok
 As retro68k's spec 15, section 3.5:
 
 1. Send CMD17 and wait for R1 and the start token `0xFE`, as above, with AUTO off.
-2. Write 512 to SDCOUNT: SDCOUNT0 = `0x00`, then SDCOUNT1 = `0x02` (commits and starts).
+2. Write 512 to SDCOUNT: SDCOUNT0 = `0x00`, then SDCOUNT1 = `0x02` (starts the run).
 3. Run a DMA job: COPY from port 0 to the buffer, 512 bytes (spec 14).
 4. When the job is done, read the 2 CRC bytes, release the card, send one more `0xFF`.
 
-**SDCOUNT** gives the controller a run of bytes to read for the DMA engine: writing N (1–65535) starts it. The controller clocks in byte after byte, sending `0xFF`, and hands each to DMA port 0; it starts the next as soon as the engine has taken the last, until N bytes have been read. Reading SDCOUNT gives the bytes still to read (reading SDCOUNT0 captures both bytes, spec 3). So the controller never reads past the end of the block: it stops before the CRC bytes, which software then reads itself.
+**SDCOUNT** gives the controller a run of bytes to read for the DMA engine: writing N (1–65535) starts it. Its bytes are written directly, and a write to SDCOUNT1 is the start trigger, as a strobe is: write SDCOUNT0 first, then SDCOUNT1, even when the high byte does not change. `LD (nn),HL` through the register page does both in that order. A write to SDCOUNT0 alone changes the count but starts nothing; while a run goes it changes the bytes still to read. The controller clocks in byte after byte, sending `0xFF`, and hands each to DMA port 0; it starts the next as soon as the engine has taken the last, until N bytes have been read. Reading SDCOUNT gives the bytes still to read (reading SDCOUNT0 captures both bytes, spec 3). So the controller never reads past the end of the block: it stops before the CRC bytes, which software then reads itself.
 
 As a destination, port 0 sends each byte the engine gives it, as soon as the last has gone (the bytes received are dropped). While SDCOUNT is not 0, or a DMA job sends to port 0, the CPU must not write SDDATA or read it with AUTO set.
 
@@ -152,13 +149,13 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 
 | Register | Port | Name | Access | Bits | Reset | Description |
 |----------|------|------|--------|------|-------|-------------|
-| `0x58` | `0x5800` | SDCON0 | RW | EN (0), CS0 (1), CS1 (2), AUTO (7) | `0x00` | Controller on; select lines (1 = selected, the line low); reads of SDDATA start an `0xFF` exchange. Bits 6–3 read 0. Latched: committed by writing SDCON1 |
-| `0x59` | `0x5900` | SDCON1 | RW | CLKDIV (7–0) = SDCON bits 15–8 | 125 | SCLK = 100 MHz ÷ (2 × CLKDIV); 0 and 1 count as 2. Writing it commits SDCON |
+| `0x58` | `0x5800` | SDCON0 | RW | EN (0), CS0 (1), CS1 (2), AUTO (7) | `0x00` | Controller on; select lines (1 = selected, the line low); reads of SDDATA start an `0xFF` exchange. Bits 6–3 read 0. Acts when written |
+| `0x59` | `0x5900` | SDCON1 | RW | CLKDIV (7–0) = SDCON bits 15–8 | 125 | SCLK = 100 MHz ÷ (2 × CLKDIV); 0 and 1 count as 2. Acts when written; the control bits are kept |
 | `0x5A` | `0x5A00` | SDSTAT | R | BUSY (0) | `0x00` | An exchange is running. Bits 7–1 read 0 |
 | `0x5B` | `0x5B00`, and `0x5B` with any high byte | SDDATA | RW | 7–0 | `0xFF` | Write: send this byte (starts an exchange; ignored while BUSY). Read: the byte received by the last exchange; with AUTO = 1 the read also starts an exchange sending `0xFF` |
 | `0x5C` | `0x5C00` | SERDROP | | | | The serial port's (spec 10) |
-| `0x5D` | `0x5D00` | SDCOUNT0 | RW | COUNT (7–0) | `0x00` | Bytes to read for DMA port 0, low byte (latched). Reading captures both bytes |
-| `0x5E` | `0x5E00` | SDCOUNT1 | RW | COUNT (15–8) | `0x00` | High byte; writing commits COUNT and starts the run (section 5.2). Reads the captured value |
+| `0x5D` | `0x5D00` | SDCOUNT0 | RW | COUNT (7–0) | `0x00` | Bytes to read for DMA port 0, low byte, written directly. Reading captures both bytes |
+| `0x5E` | `0x5E00` | SDCOUNT1 | RW | COUNT (15–8) | `0x00` | High byte; writing it sets bits 15–8 and starts the run (section 5.2). Reads the captured value |
 | `0x5F` | `0x5F00` | – | – | – | – | Reserved: reads `0xFF`, writes ignored |
 
 - SDDATA is a register where reading can have an effect (with AUTO set), through a port or through the register page (spec 3).
@@ -180,11 +177,11 @@ As on retro68k (its spec 15, section 5): the KS3 has no card-detect switch, and 
 ## 9. Test plan
 
 - **Simulation:** against an SPI-mode SD card model shared with retro68k: bit order, mode 0 timing; every CLKDIV from 0 to 255 gives the right clock; BUSY covers the whole exchange.
-- **SDCON:** a write to SDCON0 alone changes nothing; the write to SDCON1 commits both; CS0 and CS1 drive their lines; EN = 0 stops exchanges and releases both lines; the same through the register page with `LD (nn),HL`.
+- **SDCON:** a write to SDCON0 alone changes the control bits at once and keeps CLKDIV; a write to SDCON1 alone changes CLKDIV and keeps the control bits; CS0 and CS1 drive their lines; EN = 0 stops exchanges and releases both lines; the same through the register page with `LD (nn),HL`.
 - **AUTO:** a read with AUTO set returns the last byte and starts an `0xFF` exchange; with AUTO clear it starts nothing; the same through the register page.
 - **Ports:** SDDATA answers at `0x5B` with every high byte, at `0x5B00` and at register page offset `0x005B`.
 - **Pacing:** `INIR` and unrolled `INI` at 20 MHz (and 25 MHz, if tried) with CLKDIV = 2 read a 512-byte block correctly; an access while BUSY is ignored (shown at CLKDIV = 125).
-- **DMA:** SDCOUNT = 512 and a port 0 job read a block and stop before the CRC bytes; reading SDCOUNT counts down; a job to port 0 writes a block.
+- **DMA:** SDCOUNT = 512 and a port 0 job read a block and stop before the CRC bytes; a write to SDCOUNT0 alone starts nothing; a write to SDCOUNT1 starts a run with both bytes as written; reading SDCOUNT counts down; a job to port 0 writes a block.
 - **Start-up:** the full sequence for SDSC and SDHC models; no card gives no answer to CMD0, not a hang.
 - **Real cards:** several brands and sizes at 400 kHz, 12.5 MHz and 25 MHz; write and read back a test area; measure read speed by DMA and by `INIR` at each CPU speed.
 
@@ -198,5 +195,5 @@ As on retro68k (its spec 15, section 5): the KS3 has no card-detect switch, and 
 | SD4 | What `sd_cs1` is for on the board, and whether to support it beyond driving the pin (retro68k's SD3) |
 | SD5 | Closed: no transmit buffer and no CPU wait (branch 11). At 25 MHz the Z80 cannot outrun an exchange (section 4) |
 | SD6 | Card power is always on, so a stuck card can only be reset with CMD0 (as in retro68k) |
-| SD7 | Closed: SDCON keeps retro68k's layout (branch 11): control bits in the low byte, CLKDIV in the high byte, which commits. A control change is two writes, or one `LD (nn),HL` through the register page |
+| SD7 | Closed: SDCON keeps retro68k's layout (branch 11): control bits in the low byte, CLKDIV in the high byte. Each byte acts when written (direct writes, design plan branch 11), so a control change is one write to SDCON0 |
 | SD8 | Closed: retro68k has written its version-1 byte master (EN, CS0, CS1, CLKDIV; SDDATA with BUSY; SDCOUNT for DMA port 0); this spec follows it. AUTO is the only addition, offered to retro68k only if it ever wants CPU block reads |

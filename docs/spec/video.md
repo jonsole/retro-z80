@@ -34,7 +34,7 @@ The video makes one 576p picture, sent over HDMI and VGA at once. It is retro68k
 | Tile maps | – (a later version) | CTRL0.MODE = 1: MAPPT, PATPT, CTRL3 (MAPW, MAPH), SCROLLX and SCROLLY round the map; a mode of the layer fetcher (section 5.2) | Branch 11: a full screen for little memory and bandwidth, and text with one write per character |
 | Priority within a layer | – | A tile entry's PRI bit puts its pixels in front of all layers and of sprites with DEPTH 1–3 | Addition, kept from the previous draft |
 | CTRL | One 32-bit register | Four byte registers, CTRL0–CTRL3, each written on its own; CTRL0–CTRL2 keep retro68k's bit positions | 8-bit registers; a copper MOVE changes PALOFS on its own |
-| Registers | 32-bit, at `0xE00000` | Bytes, wider values low byte first; the highest byte commits (spec 3) | The Z80 |
+| Registers | 32-bit, at `0xE00000` | Bytes, wider values low byte first; each byte is written directly, with no latch; a colour changes on its red byte (spec 3) | The Z80 |
 | Global registers | `0x000`–`0x020` and DMACON at `0x094` | `0x000`–`0x00F`, packed; BEAMPOS, FRAMECOUNT and VIDSIZE at `0x0F0`–`0x0FF` | Copper MOVE codes `0xF0`–`0xFF` are other instructions (spec 6), so the read-only registers go there |
 | Layer blocks | `0x100` + n × `0x80` | `0x090` + n × `0x20` | Copper MOVE reaches offsets `0x000`–`0x0EF` only |
 | VIDSTAT | INVBLANK in bit 8 | INVBLANK in bit 3; OVERRUNA (attribute layer) in bit 2 | 8 bits |
@@ -118,7 +118,7 @@ Each event sets a sticky flag in VIDSTAT, cleared by writing 1 to it. VIDINTEN h
 
 - VIDSTAT.INVBLANK (bit 3, read only) is 1 while the beam is in lines 0–48.
 - The first picture line, 49, is fetched from beam (49, 0), so a VBLANK handler has 49 lines (1.57 ms) to set up the next frame.
-- A LINE handler runs during beam line LINECMP. Its writes to CTRL, WINX, WINY, SCROLLX, SCROLLY, PRIO or BGCOLOR act from line LINECMP + 1 if they are committed before that line starts (32 µs: 640 T-states at 20 MHz, less the time the Z80 takes to start the handler); BPLSTRIDE acts at the end of the line being shown. This is retro68k's rule (section 5.6).
+- A LINE handler runs during beam line LINECMP. Its writes to CTRL, WINX, WINY, SCROLLX, SCROLLY, PRIO or BGCOLOR act from line LINECMP + 1 if they are written before that line starts (32 µs: 640 T-states at 20 MHz, less the time the Z80 takes to start the handler); BPLSTRIDE acts at the end of the line being shown. This is retro68k's rule (section 5.6).
 
 ### 3.5 Output
 
@@ -181,9 +181,9 @@ As retro68k's chunky layers:
 | CTRL2.WRAP | 7–4 | Pointer wrap (below) |
 
 - **How the pointer moves.** Each word fetched moves BPL0PT on by 2. The line's first word saves the pointer: the line's start. The line's last word sets the pointer to **that start + BPLSTRIDE**. So at the end of each line inside the window the pointer is at its line's start + BPLSTRIDE, however many words were fetched: whole groups, the extra group of fine scroll and the window width make no difference.
-- **One path for every move.** The pointer changes only when a word is fetched, or when the CPU or copper writes it. A write wins over the fetcher's own change in the same clock, and also sets the saved line start. A write is committed by its high byte (spec 3).
-- **Writing the pointer for a split.** A pointer committed between the layer's last fetch on line L and the start of line L + 1 (beam pixel 0) is line L + 1's start, as written. The last fetch is about two groups (32 source pixels) before the window's right edge, so with a full-width window the gap is about 1 µs at 1× and 2 µs at 2×: a copper job. One committed earlier in line L is used for the rest of line L.
-- **When BPLSTRIDE is read:** with the line's last fetch. A value committed at the start of a line, or in the horizontal blank before it, applies at the end of that line.
+- **One path for every move.** The pointer changes only when a word is fetched, or when the CPU or copper writes it. A write wins over the fetcher's own change in the same clock, and also sets the saved line start. Each byte is written directly, with no latch (spec 3, rule 2). So a pointer written while the layer is fetching picks up the fetcher's moves between its bytes: a fetch after the low byte and before the high byte moves the new low byte on, and the rest of the frame is shown from the wrong place. **Write the pointer only while the layer is not fetching**: in the vertical blank, above or below the layer's window, or, all three bytes, in the gap below.
+- **Writing the pointer for a split.** A pointer written, all three bytes, between the layer's last fetch on line L and the start of line L + 1 (beam pixel 0) is line L + 1's start, as written. The last fetch is about two groups (32 source pixels) before the window's right edge, so with a full-width window the gap is about 1 µs at 1× and 2 µs at 2×: a copper job: a WAIT and three MOVEs fit the gap. One written earlier in line L is used for the rest of line L, and a write that spans a fetch gives the trouble above.
+- **When BPLSTRIDE is read:** with the line's last fetch. A value written at the start of a line, or in the horizontal blank before it, applies at the end of that line.
 - **The pointer is not reset by the hardware.** As in retro68k, the copper or the CPU (in its VBLANK handler) writes it every frame. If nothing rewrites it, the next frame carries on through memory.
 - **Stride.** BPLSTRIDE = the picture's bytes per line shows a picture whose lines follow each other, at any window width. 0 repeats one line; −(bytes per line) steps back a line each time, showing the picture upside down.
 - **Scrolling.** Down: move BPL0PT by whole lines. Across: coarse by moving BPL0PT by whole words (16, 8, 4 or 2 pixels at 1, 2, 4 or 8 bits per pixel), fine by SCROLLX. Any SCROLLX from 0 to 15 works at any depth, since a group is always 16 source pixels. With SCROLLX not 0 the line fetches one more group; the stride does not change.
@@ -411,7 +411,7 @@ If a layer's next group is not complete when its shifters need it, the layer sho
 
 ### 5.6 When register writes take effect
 
-These are retro68k's rules. A value wider than a byte takes effect when its highest byte commits (spec 3).
+These are retro68k's rules. Each byte takes effect when it is written, with no latch; a colour (BGCOLOR, a palette entry) when its red byte is written (spec 3, rules 2 and 7). So a line setting copied at beam pixel 0 while it is half written shows that one line with the new low byte and the old high byte. **Change wide registers in the vertical blank, or with the copper at a set position**, as on the Amiga: a copper list writes a line setting's bytes in the horizontal blank or the visible part of the line before.
 
 | Registers | Take effect |
 |-----------|-------------|
@@ -441,7 +441,7 @@ The next group must be complete before the current one is used up: 593 ns at 1×
 
 ## 6. Registers
 
-All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O port `((n & 0xFF) << 8) | (0x10 + (n >> 8))`: write with `LD BC,port` and `OUT (C),r`, stepping to the next register with `INC B`; read with `LD A,n & 0xFF` and `IN A,(0x10 + (n >> 8))`. The same registers are at offset `0x1000 + n` of the register page (MMU page `0x3F8`). Values wider than a byte are at consecutive offsets, low byte first; writing the highest byte commits the value, and reading the lowest byte of a counter captures it (spec 3). The copper's MOVE reaches offsets `0x000`–`0x0EF`, which holds every register here a copper list changes per line (spec 6). Reserved bits read 0; unused offsets read `0xFF` (spec 3). Unless stated, reset values are 0.
+All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O port `((n & 0xFF) << 8) | (0x10 + (n >> 8))`: write with `LD BC,port` and `OUT (C),r`, stepping to the next register with `INC B`; read with `LD A,n & 0xFF` and `IN A,(0x10 + (n >> 8))`. The same registers are at offset `0x1000 + n` of the register page (MMU page `0x3F8`). Values wider than a byte are at consecutive offsets, low byte first; each byte is written directly, a colour changes when its red byte is written, and reading the low byte of a counter captures it (spec 3). The copper's MOVE reaches offsets `0x000`–`0x0EF`, which holds every register here a copper list changes per line (spec 6). Reserved bits read 0; unused offsets read `0xFF` (spec 3). Unless stated, reset values are 0.
 
 ### 6.1 Global registers (`0x000`–`0x00F`)
 
@@ -451,7 +451,7 @@ All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O
 | `0x001` | `0x0110` | VIDSTAT | W1C (INVBLANK R) | VBLANK (0), LINE (1), OVERRUNA (2), INVBLANK (3), OVERRUN0 (4), OVERRUN1 (5), OVERRUN2 (6), SPRUNDER (7) | Sticky flags, write 1 to clear (section 3.4) |
 | `0x002` | `0x0210` | VIDINTEN | RW | As VIDSTAT bits 0, 1, 2, 4–7; bit 3 reserved | Interrupt enables |
 | `0x003` | `0x0310` | PRIO | RW | FRONT (1–0), MIDDLE (3–2), BACK (5–4) | Layer order (section 4.8). Reset `0x24` |
-| `0x004`–`0x006` | `0x0410`–`0x0610` | BGCOLOR | RW | Blue (`0x004`), green (`0x005`), red (`0x006`, commits) | Background colour; also set by port `0xFE` (section 7.2) |
+| `0x004`–`0x006` | `0x0410`–`0x0610` | BGCOLOR | RW | Blue (`0x004`), green (`0x005`), red (`0x006`, commits) | Background colour; also set by port `0xFE` (section 7.2). Blue and green go into the master's colour assembly buffer; the red byte writes all three, as a palette entry (section 6.5) |
 | `0x007`–`0x008` | `0x0710`, `0x0810` | LINECMP | RW | 10–0 | Beam line of the LINE event |
 | `0x009`–`0x00A` | `0x0910`, `0x0A10` | PALIDX | RW | 7–0 entry; 9–8 palette (0–2 PALETTE0–2, 3 SPRPALETTE) | Palette index (section 6.5) |
 | `0x00B` | `0x0B10` | PALDAT | RW | 7–0 | Palette data: blue, green, red (section 6.5) |
@@ -509,8 +509,8 @@ Layer n (0–2) is at `0x090 + n × 0x20`: L0 at `0x090`–`0x0AF` (ports `0x901
 | `+0x1C`–`+0x1E` | PATPT | RW | 21–1 | Tiles: pattern base |
 | `+0x1F` | – | | | Reserved |
 
-- **CTRL0–CTRL3 are four byte registers, each written on its own.** They hold separate fields, not one value, so there is no latch: a copper list changes PALOFS with one MOVE. retro68k's bit positions are kept: CTRLk bit b is CTRL bit 8k + b.
-- WINX and WINY are retro68k's 32-bit registers in byte order: their low halves (XEND, YEND) come first. Each half is a 2-byte value on its own, committed by its high byte.
+- **CTRL0–CTRL3 are four byte registers, each written on its own.** They hold separate fields, not one value: a copper list changes PALOFS with one MOVE. retro68k's bit positions are kept: CTRLk bit b is CTRL bit 8k + b.
+- WINX and WINY are retro68k's 32-bit registers in byte order: their low halves (XEND, YEND) come first. Each half is a 2-byte value on its own. Change a window in the vertical blank or with the copper, so that no line starts with it half written.
 - Pointers are 3 bytes; bits 23–22 are ignored and bit 0 reads 0 (spec 2).
 - BPL0PT reads the live pointer, which moves as words are fetched. Reading its low byte (`+0x14`) captures all three bytes, so a read low byte first is never torn (spec 3).
 
@@ -536,7 +536,7 @@ Layer n (0–2) is at `0x090 + n × 0x20`: L0 at `0x090`–`0x0AF` (ports `0x901
 
 ### 6.5 Palettes
 
-**Through ports.** PALIDX is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number (0–2 PALETTE0–2, 3 SPRPALETTE), so the index is retro68k's palette address ÷ 4. Writing PALIDX's high byte commits it and resets PALDAT's byte counter. PALDAT reads or writes the entry at the index, one byte at a time: blue, green, red. Blue and green writes are held; the **red write changes the entry whole** and steps the index by 1 (from 255 of one palette to 0 of the next; from `0x3FF` to 0). A red read steps it too. So a loop of `OUT (C),r` with B fixed at PALDAT's register writes a palette, 3 bytes per entry. `OTIR` cannot be used: it counts B down, and B is the register number (spec 3; open point V4).
+**Through ports.** PALIDX is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number (0–2 PALETTE0–2, 3 SPRPALETTE), so the index is retro68k's palette address ÷ 4. Each byte of PALIDX acts when it is written, and writing either byte resets PALDAT's byte counter. PALDAT reads or writes the entry at the index, one byte at a time: blue, green, red. Blue and green writes go into the master's **colour assembly buffer**: one each for the CPU, the copper and the DMA engine, shared by PALDAT, the register page palettes and BGCOLOR, not a latch per entry (spec 3, rule 7). The **red write changes the entry whole**, with the buffer's blue and green, and steps the index by 1 (from 255 of one palette to 0 of the next; from `0x3FF` to 0). A red read steps it too. So a loop of `OUT (C),r` with B fixed at PALDAT's register writes a palette, 3 bytes per entry. `OTIR` cannot be used: it counts B down, and B is the register number (spec 3; open point V4).
 
 **Through the register page.** The palettes are memory in the register page (spec 2, section 10.2), 3 bytes per entry, packed:
 
@@ -547,7 +547,7 @@ Layer n (0–2) is at `0x090 + n × 0x20`: L0 at `0x090`–`0x0AF` (ports `0x901
 | `0x1A00`–`0x1CFF` | PALETTE2 |
 | `0x1D00`–`0x1FFF` | SPRPALETTE |
 
-Entry i of palette p is at `0x1400 + p × 0x300 + 3i`: blue, green, red. The blue and green bytes are held and the red byte changes the entry whole, as through PALDAT. This path does not use or change PALIDX. `LDIR` copies a palette (it writes rising addresses, so red comes last in each entry). The palettes have no I/O port of their own: the register page offsets `0x1400`–`0x1FFF` lie beyond the custom pages (`0x1000`–`0x13FF`) and match no port (open point V3).
+Entry i of palette p is at `0x1400 + p × 0x300 + 3i`: blue, green, red. The blue and green bytes go into the colour assembly buffer and the red byte changes the entry whole, as through PALDAT. This path does not use or change PALIDX. `LDIR` copies a palette (it writes rising addresses, so red comes last in each entry). The palettes have no I/O port of their own: the register page offsets `0x1400`–`0x1FFF` lie beyond the custom pages (`0x1000`–`0x13FF`) and match no port (open point V3).
 
 **Copper and DMA engine.** The copper reaches the palettes through PALIDX and PALDAT: a colour change is five MOVEs, three when PALIDX already points at the entry. The DMA engine's palette destination is spec 14's.
 
@@ -596,7 +596,7 @@ As on a Spectrum, a write to port `0xFE` sets the border colour, which here is t
 | 6 | Yellow | `0xD7D700` |
 | 7 | White | `0xD7D7D7` |
 
-- The write sets all three bytes of BGCOLOR at once, as a BGCOLOR commit does; BGCOLOR then reads back the new value. The CPU's held BGCOLOR bytes are not changed.
+- The write sets all three bytes of BGCOLOR at once, as a write of BGCOLOR's red byte does; BGCOLOR then reads back the new value. The CPU's colour assembly buffer is not changed.
 - BGCOLOR and port `0xFE` set the same register, so the later write wins. A program that wants other border colours (BRIGHT ones, say) writes BGCOLOR.
 - **A port `0xFE` write acts at once**, as on a Spectrum, so a program that changes the border in the middle of a line (a tape loader's stripes) shows the change in the middle of the line. The write sends the colour to the pixel side as well as to BGCOLOR: the 3 bits cross as a toggle through two flip-flops at 135 MHz, as "full" does (section 5.7, 7–22 ns), and the pixel side takes the colour at its next pixel (up to 37 ns). So the new colour shows from the pixel being shown about 10–60 ns after the write reaches the register bus, one or two pixels late. At the start of the next line's picture the pixel side reads BGCOLOR as usual, which holds the same colour.
 - **BGCOLOR written as a register keeps retro68k's rule**: it is read at the start of each line's picture (section 5.6), so its changes land on whole lines. This holds for the CPU, the copper and the DMA engine. A port `0xFE` write after a BGCOLOR write in the same line shows at once; a BGCOLOR write after a port `0xFE` write shows from the next line's picture.
@@ -619,10 +619,10 @@ A 48K Spectrum screen file (6,144 bytes of pixels in the Spectrum's line order, 
 | BGCOLOR | Set by port `0xFE` |
 | DMACON | SETCLR, DMAEN, BPLEN |
 
-**The copper sets the layer pointer every line.** A Spectrum screen's pixel line y is at `screen + ((y & 0xC0) << 5) + ((y & 7) << 8) + ((y & 0x38) << 2)`. Source line k is shown on beam lines 145 + 2k and 146 + 2k, and fetched on both. Its address must be committed after L0's last fetch on beam line 144 + 2k and before beam pixel 0 of line 145 + 2k (section 4.4). L0's last fetch on a line is before its window's right edge, 760, so for each k the copper:
+**The copper sets the layer pointer every line.** A Spectrum screen's pixel line y is at `screen + ((y & 0xC0) << 5) + ((y & 7) << 8) + ((y & 0x38) << 2)`. Source line k is shown on beam lines 145 + 2k and 146 + 2k, and fetched on both. Its address must be written, all three bytes, after L0's last fetch on beam line 144 + 2k and before beam pixel 0 of line 145 + 2k (section 4.4). L0's last fetch on a line is before its window's right edge, 760, so for each k the copper:
 
 1. waits for beam (144 + 2k, 768);
-2. writes L0's BPL0PT (custom `0x0A4`–`0x0A6`, inside MOVE's reach) with line k's address: three MOVEs, the high byte last, to commit.
+2. writes L0's BPL0PT (custom `0x0A4`–`0x0A6`, inside MOVE's reach) with line k's address: three MOVEs, all after the wait, so no fetch comes between them.
 
 That is 5 words a line, 192 times a frame; 96 pixels (3.5 µs) are left after the wait. On line 145 + 2k the fetch starts at the written address; at that line's end the pointer goes back to it (a copy of a 2×-tall line), and on line 146 + 2k it goes on to the address + 256, which the copper then overwrites.
 
@@ -673,8 +673,8 @@ The sprites' FIFOs are spec 5's.
 - **Tile fetch:** the order of section 5.2 (entries one group ahead, line start), 1-bit rows at even and odd addresses, YFLIP rows, XFLIP mirroring at each depth, a map that wraps inside a group, entries' deadlines one group later than the rows'.
 - **Pointer:** BPL0PT moves word by word and ends each line at its start + BPLSTRIDE whatever the fetch; on a 2×-tall layer it goes back to the line's start on the first copy; a write between the last fetch and beam pixel 0 starts the next line as written; a write in the same clock as a fetch wins; WRAP keeps it in its block; nothing resets it at the frame start.
 - **Order:** every PRIO value, including a layer left out and the reset value; sprites of each DEPTH against opaque and transparent pixels of each layer; PRI tiles over all layers and DEPTH 1–3 sprites, under DEPTH 0 sprites, and PRI tiles of two layers in PRIO's order.
-- **Register timing:** each line setting committed just before and just after beam pixel 0 acts on line L and on line L + 1; PRIO and BGCOLOR written in the horizontal blank change that line; palette writes land at the next pixel; CTRL1 written alone changes only its fields; BPLSTRIDE acts with the line's last fetch.
-- **Palettes:** PALIDX/PALDAT write and read every entry of the four palettes, the index steps across palettes after the red byte, a blue or green write alone changes nothing; the register page offsets do the same without touching PALIDX; `LDIR` loads a palette; the default palette after configuration, and unchanged by reset.
+- **Register timing:** each line setting written just before and just after beam pixel 0 acts on line L and on line L + 1; PRIO and BGCOLOR written in the horizontal blank change that line; palette writes land at the next pixel; CTRL1 written alone changes only its fields; a 2-byte line setting half written at beam pixel 0 shows one line with the mixed value and the next with the whole one; a BPL0PT written while the layer fetches shows the mixed pointer from then on, and one written in the gap does not; BPLSTRIDE acts with the line's last fetch.
+- **Palettes:** PALIDX/PALDAT write and read every entry of the four palettes, the index steps across palettes after the red byte, a blue or green write alone changes nothing; either PALIDX byte resets the byte counter; a copper or DMA colour between the CPU's blue and red does not mix with it (one buffer per master); BGCOLOR's red byte commits it; the register page offsets do the same without touching PALIDX; `LDIR` loads a palette; the default palette after configuration, and unchanged by reset.
 - **Border:** `OUT (0xFE),A` with each of the 8 values sets BGCOLOR to the table's colour, shown from the pixel being shown 10–60 ns after the write, with the pixel clock at many phases; writes every few microseconds through a line give stripes that change mid-line, as a tape loader's; a BGCOLOR write mid-line shows from the next line's picture; BGCOLOR and port `0xFE` writes in either order, the later wins, and BGCOLOR reads back the later value.
 - **Spectrum screen:** a .scr file shown through the copper's pointer writes (both ways of section 7.3) and the attribute layer, against the model; flash every 16 frames.
 - **Budget:** each example of section 5.4 that fits, with the CPU at 20 MHz making random accesses, the copper and the DMA engine running, and sprites: no OVERRUN. Find how far beyond 1.48 bytes per pixel tile and bitmap screens go without OVERRUN, also at 25 MHz (open point V9). An over-budget screen sets the right OVERRUN bit and shows transparent pixels only for the late groups.
@@ -699,10 +699,11 @@ The sprites' FIFOs are spec 5's.
 | V10 | MAPPT, PATPT and SCROLLY are line settings, read at beam pixel 0 like CTRL, not live like BPL0PT: a write mid-line changes the next line, never the rest of the current one |
 | V11 | ATADDR and ATSTRIDE are now even and ATSCROLL's fine X is 0–15, so an attribute group is one word; the previous draft allowed odd addresses |
 | V12 | The default palette fills all four palettes the same way (section 7.4) |
-| V13 | CTRL0–CTRL3 are separate byte registers, an exception to the multi-byte rule (spec 3) |
+| V13 | CTRL0–CTRL3 are separate byte registers, not one value (spec 3, section 3.1) |
 | V14 | DMACON is one byte with retro68k's enables in the same order but not the same bit numbers; the four audio enables are one reserved bit, AUDEN, until sound is decided (spec 13) |
 | V15 | Pointers and the stride are even, as in retro68k, so a bitmap line cannot start at an odd byte. A Spectrum screen and every 16-pixel-aligned picture are unaffected |
 | V16 | Closed: VIDSIZE fits in the read-only area with BEAMPOS and FRAMECOUNT (`0x0F0`–`0x0F9`) |
 | V17 | Closed: software sees the display beam, as retro68k (branch 11); the draw beam, line buffer, FIFOs and repeat buffers are gone |
 | V18 | Closed: scales 4× and 8× are provided, as retro68k |
 | V19 | Closed: the boot console's addresses and font belong to spec 7 |
+| V20 | Closed (design plan, branch 11): register writes are direct, with no latches. BGCOLOR keeps a commit on its red byte, as the palette entries do, because a colour is shown live; it uses the same colour assembly buffer. A live pointer (BPL0PT) must be written while its layer is not fetching (section 4.4) |
