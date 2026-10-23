@@ -25,7 +25,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
 | `docs/spec/dma-engine.md` | Spec 14: retro68k's version-1 DMA engine, 4 channels |
 | Specs 13, 15, 16 | Not written: sound (parked), geometry unit (branch 10, another session), boot ROM |
-| `docs/guide/` | Programmer's guide: not started; playfields chapter first (section 5) |
+| `docs/guide/playfields.md` | Programmer's guide, chapter 3: playfields (the first chapter written) |
 
 ## 3. The machine in one page
 
@@ -54,7 +54,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - DMA port jobs go over the register bus, paced by each unit's ready signal (spec 3, R13).
    - Byte names: L/H (MMUnL) or 0/1/2 (SPRxPT0)? Mixed today (spec 3, R10).
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
-2. **Programmer's guide:** write the playfields chapter (`docs/guide/playfields.md`) in retro68k's style with Z80 examples, check it with the user, then the other chapters.
+2. **Programmer's guide:** the playfields chapter (`docs/guide/playfields.md`) is written; the user is checking its style and depth before the other chapters. Its spec gaps: no generated names for WINX/WINY/BEAMPOS halves, tile-map entry fields and MMU page numbers; what a loaded program inherits from the boot ROM (spec 16); level-sensitive VBLANK re-entering ported Spectrum handlers; the boot console font as a public resource.
 3. **Geometry unit (spec 15)**, branch 10, in the other session, against the new register map.
 4. **Boot ROM spec (16).**
 5. Then phase 1 (section 7) and the KS2 bring-up build (phase 3, branch 12).
