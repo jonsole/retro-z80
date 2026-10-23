@@ -92,7 +92,7 @@ The chipset (video, sprites, copper) uses 22-bit physical SRAM byte addresses, n
 | `0x1C` | INTPENDL | R | Request AND enable, 0–7 | 8 |
 | `0x1D` | INTPENDH | R | Request AND enable, 8–11 | 8 |
 | `0x1E` | INTVEC | R/W | IM 2 vector base (bits 7–5) | 8 |
-| `0x1F` | INTHIGH | R | Highest pending source, `0x8F` if none | 8 |
+| `0x1F` | KEMPSTON | R | Joystick 1, same value as JOY1 (`0xA5`), at the Spectrum's Kempston port; writes ignored. Owned by spec 12 | 12 |
 | `0x20`–`0x21` | T0L, T0H | R/W | Timer 0 | 9 |
 | `0x22` | T0CTRL | R/W | Timer 0 control | 9 |
 | `0x23`–`0x24` | T1L, T1H | R/W | Timer 1 | 9 |
@@ -174,7 +174,7 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 | `0x93`–`0x95` | COPLC0–2 | Program start address | |
 | `0x96`–`0x98` | COPX0–2 | Pointer X | |
 | `0x99`–`0x9B` | COPY0–2 | Pointer Y | |
-| `0x9C` | | Reserved | |
+| `0x9C` | COPD | Counter D | |
 | `0x9D`–`0x9F` | COPPC0–2 | Current address (R); writing the high byte jumps | |
 
 ### 4.8 Input (`0xA0`–`0xA7`, `0xFE`), not reachable by the copper
@@ -189,7 +189,7 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 | `0xA5` | JOY1 | Joystick 1, Kempston bit order, 1 = pressed | |
 | `0xA6` | JOY2 | Joystick 2 | |
 | `0xA7` | INCTL | Mega Drive pads, extra-key mapping, bit 6 of `0xFE` | |
-| `0xFE` | KEYROWS | Spectrum keyboard: A15–A8 select rows, bits 4–0 active low | |
+| `0xFE` | KEYROWS | Read: Spectrum keyboard, A15–A8 select rows, bits 4–0 active low. Write: bits 2–0 border (sets BGCOL to a Spectrum colour, spec 4), bit 4 beeper | |
 
 ### 4.9 MMU write pages (`0xA8`–`0xB7`), not reachable by the copper
 
@@ -198,9 +198,18 @@ Reserved until sound is decided (spec 13). Reads give `0xFF`; copper writes do n
 | `0xA8`+2n | MMUnWL | R/W | Window n write page, bits 7–0 (latched) | 2 |
 | `0xA9`+2n | MMUnWH | R/W | Write page bits 9–8 (bits 1–0); commits the write page only | 2 |
 
-### 4.10 Reserved
+### 4.10 Interrupt and NMI extras (`0xB8`–`0xBD`), not reachable by the copper
 
-`0xB8`–`0xFD` and `0xFF`: reserved for the DMA engine, sound and later blocks.
+| Port | Name | Access | Meaning | Spec |
+|------|------|--------|---------|------|
+| `0xB8` | INTHIGH | R | Highest pending interrupt source, `0x8F` if none (moved from `0x1F`) | 8 |
+| `0xB9` | NMICTL | R/W | EN (bit 0, 1 after reset): page the monitor in on NMI; INNMI (bit 1, read only) | 7 |
+| `0xBA`–`0xBB` | NMISAVL, NMISAVH | R | Window 0's read page saved at the last NMI | 7 |
+| `0xBC`–`0xBD` | NMISAVWL, NMISAVWH | R | Window 0's write page saved at the last NMI | 7 |
+
+### 4.11 Reserved
+
+`0xBE`–`0xFD` and `0xFF`: reserved for the DMA engine, sound and later blocks.
 
 ## 5. The register page
 
@@ -261,8 +270,8 @@ As in retro68k, `fpga/regmap.def` is the source of truth. Each line names a port
 
 | # | Item | Plan |
 |---|------|------|
-| R1 | Kempston joysticks are at port `0x1F` on a Spectrum, which is INTHIGH here | Ports keep the Kempston bit order; ported code changes the port. Could move INTHIGH and alias JOY1 at `0x1F` if porting matters more |
-| R2 | Port `0xFE` writes (border, beeper) are ignored | Decide with sound (spec 13) |
+| R1 | Kempston joysticks at port `0x1F` | Closed: `0x1F` reads joystick 1; INTHIGH moved to `0xB8` |
+| R2 | Port `0xFE` writes | Closed: border (bits 2–0) and beeper (bit 4), spec 12 |
 | R3 | 59 of 64 video ports are used, 16 of 16 sprite ports | A second video bank or index port if later features need more |
-| R4 | DMA engine ports | Take from `0xB8` up when it is specified |
+| R4 | DMA engine ports | Take from `0xBE` up when it is specified |
 | R5 | Should the copper and DMA engine also see the palette and sprite table directly (as in the register page) rather than through index ports? | Not needed for version 1 |

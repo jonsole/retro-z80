@@ -18,16 +18,18 @@ The memory side (slots, the SRAM controller, the MMU) is spec 2. The I/O ports a
 | I/O | IN and OUT become one strobe on the register bus. Only A7–A0 are decoded (A15–A8 are passed on for port `0xFE`). Unmapped ports read `0xFF` |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
 | Interrupts | IM 2: the interrupt controller (spec 8) puts the vector byte on the bus in the acknowledge cycle. IM 1 also works. NMI from the interrupt controller |
+| NMI paging | Taking an NMI switches window 0 to the boot ROM's monitor page before the fetch at `0x0066`; `RETN` fetched in NMI mode switches it back (section 8.2) |
 | Not used | busrq_n (tied high), busak_n, IM 0 |
 | Chipset bus | A memory port to the slot controller and a byte-wide register bus. Neither depends on the Z80, so a 6502 bus interface could later sit on the same bus |
 
 ## 2. The tv80 core and its signals
 
-tv80 comes as a core (`tv80_core`) and a small synchronous wrapper (`tv80s`). retro-z80 uses its own copy of the wrapper, `fpga/rtl/z80_cpu.v`, which differs from `tv80s` in three ways:
+tv80 comes as a core (`tv80_core`) and a small synchronous wrapper (`tv80s`). retro-z80 uses its own copy of the wrapper, `fpga/rtl/z80_cpu.v`, which differs from `tv80s` in four ways:
 
 1. **cen** is brought out and passed to the core (`tv80s` ties it to 1). The bus strobe flip-flops in the wrapper also change only on cen.
 2. The core's early cycle-type outputs (`mc`, `ts`, `iorq`, `no_read`, `write`, `intcycle_n`) are brought out to the bus interface, which needs to know the type of an M-cycle during T1 (section 5).
 3. `TV80_REFRESH` is defined, so the R register counts (games use `LD A,R` for random numbers) and rfsh_n works.
+4. The core's internal `NMICycle` flag (high during the M-cycles of the NMI response) is brought out as **nmicycle**, for the NMI paging of section 8.2. This needs one added output port on `tv80_core`; the core's logic is not changed.
 
 Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IOWait = 1` (standard I/O cycle with one automatic wait state).
 
@@ -39,6 +41,7 @@ Parameters: `Mode = 0` (Z80), `T2Write = 1` (wr_n low from the start of T2), `IO
 | wait_n | in | Tied high: the Z80 never waits |
 | int_n | in | From the interrupt controller (spec 8) |
 | nmi_n | in | From the interrupt controller (spec 8), falling edge taken |
+| nmicycle | out | Added (item 4): the core is running the NMI response (dummy M1 and the push of PC) |
 | busrq_n | in | Tied high: there is no other bus master |
 | m1_n | out | Opcode fetch, or with iorq_n, interrupt acknowledge |
 | mreq_n | out | Memory cycle (also low in the refresh part of M1) |
@@ -242,7 +245,34 @@ The acknowledge cycle uses no memory cycle and no wait states.
 
 ### 8.2 NMI
 
-nmi_n comes from the interrupt controller, which drives it from the Multiface button and the USB serial BREAK command (spec 8, spec 10). The core takes a falling edge, finishes the instruction and calls `0x0066`, in whatever page MMU window 0 holds then. The MMU is not changed by an NMI (open point B4).
+nmi_n comes from the interrupt controller, which drives it from the Multiface button and the USB serial BREAK command (spec 8, spec 10). The core takes a falling edge, finishes the instruction, runs the NMI response (a dummy M1 and two writes that push PC) and then fetches the opcode at `0x0066`.
+
+Like a Multiface, the bus interface pages a monitor into window 0 for the NMI and takes it out again at `RETN`. The registers (NMICTL `0xB9`, saved pages `0xBA`–`0xBD`) and the monitor itself are in spec 7, section 4.4. The bus interface keeps one flag, **INNMI** (read in NMICTL), and an ED-prefix flag.
+
+**Entry.** While NMICTL.EN = 1 and INNMI = 0:
+
+1. The pushes of PC happen while nmicycle is high, so they use window 0 as the program left it. A posted write keeps the page it was given in its own M-cycle (section 5.2).
+2. The response is a dummy M1 and two memory writes (11 T-states). Once the second write (the low byte of PC) has taken its page, at its T2, the bus interface copies MMU0 and MMU0W into the saved-page registers, loads MMU0 with `0x3FF` (the monitor page) and MMU0W with `0x3FB` (NONE), and sets INNMI.
+3. The next M-cycle is the opcode fetch at `0x0066` (nmicycle falls as its T1 starts). Its MMU lookup in T1 already sees the new window 0, so the first monitor byte comes from ROM offset `0x6066`. The change is made at least a T-state before that T1, so it adds nothing to the timing path of section 5 (open point B1).
+
+**Exit.** While INNMI = 1 the bus interface watches the bytes taken by opcode fetches (M1 cycles with "fetch" from the early outputs; interrupt acknowledges, refresh and operand reads do not count):
+
+- A fetched `0xED` sets the ED-prefix flag. The next opcode fetch is the second byte of that instruction, whatever it is, and clears the flag.
+- If that second byte is `0x45` (`RETN`), the bus interface loads MMU0 and MMU0W from the saved pages and clears INNMI, at the end of that fetch (when the byte is taken, T3). The two stack reads of `RETN` and the fetch at the return address therefore all use the program's own window 0, even if its stack is in window 0.
+- `RETI` (`ED 4D`), the undocumented `RETN` copies (`ED 55`, `ED 5D`, …) and every other byte change nothing. A `DD` or `FD` before `ED 45` does not matter: the pair is still seen.
+- If the monitor wrote MMU0 or MMU0W meanwhile, those values are lost: the exit always puts back the saved pages.
+
+**Nesting.** While INNMI is 1 the interrupt controller holds nmi_n high (spec 8, section 9), so no second NMI is taken; a pending event gives a new NMI right after `RETN`. If an NMI response were seen while INNMI is 1, nothing would be saved or changed.
+
+**EN = 0.** With NMICTL.EN = 0 an NMI changes no window and sets no INNMI, and `RETN` is not watched: the NMI runs whatever window 0 holds at `0x0066`, as on a plain Z80. EN is looked at only on entry.
+
+**Reset** clears INNMI and the ED-prefix flag and sets EN; the saved pages reset to `0x3FC`.
+
+| Event | MMU0 / MMU0W | Saved pages | INNMI |
+|-------|--------------|-------------|-------|
+| Second write of the NMI response, EN = 1, INNMI = 0 | ← `0x3FF` / `0x3FB` | ← MMU0 / MMU0W | 1 |
+| `ED 45` fetched, INNMI = 1 | ← saved pages | Kept | 0 |
+| Reset | `0x3FC` / `0x3FC` | `0x3FC` / `0x3FC` | 0 |
 
 ## 9. Reset
 
@@ -262,7 +292,7 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 | Item | Resource |
 |------|----------|
 | tv80 | About 2,000–3,000 LUTs, no block RAM (to be measured) |
-| Bus interface: cen counter, cycle fitting, register bus master, vector path | Estimate 150–300 LUTs |
+| Bus interface: cen counter, cycle fitting, register bus master, vector path, NMI paging | Estimate 150–300 LUTs |
 
 ## 12. Test plan
 
@@ -276,6 +306,7 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 - **I/O:** one strobe per IN or OUT; A15–A8 reach port `0xFE` only; INIR and OTIR stream to one port; unmapped ports read `0xFF`; a copper write in the same clock delays the CPU's strobe by one clock and the data still arrives in time.
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.
 - **Interrupts:** in IM 2 each source's vector reaches the core and one int_ack is sent; IM 1 runs RST `0x38`; NMI from the button and from USB BREAK reaches `0x0066`.
+- **NMI paging:** at all four speeds, with the NMI taken during every kind of instruction, during `HALT`, in a repeat (`LDIR`) and during a posted write: the PC push goes through the old window 0; the fetch at `0x0066` comes from page `0x3FF`; MMU0/MMU0W and the saved pages are as in the table above. `ED 45` restores window 0 before its stack reads (SP in window 0 and elsewhere); `ED 4D`, `ED 55`, `DD ED 45`, an `ED` data byte and `0x45` fetched without `ED` before it behave as specified; EN = 0 pages nothing; reset ends NMI mode.
 - **Reset:** the first T1 after every reset starts at slot clock 0; the core starts at `0x0000` in the boot ROM at 28 MHz.
 
 ## 13. Open points
@@ -286,5 +317,6 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 | B6 | The register page read path (MMU page decode, rb_rd, unit decode, rb_rdata back to di) must fit at 28 MHz, also when a copper write moves the strobe by a clock (section 5.6) |
 | B2 | Is tv80 exact enough (flags, undocumented instructions, interrupt timing)? ZEXDOC and ZEXALL in phase 1; fallback T80 (VHDL) (design plan, Q3) |
 | B3 | A hardware debugger: stop cen to pause the CPU, single-step, breakpoints, from the PC over USB |
-| B4 | Should an NMI also page a monitor into window 0 (as the Multiface did)? Not in version 1: the NMI handler at `0x0066` is whatever window 0 holds |
+| B4 | Decided: an NMI pages the boot ROM's monitor page into window 0 and `RETN` restores it (section 8.2; spec 7, section 4.4) |
+| B7 | tv80's `NMICycle` must be brought out of `tv80_core` (section 2, item 4). In tv80 it is set at the start of the response's M1 and cleared as the next M1 (the fetch at `0x0066`) starts; check in simulation that the response is always M1 plus two writes, also from `HALT`. Fallback without touching the core: page at the first opcode fetch at `0x0066` that follows a falling nmi_n edge and two memory writes |
 | B5 | The swap at 28 MHz is a refinement of the fixed cycle owners in the design plan (D4): owners keep their number of cycles per slot but not always their exact cycle. Specs 4–6 must allow one cycle (35.7 ns) of delay |

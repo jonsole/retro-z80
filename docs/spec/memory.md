@@ -15,7 +15,7 @@ The CPU side of each access (when the Z80 asks, and which cycle it uses) is spec
 | Slot | 4 cycles = 8 clocks = 143 ns. A 576p line (32 µs) is exactly 224 slots |
 | Cycle 0, 2 | CPU. Never taken by anyone else |
 | Cycle 1 | Video fetch (bitmap, tiles, attributes) |
-| Cycle 3 | Copper; a display FIFO below its low mark; sprites; display top-up |
+| Cycle 3 | A display FIFO below its low mark (urgent); copper; sprites; display top-up |
 | Spare cycles | A cycle its owner leaves goes to the others, in the cycle 3 order |
 | Z80 waits | Never (spec 1, section 5) |
 | Bandwidth | 56 MB/s in all; 14 MB/s per cycle number |
@@ -57,7 +57,9 @@ Both MMCMs run from the same 50 MHz oscillator, so every line is exactly 224 slo
 | **0** | **CPU** | If the CPU does not need it, it is a spare cycle |
 | 1 | Video fetch | Bitmap, tile map, tile patterns and attributes, each into its own display FIFO (spec 4). If no FIFO has room, a spare cycle |
 | **2** | **CPU** | As cycle 0 |
-| 3 | Shared | In this order: **copper** (spec 6); **a display FIFO below its low mark** (urgent); **sprites** (spec 5); **display top-up** (any FIFO with room) |
+| 3 | Shared | In this order: **a display FIFO below its low mark** (urgent); **copper** (spec 6); **sprites** (spec 5); **display top-up** (any FIFO with room) |
+
+Urgent display fetches go before the copper, so the picture is never late because of the copper. The copper may slip instead; when that makes a paced write late it sets COPSTAT.LATE (spec 6).
 
 The CPU has a cycle every 2 T-states at 28 MHz, and a Z80 never touches memory more often than every 3, so it always has a cycle free. **Cycles 0 and 2 are never given to anyone else while the CPU needs them.**
 
@@ -75,7 +77,7 @@ A cycle its owner does not use is a **spare cycle**. Spare cycles come from:
 - cycle 1 when no display FIFO has room (blanking, layers off, the second line of a 288-line layer's pair),
 - cycle 3 when nobody wants it.
 
-Each spare cycle goes to the first that wants it of: **copper; a display FIFO below its low mark; sprites; display top-up**, the same order as cycle 3. A DMA engine (later) would come last. If nobody wants it, the cycle is idle: the SRAM is left alone.
+Each spare cycle goes to the first that wants it of: **a display FIFO below its low mark; copper; sprites; display top-up**, the same order as cycle 3. A DMA engine (later) would come last. If nobody wants it, the cycle is idle: the SRAM is left alone.
 
 ## 5. The SRAM controller
 
@@ -193,6 +195,8 @@ The physical byte address of a Z80 access to an SRAM page is page × `0x2000` + 
 
 So the Z80 starts at `0x0000` in the boot ROM, with 16 KB of ROM at the bottom and 48 KB of SRAM above it, like a Spectrum 48K. Boot ROM pages 2 and 3 are reached by mapping them into a window. Every reset (spec 7, section 2) puts the MMU back to this state.
 
+When an NMI is taken, the bus interface switches window 0 to the monitor page (read `0x3FF`, write NONE) and restores it after `RETN` (spec 1, section 8.2; spec 7, section 4.4). MMU0 and MMU0W then read back the monitor mapping; the saved pages are in ports `0xBA`–`0xBD`.
+
 ### 6.5 The register page
 
 Page `0x3F8` shows the chipset's registers as memory, in any window, so the Z80 can use LD, LDI, read-modify-write instructions (`SET`, `INC (HL)`, `INC (IX+d)`) and 16-bit loads on them. The registers are the same ones as in I/O space (spec 3); both ways of reaching them always work. The layout is in spec 3, section 5:
@@ -270,9 +274,9 @@ The second line of a 288-line pair leaves its cycles free for sprites, the coppe
 | Unit | Cycles | What for |
 |------|--------|----------|
 | CPU (spec 1) | 0 and 2; at 28 MHz sometimes 1 or 3 by the swap (section 4.2) | Opcode fetches, reads, writes. Never waits |
-| Video (spec 4) | 1; 3 when a display FIFO is below its low mark (after the copper); 3 as top-up (after sprites); spare cycles | Bitmap, tile map, tile patterns, attributes, into one FIFO per source, prefilled in the horizontal blank and topped up as the draw beam takes pixels |
-| Copper (spec 6) | 3, first; spare cycles, first | Instructions and indirect-move data |
-| Sprites (spec 5) | 3, after the copper and urgent display fetches; spare cycles | Each line's sprite rows, during the line before; 2×-tall rows reused for both lines of a pair |
+| Video (spec 4) | 1; 3 when a display FIFO is below its low mark (first); 3 as top-up (after sprites); spare cycles | Bitmap, tile map, tile patterns, attributes, into one FIFO per source, prefilled in the horizontal blank and topped up as the draw beam takes pixels |
+| Copper (spec 6) | 3, after urgent display fetches; spare cycles, likewise | Instructions and indirect-move data. May slip behind urgent fetches (COPSTAT.LATE) |
+| Sprites (spec 5) | 3, after urgent display fetches and the copper; spare cycles | Each line's sprite rows, during the line before; 2×-tall rows reused for both lines of a pair |
 | DMA engine (later) | Spare cycles only, last | |
 
 During vertical blanking (lines 0–48) the video fetches nothing until it prefills for line 49, so cycle 1 is spare for nearly 49 lines (about 1.5 ms) of every frame.
@@ -287,7 +291,7 @@ During vertical blanking (lines 0–48) the video fetches nothing until it prefi
 
 ## 11. Test plan
 
-- **Cycle table:** each owner gets its cycles at the same slot clocks on every line; the slot counter restarts each line; spare cycles go to the right unit in the order of section 4.3.
+- **Cycle table:** each owner gets its cycles at the same slot clocks on every line; the slot counter restarts each line; spare cycles go to the right unit in the order of section 4.3; a FIFO below its low mark wins cycle 3 over a waiting copper, and the copper wins over sprites and top-up.
 - **CPU never loses a cycle:** with the copper, sprites and every display FIFO busy, no CPU access is ever moved; checked at all four speeds.
 - **Swap:** at 28 MHz, a read in cycle 1 or 3 gives the next cycle to that cycle's owner, and no owner loses a cycle per slot.
 - **SRAM model:** run the controller against an SRAM simulation model (from retro68k) with the datasheet checks on: set-up, hold, pulse widths, bus turnaround, at 35.7 ns cycles.
