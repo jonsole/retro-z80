@@ -86,11 +86,13 @@ $(BUILD)/%.hex: $(BUILD)/%.bin
 	$(PYTHON) $(ROOT)/tools/bin2hex.py $< $@
 
 $(BUILD)/tb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -o $@ \
+	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
 
 # The same testbench for a 2 MB build (spec 2, section 11)
 $(BUILD)/tb2mb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -Ptb.CHIPMB=2 -o $@ 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -DTV80_REFRESH -I $(RTL) -s tb -Ptb.CHIPMB=2 -o $@ \
+	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
 
 hello: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +dma | tee hello.log
