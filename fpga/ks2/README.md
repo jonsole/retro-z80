@@ -127,14 +127,14 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 
 ## Results: the computer
 
-Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 as a bitmap or a tile map and the palettes (issues #13 and #14) and the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns; issue #13's 3,062 LUTs, 2,227 flip-flops and +0.585 ns, so the tile mode costs about 470 LUTs and 430 flip-flops). One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
+Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324: the video layer L0 as a bitmap or a tile map and the palettes (issues #13 and #14), the interrupt controller (issue #16), the timers, TIME, the watchdog and the CPU's capture (issue #17). Earlier builds: issue #11's 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns; issue #13's 3,062 LUTs, 2,227 flip-flops and +0.585 ns. One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
 
-Issue #17 (timers, TIME, the watchdog and the CPU's capture) adds about 600 LUTs and 490 flip-flops: 3,658 LUTs (35.2%) and 2,712 flip-flops (13.0%) in all; `timers.v` is 459 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to 535 LUTs with the capture. Timing is met: +0.310 ns setup (the layer fetcher's `dlt` to `a_first_w`, not the timers), +0.043 ns hold. The tables below are issue #13's build.
+Issue #17 alone (on issue #13's build) came to 3,658 LUTs and 2,712 flip-flops: `timers.v` is about 460 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to about 540 LUTs with the capture. The tile mode (issue #14) adds about 470 LUTs and 430 flip-flops, nearly all in the layer fetcher (`bpldma.v`: 453 LUTs and 552 flip-flops before, 739 and 860 with it). The tables are the build with all of them.
 
 | Resource | Used | Available | |
 |------|------|------|------|
-| LUTs | 3,531 | 10,400 | 34.0% |
-| Flip-flops | 2,660 | 20,800 | 12.8% |
+| LUTs | 4,136 | 10,400 | 39.8% |
+| Flip-flops | 3,136 | 20,800 | 15.1% |
 | Block RAM (36 Kb) | 11 (8 × 36 Kb boot ROM, 2 × 36 Kb palettes, 2 × 18 Kb serial FIFOs) | 25 | 44% |
 | DSP | 2 (the register page palettes' divide by 3) | 45 | 4% |
 | MMCMs | 2 | 5 | |
@@ -143,20 +143,21 @@ Issue #17 (timers, TIME, the watchdog and the CPU's capture) adds about 600 LUTs
 
 | Part | LUTs | Flip-flops |
 |------|------|------|
-| tv80 (with the 32 LUT-RAM register file) | 1,156 | 232 |
-| Serial and its FIFOs | 263 | 195 |
-| Bus interface (it now also carries the palette read from its register bus input) | 446 | 117 |
-| Video (beam, registers, palettes, priority, pixel pipeline, the tile map line) | 445 | 541 |
-| Layer fetch (`bpldma.v`, with the tile fetch) | 744 | 872 |
-| Layer L0's pixel side (`layer_pix.v`) | 149 | 158 |
-| MMU | 150 | 297 |
-| Interrupt controller (with only VBLANK and SOFT as sources, synthesis folds the tied-off lines away) | 9 | 54 |
+| tv80 (with the 32 LUT-RAM register file) | 1,163 | 239 |
+| Serial and its FIFOs | 261 | 195 |
+| Bus interface (the palette read from its register bus input, the CPU's capture) | 546 | 176 |
+| Video (beam, registers, palettes, priority, pixel pipeline, the tile map line) | 433 | 545 |
+| Layer fetch (`bpldma.v`, with the tile fetch) | 739 | 860 |
+| Layer L0's pixel side (`layer_pix.v`) | 148 | 158 |
+| Timers, TIME, watchdog (`timers.v`) | 458 | 415 |
+| MMU | 153 | 297 |
+| Interrupt controller (synthesis folds the tied-off sources away) | 18 | 61 |
 | Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 100 | about 180 |
 
 | Clock | Frequency | Worst setup slack | Worst hold slack |
 |------|------|------|------|
-| System (`c0`) | 100 MHz | +0.574 ns (tv80's machine cycle into the bus interface's read data enable) | +0.040 ns |
-| Pixel (`p0`) | 27 MHz | +24.524 ns | +0.055 ns |
+| System (`c0`) | 100 MHz | +0.797 ns (the layer fetcher's pick of the next slot, `ngr` to `a_j`) | +0.045 ns |
+| Pixel (`p0`) | 27 MHz | +24.933 ns | +0.059 ns |
 | Serialiser (`p1`) | 135 MHz | (only the OSERDESE2 clock pins; pulse width slack +5.252 ns) | |
 
 Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). Other tight 100 MHz paths: tv80's instruction register to the bus interface's address register (+0.89 ns, single-cycle); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.
