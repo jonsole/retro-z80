@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog). Two seconds after the chart appears, L0 becomes a scrolling tile map (issue #14).
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog). Two seconds after the chart appears, L0 becomes the boot console (issue #15): text on the screen, which echoes what comes in over the USB serial link. Built with `-DTILEDEMO` (by hand: assemble `boot.asm` with it in place of `build.sh`'s plain command), L0 becomes issue #14's scrolling tile map instead.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -39,7 +39,7 @@ Loading over JTAG changes only the FPGA, until the power goes off. The flash and
 
 ## The computer: what you should see
 
-On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle, then the tile map over the whole screen:
+On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle, then the boot console:
 
 | Screen | Meaning |
 |--------|---------|
@@ -48,11 +48,32 @@ On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both
 | **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
 | **The palette chart** appears in the middle about 20 ms after green (at once, to the eye): a 512 × 512 square of 16 rows of 16 cells, each 32 × 32 pixels, with a black line on the right and bottom of each cell. Row 1 is the default palette's Spectrum colours: black, blue, red, magenta, green, cyan, yellow, white, then the same eight bright (the bright black looks black). Rows 2–14 and the first half of row 15 are a 6 × 6 × 6 colour cube: blue changes fastest along the row, then green, then red, from black (row 2's first cell) to white (row 15's eighth cell). The last 24 cells, the second half of row 15 and row 16, are a grey ramp from near black to near white | **The layer works** (issue #13): L0 is an 8-bit bitmap at 2 × across and 8 × down, fetched from the SRAM through the scheduler, coloured through PALETTE0, whose entries 16–255 the boot ROM wrote through PALIDX and PALDAT. A cell out of place, a torn or jumping chart, stripes in it or wrong colours point at the layer fetch or the palette. The background round the chart keeps changing colour (next row) |
 | Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
-| Each background colour bright for half a second, then half as bright for half a second, and so on | **The timers work** (issue #17): timer 0 counts the 100 MHz clock ÷ 50,000 (0.5 ms) and interrupts every 1,000 of those; its handler (TIMER0, IM 2) halves or restores the colour. The chart, and later the tile map, stay as they are. A colour that changes but never dims means no timer interrupt was taken. The two rates come from different clocks (VBLANK from the 27 MHz pixel clock), so the dimming drifts slowly against the colour changes |
-| **The tile map**: two seconds after the chart, coloured letters F (some mirrored or upside down) on a grid of dots over the whole screen, moving diagonally up and to the left | **Tile mode works** (issue #14; `firmware/boot/tiledemo.asm`). Below |
+| Each background colour bright for half a second, then half as bright for half a second, and so on | **The timers work** (issue #17): timer 0 counts the 100 MHz clock ÷ 50,000 (0.5 ms) and interrupts every 1,000 of those; its handler (TIMER0, IM 2) halves or restores the colour. The chart, and later the console's window, stay as they are. A colour that changes but never dims means no timer interrupt was taken. The two rates come from different clocks (VBLANK from the 27 MHz pixel clock), so the dimming drifts slowly against the colour changes |
+| **The boot console**: two seconds after the chart, text in a black 640 × 480 window in the middle, with the background colour as a border round it (still changing and dimming) | **The console works** (issue #15; `firmware/boot/console.asm`): L0 as a 1 bpp tile map. Below |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
 
-**The tile map.** Two seconds after the chart appears, the VBLANK handler turns L0 into a map of 64 × 32 tiles of 8 × 8 pixels at 4 bits per pixel, shown at 2 × 2 over the whole picture, so each tile is 16 × 16 screen pixels (45 across, 36 down). The chart goes and does not come back. The map is built from blocks of 4 × 4 tiles:
+**The boot console.** Two seconds after the chart appears, the chart goes and L0 shows the console: 80 columns × 30 rows of 8 × 8 characters shown 8 × 16 (2× tall), in a 640 × 480 window 40 pixels in from the left and 48 lines down, on black. Round the window the background colour keeps changing once a second and dimming every half second. The window shows, from the top:
+
+```
+retro-z80 0.1                                          white
+Z80 at 20 MHz, 2 MB SRAM                               light grey
+selftest ok, 2 MB                                      green
+hello                                                  light grey
+
+Characters typed on the USB serial link appear here.
+_                                                      the cursor
+...
+ retro-z80 boot console                      up 000012 s      bottom row: black on light grey
+```
+
+- **0.1** is SYSVER (major.minor), **20 MHz** is CPUSPEED's speed, **2 MB** SYSCFG.CHIPMB.
+- **The cursor** (an underscore) blinks: shown while the border is bright, gone while it is dim (timer 0).
+- **The status line** at the bottom counts the seconds since the console started, one a second (timer 0's interrupt). Seconds that count mean the Z80 is running, the interrupts work and the CPU's writes to the map show on the screen.
+- **Typed characters**, once the FT232H module is fitted: a terminal on its serial port shows the boot ROM's two lines, and what is typed appears on the screen at the cursor and is sent back (Return gives a new line; Backspace rubs out). With no module nothing arrives, so the cursor stays where it is. When the text reaches the status line it scrolls up a row (SCROLLY), and the status line stays at the bottom.
+
+Characters torn, shifted or doubled, wrong colours, a window in the wrong place or flicker point at the tile fetch at 1 bit per pixel (1-bit rows are one byte of a word, spec 4, section 5.2), the 128-entry map width or the 2× vertical scale. Text but no counting seconds means the main loop or timer 0 stopped.
+
+**The tile map** (built with `-DTILEDEMO` only). Two seconds after the chart appears, the VBLANK handler turns L0 into a map of 64 × 32 tiles of 8 × 8 pixels at 4 bits per pixel, shown at 2 × 2 over the whole picture, so each tile is 16 × 16 screen pixels (45 across, 36 down). The chart goes and does not come back. The map is built from blocks of 4 × 4 tiles:
 
 - Each block has a letter **F** with a black drop shadow four ways, on every other tile across and down (one tile, 16 pixels, apart): top left as normal (F), top right mirrored (XFLIP: the bars point left, the shadow on the left), bottom left upside down (YFLIP: the long bar at the bottom), bottom right both (turned half round). Each F only looks right if XFLIP and YFLIP work.
 - The other 12 tiles of each block are a small dark grey dot in the middle, so the F's sit on a grid of dots.
@@ -88,7 +109,7 @@ Checks 4F–51 are the ones that test the board's SRAM wiring and timing; the ea
 
 The reset button starts it all again: the beam stops for a moment (the monitor may lose the signal) and the boot ROM runs from the start. The MULTIFACE and DIVMMC buttons only show in SYSBTN.
 
-**Serial.** The FT232H module is not fitted yet. When it is (on the accelerator header, pins as below), a terminal on its serial port shows `selftest ok, 2 MB` and `hello`, or `selftest FAIL nn`. Without it the boot ROM does not wait: SERCON.TXDROP is set, so a full transmit FIFO drops its oldest bytes.
+**Serial.** The FT232H module is not fitted yet. When it is (on the accelerator header, pins as below), a terminal on its serial port shows `selftest ok, 2 MB` and `hello`, or `selftest FAIL nn`; then the console echoes what is typed. Without it the boot ROM does not wait: SERCON.TXDROP is set, so a full transmit FIFO drops its oldest bytes.
 
 ## The test pattern: what you should see
 

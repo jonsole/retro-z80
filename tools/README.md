@@ -3,6 +3,7 @@
 | Tool | What it does |
 |------|--------------|
 | `bin2hex.py` | Turns a binary (the boot ROM, a test image) into a `$readmemh` file of 16-bit little-endian words, as the SRAM and boot ROM hold them (spec 2). Adapted from retro68k's, which writes big-endian words |
+| `mkfont.py` | Makes the boot console's font (`firmware/boot/font.inc`, spec 7, section 5.1) from the public-domain `font8x8` in `firmware/third_party/font8x8`: 256 characters in code page 437 order, the leftmost pixel in bit 7, with the 40 characters `font8x8` lacks drawn in the tool itself (`firmware/third_party/README.md`). `--show` prints the font as text, `--missing` lists what `font8x8` lacks |
 | `regmap.py` | Reads `fpga/regmap.def` (every register, field and named number), checks it, checks it against `docs/spec/registers.md`, and writes `firmware/include/hw.inc` (sjasmplus), `firmware/include/hw.h` (C) and `fpga/rtl/regmap.vh` (Verilog). Adapted from retro68k's |
 
 Only the Python standard library is needed (Python 3.8 or newer).

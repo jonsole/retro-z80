@@ -89,7 +89,9 @@ TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v
 SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
-$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
+BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm font.inc) $(INC)/hw.inc
+
+$(BUILD)/boot.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
 
 $(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -143,7 +145,7 @@ speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
 
 # The boot ROM's failure display (firmware/boot/boot.asm): check 45 reported
 # as failed, shown as 5 white stripes; two frames must match
-$(BUILD)/bootfail.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/bootfail.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -DFAILTEST=0x45 --raw=$@ $<
 
 failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
@@ -151,7 +153,7 @@ failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
 # The boot ROM's VBLANK colour cycle (ticket #16), a colour a frame
-$(BUILD)/bootvbl.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/bootvbl.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -DCYCLE_FRAMES=1 --raw=$@ $<
 
 bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
@@ -163,27 +165,52 @@ bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
 # beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
 # Variant a is a fixed set of bands, the others random. The variants run in
 # parallel with make -j.
-VTESTS ?= a t b boot boottile
+VTESTS ?= a t b boot boottile bootcon bootscr
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
 
 # The boot ROM's palette chart, on a 2 MB build as the KS2's: beam frame 2
-# is the first with the chart; the SRAM is dumped for the model
+# is the first with the chart; the SRAM is dumped for the model. No +dma:
+# on a 2 MB build the testbench's DMA area (0x380000 up) is mirrored onto
+# the boot console, which the boot ROM sets up while the chart shows
 $(BUILD)/vtest_boot.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex vtest/vmodel.py
 	@d=$(BUILD)/vtest_boot; rm -f $@; mkdir -p $$d; \
-	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boot.hex +frame=2 +dumpram=ram.hex +dma +timeout=70000 > sim.log); \
+	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boot.hex +frame=2 +dumpram=ram.hex +timeout=70000 > sim.log); \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
 	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 2 $$d/model.png && touch $@
 
-# The boot ROM's tile map demo (ticket #14), started after one frame in place
-# of 100: beam frame 4 is the second with the tile map, scrolled by one pixel
-$(BUILD)/boottile.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DTILE_FRAMES=1 --raw=$@ $<
+# The boot ROM's tile map demo (ticket #14; built with TILEDEMO), started
+# after one frame in place of 100: beam frame 4 is the second with the tile
+# map, scrolled by one pixel
+$(BUILD)/boottile.bin: $(BOOT_SRC) | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DTILEDEMO -DTILE_FRAMES=1 --raw=$@ $<
 
 $(BUILD)/vtest_boottile.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boottile.hex vtest/vmodel.py
 	@d=$(BUILD)/vtest_boottile; rm -f $@; mkdir -p $$d; \
 	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boottile.hex +frame=4 +dumpram=ram.hex +dma +timeout=110000 > sim.log); \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
 	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 4 $$d/model.png && touch $@
+
+# The boot console (ticket #15), shown after one frame in place of 100: beam
+# frame 4 is the second with the console; its map and font are at the top of
+# the 2 MB (no +dma, as vtest_boot). bootscr prints 40 more lines first, so
+# the console starts two frames later (frame 6 is checked) and its text has
+# scrolled by SCROLLY, round the map's 32 rows
+CON_LINES_bootcon := 0
+CON_LINES_bootscr := 40
+CON_FRAME_bootcon := 4
+CON_FRAME_bootscr := 6
+$(BUILD)/bootcon.bin: $(BOOT_SRC) | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 --raw=$@ $<
+
+$(BUILD)/bootscr.bin: $(BOOT_SRC) | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 -DCON_LINES=$(CON_LINES_bootscr) --raw=$@ $<
+
+$(BUILD)/vtest_bootcon.ok $(BUILD)/vtest_bootscr.ok: $(BUILD)/vtest_%.ok: $(BUILD)/tb2mb.vvp $(BUILD)/%.hex vtest/vmodel.py vtest/console_text.py
+	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
+	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../$*.hex +frame=$(CON_FRAME_$*) +dumpram=ram.hex +timeout=150000 > sim.log); \
+	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
+	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex $(CON_FRAME_$*) $$d/model.png && \
+	$(PYTHON) vtest/console_text.py $$d/ram.hex $(ROOT)/firmware/boot/font.inc $(CON_LINES_$*) && touch $@
 
 $(BUILD)/vtest_%.ok: $(BUILD)/tb.vvp vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
 	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
@@ -312,7 +339,7 @@ timertest: $(BUILD)/tb.vvp $(BUILD)/timertest.hex
 	@grep -q "^TEST PASSED" $(BUILD)/timertest.log
 
 # The boot ROM's timer 0 effect, sped up: dim and bright every 2 ms
-$(BUILD)/boottmr.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/boottmr.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -DTMR_HALF=4 --raw=$@ $<
 
 boottmr: $(BUILD)/tb.vvp $(BUILD)/boottmr.hex

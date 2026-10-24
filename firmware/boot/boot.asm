@@ -1,5 +1,6 @@
 ; retro-z80 boot ROM, phase 1: a memory and MMU self-test, then "hello",
-; over the USB serial link. The self-test prints "selftest ok, N MB" (N =
+; over the USB serial link, then the same on the screen in the boot console
+; (console.asm; spec 7, section 5.1). The self-test prints "selftest ok, N MB" (N =
 ; SYSCFG.CHIPMB) or "selftest FAIL nn" (nn = the check that failed, in hex;
 ; selftest.asm) and stops there.
 ;
@@ -15,8 +16,11 @@
 ;                magenta, white, green, ...): the VBLANK interrupt works.
 ;                Each colour is bright for half a second and dim (half
 ;                brightness) for half a second: timer 0's interrupt works.
-;                Two seconds after the chart appears, L0 becomes a scrolling
-;                tile map over the whole screen (tiledemo.asm)
+;                Two seconds after the chart appears, L0 becomes the boot
+;                console (console.asm): the start-up text, then what is typed
+;                over the serial link, with the background colours as its
+;                border. Built with -DTILEDEMO, L0 becomes ticket #14's
+;                scrolling tile map instead (tiledemo.asm)
 ;   red, with white stripes: the self-test failed. The number of stripes
 ;                is the failing check's number less 0x40 (1 stripe = check
 ;                41, 2 = check 42 ... 17 = check 51)
@@ -37,7 +41,10 @@
 ; failed (sim/Makefile, failshow). With -DCYCLE_FRAMES=n the colour
 ; changes every n frames in place of 50 (sim/Makefile, bootvbl). With
 ; -DTMR_HALF=n timer 0 dims or brightens every n x 0.5 ms in place of 1000
-; (sim/Makefile, boottmr).
+; (sim/Makefile, boottmr). With -DCON_FRAMES=n the console shows n frames
+; after the interrupts start in place of 100 (sim/Makefile, vtest bootcon);
+; with -DTILEDEMO the tile demo runs instead of the console (TILE_FRAMES the
+; same for it).
 
         DEVICE  NOSLOT64K
         include "hw.inc"
@@ -95,11 +102,36 @@ start:  ld      sp,0x0000               ; stack grows down from 0xFFFF (SRAM pag
         ld      hl,hello
         call    puts
         call    chart                   ; the palette chart in L0 (about 20 ms)
+    IFDEF TILEDEMO
         call    tileprep                ; the tile demo's map and patterns
+    ELSE
+        call    conprep                 ; the console's font, map and start-up text
+    ENDIF
         call    vblon
         call    tmron                   ; timer 0: dim and bright (ticket #17)
+    IFDEF TILEDEMO
 stop:   halt                            ; woken by each VBLANK
         jr      stop
+    ELSE
+; The console: woken by each interrupt, show what came in over the serial
+; link (spec 10: RXCOUNT, then SERDATA), and draw the status line again when
+; timer 0 asks
+stop:   halt
+.rx:    ld      bc,SERSTAT1_P
+        in      a,(c)
+        or      a
+        jr      z,.st
+        in      a,(SERDATA_PORT)
+        call    conkey
+        jr      .rx
+.st:    ld      a,(CDIRTY)
+        or      a
+        jr      z,stop
+        xor     a
+        ld      (CDIRTY),a
+        call    constat
+        jr      stop
+    ENDIF
 
 ; IM 2 with the VBLANK interrupt on (spec 8, section 12's example)
 vblon:  ld      a,CYCLE_FRAMES
@@ -145,7 +177,11 @@ vbl:    push    af
         xor     a
 .next:  ld      (COLNUM),a
         call    showbg
+    IFDEF TILEDEMO
 .done:  call    tilevbl                 ; the tile demo
+    ELSE
+.done:  call    convbl                  ; the console
+    ENDIF
         pop     hl
         pop     bc
         pop     af
@@ -195,6 +231,9 @@ tmr0:   push    af
         xor     1
         ld      (DIM),a
         call    showbg
+    IFNDEF TILEDEMO
+        call    contick                 ; the console's seconds and cursor
+    ENDIF
         pop     hl
         pop     bc
         pop     af
@@ -346,7 +385,11 @@ setregs:
         out     (c),a
         jr      .reg
 
+    IFDEF TILEDEMO
         include "tiledemo.asm"
+    ELSE
+        include "console.asm"
+    ENDIF
 
 ; Send the zero-terminated string at HL (A, B, C, E, HL changed)
 puts:   ld      a,(hl)

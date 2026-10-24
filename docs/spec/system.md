@@ -145,7 +145,7 @@ The console is retro68k's 80 × 30 console in the same window, drawn as a tile m
 | Item | Value |
 |------|-------|
 | Text | 80 columns × 30 rows |
-| Font | 8 × 8 pixels, 256 characters in **code page 437** order, 1 bit per pixel: 8 bytes a character, 2 KB. Made from Daniel Hepper's `font8x8` (public domain, after Marcel Sondaar's public-domain 8 × 8 font), kept in `third_party/font8x8`. Code page 437 characters the font lacks are drawn for the project and are public domain too (open point SY12) |
+| Font | 8 × 8 pixels, 256 characters in **code page 437** order, 1 bit per pixel: 8 bytes a character, 2 KB. Made from Daniel Hepper's `font8x8` (public domain, after Marcel Sondaar's public-domain 8 × 8 font), kept in `firmware/third_party/font8x8` and turned into the boot ROM's font by `tools/mkfont.py`. The 40 code page 437 characters the font lacks are drawn for the project in `tools/mkfont.py` and are public domain too (open point SY12) |
 | Cell on screen | 8 × 16 beam pixels: the layer at HSCALE 1×, VSCALE 2× |
 | Window | 640 × 480 beam pixels, centred in the 720 × 576 picture, 40 pixels in and 48 lines down, as retro68k's: XSTART 184, XEND 824, YSTART 97, YEND 577 (beam coordinates, spec 4) |
 | Map | 128 × 32 entries of 2 bytes, 8 KB (MAPW 128, MAPH 32). Columns 0–79 and rows 0–29 show; the map wraps at 32 rows for scrolling |
@@ -438,5 +438,5 @@ The saved pages reset to `0x3FC`, window 0's reset page, and keep their values a
 | SY9 | Which real-time clock chip the KS3 uses, and its I2C address and register layout (retro68k SY4) |
 | SY10 | Should Ctrl + Alt + Delete reset in hardware (RESETWHY.KEYBOARD)? Software does it in version 1, as in retro68k; spec 12 decides |
 | SY11 | The system range `0x70`–`0x7F` is full. A later system register (for example a SYSSTAT) goes in a free register of page `0x00` (spec 3) |
-| SY12 | The console font: `font8x8` covers ASCII, Latin-1, box drawing, block elements and Greek; the code page 437 characters it lacks (a few symbols and arrows) are to be drawn and checked against code page 437 |
+| SY12 | The console font: `font8x8` covers ASCII, Latin-1, box drawing, block elements and Greek; the 40 code page 437 characters it lacks (the symbols at `0x01`–`0x1F` and `0x7F`, and ten mathematical signs) are drawn in `tools/mkfont.py` (ticket #15). Still to do: check them by eye against code page 437 (`mkfont.py --show`) |
 | SY13 | A 25 MHz speed (a T-state every 4 clocks; the opcode fetch then needs data 80 ns after the address) is to be tried in simulation (design plan, branch 11); faster is parked (design plan Q9) |

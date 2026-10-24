@@ -19,6 +19,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **Tile mode (#14):** any layer can be a tile map (MAPPT, PATPT, 8 × 8 tiles at 1/2/4/8 bpp, maps of 32–128 entries each way, SCROLLX/SCROLLY round the map, PAL, XFLIP, YFLIP, PRI), fetched with the map entries one group ahead (spec 4, section 5.2); `vtest` variant `t` checks it pixel by pixel. The boot ROM turns L0 into a scrolling tile map two seconds after the palette chart; with #17's timers 4,136 LUTs, 100 MHz met (+0.80 ns).
 
+**Boot console (#15):** two seconds after the palette chart, L0 becomes the boot console of spec 7, section 5.1 (`firmware/boot/console.asm`): 80 × 30 text as a 1 bpp tile map at `0x1FC000`, the 8 × 8 font made from public-domain `font8x8` by `tools/mkfont.py` (`firmware/third_party/font8x8`) and copied to `0x1FE000`. It shows the machine, version, CPU speed and memory, the self-test result and "hello", a status line with the seconds since start, and echoes what comes in over the USB serial link. `vtest` variant `bootcon` checks the frame against the model and the text in the map (`sim/vtest/console_text.py`). The tile demo stays behind `-DTILEDEMO`.
+
 ## 2. Where things are
 
 | File | What |

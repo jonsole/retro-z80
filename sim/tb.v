@@ -30,7 +30,7 @@
 //                starts in) into frame.ppm, write the end state (vend.txt),
 //                and pass if nothing else failed; vtest/vmodel.py then
 //                checks the picture pixel by pixel
-//   +dumpram=FILE  with +frame: the SRAM's first 1 MB into FILE at the end
+//   +dumpram=FILE  with +frame: the SRAM's first 2 MB into FILE at the end
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
 //
@@ -627,7 +627,7 @@ module tb #(
             f = $fopen("vend.txt", "w");
             $fwrite(f, "pixels %0d\nvidstat %0d\n", fbn, {dut.vid.vs_over, 3'd0, dut.vid.vs_vblank});
             $fclose(f);
-            if ($value$plusargs("dumpram=%s", dumpfile)) $writememh(dumpfile, sram.mem, 0, 21'h7FFFF);
+            if ($value$plusargs("dumpram=%s", dumpfile)) $writememh(dumpfile, sram.mem, 0, 21'hFFFFF);
             $display("---- frame.ppm: beam frame %0d, %0d pixels", grab, fbn);
         end
     endtask
