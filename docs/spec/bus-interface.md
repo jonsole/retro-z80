@@ -182,8 +182,8 @@ tv80's memory timing, from the cen edge that starts T1:
 | During T1 | Early outputs say "fetch" | Early outputs say "memory read" | Early outputs say "memory write" |
 | Start of T2 | mreq_n, rd_n low | mreq_n, rd_n low | mreq_n, wr_n low, dout valid |
 | End of T2 | Opcode taken from di | Byte taken from di | – |
-| T3–T4 | Refresh: A = I and R, mreq_n and rfsh_n low (ignored) | – | – |
-| End of the cycle | | | mreq_n, wr_n high |
+| T3–T4 | Refresh: A = I and R; rfsh_n low in T3 and T4, mreq_n low in T4 only (ignored) | – | – |
+| Start of T3 | | | mreq_n, wr_n high (tv80 keeps them low for T2 only) |
 
 So **a read's data must be at di by the end of T2**, two T-states after the address appears. The strobes come only at the start of T2, which at 20 MHz is too late to ask for the CPU cycle that serves a read started on slot edge 0; so the bus interface starts SRAM and ROM reads from the early cycle-type outputs during T1. A write's address and data are both known at the start of T2.
 
@@ -369,7 +369,7 @@ The copper, the DMA engine and the register page reach the same registers by add
 
 ## 7. Refresh
 
-With `TV80_REFRESH` defined, T3 and T4 of every M1 put I and R on the address bus with mreq_n and rfsh_n low. The bus interface ignores any cycle with rfsh_n low: it makes no request and does not consult the MMU. The SRAM needs no refresh. R counts as on a real Z80.
+With `TV80_REFRESH` defined, T3 and T4 of every M1 put I and R on the address bus with rfsh_n low; tv80 drives mreq_n low in T4 only (a real Z80 has it low in both), as the ZEX bus traces show (ticket #2). The bus interface ignores any cycle with rfsh_n low: it makes no request and does not consult the MMU. The SRAM needs no refresh. R counts as on a real Z80.
 
 ## 8. Interrupts
 
