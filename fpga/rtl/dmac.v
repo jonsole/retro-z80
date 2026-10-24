@@ -6,7 +6,7 @@
 // cycle is issued); read data comes back on rdata with rvalid for that
 // channel 40 ns later:
 //   CPU   the Z80 (bus_if.v)
-//   BPL   layer fetch: hard deadline (later; tied off)
+//   BPL   layer fetch (video.v, bpldma.v): hard deadline
 //   SPR   sprites: hard deadline (later; tied off)
 //   AUD   audio (parked; tied off)
 //   COP   copper (later; tied off)

@@ -6,7 +6,8 @@ A Z80 computer in the FPGA of a ZX Spectrum Next (KS2 for bring-up, KS3 for the 
 - Decisions: `docs/design-plan.md` (decision table in section 1 is binding). Specs: `docs/spec/`. Work: GitHub Issues.
 - The user decides through a decision tree: 1–4 multiple-choice questions at a time, recommended option first, then write the answers into the plan and specs.
 - Spec style follows retro68k's specs: plain short sentences, British spelling, tables, a test plan and open points.
-- Phase 1 (the simulated CPU) is being built, ticket by ticket.
+- Work goes ticket by ticket (GitHub Issues). Phase 1 is done; the machine runs on the KS2.
+- **Hardware first.** Build the KS2 bitstream as soon as a change builds and lints, and have the user try it on the board. Locally run only quick, focused tests for the change; CI runs the full simulation suite after merging. Long runs (ZEXDOC, the whole-system ZEX run, frame-by-frame video tests) only when there is a reason.
 
 ## Working with retro68k
 

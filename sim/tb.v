@@ -10,6 +10,9 @@
 //                the first "hello", pass when BGCOLOR has gone from green
 //                to yellow and then cyan, each change made in the
 //                vertical blank (the VBLANK handler); no RESET is sent
+//   +bgdim       with +hello, a boot ROM built with -DTMR_HALF=n (#17):
+//                after the first "hello", pass when BGCOLOR goes from green
+//                to dim green and back, 2 ms apart (timer 0's interrupt)
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
@@ -20,6 +23,14 @@
 //                picture line 17, the same in two frames running
 //                (firmware/boot/boot.asm)
 //   +vidlog      print the picture's colour bands in each frame
+//   +ram=FILE    load FILE ($readmemh, 16-bit words) into the SRAM first
+//   +frame=G     the video test (vtest/): log every write to the video
+//                unit's registers and palettes with the beam position
+//                (vlog.txt), grab beam frame G (frame 0 is the one the beam
+//                starts in) into frame.ppm, write the end state (vend.txt),
+//                and pass if nothing else failed; vtest/vmodel.py then
+//                checks the picture pixel by pixel
+//   +dumpram=FILE  with +frame: the SRAM's first 1 MB into FILE at the end
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
 //
@@ -51,10 +62,28 @@ module tb #(
     reg clk = 1'b1;
     always #5 clk = ~clk;                       // 100 MHz
 
-    // The pixel clock: 27 MHz, free-running at its own phase against clk, so
-    // the crossings see every phase (spec 4, section 3.1)
-    reg clk_pix = 1'b0;
-    initial #3.3 forever #18.518 clk_pix = ~clk_pix;
+    // The 576p clocks, as from the board's second MMCM: 135 MHz (the fast
+    // synchroniser) and 27 MHz = 135 / 5 with its edges on the 135 MHz ones;
+    // free-running at an odd phase against clk, so the crossings see every
+    // phase (spec 4, section 3.1). Edges at exact times (n x 1/270 MHz), so
+    // the 1 ps rounding never drifts (as retro68k's tb.v).
+    reg clk_pix = 1'b0, clk_pix5 = 1'b0;
+    initial begin : pixclocks
+        integer n, k;
+        real t;
+        k = 0;
+        n = 0;
+        forever begin
+            n = n + 1;
+            t = 3.1 + n * (1000.0 / 270.0);
+            #(t - $realtime);
+            clk_pix5 = ~clk_pix5;
+            if (clk_pix5) begin
+                if (k == 0) clk_pix = 1'b1;
+                k = (k == 4) ? 0 : k + 1;
+            end else if (k == 3) clk_pix = 1'b0;   // 2.5 fast periods after the rise
+        end
+    end
 
     // Power-on reset: last seen high by the clock edge at 2000 ns (a slot boundary)
     reg por = 1'b1;
@@ -91,16 +120,19 @@ module tb #(
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(dma_be), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
-        .clk_pix(clk_pix), .vid_rgb(vrgb), .vid_hsync(vhs), .vid_vsync(vvs), .vid_de(vde),
+        .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(vrgb), .vid_hsync(vhs), .vid_vsync(vvs), .vid_de(vde),
         .dbg_sc(sc)
     );
     // The boot ROM image, loaded into the design's block RAM and into a copy
     // here for the read checks
     reg [15:0] rom_ref [0:16383];
+    reg [8*128-1:0] ramfile;
     initial begin
         #1;                                     // after the block RAM's own $readmemh
         $readmemh(romfile, dut.rom.mem);
         $readmemh(romfile, rom_ref);
+        #1;                                     // after the DMA area is cleared
+        if ($value$plusargs("ram=%s", ramfile)) $readmemh(ramfile, sram.mem);
     end
 
     // ---------------------------------------------------------------- SRAM pads
@@ -471,6 +503,7 @@ module tb #(
     integer    vx = 0, vline = 0, hs_clocks = 0, hs_lines = 0, vframes = 0, vid_errors = 0;
     integer    pix_blue = 0, pix_green = 0, mixed_lines = 0, b_start = 0;
     reg        vde_d = 1'b0, vhs_d = 1'b1, vvs_d = 1'b1, hs_seen = 1'b0, vs_seen = 1'b0;
+    reg        lay_line = 1'b0;                 // a layer was on during this line (its colours may change)
     reg [23:0] l_first, l_last, l_mid, l_prev;
     // White stripes in the frame: how many, where the first starts, the sum
     // of their starts, and whether any stripe or gap was not 16 lines
@@ -518,6 +551,7 @@ module tb #(
             vline = 0; b_start = 0;
             w_runs = 0; w_first = -1; w_sig = 0; w_bad = 0; w_end = -1;
         end
+        if (dut.vid.c_act != 3'd0) lay_line = 1'b1;
         if (vde) begin
             if (!vde_d) begin vx = 0; l_first = vrgb; end
             if (vx == 360) l_mid = vrgb;
@@ -526,7 +560,7 @@ module tb #(
             if (vrgb == C_GREEN) pix_green = pix_green + 1;
             vx = vx + 1;
         end else if (vde_d) begin               // the end of a picture line
-            if (l_first !== l_mid || l_mid !== l_last) begin
+            if (!lay_line && (l_first !== l_mid || l_mid !== l_last)) begin
                 if (mixed_lines < 10) $display("%t video: line %0d changes colour", $realtime, vline);
                 mixed_lines = mixed_lines + 1;
             end
@@ -548,8 +582,55 @@ module tb #(
             end
             l_prev = l_mid;
             vline = vline + 1;
+            lay_line = 1'b0;
         end
     end
+
+    // ---------------------------------------------------------------- video test
+    // Beam frames, counted at the beam's (0, 0) as the video unit counts them
+    integer vfr = 0;
+    always @(posedge clk_pix) if (dut.vid.en_p && dut.vid.bh == 11'd0 && dut.vid.bv == 11'd0) vfr = vfr + 1;
+    // Every write to the video unit (custom page 0x10, the register page
+    // palettes), with the beam position at the time: "frame line pixel on\n    // address data" (on: the beam was running)
+    integer vlog = 0, grab = -1;
+    initial if ($value$plusargs("frame=%d", grab)) vlog = $fopen("vlog.txt", "w");
+    always @(posedge clk) if (vlog != 0 && dut.rb_wr && (dut.rb_addr[12:8] == 5'h10 || dut.rb_addr >= 13'h1400))
+        $fwrite(vlog, "%0d %0d %0d %0d %h %h\n", vfr, dut.vid.bv, dut.vid.bh, dut.vid.en_p, dut.rb_addr, dut.rb_wdata);
+    // Frame grab: the picture of beam frame G, in the order it is sent. The
+    // output lags the beam by the pipeline, so frames are counted here at
+    // the start of the vertical sync, which is in the same beam frame as the
+    // picture after it
+    reg  [23:0] fb [0:720*576-1];
+    integer     fbn = 0, ofr = 0;
+    reg         ovs_d = 1'b1;
+    always @(posedge clk_pix) begin
+        if (ovs_d && !vvs) ofr = ofr + 1;
+        ovs_d = vvs;
+    end
+    always @(posedge clk_pix) if (grab >= 0 && ofr == grab && vde) begin
+        if (fbn < 720*576) fb[fbn] = vrgb;
+        fbn = fbn + 1;
+    end
+    task write_frame;
+        integer f, x, y;
+        reg [8*128-1:0] dumpfile;
+        begin
+            f = $fopen("frame.ppm", "w");
+            $fwrite(f, "P3\n720 576\n255\n");
+            for (y = 0; y < 576; y = y + 1) begin
+                for (x = 0; x < 720; x = x + 1)
+                    $fwrite(f, "%0d %0d %0d ", fb[y*720+x][23:16], fb[y*720+x][15:8], fb[y*720+x][7:0]);
+                $fwrite(f, "\n");
+            end
+            $fclose(f);
+            $fclose(vlog);
+            f = $fopen("vend.txt", "w");
+            $fwrite(f, "pixels %0d\nvidstat %0d\n", fbn, {dut.vid.vs_over, 3'd0, dut.vid.vs_vblank});
+            $fclose(f);
+            if ($value$plusargs("dumpram=%s", dumpfile)) $writememh(dumpfile, sram.mem, 0, 21'h7FFFF);
+            $display("---- frame.ppm: beam frame %0d, %0d pixels", grab, fbn);
+        end
+    endtask
 
     // ---------------------------------------------------------------- finish
     integer hello = 0, nhello = 0, nself = 0, scan = 0, ls = 0, lk, done = 0, ok = 0, k;
@@ -559,10 +640,12 @@ module tb #(
         speeds = $test$plusargs("speeds");
         for (k = 0; k < 9; k = k + 1) spd_hello[k] = 0;
     end
+    integer bgdim = 0;                          // +bgdim (#17)
+    real    bgdim_at = 0.0;
     integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0;
     reg [23:0] bg_seen;
     initial begin
-        bgcycle = $test$plusargs("bgcycle");
+        bgcycle = $test$plusargs("bgcycle") || $test$plusargs("bgdim");
         hello = $test$plusargs("hello");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
@@ -629,6 +712,10 @@ module tb #(
             $finish;
         end
     endtask
+    always @(posedge clk) if (!done && grab >= 0 && ofr > grab) begin
+        write_frame;
+        finish(fbn == 720*576, "the frame grabbed is not 720 x 576");
+    end
     always @(posedge clk) if (!done) begin
         // Lines from the computer: "selftest ok, N MB" and "hello", or
         // "PASS" or "FAIL"
@@ -665,6 +752,8 @@ module tb #(
                 end else if (hello && is_line(ls, "selftest FAIL", 13)) finish(0, "the boot ROM self-test failed");
                 else if (!hello && is_line(ls, {"PASS", 8'h0D, 8'h0A}, 6)) finish(1, "");
                 else if (!hello && is_line(ls, "FAIL", 4)) finish(0, "the test ROM failed");
+                else if (grab >= 0 && !is_line(ls, "selftest FAIL", 13))
+                    ;                                   // a video test: the frame is what counts
                 else begin
                     $display("%t PC: unexpected line", $realtime);
                     finish(0, "unexpected output");
@@ -679,7 +768,7 @@ module tb #(
     end
 
     // +bgcycle: green, then yellow, then cyan, each set in the vertical blank
-    always @(posedge clk) if (!done && bgwait && dut.vid.bgcolor !== bg_seen) begin
+    always @(posedge clk) if (!done && bgwait && !bgdim && dut.vid.bgcolor !== bg_seen) begin
         $display("%t video: BGCOLOR %h, beam line %0d", $realtime, dut.vid.bgcolor, dut.vid.s_vline);
         bg_seen = dut.vid.bgcolor;
         bgsteps = bgsteps + 1;
@@ -689,6 +778,22 @@ module tb #(
             finish(0, "not yellow after green");
         else if (bgsteps == 2)
             finish(bg_seen == 24'h00FFFF, "not cyan after yellow");
+    end
+
+    // +bgdim (#17): timer 0 dims and brightens the background, 2 ms apart
+    initial bgdim = $test$plusargs("bgdim");
+    always @(posedge clk) if (!done && bgwait && bgdim && dut.vid.bgcolor !== bg_seen) begin
+        $display("%t video: BGCOLOR %h", $realtime, dut.vid.bgcolor);
+        bg_seen = dut.vid.bgcolor;
+        bgsteps = bgsteps + 1;
+        if (bgsteps == 1 && bg_seen != 24'h007F00)
+            finish(0, "not dim green after green");
+        else if (bgsteps == 1)
+            bgdim_at = $realtime;
+        else if (bgsteps == 2 && bg_seen != 24'h00FF00)
+            finish(0, "not green after dim green");
+        else if (bgsteps == 2)
+            finish($realtime - bgdim_at > 1.99e6 && $realtime - bgdim_at < 2.01e6, "not 2 ms apart");
     end
 
     // +failshow: once the boot ROM has reported the failure, the second and

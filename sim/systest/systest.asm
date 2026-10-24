@@ -208,6 +208,7 @@ start:  ld      sp,0x0000
         ld      a,b
         cp      VIDSIZE3 + 1
         jr      nz,.vsz
+        call    vidregs                 ; checks 0x1B-0x22: palettes, L0, PRIO, DMACON
 
         call    selftest                ; checks 0x41 up
         ld      d,a
@@ -322,6 +323,245 @@ putc:   push    bc
         out     (SERDATA_PORT),a
         pop     bc
         ret
+
+; ---- video registers (spec 4, ticket #13): the palettes through PALIDX and
+; PALDAT and through the register page, L0's registers, PRIO and DMACON.
+; The layer stays off (DMACON.BPLEN is 0 throughout).
+vidregs:
+        ld      hl,PG_REGS
+        ld      b,MMU3_0
+        call    st_map                  ; window 3: the register page
+        ld      d,0x1B                  ; check 1B: the default palette, read through PALDAT
+        ld      bc,PALIDX0_P            ; PALIDX = 1 (PALETTE0, entry 1: Spectrum blue)
+        ld      a,1
+        out     (c),a
+        inc     b
+        xor     a
+        out     (c),a
+        ld      b,PALDAT
+        in      a,(c)                   ; blue
+        cp      0xD7
+        jp      nz,fail
+        in      a,(c)                   ; green
+        or      a
+        jp      nz,fail
+        in      a,(c)                   ; red: steps PALIDX
+        or      a
+        jp      nz,fail
+        ld      b,PALIDX0
+        in      a,(c)
+        cp      2
+        jp      nz,fail
+        ld      hl,W3+REGS_PALETTE0+15*3        ; entry 15, bright white, through the register page
+        ld      a,(hl)
+        inc     hl
+        and     (hl)
+        inc     hl
+        and     (hl)
+        inc     a
+        jp      nz,fail
+        ld      a,(W3+REGS_PALETTE0+16*3)       ; entry 16: black
+        or      a
+        jp      nz,fail
+        ld      d,0x1C                  ; check 1C: PALDAT: blue and green wait, red writes the entry and steps into the next palette
+        ld      bc,PALIDX0_P            ; PALIDX = 0x0FF
+        ld      a,0xFF
+        out     (c),a
+        inc     b
+        xor     a
+        out     (c),a
+        ld      b,PALDAT
+        ld      a,0x11
+        out     (c),a
+        ld      a,0x22
+        out     (c),a
+        ld      a,(W3+REGS_PALETTE0+255*3)      ; still black
+        or      a
+        jp      nz,fail
+        ld      a,0x33
+        out     (c),a                   ; red
+        ld      hl,W3+REGS_PALETTE0+255*3
+        ld      a,(hl)
+        cp      0x11
+        jp      nz,fail
+        inc     hl
+        ld      a,(hl)
+        cp      0x22
+        jp      nz,fail
+        inc     hl
+        ld      a,(hl)
+        cp      0x33
+        jp      nz,fail
+        ld      b,PALIDX1               ; PALIDX is now 0x100: PALETTE1, entry 0
+        in      a,(c)
+        cp      1
+        jp      nz,fail
+        dec     b
+        in      a,(c)
+        or      a
+        jp      nz,fail
+        ld      d,0x1D                  ; check 1D: the register page: red writes the entry; read back through PALDAT
+        ld      hl,W3+REGS_SPRPALETTE+7*3       ; SPRPALETTE entry 7: Spectrum white
+        ld      (hl),0x44
+        inc     hl
+        ld      (hl),0x55
+        ld      bc,PALIDX0_P            ; PALIDX = 0x307
+        ld      a,7
+        out     (c),a
+        inc     b
+        ld      a,3
+        out     (c),a
+        ld      b,PALDAT
+        in      a,(c)
+        cp      0xD7                    ; not written yet
+        jp      nz,fail
+        inc     hl
+        ld      (hl),0x66               ; red
+        ld      b,PALIDX0               ; PALIDX0 written: PALDAT back to blue
+        ld      a,7
+        out     (c),a
+        ld      b,PALDAT
+        in      a,(c)
+        cp      0x44
+        jp      nz,fail
+        in      a,(c)
+        cp      0x55
+        jp      nz,fail
+        in      a,(c)
+        cp      0x66
+        jp      nz,fail
+        ld      d,0x1E                  ; check 1E: writing PALIDX starts PALDAT at blue again
+        ld      b,PALIDX0               ; PALIDX = 0x3FE
+        ld      a,0xFE
+        out     (c),a
+        ld      b,PALDAT
+        ld      a,0x99
+        out     (c),a                   ; a blue byte, then PALIDX again
+        ld      b,PALIDX1
+        ld      a,3
+        out     (c),a
+        ld      b,PALDAT
+        ld      a,0x01
+        out     (c),a
+        ld      a,0x02
+        out     (c),a
+        ld      a,0x03
+        out     (c),a                   ; entry 0x3FE: 01 02 03
+        ld      hl,W3+REGS_SPRPALETTE+254*3
+        ld      a,(hl)
+        cp      0x01
+        jp      nz,fail
+        inc     hl
+        ld      a,(hl)
+        cp      0x02
+        jp      nz,fail
+        inc     hl
+        ld      a,(hl)
+        cp      0x03
+        jp      nz,fail
+        ld      d,0x1F                  ; check 1F: L0's registers, PRIO and DMACON after reset
+        ld      hl,vr_reset
+        ld      c,CUSTPAGE
+.rr:    ld      b,(hl)
+        inc     hl
+        ld      a,b
+        cp      0xFF
+        jr      z,.rrend
+        in      a,(c)
+        cp      (hl)
+        jp      nz,fail
+        inc     hl
+        jr      .rr
+.rrend: ld      d,0x20                  ; check 20: each written alone, reserved bits read 0
+        ld      hl,vr_write
+.rw:    ld      b,(hl)
+        inc     hl
+        ld      a,b
+        cp      0xFF
+        jr      z,.rwend
+        ld      a,(hl)
+        inc     hl
+        out     (c),a
+        in      a,(c)
+        cp      (hl)
+        jp      nz,fail
+        inc     hl
+        jr      .rw
+.rwend: ld      d,0x21                  ; check 21: BPL0PT: bits 21-1; reading its low byte captures it
+        ld      a,0xFF
+        ld      b,L0_BPL0PT0
+        out     (c),a
+        inc     b
+        out     (c),a
+        inc     b
+        out     (c),a
+        ld      b,L0_BPL0PT0            ; BPL0PT is 0x3FFFFE: the capture
+        in      a,(c)
+        cp      0xFE
+        jp      nz,fail
+        inc     b
+        in      a,(c)
+        cp      0xFF
+        jp      nz,fail
+        inc     b
+        in      a,(c)
+        cp      0x3F
+        jp      nz,fail
+        ld      a,0x01
+        out     (c),a
+        in      a,(c)                   ; the captured byte
+        cp      0x3F
+        jp      nz,fail
+        ld      b,L0_BPL0PT0
+        in      a,(c)                   ; a new capture
+        ld      b,L0_BPL0PT2
+        in      a,(c)
+        cp      0x01
+        jp      nz,fail
+        ld      d,0x22                  ; check 22: DMACON sets and clears the bits written as 1
+        ld      b,DMACON
+        ld      a,DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_SPREN_M
+        out     (c),a
+        in      a,(c)
+        cp      DMACON_DMAEN_M | DMACON_SPREN_M
+        jp      nz,fail
+        ld      a,DMACON_SPREN_M | 0x01 ; clear SPREN; bit 0 is reserved
+        out     (c),a
+        in      a,(c)
+        cp      DMACON_DMAEN_M
+        jp      nz,fail
+        ld      a,0x7F
+        out     (c),a
+        in      a,(c)
+        or      a
+        jp      nz,fail
+        ld      b,L0_CTRL0              ; L0 off again
+        xor     a
+        out     (c),a
+        ld      hl,1                    ; window 3 back to SRAM page 1
+        ld      b,MMU3_0
+        jp      st_map
+
+; Register, value after reset
+vr_reset:
+        db      L0_CTRL0, 0, L0_CTRL1, 0, L0_CTRL2, 0, L0_CTRL3, 0
+        db      L0_WINX0, 0x60, L0_WINX1, 0x03, L0_WINX2, 0x90, L0_WINX3, 0x00     ; XEND 864, XSTART 144
+        db      L0_WINY0, 0x71, L0_WINY1, 0x02, L0_WINY2, 0x31, L0_WINY3, 0x00     ; YEND 625, YSTART 49
+        db      L0_SCROLLX0, 0, L0_SCROLLX1, 0, L0_BPLSTRIDE0, 0, L0_BPLSTRIDE1, 0
+        db      L0_BPL0PT0, 0, L0_BPL0PT1, 0, L0_BPL0PT2, 0
+        db      PRIO, 0x24, DMACON, 0
+        db      0xFF
+; Register, value written, value read back
+vr_write:
+        db      L0_CTRL0, 0xFE, 0xFC, L0_CTRL1, 0xFF, 0xF3, L0_CTRL2, 0xFF, 0xF0, L0_CTRL3, 0xFF, 0x0F
+        db      L0_WINX0, 0xA5, 0xA5, L0_WINX1, 0xFF, 0x07, L0_WINX2, 0x5A, 0x5A, L0_WINX3, 0xFD, 0x05
+        db      L0_WINY0, 0x12, 0x12, L0_WINY1, 0xFA, 0x02, L0_WINY2, 0x34, 0x34, L0_WINY3, 0xF9, 0x01
+        db      L0_SCROLLX0, 0xFF, 0xFF, L0_SCROLLX1, 0xFF, 0x03
+        db      L0_BPLSTRIDE0, 0xFF, 0xFE, L0_BPLSTRIDE1, 0x80, 0x80
+        db      L0_WINX0, 0x60, 0x60, L0_WINX1, 0x03, 0x03                        ; the earlier bytes kept
+        db      L0_CTRL1, 0x00, 0x00, L0_CTRL0, 0xFE, 0xFC                       ; CTRL1 alone: CTRL0 kept
+        db      PRIO, 0xFF, 0x3F, PRIO, 0x24, 0x24
+        db      0xFF
 
         include "selftest.asm"
 
