@@ -251,6 +251,10 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 13 | BASIC: name | The README says the name "BBC BASIC" is not transferable to a derived work: ask R. T. Russell for permission to call it "BBC BASIC (Z80) for retro-z80"; until then "retro-z80 BASIC, based on BBC BASIC (Z80) by R. T. Russell" |
 | 13 | BASIC: when | After phase 1, with the boot ROM spec (16), the SD card, keyboard and console; research notes in `docs/notes/bbc-basic.md` |
 | 13 | Sound | Waiting for Q1 |
+| 14 | Sprite sequencer | A retro-z80 extra (retro68k keeps it on its "later" list and may copy it unchanged): an alternative to copper lists for reusing the 8 sprites down the screen. A small **register-bus master** reads a list in SRAM sorted by start line and writes each entry into the SPRx registers in the gap line after a sprite's previous use ends (H, V, STEP, PT, then CTL last), so the sprite hardware is unchanged and the copper can be mixed in. A few hundred LUTs |
+| 14 | Sequencer: list | Each entry is a sprite's 16 register bytes as in the custom block (PT 3, H 4, V 4, CTL 1, STEP 4); its VSTART is the start line; software sorts by it; an entry with VSTART `0x7FF` ends the list. SEQLC (3 bytes) points at the list and is reloaded every frame, as COP1LC is |
+| 14 | Sequencer: sprites | The hardware gives each entry the **lowest-numbered free sprite** among those allowed by **SEQMASK** (one bit per sprite; the rest stay with the copper and CPU). An entry whose start line comes with no sprite free is **skipped** for that frame: SEQSTAT.SKIP (sticky) and a count of skipped entries, with an optional interrupt through VIDERR |
+| 14 | Sequencer: spec | New spec 17, written now; built in phase 4 after the sprite unit is copied from retro68k (main `bf91e97`). Registers in the custom block's MOVEF range |
 | 14 | [DMA engine](spec/dma-engine.md) | Draft |
 | 15 | Geometry unit (3D) | Next to write (branch 10) |
 
