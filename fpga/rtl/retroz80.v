@@ -7,6 +7,7 @@
 // the background colour). One DMA port stands in for the DMA users still
 // to come, so tests can load the memory while the Z80 runs. Ticket #16 adds
 // the interrupt controller, with VBLANK and SOFT as its sources so far.
+// Ticket #17 adds the timers and watchdog, and the CPU's capture.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4
@@ -62,7 +63,8 @@ module retroz80 #(
     reg  [1:0] btn_s;
     always @(posedge clk) btn_s <= {btn_s[0], btn_reset_n};
 
-    wire rst_req = !btn_s[1] || soft_reset || cmd_reset || cmd_upload;
+    wire wd_reset;                     // from the watchdog (timers.v)
+    wire rst_req = !btn_s[1] || soft_reset || cmd_reset || cmd_upload || wd_reset;
     reg  [8:0] rst_cnt;
     reg        sys_rst;
     reg  [7:0] resetwhy;
@@ -75,8 +77,9 @@ module retroz80 #(
         end else if (rst_req && !sys_rst) begin
             rst_cnt  <= 9'd0;
             sys_rst  <= 1'b1;
-            // Exactly one bit (spec 7, section 3.1): UPLOAD, USB, SOFTWARE, BUTTON
-            resetwhy <= cmd_upload ? 8'h20 : cmd_reset ? 8'h10 : soft_reset ? 8'h08 : 8'h04;
+            // Exactly one bit (spec 7, section 3.1): UPLOAD, USB, WATCHDOG, SOFTWARE, BUTTON
+            resetwhy <= cmd_upload ? 8'h20 : cmd_reset ? 8'h10 : wd_reset ? 8'h02 :
+                        soft_reset ? 8'h08 : 8'h04;
         end else if (sys_rst) begin
             // Hold reset for 5.12 us, and end it on a slot boundary
             if (rst_cnt != 9'd511) rst_cnt <= rst_cnt + 1'b1;
@@ -128,6 +131,9 @@ module retroz80 #(
     wire [15:0] rom_wdata, rom_rdata;
     wire [12:0] rb_addr;
     wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid, rd_int;
+    wire [7:0]  rd_tmr;                // timers (#17), and their capture path
+    wire        hit_tmr, cap_tmr, frame_tick, line_tick;
+    wire [31:0] cd_tmr;
     wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
     wire        late;
     wire        int_vreq, int_ack;
@@ -144,8 +150,9 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr),
+        .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .late(late)
     );
@@ -232,7 +239,8 @@ module retroz80 #(
     // connected to the Z80 yet (it comes with the NMI paging, spec 1,
     // section 8.2), so its inputs are tied off too.
     wire        irq_vid;
-    wire [20:0] int_req = {20'd0, irq_vid};
+    wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
+    wire [20:0] int_req = {6'd0, irq_tmr, 10'd0, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -247,7 +255,19 @@ module retroz80 #(
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid),
-        .frame_tick(), .irq(irq_vid),
+        .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid),
         .clk_pix(clk_pix), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
+    );
+
+    // ---------------------------------------------------------------- timers and watchdog (spec 9)
+    // Line and frame ticks from the display beam (video.v); the DMA start
+    // lines wait for the DMA engine (spec 14). The capture path (rb_cdata,
+    // rb_cap) goes to the bus interface, the CPU's one capture.
+    timers tmr (
+        .clk(clk), .por(por), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_tmr), .rb_hit(hit_tmr), .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
+        .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
+        .irq(irq_tmr), .dma_start(), .wd_reset(wd_reset)
     );
 endmodule

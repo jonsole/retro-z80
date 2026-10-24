@@ -27,7 +27,7 @@ if {$what eq "pattern"} {
         $root/fpga/third_party/tv80/tv80_core.v $root/fpga/third_party/tv80/tv80_alu.v \
         $root/fpga/third_party/tv80/tv80_mcode.v $root/fpga/third_party/tv80/tv80_reg.v \
         $rtl/z80_cpu.v $rtl/cpu_cen.v $rtl/bus_if.v $rtl/mmu.v $rtl/timebase.v $rtl/dmac.v \
-        $rtl/sram_ctl.v $rtl/bootrom.v $rtl/fifo8.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/video.v \
+        $rtl/sram_ctl.v $rtl/bootrom.v $rtl/fifo8.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/video.v $rtl/timers.v \
         $rtl/retroz80.v $rtl/tmds_encoder.v $root/fpga/ks2/top_ks2.v \
         $rtl/platform/artix7/ks2_clocks.v $rtl/platform/artix7/hdmi_out.v \
         $rtl/platform/artix7/oddr.v ]
