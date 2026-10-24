@@ -17,7 +17,7 @@ It follows retro68k's spec 1, with tv80 in place of fx68k. The memory side (the 
 | Memory | Every opcode fetch, read and write goes through the MMU (spec 2): reads to the window's read page, writes to its write page. An SRAM access uses one CPU memory cycle (cycle 0 or 2); boot ROM and register page accesses use none |
 | Wait states | None, ever. wait_n is tied high. Every access has a CPU cycle in time at every speed (section 5) |
 | I/O | Port = register (A15–A8) : page (A7–A0). Page `0x00` the system block, pages `0x10`–`0x13` the custom block. Low-byte-only ports `0x1F`, `0x53`, `0x5B`, `0x62`, `0xFE`. Others read `0xFF` (section 6) |
-| Register bus | 8-bit, one clock per access; masters the copper (first), the CPU, the DMA engine (last) (section 4.2) |
+| Register bus | 8-bit, one clock per access; masters the copper (first), the CPU, the sprite sequencer, the DMA engine (last) (section 4.2) |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
 | Interrupts | IM 2: the interrupt controller (spec 8) puts VECBASE + 2 × source on the bus in the acknowledge cycle. IM 1: the handler reads INTID. No IM 0 |
 | NMI paging | Spectrum extra: an NMI switches window 0 to the boot ROM's monitor page before the fetch at `0x0066`; `RETN` switches it back (section 8.2) |
@@ -154,16 +154,18 @@ The MMU sends SRAM pages to the scheduler, boot ROM pages to the ROM's block RAM
 | rb_hit | Some unit decoded the address. If none did, the master gets `0xFF` |
 | rb_cdata[31:0], rb_cap | With a read of a capturing register's low byte (spec 3, rule 4): the register's whole value and a flag that it is one. The reading master stores it in its one tagged capture and answers that register's higher bytes from it |
 
-Every unit decodes rb_addr, so one address names a register however it is reached. The bus has three masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
+Every unit decodes rb_addr, so one address names a register however it is reached. The bus has four masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
 
 | Order | Master | What it reaches | Spec |
 |-------|--------|-----------------|------|
 | 1 | **Copper** | Writes only: custom offsets (rb_addr `0x1000`–`0x13FF`), `0x000`–`0x0EF` by MOVE, any by MOVEF | 6 |
 | 2 | **CPU** (this bus interface) | Everything: I/O cycles and register page accesses | – |
-| 3 | **DMA engine** | Reads and writes of the custom block, the palettes (`0x1400`–`0x1FFF`) and the stream registers SERDATA and SDDATA for its port jobs, paced by each unit's ready signal; spec 14 lists what a job may name and stops a channel that names anything else | 14 |
+| 3 | **Sprite sequencer** | Writes only: the registers of the sprites SEQMASK gives it (custom `0x010`–`0x08F`), 16 bytes per list entry, in the line before the entry's first line | 17 |
+| 4 | **DMA engine** | Reads and writes of the custom block, the palettes (`0x1400`–`0x1FFF`) and the stream registers SERDATA and SDDATA for its port jobs, paced by each unit's ready signal; spec 14 lists what a job may name and stops a channel that names anything else | 14 |
 
 - The copper goes first, so its writes always land on their pixel. It writes at most once every 2 clocks (spec 6), so the CPU's strobe moves at most one clock, which every CPU access has room for (sections 5.7 and 6).
-- The DMA engine waits a clock whenever the copper or the CPU has the bus. It never delays either of them.
+- The sprite sequencer (a retro-z80 extra) waits a clock whenever the copper or the CPU has the bus, so it never delays either of them. In any 40 clocks it gets at least 17, enough for an entry's 16 writes (spec 17, section 5.3).
+- The DMA engine waits a clock whenever the copper, the CPU or the sequencer has the bus. It never delays any of them.
 - The DMA engine reaches the registers only through this bus, one byte per clock, and uses no memory cycle for them. Its SRAM accesses go through the scheduler. It reads the boot ROM, as retro68k's engine does, through the ROM's second block RAM port, one byte per clock, not through this bus (spec 2, section 2; spec 14).
 
 ### 4.3 A 6502 later

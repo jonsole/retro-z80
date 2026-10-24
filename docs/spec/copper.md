@@ -224,7 +224,7 @@ The list is in SRAM; the copper reads it one 16-bit word per memory cycle, throu
 
 1. An **urgent** hard-deadline request (a layer or sprite about to be late) gets the cycle, unless it is a cycle the CPU is using: the CPU never waits.
 2. The cycle's **default owner**: the CPU on cycles 0 and 2, the hard-deadline channels on cycles 1 and 3, and on cycle 4 audio (reserved: none yet), then **the copper at PRI 1**.
-3. The **free order**: the copper at PRI 1 first; then hard-deadline channels (earliest deadline first), audio, the copper at PRI 0, the DMA engine (spec 14), the DMA port.
+3. The **free order**: the copper at PRI 1 first; then hard-deadline channels (earliest deadline first), audio, the sprite sequencer (spec 17, section 5.4), the copper at PRI 0, the DMA engine (spec 14), the DMA port.
 
 So the copper gets cycle 4 and any cycle its owner leaves: the CPU's unused cycle 0 or 2 (at 20 MHz the Z80 leaves at least one of the two in every slot, spec 2), and cycles 1 and 3 when no layer or sprite wants them (the whole vertical blank, quiet stretches of a line).
 
@@ -232,8 +232,8 @@ So the copper gets cycle 4 and any cycle its owner leaves: the CPU's unused cycl
 
 | PRI | The copper gets |
 |-----|-----------------|
-| 0, normal | Cycle 4 and the cycles nobody else wants, after the layers, sprites and audio (the default) |
-| 1, high | Cycle 4 as its own (after audio, when audio exists), and first place in the free order: ahead of the DMA engine and of layer and sprite fetches that are not urgent |
+| 0, normal | Cycle 4 and the cycles nobody else wants, after the layers, sprites, audio and the sprite sequencer (the default) |
+| 1, high | Cycle 4 as its own (after audio, when audio exists), and first place in the free order: ahead of the DMA engine, the sprite sequencer and layer and sprite fetches that are not urgent |
 | 2, 3 | Reserved, taken as 1. retro68k's PRI 2 takes the CPU's cycle; here the CPU never gives up a cycle it uses |
 
 An urgent display or sprite fetch still comes first at every level, so raising the copper never spoils the picture. PRI matters only while the copper has a word to fetch: while it waits with its prefetch buffer full, it takes nothing.

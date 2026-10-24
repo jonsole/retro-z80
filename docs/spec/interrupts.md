@@ -70,7 +70,7 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 | 0 | VBLANK | Video: start of the frame and of vertical blanking (display beam line 0, spec 4) | VIDSTAT.VBLANK and VIDINTEN.VBLANK (spec 4) | VIDSTAT.VBLANK |
 | 1 | LINE | Video: line compare, at the start of display beam line LINECMP | VIDSTAT.LINE and VIDINTEN.LINE (spec 4) | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ and COPCON.IRQEN (spec 6) | COPSTAT.IRQ |
-| 3 | VIDERR | Video problems: a layer's fetch was late (OVERRUN), a sprite's FIFO ran dry (SPRUNDER, spec 5) | VIDSTAT error bits and their VIDINTEN bits (spec 4) | VIDSTAT |
+| 3 | VIDERR | Video problems: a layer's fetch was late (OVERRUN), a sprite's FIFO ran dry (SPRUNDER, spec 5), the sprite sequencer skipped an entry (spec 17, section 4.4) | VIDSTAT error bits and their VIDINTEN bits (spec 4); SEQSTAT.SKIP and SEQCON.IRQEN (spec 17) | VIDSTAT; SEQSTAT.SKIP |
 | 4 | DMA0 | DMA engine channel 0: a descriptor with IRQ finished, or an error | DMXINT.CH0 and DMXINTEN.CH0 (spec 14) | DMXINT.CH0 |
 | 5 | DMA1 | DMA engine channel 1 | DMXINT.CH1 and DMXINTEN.CH1 | DMXINT.CH1 |
 | 6 | DMA2 | DMA engine channel 2 | DMXINT.CH2 and DMXINTEN.CH2 | DMXINT.CH2 |
