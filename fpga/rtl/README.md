@@ -15,18 +15,20 @@ Board builds live in `fpga/ks2/` (the computer on the KS2, issue #11, and its te
 
 | File | What | Spec |
 |------|------|------|
-| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial, video. `CHIPMB = 2` builds for a 2 MB board: physical bit 21 ignored | 1, 2, 7 |
+| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial, video. `CHIPMB = 2` builds for a 2 MB board: physical bit 21 ignored; `NLAYERS` sets the video layers built (default 1) | 1, 2, 7 |
 | `z80_cpu.v` | tv80 with retro-z80's own wrapper: cen, early cycle-type outputs | 1, section 2 |
 | `cpu_cen.v` | The CPU's clock enable, set by CPUSPEED: a T-state every 5n clocks on slot edges 0 and 5, or every 28; a new speed from the next T1 | 1, section 3; 7, section 6.1 |
 | `bus_if.v` | Bus interface: page looked up in T1, memory requests at E + 3, posted writes, boot ROM, NONE and reserved pages, the register page, I/O decode and register bus strobes | 1, sections 4–6 |
 | `mmu.v` | The MMU: read and write page registers MMUn and MMUnW (byte 1 commits; a read-page commit sets the write page), reset mapping. retro-z80's own | 2, section 9 |
 | `timebase.v` | Slot edge counter `sc` | 2, section 3 |
-| `dmac.v` | Scheduler: CPU on cycles 0 and 2, never turned away | 2, section 5 |
+| `dmac.v` | Scheduler: CPU on cycles 0 and 2, never turned away; the layer fetch on cycles 1 and 3 and any cycle left over | 2, section 5 |
 | `sram_ctl.v` | SRAM controller, 20 ns cycles | 2, section 8 |
 | `bootrom.v` | 32 KB boot ROM in block RAM, writable with SYSCON.ROMWE | 7, section 4 |
 | `sysregs.v` | SYSID, SYSVER, SYSCFG, RESETWHY, SYSCON, SYSRESET, SYSBTN, CPUSPEED | 7, section 11.1 |
 | `serial.v`, `fifo8.v` | USB serial (FT232H, 245 FIFO mode) and its FIFOs | 10 |
-| `video.v` | Video, first part: the 576p beam on the 27 MHz pixel clock, VIDCON, VIDSTAT (VBLANK, INVBLANK), BGCOLOR (the red byte commits, through the CPU's colour assembly buffer), VIDSIZE. No layers, sprites, palettes or interrupts yet | 4 |
+| `video.v` | Video: the 576p beam on the 27 MHz pixel clock, VIDCON, VIDSTAT (VBLANK, INVBLANK, OVERRUN0-2), PRIO, BGCOLOR, PALIDX, PALDAT and the palettes in the register page (the red byte commits, through the CPU's colour assembly buffer), DMACON, the layers' registers and line setup, the pixel pipeline (priority, palette), VIDSIZE. Parameter NL: layers built (1-3; the KS2 builds 1). No tile mode, sprites, direct colour or interrupts yet | 4 |
+| `bpldma.v` | Layer fetch: just in time through the scheduler, earliest deadline first; the live pointers BPL0PT (with the CPU's capture) and BPLSTRIDE, pointer wrap | 4, section 5 |
+| `layer_pix.v` | One layer's pixel side: the shifters, scaling, fine scroll, TRANSP, PALOFS, OVERRUN | 4, sections 4 and 5.1 |
 | `platform/sim/oddr.v` | Behavioural DDR output register | – |
 | `tmds_encoder.v` | DVI TMDS encoder (8b/10b with DC balance) | – |
 | `platform/artix7/ks2_clocks.v` | KS2 clocks: 100 MHz system, 27 and 135 MHz video | – |

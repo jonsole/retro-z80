@@ -483,9 +483,9 @@ st_ffpages:
         dw      PG_NONE, 0x200, 0x2A5, 0x3F7, 0x3F9, 0x3FA, 0xFFFF
 
 ; Register page offsets with no unit yet, or reserved, in window 3: 0xFF.
-; Only read: KEYROW, the rest of the custom block and the palettes get units
-; later, and
-; this list shrinks as they come.
+; Only read: KEYROW and the rest of the custom block get units later, and
+; this list shrinks as they come. Custom 0x0AF (L0's last byte) and 0x0FF
+; are reserved for good.
 st_ffoffs:
         dw      W3+0x0F, W3+0xFF, W3+REGS_KEYROW, W3+REGS_KEYROW+7, W3+0x108, W3+0xFFF
-        dw      W3+REGS_CUSTOM+0x00F, W3+REGS_CUSTOM+0x3FF, W3+REGS_PALETTE, W3+0x1FFF, 0xFFFF
+        dw      W3+REGS_CUSTOM+0x00F, W3+REGS_CUSTOM+0x3FF, W3+REGS_CUSTOM+0x0AF, W3+REGS_CUSTOM+0x0FF, 0xFFFF

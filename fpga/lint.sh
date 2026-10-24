@@ -17,6 +17,12 @@ $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal 
     fpga/third_party/tv80/tv80_core.v fpga/third_party/tv80/tv80_alu.v \
     fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
     fpga/rtl/*.v
+# ... and with all three video layers built (the KS2 builds one)
+$VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
+    -DTV80_REFRESH -Ifpga/rtl --top-module retroz80 -GNLAYERS=3 fpga/lint.vlt \
+    fpga/third_party/tv80/tv80_core.v fpga/third_party/tv80/tv80_alu.v \
+    fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
+    fpga/rtl/*.v
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC     --top-module top_ks2_pattern fpga/ks2/top_ks2_pattern.v fpga/rtl/tmds_encoder.v     fpga/rtl/platform/artix7/ks2_clocks.v fpga/rtl/platform/artix7/hdmi_out.v fpga/lint_xilinx_stub.v
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
     -DTV80_REFRESH -Ifpga/rtl --top-module top_ks2 fpga/lint.vlt \

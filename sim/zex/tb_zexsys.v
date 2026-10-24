@@ -80,7 +80,7 @@ module tb_zexsys (input clk);
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq_i),
         .ft_rxf_n(1'b1), .ft_txe_n(1'b1), .ft_d_i(8'h00), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
-        .clk_pix(1'b0), .vid_rgb(), .vid_hsync(), .vid_vsync(), .vid_de(),
+        .clk_pix(1'b0), .clk_pix5(1'b0), .vid_rgb(), .vid_hsync(), .vid_vsync(), .vid_de(),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(2'b11), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
         .dbg_sc(sc)

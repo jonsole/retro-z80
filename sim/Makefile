@@ -14,6 +14,9 @@
 #   make failshow   the boot ROM built to report check 45 as failed: the
 #                   screen shows it as 5 white stripes on red (60 ms of
 #                   simulated time, a few minutes; not part of make all)
+#   make vtest      the video test: L0 bitmaps in bands of different settings,
+#                   checked pixel by pixel against a Python model (about 5
+#                   minutes for each variant; not part of make all)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -41,7 +44,7 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest speeds failshow lint zexhello zexdoc zexall zexsyshello zexsys clean
+.PHONY: all smoke vsmoke hello hello2mb systest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
 all: smoke vsmoke hello hello2mb systest speeds zexhello zexsyshello
 
 $(BUILD):
@@ -76,7 +79,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v video.v retroz80.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v layer_pix.v bpldma.v video.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
 $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -124,6 +127,32 @@ $(BUILD)/bootfail.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/self
 failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootfail.hex +failshow=45 +timeout=70000 | tee failshow.log
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
+
+# The video test (spec 4, ticket #13): vtest/vgen.py makes bands of L0
+# settings, a palette and random picture data; vtest/vtest.asm writes them,
+# band by band, timed from each frame's start; tb.v logs the writes and grabs
+# beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
+# Variant a is a fixed set of bands, the others random. The variants run in
+# parallel with make -j.
+VTESTS ?= a b boot
+vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
+
+# The boot ROM's palette chart, on a 2 MB build as the KS2's: beam frame 2
+# is the first with the chart; the SRAM is dumped for the model
+$(BUILD)/vtest_boot.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex vtest/vmodel.py
+	@d=$(BUILD)/vtest_boot; rm -f $@; mkdir -p $$d; \
+	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boot.hex +frame=2 +dumpram=ram.hex +dma +timeout=70000 > sim.log); \
+	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
+	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 2 $$d/model.png && touch $@
+
+$(BUILD)/vtest_%.ok: $(BUILD)/tb.vvp vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
+	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
+	$(PYTHON) vtest/vgen.py $* $$d && \
+	$(SJASMPLUS) --nologo -I $(INC) -I $$d --raw=$$d/vtest.bin vtest/vtest.asm && \
+	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/vtest.bin $$d/vtest.hex && \
+	(cd $$d && $(VVP) -n ../tb.vvp +rom=vtest.hex +ram=ram.hex +frame=1 +dma +timeout=60000 > sim.log); \
+	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
+	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 1 $$d/model.png && touch $@
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

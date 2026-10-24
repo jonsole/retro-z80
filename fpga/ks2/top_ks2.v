@@ -100,7 +100,7 @@ module top_ks2 (
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq_i),
         .ft_rxf_n(accel_io[8]), .ft_txe_n(accel_io[9]), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
-        .clk_pix(clk_pix), .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de),
+        .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de),
         .dma_req(1'b0), .dma_we(1'b0), .dma_addr(21'd0), .dma_wdata(16'd0), .dma_be(2'b00),
         .dma_ack(), .dma_rvalid(), .dma_rdata(),
         .dbg_sc()

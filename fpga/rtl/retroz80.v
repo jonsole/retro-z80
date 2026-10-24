@@ -3,12 +3,14 @@
 //
 // Version for ticket #11: tv80 at every CPUSPEED speed behind the bus
 // interface, the scheduler and SRAM controller, the boot ROM, the system
-// registers, USB serial, and the start of the video unit (the 576p beam and
-// the background colour). One DMA port stands in for the DMA users still
+// registers, USB serial, and the video unit (ticket #13: the 576p beam, the
+// background colour, palettes and bitmap layers fetched through the
+// scheduler; NLAYERS of them built). One DMA port stands in for the DMA users still
 // to come, so tests can load the memory while the Z80 runs.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
-    parameter [5:0] CHIPMB = 6'd4
+    parameter [5:0] CHIPMB = 6'd4,
+    parameter NLAYERS = 1              // video layers built, 1-3 (spec 4)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -33,6 +35,7 @@ module retroz80 #(
     // Video (spec 4): the pixel clock and the picture, before the HDMI and
     // VGA output stages (board parts)
     input  wire        clk_pix,        // 27 MHz
+    input  wire        clk_pix5,       // 135 MHz, edges lined up with clk_pix's
     output wire [23:0] vid_rgb,        // RRGGBB
     output wire        vid_hsync, vid_vsync, vid_de,
 
@@ -158,6 +161,9 @@ module retroz80 #(
     wire [15:0] go_wdata;
     wire [1:0]  go_be;
     wire [2:0]  go_tag, m_cycle, m_rtag;
+    wire        bpl_req, bpl_urgent, bpl_ack, bpl_rvalid;
+    wire [21:1] bpl_addr;
+    wire [9:0]  bpl_deadline;
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
@@ -166,7 +172,8 @@ module retroz80 #(
         .clk(clk), .rst(por), .start_next(m_start), .next_cycle(m_cycle),
         .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr), .cpu_wdata(cpu_wdata),
         .cpu_be(cpu_be), .cpu_ack(cpu_ack), .cpu_rvalid(cpu_rvalid),
-        .bpl_req(1'b0), .bpl_addr(21'd0), .bpl_deadline(10'd0), .bpl_urgent(1'b0), .bpl_ack(), .bpl_rvalid(),
+        .bpl_req(bpl_req), .bpl_addr(bpl_addr), .bpl_deadline(bpl_deadline), .bpl_urgent(bpl_urgent),
+        .bpl_ack(bpl_ack), .bpl_rvalid(bpl_rvalid),
         .spr_req(1'b0), .spr_addr(21'd0), .spr_deadline(10'd0), .spr_urgent(1'b0), .spr_ack(), .spr_rvalid(),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
         .cop_req(1'b0), .cop_addr(21'd0), .cop_pri(2'd0), .cop_ack(), .cop_rvalid(),
@@ -221,11 +228,14 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- video (spec 4)
-    video vid (
+    video #(.NL(NLAYERS)) vid (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid),
         .frame_tick(),
-        .clk_pix(clk_pix), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
+        .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_deadline(bpl_deadline), .disp_addr(bpl_addr),
+        .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
+        .clk_pix(clk_pix), .clk_pix5(clk_pix5),
+        .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
 endmodule
