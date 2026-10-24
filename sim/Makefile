@@ -86,7 +86,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
 $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
@@ -275,3 +275,35 @@ $(BUILD)/zexsys/%.log:
 
 clean:
 	rm -rf $(BUILD)
+
+# ---- Timers and watchdog (ticket #17)
+#   make timers     the timers on their own (sim/timers/tb_timers.v): every
+#                   source's rate to the clock, chaining, one-shot, reload,
+#                   the requests, the capture path, the watchdog
+#   make timertest  the timer test ROM on the machine (about 25 ms simulated)
+#   make boottmr    the boot ROM's timer effect, sped up: timer 0 dims and
+#                   brightens the screen every 2 ms (not part of make all)
+.PHONY: timers timertest boottmr
+all: timers timertest
+
+$(BUILD)/tb_timers.vvp: timers/tb_timers.v $(RTL)/timers.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_timers -o $@ timers/tb_timers.v $(RTL)/timers.v
+
+timers: $(BUILD)/tb_timers.vvp
+	cd $(BUILD) && $(VVP) -n tb_timers.vvp | tee timers.log
+	@grep -q "^TEST PASSED" $(BUILD)/timers.log
+
+$(BUILD)/timertest.bin: timertest/timertest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+timertest: $(BUILD)/tb.vvp $(BUILD)/timertest.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=timertest.hex +dma +timeout=40000 | tee timertest.log
+	@grep -q "^TEST PASSED" $(BUILD)/timertest.log
+
+# The boot ROM's timer 0 effect, sped up: dim and bright every 2 ms
+$(BUILD)/boottmr.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DTMR_HALF=4 --raw=$@ $<
+
+boottmr: $(BUILD)/tb.vvp $(BUILD)/boottmr.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boottmr.hex +hello +bgdim +timeout=90000 | tee boottmr.log
+	@grep -q "^TEST PASSED" $(BUILD)/boottmr.log

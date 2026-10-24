@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="330" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">Choosing a pixel: looking from the front, the first one that is not transparent is shown</text>
+<text x="30" y="175" font-size="11" text-anchor="middle" fill="#555">front</text>
+<ellipse cx="30" cy="149.0" rx="12" ry="7" fill="#fff" stroke="#333"/>
+<circle cx="32" cy="149.0" r="4" fill="#333"/>
+<line x1="40" y1="149" x2="714" y2="149" stroke="#777" stroke-width="1" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+<polygon points="90,100 124,70 124,190 90,220" fill="#d5a6bd" stroke="#333" stroke-width="1"/>
+<text x="107" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">sprites</text>
+<text x="107" y="257" font-size="11" text-anchor="middle" fill="#555">DEPTH 0</text>
+<polygon points="160,100 194,70 194,190 160,220" fill="#ea9999" stroke="#333" stroke-width="1"/>
+<text x="177" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">PRI tiles</text>
+<text x="177" y="257" font-size="11" text-anchor="middle" fill="#555">any layer</text>
+<polygon points="230,100 264,70 264,190 230,220" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="247" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">FRONT</text>
+<text x="247" y="257" font-size="11" text-anchor="middle" fill="#555">here L1</text>
+<polygon points="300,100 334,70 334,190 300,220" fill="#d5a6bd" stroke="#333" stroke-width="1"/>
+<text x="317" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">sprites</text>
+<text x="317" y="257" font-size="11" text-anchor="middle" fill="#555">DEPTH 1</text>
+<polygon points="370,100 404,70 404,190 370,220" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="387" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">MIDDLE</text>
+<text x="387" y="257" font-size="11" text-anchor="middle" fill="#555">here L0</text>
+<polygon points="440,100 474,70 474,190 440,220" fill="#d5a6bd" stroke="#333" stroke-width="1"/>
+<text x="457" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">sprites</text>
+<text x="457" y="257" font-size="11" text-anchor="middle" fill="#555">DEPTH 2</text>
+<polygon points="510,100 544,70 544,190 510,220" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="527" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">BACK</text>
+<text x="527" y="257" font-size="11" text-anchor="middle" fill="#555">here L2</text>
+<polygon points="580,100 614,70 614,190 580,220" fill="#d5a6bd" stroke="#333" stroke-width="1"/>
+<text x="597" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">sprites</text>
+<text x="597" y="257" font-size="11" text-anchor="middle" fill="#555">DEPTH 3</text>
+<polygon points="650,100 684,70 684,190 650,220" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<text x="667" y="242" font-size="12" text-anchor="middle" fill="#1a1a1a" font-weight="bold">BGCOLOR</text>
+<text x="667" y="257" font-size="11" text-anchor="middle" fill="#555">background</text>
+<text x="667" y="58" font-size="11" text-anchor="middle" fill="#555">back</text>
+<text x="20" y="290" font-size="11" text-anchor="start" fill="#555">Layers take the places PRIO gives them (here PRIO = L1, L0, L2). A layer is transparent outside its window,</text>
+<text x="20" y="304" font-size="11" text-anchor="start" fill="#555">where its data was late, and where its pixel is 0 if CTRL0.TRANSP is set.</text>
+</svg>

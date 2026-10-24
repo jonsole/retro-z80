@@ -13,8 +13,10 @@
 ;                layer L0, with the background round it. A second later the
 ;                background starts to change once a second (yellow, cyan,
 ;                magenta, white, green, ...): the VBLANK interrupt works.
-;                A second after that, L0 becomes a scrolling tile map over
-;                the whole screen (tiledemo.asm)
+;                Each colour is bright for half a second and dim (half
+;                brightness) for half a second: timer 0's interrupt works.
+;                Two seconds after the chart appears, L0 becomes a scrolling
+;                tile map over the whole screen (tiledemo.asm)
 ;   red, with white stripes: the self-test failed. The number of stripes
 ;                is the failing check's number less 0x40 (1 stripe = check
 ;                41, 2 = check 42 ... 17 = check 51)
@@ -33,7 +35,9 @@
 ; Assemble: sjasmplus --raw=boot.bin -I ../include boot.asm
 ; With -DFAILTEST=nn the self-test is skipped and check nn is shown as
 ; failed (sim/Makefile, failshow). With -DCYCLE_FRAMES=n the colour
-; changes every n frames in place of 50 (sim/Makefile, bootvbl).
+; changes every n frames in place of 50 (sim/Makefile, bootvbl). With
+; -DTMR_HALF=n timer 0 dims or brightens every n x 0.5 ms in place of 1000
+; (sim/Makefile, boottmr).
 
         DEVICE  NOSLOT64K
         include "hw.inc"
@@ -93,6 +97,7 @@ start:  ld      sp,0x0000               ; stack grows down from 0xFFFF (SRAM pag
         call    chart                   ; the palette chart in L0 (about 20 ms)
         call    tileprep                ; the tile demo's map and patterns
         call    vblon
+        call    tmron                   ; timer 0: dim and bright (ticket #17)
 stop:   halt                            ; woken by each VBLANK
         jr      stop
 
@@ -139,6 +144,65 @@ vbl:    push    af
         jr      c,.next
         xor     a
 .next:  ld      (COLNUM),a
+        call    showbg
+.done:  call    tilevbl                 ; the tile demo
+        pop     hl
+        pop     bc
+        pop     af
+        ei
+        reti
+
+; ---- Timer 0 (ticket #17, spec 9): every half second the background
+; goes from bright to dim (half brightness) or back
+    IFNDEF TMR_HALF
+TMR_HALF equ    1000                    ; 0.5 ms ticks per half: half a second
+    ENDIF
+DIM     equ     0xC002                  ; SRAM (window 6): 0 bright, 1 dim
+BGTMP   equ     0xC003                  ; ... and the colour shown (3 bytes)
+
+tmron:  xor     a
+        ld      (DIM),a
+        ld      bc,TMR0_CTRL_P
+        out     (c),a                   ; stop
+        ld      b,TMR0_STAT
+        ld      a,TMR_STAT_UNDER_M
+        out     (c),a                   ; no old underflow
+        ld      hl,tmr_set
+        ld      b,TMR0_PRESCALE0
+        ld      e,6
+.w:     ld      a,(hl)
+        out     (c),a                   ; PRESCALE, RELOAD, COUNT
+        inc     hl
+        inc     b
+        dec     e
+        jr      nz,.w
+        ld      bc,INTENA0_P + (INTR_TIMER0 << 8)
+        ld      a,INTENA_SETCLR_M | (1 << INTB_TIMER0)
+        out     (c),a                   ; the controller's enable
+        ld      bc,TMR0_CTRL_P
+        ld      a,TMR_CTRL_EN_M | TMR_CTRL_REPEAT_M | TMR_CTRL_IRQ_M
+        out     (c),a                   ; go: SRC 0, repeating, interrupt
+        ret
+tmr_set:   dw   49999, TMR_HALF - 1, TMR_HALF - 1   ; 0.5 ms ticks
+
+tmr0:   push    af
+        push    bc
+        push    hl
+        ld      bc,TMR0_STAT_P
+        ld      a,TMR_STAT_UNDER_M
+        out     (c),a                   ; clear the cause
+        ld      a,(DIM)
+        xor     1
+        ld      (DIM),a
+        call    showbg
+        pop     hl
+        pop     bc
+        pop     af
+        ei
+        reti
+
+; Show colour COLNUM of `cycle`, at half brightness if DIM (A, B, C, HL changed)
+showbg: ld      a,(COLNUM)
         ld      l,a                     ; HL = cycle + 3 x A
         add     a,a
         add     a,l
@@ -146,13 +210,24 @@ vbl:    push    af
         ld      h,0
         ld      bc,cycle
         add     hl,bc
-        call    setbg
-.done:  call    tilevbl                 ; the tile demo
-        pop     hl
-        pop     bc
-        pop     af
-        ei
-        reti
+        ld      bc,BGTMP
+        ld      a,(DIM)
+        rrca                            ; carry = DIM
+        push    de
+        ld      d,3
+        ld      e,a
+.c:     ld      a,(hl)
+        bit     7,e
+        jr      z,.b
+        srl     a                       ; half
+.b:     ld      (bc),a
+        inc     hl
+        inc     bc
+        dec     d
+        jr      nz,.c
+        pop     de
+        ld      hl,BGTMP
+        jp      setbg
 
 ; Every other source, and the spurious entry: nothing to do
 spur:   ei
@@ -386,7 +461,11 @@ cycle:     db   0x00, 0xFF, 0xFF        ; yellow
 ; 23 NONE; within one 256-byte page
         ALIGN   64
 ivt:    dw      vbl
-        dup     23
+        dup     INT_TIMER0 - 1
+        dw      spur
+        edup
+        dw      tmr0                    ; TIMER0 (ticket #17)
+        dup     23 - INT_TIMER0
         dw      spur
         edup
 

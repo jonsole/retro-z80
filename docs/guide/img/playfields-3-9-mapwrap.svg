@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="360" viewBox="0 0 760 360" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="360" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">The view wraps round the map</text>
+<rect x="60" y="50" width="400" height="260" fill="#f3f3f3" stroke="#333" stroke-width="1"/>
+<line x1="85" y1="50" x2="85" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="110" y1="50" x2="110" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="135" y1="50" x2="135" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="160" y1="50" x2="160" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="185" y1="50" x2="185" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="210" y1="50" x2="210" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="235" y1="50" x2="235" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="260" y1="50" x2="260" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="285" y1="50" x2="285" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="310" y1="50" x2="310" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="335" y1="50" x2="335" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="360" y1="50" x2="360" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="385" y1="50" x2="385" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="410" y1="50" x2="410" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="435" y1="50" x2="435" y2="310" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="76" x2="460" y2="76" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="102" x2="460" y2="102" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="128" x2="460" y2="128" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="154" x2="460" y2="154" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="180" x2="460" y2="180" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="206" x2="460" y2="206" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="232" x2="460" y2="232" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="258" x2="460" y2="258" stroke="#e0e0e0" stroke-width="1"/>
+<line x1="60" y1="284" x2="460" y2="284" stroke="#e0e0e0" stroke-width="1"/>
+<rect x="60" y="50" width="400" height="260" fill="none" stroke="#333" stroke-width="2"/>
+<text x="60" y="44" font-size="11" text-anchor="middle" fill="#555">(0, 0)</text>
+<text x="460" y="44" font-size="11" text-anchor="middle" fill="#555">8 × MW</text>
+<text x="54" y="314" font-size="11" text-anchor="end" fill="#555">8 × MH</text>
+<rect x="360" y="220" width="100" height="90" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="410" y="270" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">A</text>
+<rect x="60" y="220" width="70" height="90" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="95" y="270" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">B</text>
+<rect x="360" y="50" width="100" height="40" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="410" y="75" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">C</text>
+<rect x="60" y="50" width="70" height="40" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="95" y="75" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">D</text>
+<rect x="357" y="217" width="6" height="6" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="354" y="214" font-size="11" text-anchor="end" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">(SCROLLX, SCROLLY)</text>
+<text x="520" y="54" font-size="12" text-anchor="start" fill="#1a1a1a">what the window shows:</text>
+<rect x="520" y="70" width="100" height="90" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="570" y="120" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">A</text>
+<rect x="620" y="70" width="70" height="90" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="655" y="120" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">B</text>
+<rect x="520" y="160" width="100" height="40" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="570" y="185" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">C</text>
+<rect x="620" y="160" width="70" height="40" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
+<text x="655" y="185" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">D</text>
+<text x="520" y="220" font-size="11" text-anchor="start" fill="#555">window width ÷ HS source pixels</text>
+<text x="520" y="234" font-size="11" text-anchor="start" fill="#555">by window height ÷ VS lines</text>
+<text x="60" y="340" font-size="11" text-anchor="start" fill="#555">Off the right edge the view carries on at the left; off the bottom, at the top.</text>
+</svg>

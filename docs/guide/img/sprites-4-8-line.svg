@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1a1a1a">
+  <rect x="0" y="0" width="760" height="470" fill="#ffffff"/>
+  <text x="376.96" y="18" text-anchor="middle">one beam line: 864 pixels, 32 µs, 320 memory slots</text>
+  <line x1="40" y1="36" x2="40" y2="44" stroke="#777"/>
+  <text x="40" y="33" text-anchor="middle" font-size="11" fill="#555">0</text>
+  <line x1="52.48" y1="36" x2="52.48" y2="44" stroke="#777"/>
+  <text x="52.48" y="33" text-anchor="middle" font-size="11" fill="#555">16</text>
+  <line x1="152.32" y1="36" x2="152.32" y2="44" stroke="#777"/>
+  <text x="152.32" y="33" text-anchor="middle" font-size="11" fill="#555">144</text>
+  <line x1="196" y1="36" x2="196" y2="44" stroke="#777"/>
+  <text x="196" y="33" text-anchor="middle" font-size="11" fill="#555">200</text>
+  <line x1="308.32" y1="36" x2="308.32" y2="44" stroke="#777"/>
+  <text x="308.32" y="33" text-anchor="middle" font-size="11" fill="#555">344</text>
+  <line x1="508" y1="36" x2="508" y2="44" stroke="#777"/>
+  <text x="508" y="33" text-anchor="middle" font-size="11" fill="#555">600</text>
+  <line x1="713.92" y1="36" x2="713.92" y2="44" stroke="#777"/>
+  <text x="713.92" y="33" text-anchor="middle" font-size="11" fill="#555">864</text>
+  <rect x="40" y="46" width="112.32" height="26" fill="#d9d9d9" stroke="#333"/>
+  <rect x="152.32" y="46" width="561.6" height="26" fill="#cfe2f3" stroke="#333"/>
+  <text x="96.16" y="63" text-anchor="middle" font-size="11">horizontal blank</text>
+  <text x="433.12" y="63" text-anchor="middle" font-size="11">picture</text>
+  <line x1="40" y1="44" x2="40" y2="288" stroke="#777" stroke-dasharray="4 3"/>
+  <text x="44" y="300" text-anchor="start" font-size="11">Pixel 0: each running sprite takes the line's settings (window, STEP, CTL);</text>
+  <text x="44" y="314" text-anchor="start" font-size="11">whether the line is inside its window is decided by pixel 12</text>
+  <line x1="52.48" y1="44" x2="52.48" y2="332" stroke="#777" stroke-dasharray="4 3"/>
+  <text x="56.48" y="344" text-anchor="start" font-size="11">Pixel 16: the earliest HSTART. The fetch needs a few pixels of lead</text>
+  <line x1="698.32" y1="44" x2="698.32" y2="372" stroke="#777" stroke-dasharray="4 3"/>
+  <text x="694.32" y="384" text-anchor="end" font-size="11">Pixels 840–847: the next line's sizes are worked out</text>
+  <text x="694.32" y="398" text-anchor="end" font-size="11">from H, V and STEP; later writes may miss it</text>
+  <rect x="38" y="98" width="440" height="18" fill="#ffffff"/>
+  <text x="40" y="112" font-weight="bold">Sprite 0: HSTART 344, 32 pixels at 4 bpp: 8 words a line</text>
+  <rect x="49.36" y="120" width="21.84" height="14" fill="#f9cb9c" stroke="#333"/>
+  <text x="77.2" y="131" font-size="11">all 8 words, early in the blank, as soon as cycles are free</text>
+  <rect x="308.32" y="140" width="24.96" height="14" fill="#d5a6bd" stroke="#333"/>
+  <text x="339.28" y="151" font-size="11">its pixels: 344–375</text>
+  <rect x="38" y="178" width="520" height="18" fill="#ffffff"/>
+  <text x="40" y="192" font-weight="bold">Sprite 1: HSTART 200, HSTOP 600, 400 pixels at 8 bpp: 200 words a line</text>
+  <rect x="49.36" y="200" width="37.44" height="14" fill="#f9cb9c" stroke="#333"/>
+  <text x="49.36" y="231" font-size="11">fills the FIFO: 30 words</text>
+  <rect x="196" y="200" width="265.2" height="14" fill="#f9cb9c" stroke="#333" stroke-dasharray="4 3"/>
+  <text x="328.6" y="211" text-anchor="middle" font-size="11">then a word per 2 pixels, 30 ahead</text>
+  <rect x="196" y="220" width="312" height="14" fill="#d5a6bd" stroke="#333"/>
+  <text x="352" y="231" text-anchor="middle" font-size="11">its pixels: 200–599</text>
+  <text x="40" y="420" font-size="11" fill="#555">The display has memory cycles 1 and 3 of every slot: 2 words a slot, 640 a line, about 12 words for every 16 pixels.</text>
+  <text x="40" y="436" font-size="11" fill="#555">Sprites share them with the layers, earliest deadline first, and also get cycles nobody else wants.</text>
+  <text x="713.92" y="456" text-anchor="end" font-size="11" fill="#555">The beam is to scale; when each fetch lands is not</text>
+</svg>

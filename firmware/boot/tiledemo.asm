@@ -22,8 +22,8 @@
 ; HL changed; DE kept).
 TMAP    equ     0x4000                  ; window 2: SRAM page 0, physical 0x000000
 TPAT    equ     0x5000                  ; physical 0x001000
-TWAIT   equ     0xC002                  ; frames until the demo starts
-TSCROLL equ     0xC003                  ; 2 bytes: SCROLLX and SCROLLY
+TWAIT   equ     0xC008                  ; SRAM (window 6, after boot.asm's): frames until the demo starts
+TSCROLL equ     0xC009                  ; 2 bytes: SCROLLX and SCROLLY
 
     IFNDEF TILE_FRAMES
 TILE_FRAMES equ 100                     ; 2 s at 50 Hz

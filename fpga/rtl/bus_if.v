@@ -31,8 +31,15 @@
 // T1 after some other T-state asks. One int_ack pulse follows when the
 // acknowledge's M1 ends.
 //
-// Version for ticket #16: no register bus arbiter yet (the CPU is the only
-// master), no capture (spec 3, rule 4) and no NMI paging.
+// The CPU's capture (spec 3, rule 4), as retro68k's rh_valid, rh_tag and
+// rh_data: a read of a capturing register's low byte comes with the whole
+// value (rb_cdata, rb_cap), which is kept here tagged with that register.
+// A read of a higher byte of the tagged register is answered from it,
+// however late; any other read gets the unit's live byte. Both paths, ports
+// and the register page, share it. Ticket #17.
+//
+// Version for ticket #17: no register bus arbiter yet (the CPU is the only
+// master) and no NMI paging.
 `include "regmap.vh"
 
 module bus_if (
@@ -86,6 +93,8 @@ module bus_if (
     output reg  [7:0]  rb_wdata,
     input  wire [7:0]  rb_rdata,
     input  wire        rb_hit,
+    input  wire [31:0] rb_cdata,       // with rb_rdata: a capturing register's whole value
+    input  wire        rb_cap,         // ... and that rb_cdata holds one
 
     // Interrupt controller (intc.v)
     output wire        int_vreq,       // 1 clock at E + 3 of an acknowledge's first T1
@@ -136,6 +145,15 @@ module bus_if (
     reg        vreq_d;                 // the vector was asked for last clock
     reg        in_ack;                 // between the vector request and int_ack
 
+    // The capture (spec 3, rule 4)
+    reg        cap_valid;
+    reg [12:0] cap_tag;                // the low byte's bus address
+    reg [2:0]  cap_n;                  // the register's width in bytes
+    reg [31:0] cap_data;
+    wire [12:0] cap_d   = rb_addr - cap_tag;
+    wire        cap_hit = cap_valid && cap_d != 13'd0 && cap_d < {10'd0, cap_n};
+    wire [7:0]  cap_byte = cap_data[8 * cap_d[1:0] +: 8];
+
     assign int_vreq = at3 && first_t1 && is_ack;
 
     always @(posedge clk) begin
@@ -151,6 +169,7 @@ module bus_if (
             rd_wait <= 1'b0;
             io_rd_d <= 1'b0;
             in_ack  <= 1'b0;
+            cap_valid <= 1'b0;
             di      <= 8'hFF;
         end else begin
             if (cpu_ack) cpu_req <= 1'b0;
@@ -213,7 +232,13 @@ module bus_if (
             // I/O and register page read data, the clock after the strobe
             if (rb_rd) io_rd_d <= 1'b1;
             if (io_rd_d) begin
-                di      <= rb_hit ? rb_rdata : 8'hFF;
+                di      <= cap_hit ? cap_byte : rb_hit ? rb_rdata : 8'hFF;
+                if (rb_cap) begin
+                    cap_valid <= 1'b1;
+                    cap_tag   <= rb_addr;
+                    cap_n     <= `RM_CAP_N(rb_addr);
+                    cap_data  <= rb_cdata;
+                end
                 io_rd_d <= 1'b0;
                 rd_wait <= 1'b0;
             end

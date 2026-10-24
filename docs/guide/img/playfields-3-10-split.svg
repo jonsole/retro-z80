@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="372" viewBox="0 0 760 372" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="372" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">A split screen from two layers, to scale</text>
+<rect x="40" y="40" width="432" height="312.5" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="112" y="64.5" width="360" height="288" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="112" y="80.5" width="360" height="224" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="292" y="185" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">layer 1: game area</text>
+<text x="292" y="201" font-size="11" text-anchor="middle" fill="#1a1a1a">tile map, 4 bpp, 2×, scrolling</text>
+<rect x="112" y="304.5" width="360" height="32" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
+<text x="292" y="322.5" font-size="11" text-anchor="middle" fill="#1a1a1a">layer 0: status panel, text</text>
+<line x1="472" y1="64.5" x2="488" y2="64.5" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="492" y="68.5" font-size="11" text-anchor="start" fill="#1a1a1a">49: picture starts</text>
+<line x1="472" y1="80.5" x2="488" y2="80.5" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="492" y="84.5" font-size="11" text-anchor="start" fill="#1a1a1a">81: layer 1's YSTART</text>
+<line x1="472" y1="304.5" x2="488" y2="304.5" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="492" y="308.5" font-size="11" text-anchor="start" fill="#1a1a1a">529: layer 1's YEND = layer 0's YSTART</text>
+<line x1="472" y1="336.5" x2="488" y2="336.5" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="492" y="340.5" font-size="11" text-anchor="start" fill="#1a1a1a">593: layer 0's YEND</text>
+<line x1="472" y1="352.5" x2="488" y2="352.5" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="492" y="356.5" font-size="11" text-anchor="start" fill="#1a1a1a">625</text>
+<text x="492" y="210" font-size="11" text-anchor="start" fill="#555">Bands that do not overlap</text>
+<text x="492" y="224" font-size="11" text-anchor="start" fill="#555">cost no extra bandwidth: each</text>
+<text x="492" y="238" font-size="11" text-anchor="start" fill="#555">layer fetches only on its own lines.</text>
+</svg>

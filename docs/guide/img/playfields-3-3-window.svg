@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="457" viewBox="0 0 760 457" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="457" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">A layer's display window, inside the picture</text>
+<rect x="150" y="50" width="446.4" height="357.12" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="214.48" y="109.52" width="317.44" height="238.08" fill="#f4b183" stroke="#333" stroke-width="2"/>
+<text x="373.2" y="222.56" font-size="14" text-anchor="middle" fill="#1a1a1a" font-weight="bold">the layer's pixels</text>
+<text x="373.2" y="240.56" font-size="12" text-anchor="middle" fill="#1a1a1a">XSTART ≤ hpixel &lt; XEND</text>
+<text x="373.2" y="256.56" font-size="12" text-anchor="middle" fill="#1a1a1a">YSTART ≤ vline &lt; YEND</text>
+<text x="158" y="68" font-size="11" text-anchor="start" fill="#555">outside the window the layer is transparent and fetches nothing</text>
+<line x1="214.48" y1="407.12" x2="214.48" y2="421.12" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="214.48" y1="347.6" x2="214.48" y2="407.12" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="214.48" y="434.12" font-size="11" text-anchor="middle" fill="#1a1a1a">XSTART 248</text>
+<line x1="531.92" y1="407.12" x2="531.92" y2="421.12" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="531.92" y1="347.6" x2="531.92" y2="407.12" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="531.92" y="434.12" font-size="11" text-anchor="middle" fill="#1a1a1a">XEND 760</text>
+<line x1="136" y1="109.52" x2="214.48" y2="109.52" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="132" y="113.52" font-size="11" text-anchor="end" fill="#1a1a1a">YSTART 145</text>
+<line x1="136" y1="347.6" x2="214.48" y2="347.6" stroke="#777" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="132" y="351.6" font-size="11" text-anchor="end" fill="#1a1a1a">YEND 529</text>
+<text x="150" y="44" font-size="11" text-anchor="middle" fill="#555">(144, 49)</text>
+<text x="596.4" y="44" font-size="11" text-anchor="middle" fill="#555">864</text>
+<text x="602.4" y="407.12" font-size="11" text-anchor="start" fill="#555">625</text>
+<text x="373.2" y="455.12" font-size="11" text-anchor="middle" fill="#555">XEND and YEND are the first pixel and line after the window</text>
+</svg>

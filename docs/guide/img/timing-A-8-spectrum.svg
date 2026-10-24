@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="484" viewBox="0 0 760 484" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="484" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">The Spectrum screen in beam coordinates (256 × 192 at 2 × 2)</text>
+<rect x="100" y="56" width="486.4" height="121.6" fill="#dbe8f5" stroke="none"/>
+<rect x="100" y="177.6" width="486.4" height="121.6" fill="#cfe2f3" stroke="none"/>
+<rect x="100" y="299.2" width="486.4" height="121.6" fill="#c3dbf0" stroke="none"/>
+<line x1="100" y1="56" x2="100" y2="420.8" stroke="#333" stroke-width="1"/>
+<line x1="115.2" y1="56" x2="115.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="130.4" y1="56" x2="130.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="145.6" y1="56" x2="145.6" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="160.8" y1="56" x2="160.8" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="176" y1="56" x2="176" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="191.2" y1="56" x2="191.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="206.4" y1="56" x2="206.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="221.6" y1="56" x2="221.6" y2="420.8" stroke="#333" stroke-width="1"/>
+<line x1="236.8" y1="56" x2="236.8" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="252" y1="56" x2="252" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="267.2" y1="56" x2="267.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="282.4" y1="56" x2="282.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="297.6" y1="56" x2="297.6" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="312.8" y1="56" x2="312.8" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="328" y1="56" x2="328" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="343.2" y1="56" x2="343.2" y2="420.8" stroke="#333" stroke-width="1"/>
+<line x1="358.4" y1="56" x2="358.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="373.6" y1="56" x2="373.6" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="388.8" y1="56" x2="388.8" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="404" y1="56" x2="404" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="419.2" y1="56" x2="419.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="434.4" y1="56" x2="434.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="449.6" y1="56" x2="449.6" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="464.8" y1="56" x2="464.8" y2="420.8" stroke="#333" stroke-width="1"/>
+<line x1="480" y1="56" x2="480" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="495.2" y1="56" x2="495.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="510.4" y1="56" x2="510.4" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="525.6" y1="56" x2="525.6" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="540.8" y1="56" x2="540.8" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="556" y1="56" x2="556" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="571.2" y1="56" x2="571.2" y2="420.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="586.4" y1="56" x2="586.4" y2="420.8" stroke="#333" stroke-width="1"/>
+<line x1="100" y1="56" x2="586.4" y2="56" stroke="#333" stroke-width="1"/>
+<line x1="100" y1="71.2" x2="586.4" y2="71.2" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="86.4" x2="586.4" y2="86.4" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="101.6" x2="586.4" y2="101.6" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="116.8" x2="586.4" y2="116.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="132" x2="586.4" y2="132" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="147.2" x2="586.4" y2="147.2" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="162.4" x2="586.4" y2="162.4" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="177.6" x2="586.4" y2="177.6" stroke="#333" stroke-width="1"/>
+<line x1="100" y1="192.8" x2="586.4" y2="192.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="208" x2="586.4" y2="208" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="223.2" x2="586.4" y2="223.2" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="238.4" x2="586.4" y2="238.4" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="253.6" x2="586.4" y2="253.6" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="268.8" x2="586.4" y2="268.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="284" x2="586.4" y2="284" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="299.2" x2="586.4" y2="299.2" stroke="#333" stroke-width="1"/>
+<line x1="100" y1="314.4" x2="586.4" y2="314.4" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="329.6" x2="586.4" y2="329.6" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="344.8" x2="586.4" y2="344.8" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="360" x2="586.4" y2="360" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="375.2" x2="586.4" y2="375.2" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="390.4" x2="586.4" y2="390.4" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="405.6" x2="586.4" y2="405.6" stroke="#9fb8d0" stroke-width="1"/>
+<line x1="100" y1="420.8" x2="586.4" y2="420.8" stroke="#333" stroke-width="1"/>
+<rect x="100" y="56" width="486.4" height="364.8" fill="none" stroke="#333" stroke-width="2"/>
+<text x="343.2" y="120.8" font-size="12" text-anchor="middle" fill="#1a1a1a">rows 0-7: pixels at +0x0000</text>
+<text x="343.2" y="242.4" font-size="12" text-anchor="middle" fill="#1a1a1a">rows 8-15: pixels at +0x0800</text>
+<text x="343.2" y="364" font-size="12" text-anchor="middle" fill="#1a1a1a">rows 16-23: pixels at +0x1000</text>
+<text x="100" y="50" font-size="11" text-anchor="middle" fill="#555">248</text>
+<text x="586.4" y="50" font-size="11" text-anchor="middle" fill="#555">760</text>
+<text x="94" y="60" font-size="11" text-anchor="end" fill="#555">145</text>
+<text x="94" y="424.8" font-size="11" text-anchor="end" fill="#555">529</text>
+<text x="60" y="238.4" font-size="11" text-anchor="middle" fill="#1a1a1a" transform="rotate(-90 60 238.4)">row r: lines 145 + 16r to 160 + 16r</text>
+<text x="343.2" y="440.8" font-size="11" text-anchor="middle" fill="#1a1a1a">column c: pixels 248 + 16c to 263 + 16c. One cell = 8 × 8 source = 16 × 16 beam pixels</text>
+<text x="343.2" y="456.8" font-size="11" text-anchor="middle" fill="#555">attribute of cell (c, r) at screen + 6144 + 32r + c</text>
+<rect x="591" y="52.05" width="6" height="6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="591" y="67.25" width="6" height="6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="591" y="82.45" width="6" height="6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="591" y="173.65" width="6" height="6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="591" y="295.25" width="6" height="6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="604" y="64" font-size="11" text-anchor="start" fill="#1a1a1a">copper WAIT (144 + 16r, 768),</text>
+<text x="604" y="78" font-size="11" text-anchor="start" fill="#1a1a1a">then 3 MOVEs to BPL0PT:</text>
+<text x="604" y="92" font-size="11" text-anchor="start" fill="#1a1a1a">one per character row (24)</text>
+<text x="604" y="106" font-size="11" text-anchor="start" fill="#1a1a1a">with BPLSTRIDE = 256</text>
+</svg>
