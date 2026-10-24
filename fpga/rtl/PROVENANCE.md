@@ -19,3 +19,10 @@ Modules and files copied from [retro68k](https://github.com/jonsole/retro68k) (d
 | `sim/tb.v` | `sim/tb.v` | 57e7f6d | Structure only (pads, SRAM and FT232H models, DMA port load, the PASS/FAIL scan, the control-command task); rewritten for the Z80, with the never-waited checks |
 | `fpga/rtl/retroz80.v` | `fpga/rtl/retro68k.v` | 57e7f6d | Structure only (timebase, microsecond tick, reset logic, unit wiring); rewritten for tv80 on one clock. RESETWHY sets exactly one bit (UPLOAD alone, not USB too). The scheduler and SRAM controller are reset only at power-on |
 | `fpga/rtl/z80_cpu.v` | – (tv80's `tv80s.v`, upstream `66a131c`) | – | retro-z80's own wrapper (spec 1, section 2.1): cen passed to the core and gating the strobes and read register, the early cycle-type outputs brought out, each strobe assigned once per clock |
+| `fpga/rtl/tmds_encoder.v` | `fpga/rtl/tmds_encoder.v` | 81ea91d | Two disparity terms built 5 bits wide in place of 6 (`{3'd0, qm[8], 1'b0}`), the same values, so the WIDTHTRUNC lint passes |
+| `fpga/rtl/platform/artix7/hdmi_out.v` | `fpga/rtl/platform/artix7/hdmi_out.v` | 81ea91d | Unchanged |
+| `fpga/rtl/platform/artix7/oddr.v` | `fpga/rtl/platform/artix7/oddr.v` | 81ea91d | Unchanged (for the SRAM pads in the KS2 computer build) |
+| `fpga/rtl/platform/artix7/ks2_clocks.v` | `fpga/rtl/platform/artix7/ks3_clocks.v` | 81ea91d | For the XC7A15T-1 (VCO 600–1200 MHz): MMCM 2 at VCO 675 MHz (÷2, ×27) for 27 and 135 MHz; no 40 MHz clock and no delayed VGA clock |
+| `fpga/ks2/build.sh`, `build.tcl`, `program.tcl` | `fpga/ks3/build.sh`, `build.tcl`, `program.tcl` | 81ea91d | Part `xc7a15tcsg324-1`, the test pattern's files only, no boot ROM or vasm, no openFPGALoader option; the flash image is SPIx4 |
+| `fpga/ks2/ks2.xdc` | `fpga/ks3/ks3.xdc` | 81ea91d | Pins and configuration settings from the Next's `zxnext_pins_issue4.xdc` (KS2) in place of issue 5's; 3-bit VGA, no VGA clocks; only the pattern's pins |
+| `fpga/ks2/top_ks2_pattern.v` | `fpga/rtl/top_ks3.v`, `fpga/rtl/video.v` | 81ea91d | Structure only (clocks, serialiser reset, HDMI out, safe levels), and video.v's 576p timing numbers; the pattern is new |
