@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="540" viewBox="0 0 760 540" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="540" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">The beam and the picture, to scale (beam coordinates)</text>
+<rect x="90" y="40" width="622.08" height="450" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="193.68" y="75.28" width="518.4" height="414.72" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="141.84" y="282.64" font-size="11" text-anchor="middle" fill="#1a1a1a">horizontal</text>
+<text x="141.84" y="296.64" font-size="11" text-anchor="middle" fill="#1a1a1a">blank</text>
+<text x="141.84" y="310.64" font-size="11" text-anchor="middle" fill="#555">0-143</text>
+<text x="452.88" y="61.28" font-size="11" text-anchor="middle" fill="#1a1a1a">vertical blank: lines 0-48</text>
+<text x="452.88" y="274.64" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">picture 720 × 576</text>
+<text x="452.88" y="294.64" font-size="12" text-anchor="middle" fill="#1a1a1a">pixels 144-863, lines 49-624</text>
+<line x1="444.88" y1="312.64" x2="460.88" y2="312.64" stroke="#333" stroke-width="1"/>
+<line x1="452.88" y1="304.64" x2="452.88" y2="320.64" stroke="#333" stroke-width="1"/>
+<text x="464.88" y="316.64" font-size="11" text-anchor="start" fill="#1a1a1a">centre (504, 337)</text>
+<rect x="87" y="37" width="6" height="6" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="84" y="36" font-size="11" text-anchor="end" fill="#1a1a1a">(0, 0)</text>
+<rect x="190.68" y="72.28" width="6" height="6" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="199.68" y="89.28" font-size="11" text-anchor="start" fill="#1a1a1a">(144, 49) = (VID_X0, VID_Y0)</text>
+<rect x="709.08" y="487" width="6" height="6" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="712.08" y="508" font-size="11" text-anchor="end" fill="#1a1a1a">(864, 625) = (BEAM_W, BEAM_H)</text>
+<line x1="193.68" y1="520" x2="712.08" y2="520" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="452.88" y="533" font-size="11" text-anchor="middle" fill="#555">VID_W = 720</text>
+<line x1="90" y1="520" x2="193.68" y2="520" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="141.84" y="533" font-size="11" text-anchor="middle" fill="#555">144</text>
+<line x1="76" y1="75.28" x2="76" y2="490" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="71" y="286.64" font-size="11" text-anchor="end" fill="#555">VID_H = 576</text>
+<line x1="76" y1="40" x2="76" y2="75.28" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="71" y="61.64" font-size="11" text-anchor="end" fill="#555">49</text>
+</svg>

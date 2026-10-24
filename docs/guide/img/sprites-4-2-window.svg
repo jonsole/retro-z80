@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="600" viewBox="0 0 760 600" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1a1a1a">
+  <!-- Beam coordinates to drawing: x = 70 + 0.75 * pixel, y = 60 + 0.75 * line -->
+  <defs>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#777" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="0" width="760" height="600" fill="#ffffff"/>
+
+  <!-- the beam: blanking, then the picture -->
+  <rect x="70" y="60" width="648" height="468.75" fill="#d9d9d9" stroke="#333"/>
+  <rect x="178" y="96.75" width="540" height="432" fill="#cfe2f3" stroke="#333"/>
+  <!-- HSTART below 16 not allowed -->
+  <rect x="70" y="60" width="12" height="468.75" fill="url(#hatch)" stroke="#777"/>
+
+  <text x="448" y="83" text-anchor="middle">vertical blank (beam lines 0–48)</text>
+  <text x="130" y="210" text-anchor="middle" transform="rotate(-90 130 210)">horizontal blank (beam pixels 0–143)</text>
+  <text x="448" y="250" text-anchor="middle" fill="#555">picture: 720 × 576</text>
+
+  <!-- ticks across -->
+  <g stroke="#777">
+    <line x1="70" y1="52" x2="70" y2="60"/>
+    <line x1="82" y1="40" x2="82" y2="60"/>
+    <line x1="178" y1="52" x2="178" y2="60"/>
+    <line x1="718" y1="52" x2="718" y2="60"/>
+  </g>
+  <g font-size="11" fill="#555">
+    <text x="70" y="49" text-anchor="middle">0</text>
+    <text x="82" y="36" text-anchor="start">16</text>
+    <text x="178" y="49" text-anchor="middle">144 (VID_X0)</text>
+    <text x="718" y="49" text-anchor="middle">864</text>
+    <text x="448" y="22" text-anchor="middle" font-size="13" fill="#1a1a1a">beam pixels</text>
+  </g>
+  <!-- ticks down -->
+  <g stroke="#777">
+    <line x1="62" y1="60" x2="70" y2="60"/>
+    <line x1="62" y1="96.75" x2="70" y2="96.75"/>
+    <line x1="62" y1="528.75" x2="70" y2="528.75"/>
+  </g>
+  <g font-size="11" fill="#555" text-anchor="end">
+    <text x="59" y="64">0</text>
+    <text x="59" y="100">49</text>
+    <text x="59" y="113">(VID_Y0)</text>
+    <text x="59" y="532">625</text>
+  </g>
+  <text x="22" y="300" text-anchor="middle" transform="rotate(-90 22 300)">beam lines</text>
+
+  <!-- Sprite 0: window 344-408 x 149-197, inside the picture -->
+  <rect x="328" y="171.75" width="48" height="36" fill="#d5a6bd" stroke="#333"/>
+  <text x="352" y="194" text-anchor="middle" font-size="11">Sprite 0</text>
+  <g stroke="#777">
+    <line x1="328" y1="150" x2="328" y2="168"/>
+    <line x1="376" y1="150" x2="376" y2="168"/>
+    <line x1="328" y1="156" x2="376" y2="156"/>
+    <line x1="380" y1="171.75" x2="398" y2="171.75"/>
+    <line x1="380" y1="207.75" x2="398" y2="207.75"/>
+    <line x1="392" y1="171.75" x2="392" y2="207.75"/>
+  </g>
+  <text x="352" y="143" text-anchor="middle" font-size="11">HSTART 344 … HSTOP 408</text>
+  <text x="402" y="187" font-size="11">VSTART 149</text>
+  <text x="402" y="201" font-size="11">… VSTOP 197</text>
+
+  <!-- Sprite 1: HSTART 124, hanging off the left edge -->
+  <rect x="163" y="285" width="15" height="30" fill="url(#hatch)" stroke="#333" stroke-dasharray="4 3"/>
+  <rect x="178" y="285" width="9" height="30" fill="#d5a6bd" stroke="#333"/>
+  <line x1="195" y1="300" x2="212" y2="300" stroke="#777"/>
+  <text x="216" y="297" font-size="11">Sprite 1: HSTART 124. Pixels 124–143 are</text>
+  <text x="216" y="311" font-size="11">fetched and used up, not shown</text>
+
+  <!-- Sprite 2: VSTART 39, hanging off the top -->
+  <rect x="445" y="89.25" width="24" height="7.5" fill="url(#hatch)" stroke="#333" stroke-dasharray="4 3"/>
+  <rect x="445" y="96.75" width="24" height="10.5" fill="#d5a6bd" stroke="#333"/>
+  <line x1="475" y1="103" x2="492" y2="112" stroke="#777"/>
+  <text x="496" y="116" font-size="11">Sprite 2: VSTART 39. Lines 39–48 are</text>
+  <text x="496" y="130" font-size="11">fetched and used up, not shown</text>
+
+  <!-- Sprite 3: past the right edge and the bottom -->
+  <rect x="692.5" y="510" width="37.5" height="30" fill="none" stroke="#777" stroke-dasharray="4 3"/>
+  <rect x="692.5" y="510" width="25.5" height="18.75" fill="#d5a6bd" stroke="#333"/>
+  <line x1="688" y1="519" x2="668" y2="500" stroke="#777"/>
+  <text x="664" y="483" text-anchor="end" font-size="11">Sprite 3: HSTOP 880, VSTOP 640. From pixel 864</text>
+  <text x="664" y="497" text-anchor="end" font-size="11">and line 625 on: neither fetched nor shown</text>
+
+  <!-- the forbidden strip -->
+  <line x1="76" y1="420" x2="96" y2="440" stroke="#777"/>
+  <text x="100" y="447" font-size="11">HSTART must</text>
+  <text x="100" y="461" font-size="11">be 16 or more</text>
+
+  <!-- legend -->
+  <g font-size="11">
+    <rect x="70" y="560" width="14" height="14" fill="#cfe2f3" stroke="#333"/>
+    <text x="90" y="571">picture</text>
+    <rect x="150" y="560" width="14" height="14" fill="#d9d9d9" stroke="#333"/>
+    <text x="170" y="571">blanking</text>
+    <rect x="240" y="560" width="14" height="14" fill="#d5a6bd" stroke="#333"/>
+    <text x="260" y="571">sprite, shown</text>
+    <rect x="350" y="560" width="14" height="14" fill="url(#hatch)" stroke="#333" stroke-dasharray="4 3"/>
+    <text x="370" y="571">fetched, not shown</text>
+    <rect x="490" y="560" width="14" height="14" fill="none" stroke="#777" stroke-dasharray="4 3"/>
+    <text x="510" y="571">not fetched</text>
+    <text x="718" y="571" text-anchor="end" fill="#555">To scale</text>
+  </g>
+</svg>

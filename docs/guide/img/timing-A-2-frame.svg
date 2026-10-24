@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="330" fill="#ffffff"/>
+<text x="40" y="24" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">One frame: 625 beam lines, 20 ms</text>
+<rect x="40" y="60" width="53.31" height="40" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="93.31" y="60" width="626.69" height="40" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="406.66" y="85" font-size="13" text-anchor="middle" fill="#1a1a1a">picture: lines 49-624 (576 lines, 18.43 ms)</text>
+<line x1="40" y1="100" x2="40" y2="108" stroke="#777" stroke-width="1"/>
+<text x="40" y="121" font-size="11" text-anchor="middle" fill="#555">0</text>
+<line x1="93.31" y1="100" x2="93.31" y2="108" stroke="#777" stroke-width="1"/>
+<text x="93.31" y="121" font-size="11" text-anchor="middle" fill="#555">49</text>
+<line x1="406.66" y1="100" x2="406.66" y2="108" stroke="#777" stroke-width="1"/>
+<text x="406.66" y="121" font-size="11" text-anchor="middle" fill="#555">337</text>
+<line x1="720" y1="100" x2="720" y2="108" stroke="#777" stroke-width="1"/>
+<text x="720" y="121" font-size="11" text-anchor="middle" fill="#555">625</text>
+<text x="406.66" y="135" font-size="11" text-anchor="middle" fill="#555">(centre)</text>
+<line x1="40" y1="56" x2="40" y2="44" stroke="#333" stroke-width="1"/>
+<text x="40" y="40" font-size="11" text-anchor="start" fill="#1a1a1a">line 0: VBLANK</text>
+<line x1="40" y1="100" x2="40" y2="210" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="105.28" y1="100" x2="720" y2="210" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="40" y="210" width="56.67" height="40" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<text x="68.33" y="235" font-size="11" text-anchor="middle" fill="#1a1a1a">porch</text>
+<rect x="96.67" y="210" width="56.67" height="40" fill="#bfbfbf" stroke="#333" stroke-width="1"/>
+<text x="125" y="235" font-size="11" text-anchor="middle" fill="#1a1a1a">sync 5-9</text>
+<rect x="153.33" y="210" width="442" height="40" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<text x="374.33" y="235" font-size="11" text-anchor="middle" fill="#1a1a1a">back porch 10-48</text>
+<rect x="595.33" y="210" width="124.67" height="40" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="657.67" y="235" font-size="11" text-anchor="middle" fill="#1a1a1a">picture</text>
+<line x1="40" y1="250" x2="40" y2="256" stroke="#777" stroke-width="1"/>
+<text x="40" y="268" font-size="11" text-anchor="middle" fill="#555">0</text>
+<line x1="96.67" y1="250" x2="96.67" y2="256" stroke="#777" stroke-width="1"/>
+<text x="96.67" y="268" font-size="11" text-anchor="middle" fill="#555">5</text>
+<line x1="153.33" y1="250" x2="153.33" y2="256" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="268" font-size="11" text-anchor="middle" fill="#555">10</text>
+<line x1="266.67" y1="250" x2="266.67" y2="256" stroke="#777" stroke-width="1"/>
+<text x="266.67" y="268" font-size="11" text-anchor="middle" fill="#555">20</text>
+<line x1="380" y1="250" x2="380" y2="256" stroke="#777" stroke-width="1"/>
+<text x="380" y="268" font-size="11" text-anchor="middle" fill="#555">30</text>
+<line x1="493.33" y1="250" x2="493.33" y2="256" stroke="#777" stroke-width="1"/>
+<text x="493.33" y="268" font-size="11" text-anchor="middle" fill="#555">40</text>
+<line x1="595.33" y1="250" x2="595.33" y2="256" stroke="#777" stroke-width="1"/>
+<text x="595.33" y="268" font-size="11" text-anchor="middle" fill="#555">49</text>
+<line x1="720" y1="250" x2="720" y2="256" stroke="#777" stroke-width="1"/>
+<text x="720" y="268" font-size="11" text-anchor="middle" fill="#555">60</text>
+<line x1="40" y1="288" x2="595.33" y2="288" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="317.67" y="301" font-size="11" text-anchor="middle" fill="#555">vertical blank: 49 lines = 1.57 ms = 31,360 T at 20 MHz (VIDSTAT.INVBLANK = 1)</text>
+<line x1="40" y1="210" x2="40" y2="180" stroke="#333" stroke-width="1"/>
+<text x="44" y="176" font-size="11" text-anchor="start" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">VBLANK flag and interrupt; copper restarts at COP1LC;</text>
+<text x="44" y="190" font-size="11" text-anchor="start" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">FRAMECOUNT + 1; every sprite stops; timer frame tick</text>
+<line x1="595.33" y1="210" x2="595.33" y2="202" stroke="#333" stroke-width="1"/>
+<text x="720" y="204" font-size="11" text-anchor="end" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">first picture line: fetched from beam (49, 0)</text>
+</svg>

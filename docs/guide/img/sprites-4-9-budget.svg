@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1a1a1a">
+  <rect x="0" y="0" width="760" height="420" fill="#ffffff"/>
+  <text x="20" y="24" font-size="15" font-weight="bold">Words for the same 16 screen pixels</text>
+  <rect x="588" y="44" width="144" height="300" fill="#f3f3f3" stroke="#777" stroke-dasharray="4 3"/>
+  <text x="660" y="60" text-anchor="middle" font-size="11" fill="#555">about 6 more:</text>
+  <text x="660" y="74" text-anchor="middle" font-size="11" fill="#555">the CPU's spare</text>
+  <text x="660" y="88" text-anchor="middle" font-size="11" fill="#555">cycles, not certain</text>
+  <line x1="300" y1="344" x2="300" y2="350" stroke="#777"/>
+  <text x="300" y="363" text-anchor="middle" font-size="11" fill="#555">0</text>
+  <line x1="348" y1="344" x2="348" y2="350" stroke="#777"/>
+  <text x="348" y="363" text-anchor="middle" font-size="11" fill="#555">2</text>
+  <line x1="396" y1="344" x2="396" y2="350" stroke="#777"/>
+  <text x="396" y="363" text-anchor="middle" font-size="11" fill="#555">4</text>
+  <line x1="444" y1="344" x2="444" y2="350" stroke="#777"/>
+  <text x="444" y="363" text-anchor="middle" font-size="11" fill="#555">6</text>
+  <line x1="492" y1="344" x2="492" y2="350" stroke="#777"/>
+  <text x="492" y="363" text-anchor="middle" font-size="11" fill="#555">8</text>
+  <line x1="540" y1="344" x2="540" y2="350" stroke="#777"/>
+  <text x="540" y="363" text-anchor="middle" font-size="11" fill="#555">10</text>
+  <line x1="588" y1="344" x2="588" y2="350" stroke="#777"/>
+  <text x="588" y="363" text-anchor="middle" font-size="11" fill="#555">12</text>
+  <line x1="636" y1="344" x2="636" y2="350" stroke="#777"/>
+  <text x="636" y="363" text-anchor="middle" font-size="11" fill="#555">14</text>
+  <line x1="684" y1="344" x2="684" y2="350" stroke="#777"/>
+  <text x="684" y="363" text-anchor="middle" font-size="11" fill="#555">16</text>
+  <line x1="732" y1="344" x2="732" y2="350" stroke="#777"/>
+  <text x="732" y="363" text-anchor="middle" font-size="11" fill="#555">18</text>
+  <line x1="588" y1="40" x2="588" y2="350" stroke="#333" stroke-width="2"/>
+  <text x="588" y="36" text-anchor="middle" font-size="11">12: cycles 1 and 3, certain</text>
+  <text x="290" y="115" text-anchor="end">No layers</text>
+  <text x="290" y="129" text-anchor="end" font-size="11" fill="#555">three 4 bpp sprites</text>
+  <rect x="300" y="104" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="348.0" y="121" text-anchor="middle" font-size="11">4</text>
+  <rect x="396" y="104" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="444.0" y="121" text-anchor="middle" font-size="11">4</text>
+  <rect x="492" y="104" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="540.0" y="121" text-anchor="middle" font-size="11">4</text>
+  <text x="290" y="149" text-anchor="end">No layers</text>
+  <text x="290" y="163" text-anchor="end" font-size="11" fill="#555">one 8 bpp sprite</text>
+  <rect x="300" y="138" width="192" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="396.0" y="155" text-anchor="middle" font-size="11">8</text>
+  <text x="290" y="183" text-anchor="end">Spectrum screen (about 1)</text>
+  <text x="290" y="197" text-anchor="end" font-size="11" fill="#555">two 4 bpp sprites</text>
+  <rect x="300" y="172" width="24" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="324" y="172" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="372.0" y="189" text-anchor="middle" font-size="11">4</text>
+  <rect x="420" y="172" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="468.0" y="189" text-anchor="middle" font-size="11">4</text>
+  <text x="290" y="217" text-anchor="end">One 8 bpp layer at 2× (4)</text>
+  <text x="290" y="231" text-anchor="end" font-size="11" fill="#555">two 4 bpp sprites</text>
+  <rect x="300" y="206" width="96" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="396" y="206" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="444.0" y="223" text-anchor="middle" font-size="11">4</text>
+  <rect x="492" y="206" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="540.0" y="223" text-anchor="middle" font-size="11">4</text>
+  <text x="290" y="251" text-anchor="end">4 bpp tile layer at 1× (about 6)</text>
+  <text x="290" y="265" text-anchor="end" font-size="11" fill="#555">one 4 bpp sprite</text>
+  <rect x="300" y="240" width="144" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="444" y="240" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="492.0" y="257" text-anchor="middle" font-size="11">4</text>
+  <text x="290" y="285" text-anchor="end">One 8 bpp layer at 1× (8)</text>
+  <text x="290" y="299" text-anchor="end" font-size="11" fill="#555">one 4 bpp sprite</text>
+  <rect x="300" y="274" width="192" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="492" y="274" width="96" height="26" fill="#d5a6bd" stroke="#333"/>
+  <text x="540.0" y="291" text-anchor="middle" font-size="11">4</text>
+  <text x="290" y="319" text-anchor="end">Three 4 bpp layers at 1× (12)</text>
+  <text x="290" y="333" text-anchor="end" font-size="11" fill="#555">no room for sprites</text>
+  <rect x="300" y="308" width="96" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="396" y="308" width="96" height="26" fill="#cfe2f3" stroke="#333"/>
+  <rect x="492" y="308" width="96" height="26" fill="#cfe2f3" stroke="#333"/>
+  <text x="516" y="384" text-anchor="middle" font-size="11" fill="#555">words per 16 screen pixels (a sprite at normal size needs BPP words)</text>
+  <rect x="20" y="398" width="14" height="14" fill="#cfe2f3" stroke="#333"/>
+  <text x="40" y="409" font-size="11">layers</text>
+  <rect x="100" y="398" width="14" height="14" fill="#d5a6bd" stroke="#333"/>
+  <text x="120" y="409" font-size="11">sprites over the same pixels</text>
+  <text x="740" y="409" text-anchor="end" font-size="11" fill="#555">To scale</text>
+</svg>

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="350" viewBox="0 0 760 350" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="350" fill="#ffffff"/>
+<text x="40" y="28" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">Frame: 20 ms = 625 lines = 400,000 T-states at 20 MHz</text>
+<rect x="40" y="38" width="53.31" height="34" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="93.31" y="38" width="626.69" height="34" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="66.66" y="59" font-size="11" text-anchor="middle" fill="#1a1a1a">vblank</text>
+<text x="406.66" y="59" font-size="13" text-anchor="middle" fill="#1a1a1a">576 picture lines</text>
+<rect x="613.31" y="35" width="3" height="40" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<line x1="613.31" y1="75" x2="40" y2="148" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="616.31" y1="75" x2="720" y2="148" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="40" y="148" width="113.33" height="34" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="153.33" y="148" width="566.67" height="34" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="96.67" y="169" font-size="11" text-anchor="middle" fill="#1a1a1a">hblank</text>
+<text x="436.67" y="169" font-size="13" text-anchor="middle" fill="#1a1a1a">720 picture pixels</text>
+<text x="40" y="138" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">Line: 32 µs = 864 beam pixels = 320 slots = 640 T-states at 20 MHz</text>
+<rect x="623.33" y="145" width="3.12" height="40" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<line x1="623.33" y1="185" x2="40" y2="258" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="626.46" y1="185" x2="720" y2="258" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="40" y="258" width="136" height="34" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
+<text x="108" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">0: CPU</text>
+<rect x="176" y="258" width="136" height="34" fill="#f9cb9c" stroke="#333" stroke-width="1"/>
+<text x="244" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">1: display</text>
+<rect x="312" y="258" width="136" height="34" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
+<text x="380" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">2: CPU</text>
+<rect x="448" y="258" width="136" height="34" fill="#f9cb9c" stroke="#333" stroke-width="1"/>
+<text x="516" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">3: display</text>
+<rect x="584" y="258" width="136" height="34" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<text x="652" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">4: free pool</text>
+<line x1="40" y1="306" x2="176" y2="306" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="108" y="319" font-size="11" text-anchor="middle" fill="#555">memory cycle: 20 ns, one 16-bit word</text>
+<line x1="40" y1="328" x2="380" y2="328" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="210" y="341" font-size="11" text-anchor="middle" fill="#555">Z80 T-state at 20 MHz: 50 ns</text>
+<line x1="380" y1="328" x2="720" y2="328" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="550" y="341" font-size="11" text-anchor="middle" fill="#555">Z80 T-state at 20 MHz: 50 ns</text>
+<text x="40" y="248" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">Slot: 100 ns = 5 memory cycles = 10 system clocks</text>
+</svg>

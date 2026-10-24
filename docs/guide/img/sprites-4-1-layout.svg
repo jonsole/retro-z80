@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="540" viewBox="0 0 760 540" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1a1a1a">
+  <defs>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#777" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="0" width="760" height="540" fill="#ffffff"/>
+
+  <text x="20" y="24" font-size="15" font-weight="bold">The first four bytes of an image line</text>
+
+  <!-- byte addresses and words -->
+  <g font-size="11" fill="#555" text-anchor="middle">
+    <text x="185" y="48">PT + 0</text>
+    <text x="335" y="48">PT + 1</text>
+    <text x="485" y="48">PT + 2</text>
+    <text x="635" y="48">PT + 3</text>
+  </g>
+  <g stroke="#777">
+    <line x1="112" y1="60" x2="408" y2="60"/>
+    <line x1="112" y1="56" x2="112" y2="64"/>
+    <line x1="408" y1="56" x2="408" y2="64"/>
+    <line x1="412" y1="60" x2="708" y2="60"/>
+    <line x1="412" y1="56" x2="412" y2="64"/>
+    <line x1="708" y1="56" x2="708" y2="64"/>
+  </g>
+  <rect x="235" y="52" width="50" height="16" fill="#ffffff"/>
+  <text x="260" y="64" text-anchor="middle" font-size="11">word 0</text>
+  <rect x="535" y="52" width="50" height="16" fill="#ffffff"/>
+  <text x="560" y="64" text-anchor="middle" font-size="11">word 1</text>
+
+  <!-- 2 bpp: four pixels a byte -->
+  <text x="20" y="104">2 bpp</text>
+  <g fill="#d5a6bd" stroke="#333">
+    <rect x="110" y="80" width="150" height="40" fill="none"/>
+  </g>
+  <g stroke="#333" fill="#d5a6bd">
+    <rect x="110" y="80" width="37.5" height="40"/><rect x="147.5" y="80" width="37.5" height="40"/><rect x="185" y="80" width="37.5" height="40"/><rect x="222.5" y="80" width="37.5" height="40"/>
+    <rect x="260" y="80" width="37.5" height="40"/><rect x="297.5" y="80" width="37.5" height="40"/><rect x="335" y="80" width="37.5" height="40"/><rect x="372.5" y="80" width="37.5" height="40"/>
+    <rect x="410" y="80" width="37.5" height="40"/><rect x="447.5" y="80" width="37.5" height="40"/><rect x="485" y="80" width="37.5" height="40"/><rect x="522.5" y="80" width="37.5" height="40"/>
+    <rect x="560" y="80" width="37.5" height="40"/><rect x="597.5" y="80" width="37.5" height="40"/><rect x="635" y="80" width="37.5" height="40"/><rect x="672.5" y="80" width="37.5" height="40"/>
+  </g>
+  <g stroke="#333" stroke-width="2.5" fill="none">
+    <rect x="110" y="80" width="150" height="40"/><rect x="260" y="80" width="150" height="40"/><rect x="410" y="80" width="150" height="40"/><rect x="560" y="80" width="150" height="40"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="128.75" y="105">p0</text><text x="166.25" y="105">p1</text><text x="203.75" y="105">p2</text><text x="241.25" y="105">p3</text>
+    <text x="278.75" y="105">p4</text><text x="316.25" y="105">p5</text><text x="353.75" y="105">p6</text><text x="391.25" y="105">p7</text>
+    <text x="428.75" y="105">p8</text><text x="466.25" y="105">p9</text><text x="503.75" y="105">p10</text><text x="541.25" y="105">p11</text>
+    <text x="578.75" y="105">p12</text><text x="616.25" y="105">p13</text><text x="653.75" y="105">p14</text><text x="691.25" y="105">p15</text>
+  </g>
+  <g text-anchor="middle" font-size="11" fill="#555">
+    <text x="128.75" y="134">7–6</text><text x="166.25" y="134">5–4</text><text x="203.75" y="134">3–2</text><text x="241.25" y="134">1–0</text>
+  </g>
+
+  <!-- 4 bpp: two pixels a byte -->
+  <text x="20" y="184">4 bpp</text>
+  <g stroke="#333" fill="#d5a6bd">
+    <rect x="110" y="160" width="75" height="40"/><rect x="185" y="160" width="75" height="40"/>
+    <rect x="260" y="160" width="75" height="40"/><rect x="335" y="160" width="75" height="40"/>
+    <rect x="410" y="160" width="75" height="40"/><rect x="485" y="160" width="75" height="40"/>
+    <rect x="560" y="160" width="75" height="40"/><rect x="635" y="160" width="75" height="40"/>
+  </g>
+  <g stroke="#333" stroke-width="2.5" fill="none">
+    <rect x="110" y="160" width="150" height="40"/><rect x="260" y="160" width="150" height="40"/><rect x="410" y="160" width="150" height="40"/><rect x="560" y="160" width="150" height="40"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="147.5" y="185">p0</text><text x="222.5" y="185">p1</text><text x="297.5" y="185">p2</text><text x="372.5" y="185">p3</text>
+    <text x="447.5" y="185">p4</text><text x="522.5" y="185">p5</text><text x="597.5" y="185">p6</text><text x="672.5" y="185">p7</text>
+  </g>
+  <g text-anchor="middle" font-size="11" fill="#555">
+    <text x="147.5" y="214">bits 7–4</text><text x="222.5" y="214">bits 3–0</text>
+  </g>
+
+  <!-- 8 bpp: one pixel a byte -->
+  <text x="20" y="264">8 bpp</text>
+  <g stroke="#333" stroke-width="2.5" fill="#d5a6bd">
+    <rect x="110" y="240" width="150" height="40"/><rect x="260" y="240" width="150" height="40"/><rect x="410" y="240" width="150" height="40"/><rect x="560" y="240" width="150" height="40"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="185" y="265">p0</text><text x="335" y="265">p1</text><text x="485" y="265">p2</text><text x="635" y="265">p3</text>
+  </g>
+  <g text-anchor="middle" font-size="11" fill="#555">
+    <text x="185" y="294">bits 7–0</text>
+  </g>
+  <text x="110" y="318" font-size="11" fill="#555">p0 is the sprite's leftmost pixel. Value 0 is transparent; others pick a colour of SPRPALETTE.</text>
+
+  <!-- lines of an image -->
+  <text x="20" y="362" font-size="15" font-weight="bold">Lines of a 20-pixel-wide image at 2 bpp: 3 words (6 bytes) a line</text>
+  <g font-size="11" fill="#555" text-anchor="middle">
+    <text x="245" y="386">+0</text><text x="315" y="386">+1</text><text x="385" y="386">+2</text><text x="455" y="386">+3</text><text x="525" y="386">+4</text><text x="595" y="386">+5</text>
+  </g>
+  <g stroke="#333" fill="#d5a6bd">
+    <rect x="210" y="394" width="70" height="30"/><rect x="280" y="394" width="70" height="30"/><rect x="350" y="394" width="70" height="30"/><rect x="420" y="394" width="70" height="30"/><rect x="490" y="394" width="70" height="30"/>
+    <rect x="210" y="430" width="70" height="30"/><rect x="280" y="430" width="70" height="30"/><rect x="350" y="430" width="70" height="30"/><rect x="420" y="430" width="70" height="30"/><rect x="490" y="430" width="70" height="30"/>
+    <rect x="210" y="466" width="70" height="30"/><rect x="280" y="466" width="70" height="30"/><rect x="350" y="466" width="70" height="30"/><rect x="420" y="466" width="70" height="30"/><rect x="490" y="466" width="70" height="30"/>
+  </g>
+  <g stroke="#333" fill="url(#hatch)">
+    <rect x="560" y="394" width="70" height="30"/>
+    <rect x="560" y="430" width="70" height="30"/>
+    <rect x="560" y="466" width="70" height="30"/>
+  </g>
+  <g text-anchor="middle" font-size="11">
+    <text x="245" y="413">p0–p3</text><text x="315" y="413">p4–p7</text><text x="385" y="413">p8–p11</text><text x="455" y="413">p12–p15</text><text x="525" y="413">p16–p19</text>
+  </g>
+  <g text-anchor="end">
+    <text x="198" y="414">line 0: PT</text>
+    <text x="198" y="450">line 1: PT + 6</text>
+    <text x="198" y="486">line 2: PT + 12</text>
+  </g>
+  <line x1="636" y1="409" x2="652" y2="409" stroke="#777"/>
+  <text x="656" y="406" font-size="11">p20–p23:</text>
+  <text x="656" y="420" font-size="11">not shown,</text>
+  <text x="656" y="434" font-size="11">leave 0</text>
+  <text x="210" y="524" font-size="11" fill="#555">Line n starts at PT + n × 2 × ⌈width × BPP ÷ 16⌉, with no gap between lines.</text>
+</svg>

@@ -176,21 +176,13 @@ Every position the hardware uses (the beam position, LINECMP, the copper's WAIT 
 | The picture | 144–863 (720 pixels) | 49–624 (576 lines) |
 | Total | 864 per line | 625 per frame |
 
-```
-  hpixel  0              144 (VID_X0)                 864
- vline 0 +--------------+------------------------------+
-         |          vertical blank (lines 0-48)        |
-      49 +--------------+------------------------------+
-(VID_Y0) |              |                              |
-         |  horizontal  |           picture            |
-         |    blank     |          720 x 576           |
-         |   (0-143)    |                              |
-     625 +--------------+------------------------------+
+![The screen and the beam](img/playfields-3-1-beam.svg)
 
-                  Figure 3-1: The Screen and the Beam
-```
+*Figure 3-1: The Screen and the Beam*
 
 The horizontal blank is 144 pixels (5.33 µs, 107 T-states). The vertical blank is 49 lines (1.57 ms, 31,360 T-states). Positions only go up through a frame.
+
+Appendix A, "Timing and Screen Reference" (`timing.md`), draws the frame and the line to scale, with the events in each, and gives the same figures at every CPU speed.
 
 `hw.inc` gives the picture's top left corner as **VID_X0** (144) and **VID_Y0** (49), its size as **VID_W** (720) and **VID_H** (576), and the beam's total as **BEAM_W** (864) and **BEAM_H** (625). The picture's pixel (x, y), counted from its top left corner, is at beam position (VID_X0 + x, VID_Y0 + y). This chapter calls that **picture position** (x, y).
 
@@ -207,6 +199,8 @@ HDMI sends exactly the visible pixels, so the whole 720 × 576 is the **overscan
 | PAL Amiga lores | 320 × 256 at 2 × 2 | 184–824 × 81–593 |
 | 640 × 400 text | 80 × 25 characters of 8 × 8 at 1 × 2 | 184–824 × 137–537 |
 | 640 × 480 (the boot console) | 80 × 30 characters at 1 × 2 | 184–824 × 97–577 |
+
+Appendix A's Figure A-7 draws these windows to scale.
 
 A computer monitor shows all 720 × 576 pixels. A TV may crop a few percent off each edge, so keep text and anything important inside the normal area.
 
@@ -729,22 +723,9 @@ Each of the four is a 2-byte value on its own. Change a window in the vertical b
 
 A window is clamped to the picture. A start in the blank counts as the picture's edge: the layer's first pixel then shows there, at VID_X0 or VID_Y0, so a layer is not clipped as a sprite is. An end past the last pixel or line counts as the picture's end.
 
-```
-        VID_X0                                       VID_X0+VID_W
- VID_Y0 +-------------------------------------------------------+
-        |                                                       |
-        |        XSTART                    XEND                 |
-        | YSTART   +-------------------------+                  |
-        |          |                         |                  |
-        |          |   the layer's pixels    |                  |
-        |          |                         |                  |
-        | YEND     +-------------------------+                  |
-        |          (first line after the window)                |
-        +-------------------------------------------------------+
- VID_Y0+VID_H
+![A layer's display window](img/playfields-3-3-window.svg)
 
-                 Figure 3-3: A Layer's Display Window
-```
+*Figure 3-3: A Layer's Display Window*
 
 Because every layer has its own window, windows can overlap, sit side by side, or be stacked one above the other. A status panel at the bottom of the screen is simply a second layer with a window covering the bottom lines; it needs no copper.
 
@@ -820,6 +801,10 @@ This gives the low-resolution looks of older machines on a modern screen, with s
 
 There is no fractional scaling and no shrinking.
 
+![Scaling](img/playfields-3-4-scaling.svg)
+
+*Figure 3-4: Scaling Across*
+
 Scaling is free in memory and, across the screen, in bandwidth: a layer at 2× across fetches half as much per screen pixel as at 1×. Scaling **down** the screen saves nothing in bandwidth, because the hardware fetches each source line again for every screen line it shows on. It saves memory, and it saves the Z80 drawing time, which matters more.
 
 If the window width or height is not a whole multiple of the scale, the last source pixel or line is cut short. The first screen line of the window shows the first copy of the first source line.
@@ -867,21 +852,9 @@ Here is what happens to the pointer during one line. At the start of the line, B
 
 The number of words fetched makes no difference. The window width, the scale and the fine scroll do not change the stride, and you never adjust it for them. BPLSTRIDE is the picture's **row stride**, whatever part of the line the window shows:
 
-```
-               picture lines in memory: 80 bytes each (640 pixels, 1 bpp)
+![The stride for a window narrower than the picture](img/playfields-3-5-stride.svg)
 
-     line y's start                                   line y+1's start
-           v                                                 v
-   ...-----+--------------------+----------------------------+--------------
-           | shown: 40 bytes    | not shown: 40 bytes        | shown ...
-   ...-----+--------------------+----------------------------+--------------
-           <------------------ BPLSTRIDE = 80 ---------------->
-
-   The stride is 80 whether the window shows all 640 pixels, 320 of them,
-   or any other part, and whatever the fine scroll.
-
-     Figure 3-4: The Stride for a Window Narrower Than the Picture
-```
+*Figure 3-5: The Stride for a Window Narrower Than the Picture*
 
 | Picture | Window shows | BPLSTRIDE |
 |---------|--------------|-----------|
@@ -1132,7 +1105,7 @@ A **tile** is 8 × 8 pixels of the layer's depth d (CTRL0.BPP), stored as 8 rows
 
    tile t, row y is at  PATPT + t x 8d + y x d
 
-             Figure 3-5: Tile Patterns in Memory
+             Figure 3-6: Tile Patterns in Memory
 ```
 
 | Depth | Bytes per row | Bytes per tile | 512 tiles |
@@ -1174,7 +1147,7 @@ The map is **MW × MH entries** of 2 bytes, stored row by row from **MAPPT**. CT
 
    entry (column c, row r) is at  MAPPT + (r x MW + c) x 2
 
-             Figure 3-6: A Tile Map in Memory
+             Figure 3-7: A Tile Map in Memory
 ```
 
 | Map | Bytes | Pixels | Row of entries |
@@ -1202,7 +1175,7 @@ Each entry is 2 bytes, low byte first:
  |     |       |       |                    | bit 8|                    |
  +-----+-------+-------+--------------------+------+--------------------+
 
-                  Figure 3-7: A Map Entry
+                  Figure 3-8: A Map Entry
 ```
 
 | Bits | Field | Meaning |
@@ -1257,28 +1230,9 @@ SCROLLX and SCROLLY say which map pixel is at the window's top left corner. On t
 
 Both wrap round the map, so the view scrolls endlessly in both directions. A view that runs off the map's right edge carries on at its left edge, and off its bottom at its top. A map narrower than the window repeats across it. The high bits of SCROLLX and SCROLLY above the map's size are ignored, so a program can keep a 16-bit position and write it as it is.
 
-```
-        map: 8 x MW pixels across, 8 x MH lines down
+![The view wraps round the map](img/playfields-3-9-mapwrap.svg)
 
-   0                                                   8 x MW
- 0 +----------------------------------------------------+
-   |                                                    |
-   |      (SCROLLX, SCROLLY)                            |
-   |              +----------------------+              |
-   |              | the window's view:   |              |
-   |              | window width / HS    |              |
-   |              | by window height / VS|              |
-   |              +----------------------+              |
-   |                                                    |
-   +-----------------+                       +----------+
-   |  ... a view     |                       | ... that |
-   |  carries on     |                       | starts   |
-   |  here           |                       | here     |
-   +-----------------+-----------------------+----------+
- 8 x MH
-
-            Figure 3-8: The View Wraps Round the Map
-```
+*Figure 3-9: The View Wraps Round the Map*
 
 To scroll a tile layer one pixel to the right and one down, add 1 to both, once a frame:
 
@@ -1670,18 +1624,9 @@ A **split screen** shows different pictures, or different parts of one picture, 
 
 The simplest way is to use one layer for each band. Give each layer a window covering its band, and set each one up independently. A layer is fetched only on the lines its window covers, so bands that do not overlap cost no extra bandwidth.
 
-```
- picture
- line  32 +-----------------------------------------+
-          |  layer 1: game area                     |
-          |  tile map, 4 bpp, 2x, scrolling         |
-          |  WINY 81-529 (VID_Y0+32 to VID_Y0+480)  |
-      480 +-----------------------------------------+
-          |  layer 0: status panel, text            |
-      544 +-----------------------------------------+  WINY 529-593
+![A split screen from two layers](img/playfields-3-10-split.svg)
 
-            Figure 3-9: A Split Screen from Two Layers
-```
+*Figure 3-10: A Split Screen from Two Layers*
 
 ### Changing a line setting partway down
 
@@ -1852,14 +1797,9 @@ Sprites go among the layers by their DEPTH, and PRI tiles have a place of their 
 | 8 | Tile pixels whose entry has PRI = 1, from any layer PRIO names; among them, PRIO's order |
 | 9 | Sprites with DEPTH 0 |
 
-```
-                        front                                       back
-   PRIO = L1, L0, L2:   DEPTH 0 -> PRI tiles -> L1 -> DEPTH 1 -> L0 -> ...
-                           |          |         |       |         |
-          the first non-transparent pixel, looking from the front, is shown
+![Choosing a pixel](img/playfields-3-11-priority.svg)
 
-                   Figure 3-10: Choosing a Pixel
-```
+*Figure 3-11: Choosing a Pixel*
 
 PRIO and BGCOLOR take effect at the start of each line's picture, so you can change the order partway down the screen.
 
@@ -1981,20 +1921,9 @@ Both fit easily in the vertical blank (31,360 T-states). For the fastest load, u
 
 CTRL1.PALOFS (bits 7–4) picks one of the palette's 16 blocks of 16 colours. A layer's colours change with one write to CTRL1: a darker set for a "paused" screen, or a different set for each band of a split screen, as in Example 3-9.
 
-```
- palette:  0     16    32    48          240   255
-           +-----+-----+-----+--- ... ---+-----+
-           |blk 0|blk 1|blk 2|           |blk15|
-           +-----+-----+-----+--- ... ---+-----+
-              ^     ^     ^
-              |     |     +-- a 4 bpp layer with PALOFS 2: colours 32-47
-              |     +-------- a 1 bpp layer with PALOFS 1: colours 16-17
-              +-------------- a 2 bpp layer with PALOFS 0: colours 0-3
+![Palette offsets](img/playfields-3-12-palofs.svg)
 
-      an 8 bpp layer uses all 256 entries directly
-
-                Figure 3-11: Palette Offsets
-```
+*Figure 3-12: Palette Offsets*
 
 ### One palette for everything (SHAREPAL)
 
@@ -2162,6 +2091,10 @@ HS is the horizontal scale; vertical scaling does not reduce the cost. **At ever
 4. Add up each place's layers, and the sprites that can be there. Each sum must be 1.48 or less.
 5. Check the memory: each picture, map and set of tiles, at the stride you chose. There are 4 MB.
 6. Check the Z80's time: what must be redrawn each frame (see "What the CPU can draw in a frame").
+
+![The budget across the screen](img/playfields-3-13-budget.svg)
+
+*Figure 3-13: The Budget Applies at Every Point Across the Screen*
 
 ### Worked examples
 

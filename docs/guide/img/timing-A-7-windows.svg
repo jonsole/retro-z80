@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="640" viewBox="0 0 760 640" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="640" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">Common windows, to scale (beam coordinates: XSTART-XEND × YSTART-YEND)</text>
+<text x="20" y="44" font-size="12" text-anchor="start" fill="#1a1a1a" font-weight="bold">Spectrum size: 256 × 192 at 2 × 2</text>
+<rect x="20" y="50" width="345.6" height="250" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="77.6" y="69.6" width="288" height="230.4" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="119.2" y="108" width="204.8" height="153.6" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="221.6" y="188.8" font-size="11" text-anchor="middle" fill="#1a1a1a">248-760 × 145-529</text>
+<text x="365.6" y="315" font-size="11" text-anchor="end" fill="#555">border: 104 px left, 96 lines top</text>
+<text x="405.6" y="44" font-size="12" text-anchor="start" fill="#1a1a1a" font-weight="bold">Amiga PAL lores: 320 × 256 at 2 × 2</text>
+<rect x="405.6" y="50" width="345.6" height="250" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="463.2" y="69.6" width="288" height="230.4" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="479.2" y="82.4" width="256" height="204.8" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="607.2" y="188.8" font-size="11" text-anchor="middle" fill="#1a1a1a">184-824 × 81-593</text>
+<text x="751.2" y="315" font-size="11" text-anchor="end" fill="#555">border: 40 px left, 32 lines top</text>
+<text x="20" y="350" font-size="12" text-anchor="start" fill="#1a1a1a" font-weight="bold">640 × 480 (boot console, 80 × 30)</text>
+<rect x="20" y="356" width="345.6" height="250" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="77.6" y="375.6" width="288" height="230.4" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="93.6" y="394.8" width="256" height="192" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="221.6" y="494.8" font-size="11" text-anchor="middle" fill="#1a1a1a">184-824 × 97-577</text>
+<text x="365.6" y="621" font-size="11" text-anchor="end" fill="#555">border: 40 px left, 48 lines top</text>
+<text x="405.6" y="350" font-size="12" text-anchor="start" fill="#1a1a1a" font-weight="bold">640 × 400 (80 × 25 text at 1 × 2)</text>
+<rect x="405.6" y="356" width="345.6" height="250" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="463.2" y="375.6" width="288" height="230.4" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<rect x="479.2" y="410.8" width="256" height="160" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="607.2" y="494.8" font-size="11" text-anchor="middle" fill="#1a1a1a">184-824 × 137-537</text>
+<text x="751.2" y="621" font-size="11" text-anchor="end" fill="#555">border: 40 px left, 88 lines top</text>
+</svg>

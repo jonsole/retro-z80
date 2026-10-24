@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="380" fill="#ffffff"/>
+<text x="40" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">One line: 864 beam pixels, 32 µs</text>
+<rect x="40" y="110" width="9.44" height="40" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="49.44" y="110" width="50.37" height="40" fill="#bfbfbf" stroke="#333" stroke-width="1"/>
+<text x="74.63" y="135" font-size="11" text-anchor="middle" fill="#1a1a1a">sync</text>
+<rect x="99.81" y="110" width="53.52" height="40" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="153.33" y="110" width="566.67" height="40" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="436.67" y="135" font-size="13" text-anchor="middle" fill="#1a1a1a">picture: pixels 144-863</text>
+<line x1="40" y1="102" x2="153.33" y2="102" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="96.67" y="98" font-size="11" text-anchor="middle" fill="#555">horizontal blank</text>
+<line x1="40" y1="110" x2="40" y2="40" stroke="#333" stroke-width="1"/>
+<text x="45" y="44" font-size="11" text-anchor="start" fill="#1a1a1a">pixel 0: LINE interrupt (line LINECMP); line settings copied</text>
+<text x="45" y="58" font-size="11" text-anchor="start" fill="#1a1a1a">(CTRL, WINX, WINY, SCROLLX/Y, MAPPT, PATPT); each layer starts its fetch</text>
+<line x1="153.33" y1="110" x2="153.33" y2="70" stroke="#333" stroke-width="1"/>
+<text x="158.33" y="82" font-size="11" text-anchor="start" fill="#1a1a1a">pixel 144: PRIO and BGCOLOR taken; the picture starts</text>
+<line x1="40" y1="174" x2="720" y2="174" stroke="#777" stroke-width="1"/>
+<line x1="40" y1="170" x2="40" y2="178" stroke="#777" stroke-width="1"/>
+<text x="40" y="190" font-size="11" text-anchor="start" fill="#555">0</text>
+<line x1="153.33" y1="170" x2="153.33" y2="178" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="190" font-size="11" text-anchor="middle" fill="#555">144</text>
+<line x1="266.67" y1="170" x2="266.67" y2="178" stroke="#777" stroke-width="1"/>
+<text x="266.67" y="190" font-size="11" text-anchor="middle" fill="#555">288</text>
+<line x1="380" y1="170" x2="380" y2="178" stroke="#777" stroke-width="1"/>
+<text x="380" y="190" font-size="11" text-anchor="middle" fill="#555">432</text>
+<line x1="493.33" y1="170" x2="493.33" y2="178" stroke="#777" stroke-width="1"/>
+<text x="493.33" y="190" font-size="11" text-anchor="middle" fill="#555">576</text>
+<line x1="606.67" y1="170" x2="606.67" y2="178" stroke="#777" stroke-width="1"/>
+<text x="606.67" y="190" font-size="11" text-anchor="middle" fill="#555">720</text>
+<line x1="720" y1="170" x2="720" y2="178" stroke="#777" stroke-width="1"/>
+<text x="720" y="190" font-size="11" text-anchor="end" fill="#555">864</text>
+<text x="430" y="169" font-size="11" text-anchor="middle" fill="#555">beam pixels</text>
+<line x1="40" y1="214" x2="720" y2="214" stroke="#777" stroke-width="1"/>
+<line x1="40" y1="210" x2="40" y2="218" stroke="#777" stroke-width="1"/>
+<text x="40" y="230" font-size="11" text-anchor="start" fill="#555">0</text>
+<line x1="153.33" y1="210" x2="153.33" y2="218" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="230" font-size="11" text-anchor="middle" fill="#555">5.33</text>
+<line x1="380" y1="210" x2="380" y2="218" stroke="#777" stroke-width="1"/>
+<text x="380" y="230" font-size="11" text-anchor="middle" fill="#555">16</text>
+<line x1="720" y1="210" x2="720" y2="218" stroke="#777" stroke-width="1"/>
+<text x="720" y="230" font-size="11" text-anchor="end" fill="#555">32</text>
+<text x="430" y="209" font-size="11" text-anchor="middle" fill="#555">µs</text>
+<line x1="40" y1="254" x2="720" y2="254" stroke="#777" stroke-width="1"/>
+<line x1="40" y1="250" x2="40" y2="258" stroke="#777" stroke-width="1"/>
+<text x="40" y="270" font-size="11" text-anchor="start" fill="#555">0</text>
+<line x1="153.33" y1="250" x2="153.33" y2="258" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="270" font-size="11" text-anchor="middle" fill="#555">53.3</text>
+<line x1="380" y1="250" x2="380" y2="258" stroke="#777" stroke-width="1"/>
+<text x="380" y="270" font-size="11" text-anchor="middle" fill="#555">160</text>
+<line x1="720" y1="250" x2="720" y2="258" stroke="#777" stroke-width="1"/>
+<text x="720" y="270" font-size="11" text-anchor="end" fill="#555">320</text>
+<text x="430" y="249" font-size="11" text-anchor="middle" fill="#555">slots</text>
+<line x1="40" y1="294" x2="720" y2="294" stroke="#777" stroke-width="1"/>
+<line x1="40" y1="290" x2="40" y2="298" stroke="#777" stroke-width="1"/>
+<text x="40" y="310" font-size="11" text-anchor="start" fill="#555">0</text>
+<line x1="153.33" y1="290" x2="153.33" y2="298" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="310" font-size="11" text-anchor="middle" fill="#555">107</text>
+<line x1="380" y1="290" x2="380" y2="298" stroke="#777" stroke-width="1"/>
+<text x="380" y="310" font-size="11" text-anchor="middle" fill="#555">320</text>
+<line x1="720" y1="290" x2="720" y2="298" stroke="#777" stroke-width="1"/>
+<text x="720" y="310" font-size="11" text-anchor="end" fill="#555">640</text>
+<text x="430" y="289" font-size="11" text-anchor="middle" fill="#555">T at 20 MHz</text>
+<line x1="40" y1="334" x2="720" y2="334" stroke="#777" stroke-width="1"/>
+<line x1="40" y1="330" x2="40" y2="338" stroke="#777" stroke-width="1"/>
+<text x="40" y="350" font-size="11" text-anchor="start" fill="#555">0</text>
+<line x1="153.33" y1="330" x2="153.33" y2="338" stroke="#777" stroke-width="1"/>
+<text x="153.33" y="350" font-size="11" text-anchor="middle" fill="#555">19</text>
+<line x1="380" y1="330" x2="380" y2="338" stroke="#777" stroke-width="1"/>
+<text x="380" y="350" font-size="11" text-anchor="middle" fill="#555">57</text>
+<line x1="720" y1="330" x2="720" y2="338" stroke="#777" stroke-width="1"/>
+<text x="720" y="350" font-size="11" text-anchor="end" fill="#555">114</text>
+<text x="430" y="329" font-size="11" text-anchor="middle" fill="#555">T at 3.57 MHz</text>
+<text x="40" y="376" font-size="11" text-anchor="start" fill="#555">Beam pixel p is p × 37.04 ns after the line starts. 27 beam pixels = 1 µs.</text>
+</svg>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="250" viewBox="0 0 760 250" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="250" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">A LINE interrupt at 20 MHz, worst case, to scale</text>
+<rect x="40" y="50" width="115" height="24" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="155" y="50" width="575" height="24" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="442.5" y="66" font-size="12" text-anchor="middle" fill="#1a1a1a">line LINECMP</text>
+<line x1="40" y1="44" x2="40" y2="170" stroke="#333" stroke-width="2"/>
+<text x="44" y="42" font-size="11" text-anchor="start" fill="#1a1a1a">LINE flag set at pixel 0</text>
+<line x1="730" y1="44" x2="730" y2="170" stroke="#333" stroke-width="2"/>
+<text x="726" y="42" font-size="11" text-anchor="end" fill="#1a1a1a">next line's settings copied</text>
+<rect x="40" y="90" width="24.8" height="24" fill="#e6e6e6" stroke="#333" stroke-width="1"/>
+<rect x="64.8" y="90" width="20.48" height="24" fill="#c9c9c9" stroke="#333" stroke-width="1"/>
+<rect x="85.28" y="90" width="644.72" height="24" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
+<text x="407.64" y="106" font-size="11" text-anchor="middle" fill="#1a1a1a">the handler: up to 598 T-states to make its writes for the next line</text>
+<line x1="40" y1="124" x2="85.28" y2="124" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+<text x="91.28" y="128" font-size="11" text-anchor="start" fill="#555">42 T, 2.1 µs: the worst case before the handler's first instruction</text>
+<text x="50" y="160" font-size="11" text-anchor="start" fill="#555">up to 23 T to finish the current instruction, then 19 T for the IM 2 acknowledge.</text>
+<text x="50" y="174" font-size="11" text-anchor="start" fill="#555">A handler starts at most 57 beam pixels into the line: still inside the horizontal blank.</text>
+<text x="50" y="188" font-size="11" text-anchor="start" fill="#555">At 3.57 MHz the same 42 T take 11.8 µs, 318 beam pixels: past the start of the picture.</text>
+</svg>

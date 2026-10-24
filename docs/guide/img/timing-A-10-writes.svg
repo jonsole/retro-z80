@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="330" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">When a write changes line L</text>
+<rect x="200" y="46" width="45" height="24" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="245" y="46" width="225" height="24" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="357.5" y="62" font-size="12" text-anchor="middle" fill="#1a1a1a">line L - 1</text>
+<rect x="470" y="46" width="45" height="24" fill="#d9d9d9" stroke="#333" stroke-width="1"/>
+<rect x="515" y="46" width="225" height="24" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="627.5" y="62" font-size="12" text-anchor="middle" fill="#1a1a1a">line L</text>
+<text x="200" y="84" font-size="10" text-anchor="middle" fill="#555">0</text>
+<text x="245" y="84" font-size="10" text-anchor="middle" fill="#555">144</text>
+<text x="470" y="84" font-size="10" text-anchor="middle" fill="#555">0</text>
+<text x="515" y="84" font-size="10" text-anchor="middle" fill="#555">144</text>
+<text x="190" y="108" font-size="11" text-anchor="end" fill="#1a1a1a">CTRL0-3, WINX, WINY, SCROLLX,</text>
+<text x="190" y="122" font-size="11" text-anchor="end" fill="#1a1a1a">SCROLLY, MAPPT, PATPT,</text>
+<text x="190" y="136" font-size="11" text-anchor="end" fill="#1a1a1a">ATCTL ...</text>
+<rect x="200" y="108" width="540" height="28" fill="#f3f3f3" stroke="none"/>
+<rect x="200" y="112" width="270" height="20" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<line x1="470" y1="108" x2="470" y2="136" stroke="#333" stroke-width="2"/>
+<text x="476" y="126" font-size="10" text-anchor="start" fill="#555">copied at pixel 0 of line L</text>
+<text x="190" y="174" font-size="11" text-anchor="end" fill="#1a1a1a">PRIO, BGCOLOR</text>
+<rect x="200" y="160" width="540" height="28" fill="#f3f3f3" stroke="none"/>
+<rect x="245" y="164" width="270" height="20" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<line x1="515" y1="160" x2="515" y2="188" stroke="#333" stroke-width="2"/>
+<text x="521" y="178" font-size="10" text-anchor="start" fill="#555">taken at pixel 144 of line L</text>
+<text x="190" y="226" font-size="11" text-anchor="end" fill="#1a1a1a">BPL0PT, BPLSTRIDE (live)</text>
+<rect x="200" y="212" width="540" height="28" fill="#f3f3f3" stroke="none"/>
+<rect x="428.12" y="216" width="41.88" height="20" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<line x1="470" y1="212" x2="470" y2="240" stroke="#333" stroke-width="2"/>
+<text x="476" y="230" font-size="10" text-anchor="start" fill="#555">after the layer's last fetch on line L - 1</text>
+<text x="190" y="271" font-size="11" text-anchor="end" fill="#1a1a1a">Palette entries, VIDCON,</text>
+<text x="190" y="285" font-size="11" text-anchor="end" fill="#1a1a1a">port 0xFE border</text>
+<rect x="200" y="264" width="540" height="28" fill="#f3f3f3" stroke="none"/>
+<line x1="543.75" y1="264" x2="543.75" y2="292" stroke="#333" stroke-width="2"/>
+<text x="549.75" y="282" font-size="10" text-anchor="start" fill="#555">at once: from the next pixel after the write</text>
+<rect x="200" y="310" width="12" height="12" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<text x="218" y="320" font-size="11" text-anchor="start" fill="#1a1a1a">write in this stretch to change line L</text>
+</svg>
