@@ -218,7 +218,16 @@ end
 reg  0x230 DMXINT   1 W1C     14/8.4 CH0=0 CH1=1 CH2=2 CH3=3
 reg  0x234 DMXINTEN 1 RW      14/8.4 fields=DMXINT
 
-# Audio 0x240-0x2FF: reserved for spec 13. 0x300-0x3FF: free.
+# Audio 0x240-0x2FF: reserved for spec 13.
+
+# Sprite sequencer (spec 17, a retro-z80 extra); 0x30B-0x30F reserved, 0x310-0x3FF free
+reg  0x300 SEQCON   1 RW      17/8   EN=0 IRQEN=1
+reg  0x301 SEQLC    3 RW      17/8   ADDR=21:1
+reg  0x304 SEQMASK  1 RW      17/8   SPR=7:0
+reg  0x305 SEQSTAT  1 RW1C    17/8.1 SKIP=0 END=1 RUN=2
+reg  0x306 SEQSKIP  1 R       17/8.1 COUNT=7:0
+reg  0x307 SEQSKIPL 1 R       17/8.1 COUNT=7:0
+reg  0x308 SEQPT    3 R,CAP   17/8   ADDR=21:1
 
 # ================================================================ register page
 block REGS 0x3F8 0x2000 "Register page, MMU page 0x3F8: I/O page p, register r at p << 8 | r"
@@ -265,6 +274,10 @@ const VID_W  720 "Picture width"
 const VID_H  576 "Picture height"
 const BEAM_W 864 "Beam pixels per line"
 const BEAM_H 625 "Beam lines per frame"
+
+# Sprite sequencer (spec 17)
+const SEQ_END   0x7FF "Sequencer: VSTART of the end-of-list entry"
+const SEQ_ENTRY 16    "Sequencer: bytes per list entry"
 
 # Magic values
 const SYSRESET_MAGIC 0xA5 "SYSRESET: a full reset"

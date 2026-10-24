@@ -506,6 +506,36 @@
 `define RM_DMXINTEN_CH1                   1
 `define RM_DMXINTEN_CH2                   2
 `define RM_DMXINTEN_CH3                   3
+`define RM_SEQCON                         13'h1300
+`define RM_SEQCON_BYTES                   1
+`define RM_SEQCON_EN                      0
+`define RM_SEQCON_IRQEN                   1
+`define RM_SEQLC                          13'h1301
+`define RM_SEQLC_BYTES                    3
+`define RM_SEQLC0                         13'h1301
+`define RM_SEQLC1                         13'h1302
+`define RM_SEQLC2                         13'h1303
+`define RM_SEQLC_ADDR                     21:1
+`define RM_SEQMASK                        13'h1304
+`define RM_SEQMASK_BYTES                  1
+`define RM_SEQMASK_SPR                    7:0
+`define RM_SEQSTAT                        13'h1305
+`define RM_SEQSTAT_BYTES                  1
+`define RM_SEQSTAT_SKIP                   0
+`define RM_SEQSTAT_END                    1
+`define RM_SEQSTAT_RUN                    2
+`define RM_SEQSKIP                        13'h1306
+`define RM_SEQSKIP_BYTES                  1
+`define RM_SEQSKIP_COUNT                  7:0
+`define RM_SEQSKIPL                       13'h1307
+`define RM_SEQSKIPL_BYTES                 1
+`define RM_SEQSKIPL_COUNT                 7:0
+`define RM_SEQPT                          13'h1308
+`define RM_SEQPT_BYTES                    3
+`define RM_SEQPT0                         13'h1308
+`define RM_SEQPT1                         13'h1309
+`define RM_SEQPT2                         13'h130A
+`define RM_SEQPT_ADDR                     21:1
 `define RM_COPR                           13'h1118
 `define RM_COPR_NUM                       8
 `define RM_COPR0                          13'h1118
@@ -686,8 +716,8 @@
 `define RM_REGS_SPRPALETTE_SIZE           14'h0300
 
 // ---- Decodes
-`define RM_IS_CAP(a)                      (((a) == 13'h0020) || ((a) == 13'h002D) || ((a) == 13'h0035) || ((a) == 13'h003D) || ((a) == 13'h0045) || ((a) == 13'h005D) || ((a) == 13'h1010) || ((a) == 13'h1020) || ((a) == 13'h1030) || ((a) == 13'h1040) || ((a) == 13'h1050) || ((a) == 13'h1060) || ((a) == 13'h1070) || ((a) == 13'h1080) || ((a) == 13'h10A4) || ((a) == 13'h10C4) || ((a) == 13'h10E4) || ((a) == 13'h10F0) || ((a) == 13'h10F4) || ((a) == 13'h110A) || ((a) == 13'h1160) || ((a) == 13'h11A0) || ((a) == 13'h11E0) || ((a) == 13'h1220))
-`define RM_CAP_N(a)                       (((a) == 13'h0020 ? 3'd4 : ((a) == 13'h002D ? 3'd2 : ((a) == 13'h0035 ? 3'd2 : ((a) == 13'h003D ? 3'd2 : ((a) == 13'h0045 ? 3'd2 : ((a) == 13'h005D ? 3'd2 : ((a) == 13'h1010 ? 3'd3 : ((a) == 13'h1020 ? 3'd3 : ((a) == 13'h1030 ? 3'd3 : ((a) == 13'h1040 ? 3'd3 : ((a) == 13'h1050 ? 3'd3 : ((a) == 13'h1060 ? 3'd3 : ((a) == 13'h1070 ? 3'd3 : ((a) == 13'h1080 ? 3'd3 : ((a) == 13'h10A4 ? 3'd3 : ((a) == 13'h10C4 ? 3'd3 : ((a) == 13'h10E4 ? 3'd3 : ((a) == 13'h10F0 ? 3'd4 : ((a) == 13'h10F4 ? 3'd2 : ((a) == 13'h110A ? 3'd3 : ((a) == 13'h1160 ? 3'd3 : ((a) == 13'h11A0 ? 3'd3 : ((a) == 13'h11E0 ? 3'd3 : ((a) == 13'h1220 ? 3'd3 : 3'd0)))))))))))))))))))))))))
+`define RM_IS_CAP(a)                      (((a) == 13'h0020) || ((a) == 13'h002D) || ((a) == 13'h0035) || ((a) == 13'h003D) || ((a) == 13'h0045) || ((a) == 13'h005D) || ((a) == 13'h1010) || ((a) == 13'h1020) || ((a) == 13'h1030) || ((a) == 13'h1040) || ((a) == 13'h1050) || ((a) == 13'h1060) || ((a) == 13'h1070) || ((a) == 13'h1080) || ((a) == 13'h10A4) || ((a) == 13'h10C4) || ((a) == 13'h10E4) || ((a) == 13'h10F0) || ((a) == 13'h10F4) || ((a) == 13'h110A) || ((a) == 13'h1160) || ((a) == 13'h11A0) || ((a) == 13'h11E0) || ((a) == 13'h1220) || ((a) == 13'h1308))
+`define RM_CAP_N(a)                       (((a) == 13'h0020 ? 3'd4 : ((a) == 13'h002D ? 3'd2 : ((a) == 13'h0035 ? 3'd2 : ((a) == 13'h003D ? 3'd2 : ((a) == 13'h0045 ? 3'd2 : ((a) == 13'h005D ? 3'd2 : ((a) == 13'h1010 ? 3'd3 : ((a) == 13'h1020 ? 3'd3 : ((a) == 13'h1030 ? 3'd3 : ((a) == 13'h1040 ? 3'd3 : ((a) == 13'h1050 ? 3'd3 : ((a) == 13'h1060 ? 3'd3 : ((a) == 13'h1070 ? 3'd3 : ((a) == 13'h1080 ? 3'd3 : ((a) == 13'h10A4 ? 3'd3 : ((a) == 13'h10C4 ? 3'd3 : ((a) == 13'h10E4 ? 3'd3 : ((a) == 13'h10F0 ? 3'd4 : ((a) == 13'h10F4 ? 3'd2 : ((a) == 13'h110A ? 3'd3 : ((a) == 13'h1160 ? 3'd3 : ((a) == 13'h11A0 ? 3'd3 : ((a) == 13'h11E0 ? 3'd3 : ((a) == 13'h1220 ? 3'd3 : ((a) == 13'h1308 ? 3'd3 : 3'd0))))))))))))))))))))))))))
 `define RM_IS_COLR(a)                     (((a) >= 13'h1004 && (a) <= 13'h1006))
 `define RM_IS_COLR_RED(a)                 (((a) == 13'h1006))
 `define RM_IS_MMU(a)                      (((a) >= 13'h0080 && (a) <= 13'h009F))
@@ -732,6 +762,8 @@
 `define RM_VID_H                          32'h00000240
 `define RM_BEAM_W                         32'h00000360
 `define RM_BEAM_H                         32'h00000271
+`define RM_SEQ_END                        32'h000007FF
+`define RM_SEQ_ENTRY                      32'h00000010
 `define RM_SYSRESET_MAGIC                 32'h000000A5
 `define RM_WDKICK_MAGIC                   32'h0000005A
 

@@ -42,7 +42,7 @@ The same: eight sprites; SPRxPT, SPRxH, SPRxV, SPRxCTL and SPRxSTEP with retro68
 | Spare cycles | The 68000 leaves at least every other cycle 0 | The Z80 at 20 MHz makes at most one access in 1.5 slots, so at least one of its two cycles (0, 2) is spare in every slot (spec 2) | Memory timing (spec 2) |
 | Colours | 24-bit palette entries | The same, 3 bytes per entry (spec 4) | – |
 | Dropped from the earlier retro-z80 draft | – | The row store and the whole-row fetch; the 512-byte row limit; HMAG and VMAG (replaced by SPRxSTEP); the exact "nothing on L + 1, new from L + 2" write rule; manual mode by bytes; the guaranteed budget B = 224 − D − C; tile PRI as a sprite-spec rule (now spec 4's) | Branch 11: retro68k's sprites as built |
-| Later (retro68k section 11) | A sprite table; sprites in direct colour at any depth | Not planned | – |
+| Later (retro68k section 11) | A sprite table; sprites in direct colour at any depth | A sprite table: the sprite sequencer, a retro-z80 extra (spec 17). Direct colour at any depth: not planned | Design plan, branch 14 |
 
 ## 3. Sprites: pointer, window and settings
 
@@ -194,6 +194,8 @@ Each byte is written directly, with no latch (spec 3), and the others keep their
 The copper's byte writes and the CPU's land in the order the register bus takes them, and the last write to each byte wins (spec 3, rule 3): let one of them own each sprite. Software and the copper see the display beam (spec 4), as in retro68k.
 
 **Reusing a sprite further down the screen**, as Amiga programs do with their control words: after the sprite's last line, the copper WAITs, then writes the sprite's PT, window and STEP for its next use, and CTL last. For a last line E, a WAIT for (E + 1, 0) is enough. The CTL write then lands in line E + 1, so the new use can start on line E + 2 or later.
+
+**The sprite sequencer** (spec 17) is another way to reuse sprites: a retro-z80 extra, outside this spec and the sprite unit. It reads a list of sprite uses from SRAM, sorted by start line, each 16 bytes laid out as a sprite's registers, and writes each into the lowest-numbered free sprite of those SEQMASK gives it, in the line after the old use's last line, CTL last. It follows exactly the rules of this section; the sprite hardware is unchanged, and the copper and CPU keep the sprites outside SEQMASK.
 
 ### 4.3 Underrun: SPRUNDER
 

@@ -48,6 +48,8 @@
         ; ports of the custom pages (spec 3, section 5.1)
         assert COPCON_P = 0x0011 && COPR7_P = 0x1F11 && ATCTL_P = 0x3011
         assert BEAMPOS_P = 0xF010 && PRIO = 0x003
+        assert SEQCON = 0x300 && SEQCON_P = 0x0013 && SEQLC_P = 0x0113 && SEQPT0_P = 0x0813  ; spec 17
+        assert SEQSKIPL = 0x307 && SEQ_END = 0x7FF && SEQ_ENTRY = 16
 
         ; fields and interrupts (specs 8 and 9)
         assert INTENA_SETCLR_M = 0x80
