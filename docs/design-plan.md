@@ -282,14 +282,14 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | Parked; custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved under retro68k's names; retro68k's audio narrowed would be the default |
 | Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. A 6502 sees the registers through the register page, as the Z80 can; the slots would serve it with no waits as they serve the Z80 |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
-| Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | Check in the first Vivado build (spec 1, B1); fallback: start a read speculatively in every T1 |
+| Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | On the KS2 (issue #11): yes, even single-cycle (+0.89 ns from tv80's IR to the bus interface's address register), with tv80's own paths as 5-clock multicycle paths. Check again on the KS3 build (spec 1, B1); fallback: start a read speculatively in every T1 |
 | Q5 | Copper priority | Closed: urgent display fetches come first in cycle 3, then the copper, then sprites (spec 2) |
 | Q6 | Kempston port | Closed: port `0x1F` reads joystick 1 (spec 12) |
 | Q7 | KS3 pins for the Spectrum keyboard, joysticks, PS/2 and `sd_miso`, not yet checked against the Next's pin file | Check before phase 3 (spec 7, SY1) |
 | Q8 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
 | Q9 | A Z80 faster than 20 MHz | Left for later. 25 MHz needs the swap back (spec 1, B10). Beyond that, the CPU would have to wait for SRAM, or run from block-RAM fast RAM only it uses; its limit is then tv80's own speed in the FPGA (Q3, Q4) |
 | Q10 | Hardware help for 3D filled polygons | Partly answered by branch 10: a geometry unit (matrices, perspective, multiply and divide) comes first. Still open: drawing help, either (a) a span filler, (y, x0, x1, colour) filled in spare memory cycles, about 0.5k LUTs, with the Z80 stepping the edges, or (b) a triangle job in the DMA engine taking three screen vertices, about 1–2k LUTs. With fast vertices, edge stepping becomes the Z80's main cost, so (b) looks the better value. Double buffering already works by switching the layer pointer at vertical blank |
-| Q11 | Does the KS2's XC7A15T-1 meet 100 MHz with the bring-up build? | First Vivado build for issue 4; fallbacks: trim the design, or relax the slowest paths |
+| Q11 | Does the KS2's XC7A15T-1 meet 100 MHz with the bring-up build? | Yes for the first computer build (issue #11: CPU, MMU, SRAM, boot ROM, serial, beam and background colour; 1,949 LUTs): worst slack +0.86 ns, with tv80's paths as 5-clock multicycle paths (`fpga/ks2/README.md`). To be checked again as layers, palettes and the copper are added; fallbacks: trim the design, or relax the slowest paths |
 
 ## 7. Next step
 

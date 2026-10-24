@@ -11,6 +11,9 @@
 #                   bytes, writable boot ROM, the self-test, soft reset
 #   make speeds     the speed test ROM: "hello" at every CPUSPEED setting,
 #                   with the T-state rates measured
+#   make failshow   the boot ROM built to report check 45 as failed: the
+#                   screen shows it as 5 white stripes on red (60 ms of
+#                   simulated time, a few minutes; not part of make all)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -35,7 +38,7 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest speeds lint zexhello zexdoc zexall clean
+.PHONY: all smoke vsmoke hello hello2mb systest speeds failshow lint zexhello zexdoc zexall clean
 all: smoke vsmoke hello hello2mb systest speeds zexhello
 
 $(BUILD):
@@ -70,7 +73,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v retroz80.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v video.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
 $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -109,6 +112,15 @@ systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
 speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=speeds.hex +speeds +dma +timeout=10000 | tee speeds.log
 	@grep -q "^TEST PASSED" $(BUILD)/speeds.log
+
+# The boot ROM's failure display (firmware/boot/boot.asm): check 45 reported
+# as failed, shown as 5 white stripes; two frames must match
+$(BUILD)/bootfail.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DFAILTEST=0x45 --raw=$@ $<
+
+failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootfail.hex +failshow=45 +timeout=70000 | tee failshow.log
+	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

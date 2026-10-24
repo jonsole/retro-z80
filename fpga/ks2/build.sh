@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# retro-z80: build the KS2 test pattern (issue #10) and load it over JTAG.
+# retro-z80: build the computer for the KS2 (issue #11), or the test pattern
+# (issue #10), and load it over JTAG.
 #
-#   fpga/ks2/build.sh                 build fpga/ks2/build/ks2_pattern.bit
+#   fpga/ks2/build.sh                 build fpga/ks2/build/retroz80_ks2.bit
 #   fpga/ks2/build.sh --program       build, then load it over JTAG with Vivado
 #   fpga/ks2/build.sh --program-only  just load the last build
+#   fpga/ks2/build.sh --pattern ...   the same for the test pattern
+#                                     (fpga/ks2/build/pattern/ks2_pattern.bit)
 #
 # Needs Vivado 2026.1 (the free edition covers the XC7A15T) on the PATH or
-# in $VIVADO. On Windows, from Git Bash or MSYS2:
+# in $VIVADO; for the computer also sjasmplus (PATH or $SJASMPLUS) and
+# Python 3 (PATH or $PYTHON), for the boot ROM. On Windows, from Git Bash or
+# MSYS2:
 #   VIVADO=/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat bash fpga/ks2/build.sh
 #
 # Loading over JTAG changes nothing in the board's flash: power-cycle the KS2
@@ -16,20 +21,28 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-out="$here/build"
-bit="$out/ks2_pattern.bit"
+what=machine
 do_build=1
 do_program=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --pattern)      what=pattern ;;
         --program)      do_program=1 ;;
         --program-only) do_program=1; do_build=0 ;;
-        -h|--help)      sed -n '2,14p' "$0"; exit 0 ;;
+        -h|--help)      sed -n '2,18p' "$0"; exit 0 ;;
         *)              echo "build.sh: unknown option $1 (try --help)" >&2; exit 1 ;;
     esac
     shift
 done
+
+if [ "$what" = pattern ]; then
+    out="$here/build/pattern"
+    bit="$out/ks2_pattern.bit"
+else
+    out="$here/build"
+    bit="$out/retroz80_ks2.bit"
+fi
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
@@ -39,10 +52,22 @@ vivado="${VIVADO:-$(command -v vivado || true)}"
 
 if [ "$do_build" = 1 ]; then
     mkdir -p "$out"
+    if [ "$what" = machine ]; then
+        sjasmplus="${SJASMPLUS:-$(command -v sjasmplus || true)}"
+        if [ -z "$sjasmplus" ] && [ -x /c/tools/sjasmplus/sjasmplus.exe ]; then
+            sjasmplus=/c/tools/sjasmplus/sjasmplus.exe     # where the main README puts it
+        fi
+        [ -n "$sjasmplus" ] || die "sjasmplus not found: put it on the PATH or set SJASMPLUS"
+        python="${PYTHON:-$(command -v python3 || command -v python || true)}"
+        [ -n "$python" ] || die "Python not found: put it on the PATH or set PYTHON"
+        say "Assembling the boot ROM"
+        "$sjasmplus" --nologo -I "$root/firmware/include" --raw="$out/boot.bin" "$root/firmware/boot/boot.asm"
+        "$python" "$root/tools/bin2hex.py" "$out/boot.bin" "$out/boot.hex"
+    fi
     say "Running Vivado (synthesis, place and route, bitstream): a few minutes"
     set +e
     (cd "$out" && "$vivado" -mode batch -nojournal -log vivado.log \
-        -source "$here/build.tcl" -tclargs "$root" "$out")
+        -source "$here/build.tcl" -tclargs "$root" "$out" "$what")
     status=$?
     set -e
     grep -h "^retro-z80:" "$out/vivado.log" || true
@@ -52,7 +77,7 @@ if [ "$do_build" = 1 ]; then
         *) die "Vivado failed: see $out/vivado.log" ;;
     esac
     say "Done: $bit"
-    echo "    reports: utilization.txt, timing.txt, clocks.txt, drc.txt, io.txt"
+    echo "    reports: utilization.txt, utilization_hier.txt, timing.txt, clocks.txt, drc.txt, io.txt"
 fi
 
 if [ "$do_program" = 1 ]; then

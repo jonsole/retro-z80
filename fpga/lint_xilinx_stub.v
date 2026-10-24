@@ -44,3 +44,19 @@ module OSERDESE2 #(
 );
     assign {OQ, OFB, TQ, TFB, TBYTEOUT, SHIFTOUT1, SHIFTOUT2} = 7'd0;
 endmodule
+
+module ODDR #(
+    parameter DDR_CLK_EDGE = "OPPOSITE_EDGE",
+    parameter [0:0] INIT   = 1'b0,
+    parameter SRTYPE       = "SYNC"
+) (
+    input  wire C, CE, D1, D2, R, S,
+    output wire Q
+);
+    assign Q = D1;
+endmodule
+
+module IOBUF (inout wire IO, input wire I, input wire T, output wire O);
+    assign IO = T ? 1'bz : I;
+    assign O  = IO;
+endmodule
