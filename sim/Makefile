@@ -16,6 +16,8 @@
 #                   and the R register test
 #   make zexdoc     ZEXDOC on the bare tv80 core in Verilator (long, see README)
 #   make zexall     ZEXALL, the same with the undocumented flags (long)
+#   make zexsyshello  the whole-system ZEX testbench's own checks (seconds)
+#   make zexsys     ZEXDOC on the whole system at 20 MHz (very long, see README)
 #
 # Needs: iverilog, verilator, sjasmplus, python3. Tools can be given
 # explicitly: make SJASMPLUS=/path/sjasmplus IVERILOG=/path/iverilog
@@ -35,7 +37,7 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest speeds lint zexhello zexdoc zexall clean
+.PHONY: all smoke vsmoke hello hello2mb systest speeds lint zexhello zexdoc zexall zexsyshello zexsys clean
 all: smoke vsmoke hello hello2mb systest speeds zexhello
 
 $(BUILD):
@@ -163,6 +165,42 @@ zexdoc zexall: $(ZEX_DEPS)
 $(BUILD)/zexdoc/%.log $(BUILD)/zexall/%.log:
 	cd $(BUILD) && ./vl_zex/vzex +cpm=cpm.bin +com=../zex/$(notdir $(@D)).com \
 	    +tests=1 +only=$* > $(notdir $(@D))/$*.log
+
+# ZEXDOC on the whole system (ticket #7): tv80 behind the bus interface, the
+# MMU, the scheduler and SRAM controller, with a cycle model of the SRAM, at
+# 20 MHz. A loader in the boot ROM (zexboot.asm) maps SRAM pages 0-7 flat and
+# jumps to the program, which the testbench has put in SRAM with page zero
+# and a BDOS (cpm.asm, console on reserved port 0x01). Every run checks that
+# the Z80 never waited. +dma keeps the DMA port busy meanwhile.
+ZEXSYS_RUN = cd $(BUILD) && ./vl_zexsys/vzexsys +cpm=cpmsys.bin
+
+$(BUILD)/cpmsys.bin: zex/cpm.asm | $(BUILD)
+	$(SJASMPLUS) --nologo -DCONSOLE=0x01 --raw=$@ $<
+
+$(BUILD)/zexboot.bin: zex/zexboot.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+$(BUILD)/vl_zexsys/vzexsys: zex/tb_zexsys.v $(CURDIR)/zex/zexsys_main.cpp $(TV80_CORE) $(SYS_RTL) $(RTL)/regmap.vh | $(BUILD)
+	$(VERILATOR) --cc --exe --build -Wall -Wno-fatal $(VL_OPT) -DTV80_REFRESH -I$(RTL) 	    --x-assign fast --x-initial fast --top-module tb_zexsys 	    --Mdir $(BUILD)/vl_zexsys -o vzexsys zex/tb_zexsys.v $(CURDIR)/zex/zexsys_main.cpp 	    $(TV80_CORE) $(SYS_RTL) > $(BUILD)/vl_zexsys.log
+
+ZEXSYS_DEPS := $(BUILD)/vl_zexsys/vzexsys $(BUILD)/cpmsys.bin $(BUILD)/zexboot.hex
+
+zexsyshello: $(ZEXSYS_DEPS) $(BUILD)/hello.com $(BUILD)/bad.com
+	$(ZEXSYS_RUN) +com=hello.com +tests=2 +dma +maxcycles=1000000 | tee zexsyshello.log
+	@grep -q "^TEST PASSED" $(BUILD)/zexsyshello.log
+	$(ZEXSYS_RUN) +com=bad.com +tests=2 +dma +maxcycles=1000000 | tee zexsysbad.log
+	@grep -q "^TEST FAILED" $(BUILD)/zexsysbad.log
+
+# Each of ZEXDOC's 67 tests as its own process, as zexdoc above
+zexsys: $(ZEXSYS_DEPS)
+	rm -rf $(BUILD)/$@
+	mkdir -p $(BUILD)/$@
+	$(MAKE) -j$(ZEX_JOBS) --no-print-directory 	    $(patsubst %,$(BUILD)/$@/%.log,$(ZEX_TESTS))
+	@cd $(BUILD) && for k in $(ZEX_TESTS); do 	    grep -E "  (OK|ERROR)" $@/$$k.log | sed "s/^/$$k /" ; 	    grep -E "T-states|never waited" $@/$$k.log | sed "s/^/    /" ; 	done > $@.log; 	n=$$(grep -l "^TEST PASSED" $@/*.log | wc -l); 	if [ $$n -eq 67 ]; then r="TEST PASSED"; else r="TEST FAILED: $$n of 67 tests OK"; fi; 	echo "$$r" >> $@.log; cat $@.log
+	@grep -q "^TEST PASSED" $(BUILD)/$@.log
+
+$(BUILD)/zexsys/%.log:
+	$(ZEXSYS_RUN) +com=../zex/zexdoc.com +tests=1 +only=$* +dma > zexsys/$*.log
 
 clean:
 	rm -rf $(BUILD)
