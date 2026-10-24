@@ -10,10 +10,11 @@
 ;            (pixel 1) with a drop shadow (pixel 2), 2 a dot (pixel 3)
 ;   Layer    2 x 2, TRANSP (pixel 0 shows the background colour, which
 ;            still changes once a second), PALOFS 0
-;   Blocks   of 4 x 4 tiles: the top-left 2 x 2 are the F four ways
-;            (normal, XFLIP; YFLIP, XFLIP and YFLIP), the rest dots. Each
-;            block's F has PAL 1-4 (red, green, blue, yellow) by diagonal;
-;            the dots PAL 5 (grey)
+;   Blocks   of 4 x 4 tiles: the F four ways on even columns and rows
+;            (column 0 row 0 normal, column 2 XFLIP, row 2 YFLIP, column 2
+;            row 2 both), dots on the other tiles. Each block's F has PAL
+;            1-4 (red, blue, orange, purple: none like a background colour)
+;            by diagonal; the dots PAL 5 (dark grey)
 ;   Palette  PALETTE0 blocks 1-5, entries 1-3, written when the demo
 ;            starts (the chart is gone by then)
 ;
@@ -38,13 +39,9 @@ tileprep:
         ld      c,0                     ; row
 .row:   ld      b,0                     ; column
 .col:   ld      a,b
-        and     3
-        cp      2
-        jr      nc,.dot
-        ld      a,c
-        and     3
-        cp      2
-        jr      nc,.dot
+        or      c
+        rrca
+        jr      c,.dot                  ; an odd column or row: a dot
         ld      (hl),1                  ; the F: TILE 1 ...
         inc     hl
         ld      a,b                     ; ... PAL 1 + (block column + block row) mod 4
@@ -59,12 +56,12 @@ tileprep:
         inc     a
         add     a,a                     ; PAL is bits 4-1 of the high byte
         ld      e,a
-        bit     0,b
+        bit     1,b
         jr      z,.nx
-        set     5,e                     ; XFLIP on odd columns
-.nx:    bit     0,c
+        set     5,e                     ; XFLIP in the block's column 2
+.nx:    bit     1,c
         jr      z,.ny
-        set     6,e                     ; YFLIP on odd rows
+        set     6,e                     ; YFLIP in the block's row 2
 .ny:    ld      (hl),e
         inc     hl
         jr      .next
@@ -154,10 +151,10 @@ t0regs: db      L0_CTRL1, 1 << L_CTRL1_VSCALE_B                ; 2x down, PALOFS
         db      0xFF
 
 ; Palette blocks 1-5, entries 1-3 (the F, its shadow, the dot): blue, green, red
-tpal:   db      0x40, 0x40, 0xFF,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 1 red
-        db      0x40, 0xFF, 0x40,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 2 green
-        db      0xFF, 0x80, 0x40,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 3 blue
-        db      0x00, 0xFF, 0xFF,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 4 yellow
+tpal:   db      0x20, 0x20, 0xFF,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 1 red
+        db      0xFF, 0x40, 0x20,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 2 blue
+        db      0x00, 0x60, 0xD0,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 3 orange
+        db      0xC0, 0x00, 0x80,  0x00, 0x00, 0x00,  0xA0, 0xA0, 0xA0     ; 4 purple
         db      0x40, 0x40, 0x40,  0x00, 0x00, 0x00,  0x40, 0x40, 0x40     ; 5 dark grey dot
 
 ; The patterns: 8 rows of 4 bytes, two pixels a byte, the left one high

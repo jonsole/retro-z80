@@ -151,7 +151,7 @@ failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
 # The boot ROM's VBLANK colour cycle (ticket #16), a colour a frame
-$(BUILD)/bootvbl.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/bootvbl.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -DCYCLE_FRAMES=1 --raw=$@ $<
 
 bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
@@ -163,7 +163,7 @@ bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
 # beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
 # Variant a is a fixed set of bands, the others random. The variants run in
 # parallel with make -j.
-VTESTS ?= a t b boot
+VTESTS ?= a t b boot boottile
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
 
 # The boot ROM's palette chart, on a 2 MB build as the KS2's: beam frame 2
@@ -173,6 +173,17 @@ $(BUILD)/vtest_boot.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex vtest/vmodel.py
 	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boot.hex +frame=2 +dumpram=ram.hex +dma +timeout=70000 > sim.log); \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
 	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 2 $$d/model.png && touch $@
+
+# The boot ROM's tile map demo (ticket #14), started after one frame in place
+# of 100: beam frame 4 is the second with the tile map, scrolled by one pixel
+$(BUILD)/boottile.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DTILE_FRAMES=1 --raw=$@ $<
+
+$(BUILD)/vtest_boottile.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boottile.hex vtest/vmodel.py
+	@d=$(BUILD)/vtest_boottile; rm -f $@; mkdir -p $$d; \
+	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boottile.hex +frame=4 +dumpram=ram.hex +dma +timeout=110000 > sim.log); \
+	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
+	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 4 $$d/model.png && touch $@
 
 $(BUILD)/vtest_%.ok: $(BUILD)/tb.vvp vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
 	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
