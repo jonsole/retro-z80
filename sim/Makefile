@@ -124,10 +124,10 @@ $(BUILD)/%.com: zex/%.asm | $(BUILD)
 	$(SJASMPLUS) --nologo --raw=$@ $<
 
 # A C++ main gives the clock (faster than --binary's timing scheduler)
-$(BUILD)/vl_zex/vzex: zex/tb_zex.v zex/zex_main.cpp $(TV80_SRC) | $(BUILD)
+$(BUILD)/vl_zex/vzex: zex/tb_zex.v $(CURDIR)/zex/zex_main.cpp $(TV80_SRC) | $(BUILD)
 	$(VERILATOR) --cc --exe --build -Wall -Wno-fatal $(VL_OPT) -DTV80_REFRESH \
 	    --x-assign fast --x-initial fast --top-module tb_zex \
-	    --Mdir $(BUILD)/vl_zex -o vzex zex/tb_zex.v zex/zex_main.cpp $(TV80_SRC) \
+	    --Mdir $(BUILD)/vl_zex -o vzex zex/tb_zex.v $(CURDIR)/zex/zex_main.cpp $(TV80_SRC) \
 	    > $(BUILD)/vl_zex.log
 
 ZEX_DEPS := $(BUILD)/vl_zex/vzex $(BUILD)/cpm.bin
