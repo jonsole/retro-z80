@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the start of the video unit: the 576p beam and the background colour on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, then changes the colour once a second from a VBLANK interrupt.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one bitmap layer, L0, and the palettes (issue #13) on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -39,13 +39,14 @@ Loading over JTAG changes only the FPGA, until the power goes off. The flash and
 
 ## The computer: what you should see
 
-On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The whole picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`):
+On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle:
 
 | Screen | Meaning |
 |--------|---------|
 | No signal | The beam is off: the FPGA is not loaded, the clocks are not running, or the Z80 did not run the boot ROM's first instructions (they start the beam a few microseconds after reset) |
 | Blue | The self-test is running. It takes about 0.8 ms (some 25 lines), so blue is only seen as a flash, if at all. **A screen that stays blue means the Z80 stopped inside the self-test** (for example an SRAM read that never returns the right byte and a loop that never ends) |
 | **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
+| **The palette chart** appears in the middle about 20 ms after green (at once, to the eye): a 512 × 512 square of 16 rows of 16 cells, each 32 × 32 pixels, with a black line on the right and bottom of each cell. Row 1 is the default palette's Spectrum colours: black, blue, red, magenta, green, cyan, yellow, white, then the same eight bright (the bright black looks black). Rows 2–14 and the first half of row 15 are a 6 × 6 × 6 colour cube: blue changes fastest along the row, then green, then red, from black (row 2's first cell) to white (row 15's eighth cell). The last 24 cells, the second half of row 15 and row 16, are a grey ramp from near black to near white | **The layer works** (issue #13): L0 is an 8-bit bitmap at 2 × across and 8 × down, fetched from the SRAM through the scheduler, coloured through PALETTE0, whose entries 16–255 the boot ROM wrote through PALIDX and PALDAT. A cell out of place, a torn or jumping chart, stripes in it or wrong colours point at the layer fetch or the palette. The background round the chart keeps changing colour (next row) |
 | Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
 
@@ -114,14 +115,14 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 
 ## Results: the computer
 
-Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns). DRC clean, no critical warnings. The build takes about 3 minutes.
+Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 and the palettes (issue #13) and the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns). One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
 
 | Resource | Used | Available | |
 |------|------|------|------|
-| LUTs | 2,080 | 10,400 | 20.0% |
-| Flip-flops | 1,261 | 20,800 | 6.1% |
-| Block RAM (36 Kb) | 9 (8 × 36 Kb boot ROM, 2 × 18 Kb serial FIFOs) | 25 | 36% |
-| DSP | 0 | 45 | 0% |
+| LUTs | 3,062 | 10,400 | 29.4% |
+| Flip-flops | 2,227 | 20,800 | 10.7% |
+| Block RAM (36 Kb) | 11 (8 × 36 Kb boot ROM, 2 × 36 Kb palettes, 2 × 18 Kb serial FIFOs) | 25 | 44% |
+| DSP | 2 (the register page palettes' divide by 3) | 45 | 4% |
 | MMCMs | 2 | 5 | |
 | Global clock buffers | 6 | 32 | |
 | Bonded I/O | 93 | 210 | 44% |
@@ -130,16 +131,18 @@ Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the interrupt controller (
 |------|------|------|
 | tv80 (with the 32 LUT-RAM register file) | 1,156 | 232 |
 | Serial and its FIFOs | 263 | 195 |
-| Bus interface | 210 | 112 |
-| Video (beam, background colour, VIDINTEN) | 186 | 187 |
+| Bus interface (it now also carries the palette read from its register bus input) | 393 | 117 |
+| Video (beam, registers, palettes, priority, pixel pipeline) | 382 | 436 |
+| Layer fetch (`bpldma.v`) | 453 | 552 |
+| Layer L0's pixel side (`layer_pix.v`) | 119 | 150 |
 | MMU | 150 | 297 |
 | Interrupt controller (with only VBLANK and SOFT as sources, synthesis folds the tied-off lines away) | 9 | 54 |
 | Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 100 | about 180 |
 
 | Clock | Frequency | Worst setup slack | Worst hold slack |
 |------|------|------|------|
-| System (`c0`) | 100 MHz | +0.455 ns (the serial receive FIFO count to its idle timer) | +0.057 ns |
-| Pixel (`p0`) | 27 MHz | +26.906 ns | +0.131 ns |
+| System (`c0`) | 100 MHz | +0.585 ns (the layer fetcher's pick of the next word, `want` to `a_first_w`) | +0.028 ns |
+| Pixel (`p0`) | 27 MHz | +24.614 ns | +0.058 ns |
 | Serialiser (`p1`) | 135 MHz | (only the OSERDESE2 clock pins; pulse width slack +5.252 ns) | |
 
 Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). Other tight 100 MHz paths: tv80's instruction register to the bus interface's address register (+0.89 ns, single-cycle); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.
