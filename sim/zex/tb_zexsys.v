@@ -38,6 +38,7 @@
 //     and is the byte the memory holds at that address, by a model of the
 //     MMU kept here from the Z80's own writes to the MMU registers (spec 2,
 //     section 9; worked out here, not taken from the design);
+//   - the CPU never has both of a slot's CPU cycles (spec 1, section 13);
 //   - every T-state is 5 clocks and ends on slot edge 0 or 5 (20 MHz);
 //   - with +dma, every DMA read gives the word last written there.
 //
@@ -224,13 +225,27 @@ module tb_zexsys (input clk);
     // (1) The scheduler (as tb.v): a CPU request standing when a CPU cycle
     //     (0 or 2) is given out must get it; sc 9 or 3 = a CPU cycle starts
     //     at the next edge.
+    //     Spec 1, section 13 ("one CPU cycle per slot"): the CPU never gets
+    //     both cycles of one slot (cycle 0 and then cycle 2).
     integer cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
+    integer both_cycles = 0;
+    reg     slot_had0 = 1'b0;
     wire    cpu_cycle_next = sc == 4'd9 || sc == 4'd3;
     always @(posedge clk) if (!por) begin
+        if (sc == 4'd9) slot_had0 = 1'b0;               // a new slot starts at the next edge
         if (dut.cpu_req && !dut.cpu_ack && cpu_cycle_next) begin
             if (dut.go && dut.go_tag == 3'd1) begin
                 cpu_cycles = cpu_cycles + 1;
-                if (sc == 4'd9) cpu_issue0 = cpu_issue0 + 1; else cpu_issue2 = cpu_issue2 + 1;
+                if (sc == 4'd9) begin
+                    cpu_issue0 = cpu_issue0 + 1;
+                    slot_had0  = 1'b1;
+                end else begin
+                    cpu_issue2 = cpu_issue2 + 1;
+                    if (slot_had0) begin
+                        if (both_cycles < 5) $display("SLOT ERROR: the CPU had both cycles of one slot, clock %0d", cycles);
+                        both_cycles = both_cycles + 1;
+                    end
+                end
             end else begin
                 if (cpu_refused < 5) $display("WAIT ERROR: CPU request turned away from its cycle at clock %0d", cycles);
                 cpu_refused = cpu_refused + 1;
@@ -405,8 +420,8 @@ module tb_zexsys (input clk);
             $display("---- %0d clocks, %0d T-states", cycles, tstates);
             $display("---- Z80: %0d reads from the boot ROM, %0d from SRAM, %0d of other pages, %0d writes to SRAM",
                      reads_rom, reads_sram, reads_other, writes_sram);
-            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d turned away",
-                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_refused);
+            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d turned away, %0d slots with both",
+                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_refused, both_cycles);
             $display("---- never waited: %0d errors; read data at di %0d+ clocks before taken",
                      wait_errors + cpu_refused, spare);
             $display("---- speed: %0d errors; DMA: %0d reads, %0d writes, %0d errors",
@@ -420,6 +435,8 @@ module tb_zexsys (input clk);
             report;
             if (wait_errors != 0 || cpu_refused != 0 || cpu_cycles == 0)
                 $display("TEST FAILED: the Z80 waited");
+            else if (both_cycles != 0)
+                $display("TEST FAILED: the CPU had both cycles of a slot");
             else if (speed_errors != 0 || dma_errors != 0)
                 $display("TEST FAILED: speed or DMA errors");
             else if (!complete)
