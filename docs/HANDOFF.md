@@ -11,6 +11,10 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 - **Boards:** the **KS2** (issue 4, XC7A15T) is here and is the first hardware target, for a bring-up build loaded over JTAG with a Xilinx Platform Cable USB. The **KS3** (issue 5, XC7A35T) arrives in a few weeks and runs the full machine. No FT232H module yet.
 - **Phase:** 0 (planning). Nothing in `fpga/`, `firmware/` or `hardware/` exists yet.
 
+## 1a. Latest milestone (24 October 2026)
+
+**retro-z80 runs on the KS2.** The phase 1 computer (tv80 at 20 MHz, MMU, scheduler and SRAM controller from retro68k, boot ROM, serial, a minimal video unit) loaded over JTAG passes its self-test on the real 2 MB SRAM and shows a green screen (#11). HDMI works (#10); VGA not yet checked (#12). Phase 1 in simulation is complete: ZEXDOC and ZEXALL pass 67/67 on the bare core, ZEXDOC 67/67 on the whole machine (#2, #7). Build and load: `fpga/ks2/README.md`.
+
 ## 2. Where things are
 
 | File | What |
