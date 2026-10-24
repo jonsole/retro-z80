@@ -49,5 +49,5 @@ jobs:
           echo "$PWD/sjasmplus-src" >> "$GITHUB_PATH"
       - name: RTL lint (Verilator, widths cut short as errors)
         run: sh fpga/lint.sh
-      - name: Smoke tests, the system ("hello", the system test ROM, "hello" at every CPU speed) and the ZEX testbench checks
+      - name: Smoke tests, the system ("hello", the system test ROM, "hello" at every CPU speed) and the ZEX testbench checks, bare core and whole system
         run: make -C sim

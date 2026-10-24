@@ -16,7 +16,8 @@
 #                   and the R register test
 #   make zexdoc     ZEXDOC on the bare tv80 core in Verilator (long, see README)
 #   make zexall     ZEXALL, the same with the undocumented flags (long)
-#   make zexsyshello  the whole-system ZEX testbench's own checks (seconds)
+#   make zexsyshello  the whole-system ZEX testbench's own checks: hello must
+#                   pass and bad must fail (seconds)
 #   make zexsys     ZEXDOC on the whole system at 20 MHz (very long, see README)
 #
 # Needs: iverilog, verilator, sjasmplus, python3. Tools can be given
@@ -38,7 +39,7 @@ ROOT  := ..
 BUILD := build
 
 .PHONY: all smoke vsmoke hello hello2mb systest speeds lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb systest speeds zexhello
+all: smoke vsmoke hello hello2mb systest speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)

@@ -1,9 +1,9 @@
 # Simulation
 
-Tests of the computer in simulation: Icarus Verilog for most tests, Verilator for the long ones (ZEXDOC).
+Tests of the computer in simulation: Icarus Verilog for most tests, Verilator for the long ones (ZEXDOC on the bare core and on the whole system).
 
 ```
-make            # every test written so far, but not zexdoc and zexall
+make            # every test written so far, but not zexdoc, zexall and zexsys
 make smoke      # tool-chain smoke test: sjasmplus assembles a tiny ROM, Icarus checks its words
 make vsmoke     # the same test built with Verilator
 make hello      # the system: the boot ROM's self-test passes and it prints "hello" over USB serial, twice
@@ -15,6 +15,8 @@ make zexhello   # the ZEX testbench's own checks (seconds): a CP/M program that 
                 # one that must fail, and the R register test
 make zexdoc     # ZEXDOC on the bare tv80 core in Verilator (long, see below)
 make zexall     # ZEXALL, the same with the undocumented flags (long)
+make zexsyshello  # the whole-system ZEX testbench's own checks (seconds): hello must pass, bad must fail
+make zexsys     # ZEXDOC on the whole system at 20 MHz (very long, see below)
 ```
 
 ## The system tests (`make hello`, `make hello2mb`, `make systest`, `make speeds`)
@@ -50,3 +52,31 @@ cd build && ./vl_zex/vzex +cpm=cpm.bin +com=../zex/zexdoc.com +tests=1 +only=4
 cd build && ./vl_zex/vzex +cpm=cpm.bin +com=hello.com +tests=2 +trace=100
                                               # the bus for the first 100 clocks
 ```
+
+## ZEXDOC on the whole system (`make zexsys`)
+
+`zex/tb_zexsys.v` runs ZEXDOC on the real machine (ticket #7): `fpga/rtl/retroz80.v`, with tv80 behind the bus interface, the MMU, the scheduler and the SRAM controller, at 20 MHz, in Verilator with a C++ clock (`zex/zexsys_main.cpp`). In place of `tb.v`'s timed SRAM and pad models it has a cycle model of them: the pins show in each clock what the controller set at the edge before, the SRAM takes the write data where /WE rises (low in a clock's first half, high in its second), and a read gives the word at the address on the pins. The SRAM's datasheet timing is checked by `tb.v`'s runs in Icarus; it does not depend on what the Z80 runs. The FT232H is left idle.
+
+The boot ROM is a loader, `zex/zexboot.asm`. It maps windows 2–7 to SRAM pages 2–7 and copies a trampoline to `0xFFE0`; the trampoline maps windows 0 and 1 to pages 0 and 1 and jumps to `0x0100`. So the Z80 sees a flat 64 KB of SRAM. Before the run the testbench puts the CP/M image at physical `0x000000` and the program at `0x000100`. The image is `zex/cpm.asm` built with `CONSOLE = 0x01` (`cpmsys.bin`): port `0x00` is the system block here, while `0x01` is a reserved page, which the machine ignores (spec 1, section 6.1). The testbench takes each character from the core's pins. The run ends at the jump to 0: the second opcode fetch from `0x0000` (the first is the reset's, from the boot ROM).
+
+A run passes when every test prints `OK`, none prints `ERROR`, `Tests complete` comes before the jump to 0, and **the Z80 never waited**, checked as `tb.v` checks it:
+
+- every CPU request is issued in the first CPU cycle (0 or 2) that comes while it stands, and none is turned away;
+- the bus interface's late flag never rises;
+- every byte the core takes from memory is at `di` at least a clock before the cen edge that ends T2 (10n − 9 at 20 MHz), and equals the memory's byte at that address, by the testbench's own model of the MMU, worked out from the Z80's writes.
+
+It also checks that the CPU never has both CPU cycles of one slot (spec 1, section 13), that every T-state is 5 clocks and ends on slot edge 0 or 5, and, with `+dma` (on in `make zexsys` and `make zexsyshello`), that the DMA port's random reads and writes in `0x380000` up all come back right. The summary gives the counts.
+
+`make zexsyshello` (part of `make`) runs `hello.com`, which must pass, and `bad.com`, which must fail. It takes about a second once built; the Verilator build takes about a minute. `make zexsys` runs ZEXDOC's 67 tests as separate processes, `ZEX_JOBS` at a time, into `build/zexsys.log`, as `make zexdoc` does.
+
+The whole system runs about 0.63 million T-states a second per process with `+dma` (3.2 million clocks), and 0.68 million without: about 6 times slower than the bare core. ZEXDOC's 46,740 million T-states are about 21 CPU-hours. The wall time is set by test 5 (20,000 million T-states), about 9 hours however many CPUs there are. See `zex/RESULTS.md` for the run.
+
+```
+make zexsys ZEX_JOBS=14
+cd build && ./vl_zexsys/vzexsys +cpm=cpmsys.bin +com=../zex/zexdoc.com +tests=1 +only=13 +dma
+                                              # one test (here 13, <inc,dec> a: 95 seconds)
+cd build && ./vl_zexsys/vzexsys +cpm=cpmsys.bin +com=hello.com +tests=2 +trace=100
+                                              # the first 100 memory and I/O accesses
+```
+
+Options: `+cpm=FILE`, `+com=FILE`, `+tests=N`, `+only=K`, `+dma`, `+maxcycles=N` (clocks), `+trace=N`.
