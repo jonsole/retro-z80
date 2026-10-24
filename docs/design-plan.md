@@ -91,6 +91,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 14 | Sequencer: list | Each entry is a sprite's 16 register bytes as in the custom block (PT 3, H 4, V 4, CTL 1, STEP 4); its VSTART is the start line; software sorts by it; an entry with VSTART `0x7FF` ends the list. SEQLC (3 bytes) points at the list and is reloaded every frame, as COP1LC is |
 | 14 | Sequencer: sprites | The hardware gives each entry the **lowest-numbered free sprite** among those allowed by **SEQMASK** (one bit per sprite; the rest stay with the copper and CPU). An entry whose start line comes with no sprite free is **skipped** for that frame: SEQSTAT.SKIP (sticky) and a count of skipped entries, with an optional interrupt through VIDERR |
 | 14 | Sequencer: spec | New spec 17, written now; built in phase 4 after the sprite unit is copied from retro68k (main `bf91e97`). Registers in the custom block's MOVEF range |
+| 15 | PC keyboard | **Now: a serial console**, as retro68k: the monitor, the boot console and BASIC's host layer read keys from the USB serial link as well as from the keyboards, so any PC terminal works. **Later: key injection** (a retro-z80 extra): control commands on the link carry PS/2 key-down and key-up codes into the keyboard unit, so they reach KBDATA and the Spectrum rows on port `0xFE` like a real keyboard's; with a small PC tool that sends presses and releases |
 
 ## 2. Key decisions
 
