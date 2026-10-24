@@ -23,9 +23,16 @@
 // goes low with rd_n or wr_n, at the address of section 6.1's decode; read
 // data (or 0xFF if no unit answered, or for a reserved page) is held at di.
 //
-// Version for ticket #4: no register bus arbiter yet (the CPU is the only
-// master), no capture (spec 3, rule 4), no interrupt vector (an acknowledge
-// reads 0xFF) and no NMI paging.
+// Interrupt acknowledge (spec 1, section 8.1): in the first T1 of the
+// acknowledge cycle, at E + 3, vreq asks the interrupt controller for the
+// vector; the controller chooses at that edge, and its vector is held at di
+// from E + 4. tv80 makes the acknowledge's wait states by repeating T1, so
+// the T1 actions must not run again in the repeats (open point B11): only a
+// T1 after some other T-state asks. One int_ack pulse follows when the
+// acknowledge's M1 ends.
+//
+// Version for ticket #16: no register bus arbiter yet (the CPU is the only
+// master), no capture (spec 3, rule 4) and no NMI paging.
 `include "regmap.vh"
 
 module bus_if (
@@ -80,6 +87,11 @@ module bus_if (
     input  wire [7:0]  rb_rdata,
     input  wire        rb_hit,
 
+    // Interrupt controller (intc.v)
+    output wire        int_vreq,       // 1 clock at E + 3 of an acknowledge's first T1
+    input  wire [7:0]  int_vec,        // the vector, from the clock after int_vreq
+    output reg         int_ack,        // 1 clock: the acknowledge's M1 has ended
+
     // Checks: the core took a byte before it was at di (never, if the
     // timing of spec 1, section 5 holds)
     output reg         late
@@ -91,6 +103,14 @@ module bus_if (
         if (cen)              tc <= 3'd0;
         else if (tc != 3'd7)  tc <= tc + 3'd1;
     wire at3 = (tc == 3'd2);           // the clock that ends at E + 3
+
+    // A T1 that follows some other T-state starts an M-cycle; a repeated T1
+    // (the wait states of an I/O cycle or an acknowledge) does not
+    reg  was_t1;                       // the T-state before this one was a T1
+    always @(posedge clk)
+        if (rst)      was_t1 <= 1'b0;
+        else if (at3) was_t1 <= tstate[1];
+    wire first_t1 = tstate[1] && !was_t1;
 
     // ---------------------------------------------------------------- memory
     wire is_fetch = mcycle[0] && intcycle_n;
@@ -113,17 +133,24 @@ module bus_if (
     reg        rom_rd;                 // the boot ROM answers in this clock
     reg        io_rd_d;                // an I/O read strobe was sent last clock
     reg        io_none;                // an I/O read of a reserved page
+    reg        vreq_d;                 // the vector was asked for last clock
+    reg        in_ack;                 // between the vector request and int_ack
+
+    assign int_vreq = at3 && first_t1 && is_ack;
 
     always @(posedge clk) begin
         rom_en <= 1'b0;
         rom_we <= 2'b00;
         rom_rd <= rom_en && rom_we == 2'b00;
         late   <= 1'b0;
+        vreq_d <= int_vreq;
+        int_ack <= 1'b0;
         if (rst) begin
             cpu_req <= 1'b0;
             cpu_we  <= 1'b0;
             rd_wait <= 1'b0;
             io_rd_d <= 1'b0;
+            in_ack  <= 1'b0;
             di      <= 8'hFF;
         end else begin
             if (cpu_ack) cpu_req <= 1'b0;
@@ -146,8 +173,14 @@ module bus_if (
                 else
                     di <= 8'hFF;                        // NONE, reserved; a fetch from REGS
             end
-            if (at3 && tstate[1] && is_ack)
-                di <= 8'hFF;                            // no interrupt controller yet
+            // The acknowledge: the vector at di from E + 4; int_ack once
+            // the M1 is over (the core has taken the byte at the end of T2)
+            if (vreq_d) di <= int_vec;
+            if (int_vreq) in_ack <= 1'b1;
+            else if (in_ack && !is_ack) begin
+                in_ack  <= 1'b0;
+                int_ack <= 1'b1;
+            end
 
             if (at3 && tstate[2] && is_write) begin
                 if (ap_sram) begin

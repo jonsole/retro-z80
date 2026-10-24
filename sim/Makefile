@@ -9,6 +9,9 @@
 #                   self-test sees pages 0x100-0x1FF mirror 0x000-0x0FF
 #   make systest    the system test ROM: system registers, I/O decode, SRAM
 #                   bytes, writable boot ROM, the self-test, soft reset
+#   make intc       the interrupt controller on its own (sim/intc/tb_intc.v)
+#   make inttest    the interrupt test ROM: IM 2 and IM 1, priority, INTENA,
+#                   INTPEND/INTRAW, SOFTINT, VBLANK (one frame: a minute or so)
 #   make speeds     the speed test ROM: "hello" at every CPUSPEED setting,
 #                   with the T-state rates measured
 #   make failshow   the boot ROM built to report check 45 as failed: the
@@ -17,6 +20,10 @@
 #   make vtest      the video test: L0 bitmaps in bands of different settings,
 #                   checked pixel by pixel against a Python model (about 5
 #                   minutes for each variant; not part of make all)
+#   make bootvbl    the boot ROM built to change colour every frame: after
+#                   "hello" the VBLANK handler must turn the screen from
+#                   green to yellow, then cyan (40 ms simulated, a few
+#                   minutes; not part of make all)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -44,8 +51,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb systest speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb systest intc inttest speeds failshow bootvbl vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb systest intc inttest speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -79,7 +86,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v layer_pix.v bpldma.v video.v retroz80.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
 $(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -115,6 +122,21 @@ systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=systest.hex +dma | tee systest.log
 	@grep -q "^TEST PASSED" $(BUILD)/systest.log
 
+# The interrupt controller on its own (ticket #16)
+$(BUILD)/tb_intc.vvp: intc/tb_intc.v $(RTL)/intc.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_intc -o $@ intc/tb_intc.v $(RTL)/intc.v
+
+intc: $(BUILD)/tb_intc.vvp
+	cd $(BUILD) && $(VVP) -n tb_intc.vvp | tee intc.log
+	@grep -q "^TEST PASSED" $(BUILD)/intc.log
+
+$(BUILD)/inttest.bin: inttest/inttest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+inttest: $(BUILD)/tb.vvp $(BUILD)/inttest.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=inttest.hex +dma +timeout=40000 | tee inttest.log
+	@grep -q "^TEST PASSED" $(BUILD)/inttest.log
+
 speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=speeds.hex +speeds +dma +timeout=10000 | tee speeds.log
 	@grep -q "^TEST PASSED" $(BUILD)/speeds.log
@@ -128,6 +150,13 @@ failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootfail.hex +failshow=45 +timeout=70000 | tee failshow.log
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
+# The boot ROM's VBLANK colour cycle (ticket #16), a colour a frame
+$(BUILD)/bootvbl.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DCYCLE_FRAMES=1 --raw=$@ $<
+
+bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootvbl.hex +hello +bgcycle +timeout=70000 | tee bootvbl.log
+	@grep -q "^TEST PASSED" $(BUILD)/bootvbl.log
 # The video test (spec 4, ticket #13): vtest/vgen.py makes bands of L0
 # settings, a palette and random picture data; vtest/vtest.asm writes them,
 # band by band, timed from each frame's start; tb.v logs the writes and grabs

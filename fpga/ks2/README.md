@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, and the start of the video unit: the 576p beam and the background colour on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the start of the video unit: the 576p beam and the background colour on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, then changes the colour once a second from a VBLANK interrupt.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -45,7 +45,8 @@ On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both
 |--------|---------|
 | No signal | The beam is off: the FPGA is not loaded, the clocks are not running, or the Z80 did not run the boot ROM's first instructions (they start the beam a few microseconds after reset) |
 | Blue | The self-test is running. It takes about 0.8 ms (some 25 lines), so blue is only seen as a flash, if at all. **A screen that stays blue means the Z80 stopped inside the self-test** (for example an SRAM read that never returns the right byte and a loop that never ends) |
-| **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and stops (HALT) |
+| **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
+| Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
 
 The checks (`firmware/boot/selftest.asm`):
@@ -113,12 +114,12 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 
 ## Results: the computer
 
-Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324. DRC clean, no critical warnings. The build takes about 3 minutes.
+Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns). DRC clean, no critical warnings. The build takes about 3 minutes.
 
 | Resource | Used | Available | |
 |------|------|------|------|
-| LUTs | 1,949 | 10,400 | 18.7% |
-| Flip-flops | 1,190 | 20,800 | 5.7% |
+| LUTs | 2,080 | 10,400 | 20.0% |
+| Flip-flops | 1,261 | 20,800 | 6.1% |
 | Block RAM (36 Kb) | 9 (8 × 36 Kb boot ROM, 2 × 18 Kb serial FIFOs) | 25 | 36% |
 | DSP | 0 | 45 | 0% |
 | MMCMs | 2 | 5 | |
@@ -127,17 +128,18 @@ Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324. DRC clean, no critical warnings
 
 | Part | LUTs | Flip-flops |
 |------|------|------|
-| tv80 (with the 32 LUT-RAM register file) | 1,092 | 227 |
+| tv80 (with the 32 LUT-RAM register file) | 1,156 | 232 |
 | Serial and its FIFOs | 263 | 195 |
-| Video (beam and background colour) | 182 | 180 |
-| MMU | 157 | 297 |
-| Bus interface | 151 | 107 |
-| Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 95 | about 140 |
+| Bus interface | 210 | 112 |
+| Video (beam, background colour, VIDINTEN) | 186 | 187 |
+| MMU | 150 | 297 |
+| Interrupt controller (with only VBLANK and SOFT as sources, synthesis folds the tied-off lines away) | 9 | 54 |
+| Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 100 | about 180 |
 
 | Clock | Frequency | Worst setup slack | Worst hold slack |
 |------|------|------|------|
-| System (`c0`) | 100 MHz | +0.863 ns (the serial receive FIFO count to its idle timer) | +0.037 ns |
-| Pixel (`p0`) | 27 MHz | +26.239 ns | +0.178 ns |
+| System (`c0`) | 100 MHz | +0.455 ns (the serial receive FIFO count to its idle timer) | +0.057 ns |
+| Pixel (`p0`) | 27 MHz | +26.906 ns | +0.131 ns |
 | Serialiser (`p1`) | 135 MHz | (only the OSERDESE2 clock pins; pulse width slack +5.252 ns) | |
 
 Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). Other tight 100 MHz paths: tv80's instruction register to the bus interface's address register (+0.89 ns, single-cycle); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.

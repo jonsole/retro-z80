@@ -9,14 +9,18 @@
 // the registers of layers not built read 0xFF and PRIO naming them shows
 // nothing. Not yet: tile mode (CTRL0.MODE = 1 layers are not fetched),
 // sprites, direct colour (VIDCON.DIRECT is kept and read back), the
-// attribute layer, LINECMP, VIDINTEN and interrupts, BEAMPOS and FRAMECOUNT,
-// port 0xFE.
+// attribute layer, LINECMP, the LINE and VIDERR requests, BEAMPOS and
+// FRAMECOUNT, port 0xFE. Ticket #16 added VIDINTEN and the request line to
+// the interrupt controller (VBLANK).
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
 //                    DIRECT (4) kept; SHAREPAL (5) all layers on PALETTE0
 //   VIDSTAT   0x001  VBLANK (0), OVERRUN0-2 (4-6): sticky, write 1 to clear;
 //                    INVBLANK (3), live
+//   VIDINTEN  0x002  enables for VIDSTAT's flags, bits 0-2 and 4-7 (bit 3
+//                    reads 0); irq is on while VBLANK and its enable are
+//                    (spec 4, section 3.4; spec 8: VBLANK is source 0)
 //   PRIO      0x003  FRONT, MIDDLE, BACK; reset 0x24
 //   BGCOLOR   0x004  blue, green, red; the red byte commits (spec 3, rule 7)
 //   PALIDX    0x009  entry (7-0), palette (9-8)
@@ -58,6 +62,7 @@ module video #(
     output wire        rb_hit,         // with rb_rdata: this unit answered
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
+    output wire        irq,            // to the interrupt controller: source VBLANK (0)
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -97,6 +102,7 @@ module video #(
     reg         vs_vblank;             // VIDSTAT.VBLANK
     reg  [2:0]  vs_over;               // VIDSTAT.OVERRUN0-2
     reg  [5:0]  prio;
+    reg  [7:0]  vidinten;              // VIDINTEN; bit 3 always 0
     reg  [23:0] bgcolor;               // RRGGBB
     reg  [15:0] cab;                   // the CPU's colour assembly buffer: green, blue
     reg  [6:1]  dmacon;                // DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN (1)
@@ -136,6 +142,8 @@ module video #(
     wire [2:0] ov_t;                // OVERRUN toggles from the layer units
     (* ASYNC_REG = "TRUE" *) reg [2:0] ov_s1, ov_s2;
     reg  [2:0] ov_s3;
+
+    assign irq = vs_vblank && vidinten[`RM_VIDINTEN_VBLANK];
     always @(posedge clk) begin
         ov_s1 <= ov_t;
         ov_s2 <= ov_s1;
@@ -148,7 +156,7 @@ module video #(
     // (open point V5), so with its fetch off it is off, with no OVERRUN
     wire fetch_en = vidcon[0] && dmacon[6] && dmacon[5];
 
-    wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) && (rb_addr != `RM_VIDINTEN) &&
+    wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) &&
                     (rb_addr != `RM_LINECMP0) && (rb_addr != `RM_LINECMP1) ||
                     (rb_addr >= `RM_VIDSIZE0) && (rb_addr <= `RM_VIDSIZE3);
 
@@ -187,6 +195,7 @@ module video #(
             vs_vblank <= 1'b0;
             vs_over   <= 3'd0;
             prio      <= 6'b10_01_00;      // L0 in front, then L1, then L2
+            vidinten  <= 8'd0;
             bgcolor   <= 24'd0;
             cab       <= 16'd0;
             dmacon    <= 6'd0;
@@ -207,6 +216,7 @@ module video #(
                     if (rb_wdata[`RM_VIDSTAT_VBLANK]) vs_vblank <= 1'b0;
                     vs_over <= vs_over & ~rb_wdata[6:4];
                 end
+                `RM_VIDINTEN: vidinten <= rb_wdata & 8'hF7;
                 `RM_PRIO:     prio <= rb_wdata[5:0];
                 `RM_BGCOLOR0: cab[7:0]  <= rb_wdata;
                 `RM_BGCOLOR1: cab[15:8] <= rb_wdata;
@@ -274,6 +284,7 @@ module video #(
         if (rb_rd) case (rb_addr)
             `RM_VIDCON:   reg_q <= {2'd0, vidcon};
             `RM_VIDSTAT:  reg_q <= {1'b0, vs_over, invblank, 2'd0, vs_vblank};
+            `RM_VIDINTEN: reg_q <= vidinten;
             `RM_PRIO:     reg_q <= {2'd0, prio};
             `RM_BGCOLOR0: reg_q <= bgcolor[7:0];
             `RM_BGCOLOR1: reg_q <= bgcolor[15:8];
