@@ -1,9 +1,10 @@
 // retro-z80: the computer, without board-specific parts (clocks, pads).
 // After retro68k's retro68k.v.
 //
-// Version for ticket #6 (phase 1): tv80 at every CPUSPEED speed behind the
-// bus interface, the scheduler and SRAM controller, the boot ROM, the system
-// registers and USB serial. One DMA port stands in for the DMA users still
+// Version for ticket #11: tv80 at every CPUSPEED speed behind the bus
+// interface, the scheduler and SRAM controller, the boot ROM, the system
+// registers, USB serial, and the start of the video unit (the 576p beam and
+// the background colour). One DMA port stands in for the DMA users still
 // to come, so tests can load the memory while the Z80 runs.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
@@ -28,6 +29,12 @@ module retroz80 #(
     input  wire [7:0]  ft_d_i,
     output wire [7:0]  ft_d_o,
     output wire        ft_d_oe, ft_rd_n, ft_wr_n, ft_siwu_n,
+
+    // Video (spec 4): the pixel clock and the picture, before the HDMI and
+    // VGA output stages (board parts)
+    input  wire        clk_pix,        // 27 MHz
+    output wire [23:0] vid_rgb,        // RRGGBB
+    output wire        vid_hsync, vid_vsync, vid_de,
 
     // DMA port (tests; later the DMA users)
     input  wire        dma_req, dma_we,
@@ -118,8 +125,8 @@ module retroz80 #(
     wire [14:1] rom_addr;
     wire [15:0] rom_wdata, rom_rdata;
     wire [12:0] rb_addr;
-    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu;
-    wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu;
+    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid;
+    wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid;
     wire        late;
 
     bus_if bif (
@@ -133,7 +140,7 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu), .rb_hit(hit_sys | hit_ser | hit_mmu),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid), .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid),
         .late(late)
     );
 
@@ -211,5 +218,14 @@ module retroz80 #(
         .p_rxv(), .p_rxd(), .p_rxpop(1'b0), .p_txr(), .p_txpush(1'b0), .p_txd(8'd0),
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
+    );
+
+    // ---------------------------------------------------------------- video (spec 4)
+    video vid (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_vid), .rb_hit(hit_vid),
+        .frame_tick(),
+        .clk_pix(clk_pix), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
 endmodule

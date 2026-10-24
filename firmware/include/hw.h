@@ -1289,6 +1289,69 @@
 #define DMXINTEN_CH3_B               0x3u
 #define DMXINTEN_CH3_W               0x1u
 #define DMXINTEN_CH3_M               0x8u
+#define SEQCON                       0x300u      /* RW, spec 17/8 */
+#define SEQCON_N                     0x1u
+#define SEQCON_P                     0x13u
+#define SEQCON_EN_B                  0x0u
+#define SEQCON_EN_W                  0x1u
+#define SEQCON_EN_M                  0x1u
+#define SEQCON_IRQEN_B               0x1u
+#define SEQCON_IRQEN_W               0x1u
+#define SEQCON_IRQEN_M               0x2u
+#define SEQLC                        0x301u      /* RW, spec 17/8 */
+#define SEQLC_N                      0x3u
+#define SEQLC_P                      0x113u
+#define SEQLC0                       0x301u
+#define SEQLC0_P                     0x113u
+#define SEQLC1                       0x302u
+#define SEQLC1_P                     0x213u
+#define SEQLC2                       0x303u
+#define SEQLC2_P                     0x313u
+#define SEQLC_ADDR_B                 0x1u
+#define SEQLC_ADDR_W                 0x15u
+#define SEQLC_ADDR_M                 0x3FFFFEUL
+#define SEQMASK                      0x304u      /* RW, spec 17/8 */
+#define SEQMASK_N                    0x1u
+#define SEQMASK_P                    0x413u
+#define SEQMASK_SPR_B                0x0u
+#define SEQMASK_SPR_W                0x8u
+#define SEQMASK_SPR_M                0xFFu
+#define SEQSTAT                      0x305u      /* RW1C, spec 17/8.1 */
+#define SEQSTAT_N                    0x1u
+#define SEQSTAT_P                    0x513u
+#define SEQSTAT_SKIP_B               0x0u
+#define SEQSTAT_SKIP_W               0x1u
+#define SEQSTAT_SKIP_M               0x1u
+#define SEQSTAT_END_B                0x1u
+#define SEQSTAT_END_W                0x1u
+#define SEQSTAT_END_M                0x2u
+#define SEQSTAT_RUN_B                0x2u
+#define SEQSTAT_RUN_W                0x1u
+#define SEQSTAT_RUN_M                0x4u
+#define SEQSKIP                      0x306u      /* R, spec 17/8.1 */
+#define SEQSKIP_N                    0x1u
+#define SEQSKIP_P                    0x613u
+#define SEQSKIP_COUNT_B              0x0u
+#define SEQSKIP_COUNT_W              0x8u
+#define SEQSKIP_COUNT_M              0xFFu
+#define SEQSKIPL                     0x307u      /* R, spec 17/8.1 */
+#define SEQSKIPL_N                   0x1u
+#define SEQSKIPL_P                   0x713u
+#define SEQSKIPL_COUNT_B             0x0u
+#define SEQSKIPL_COUNT_W             0x8u
+#define SEQSKIPL_COUNT_M             0xFFu
+#define SEQPT                        0x308u      /* R,CAP, spec 17/8 */
+#define SEQPT_N                      0x3u
+#define SEQPT_P                      0x813u
+#define SEQPT0                       0x308u
+#define SEQPT0_P                     0x813u
+#define SEQPT1                       0x309u
+#define SEQPT1_P                     0x913u
+#define SEQPT2                       0x30Au
+#define SEQPT2_P                     0xA13u
+#define SEQPT_ADDR_B                 0x1u
+#define SEQPT_ADDR_W                 0x15u
+#define SEQPT_ADDR_M                 0x3FFFFEUL
 #define COPR                         0x118u      /* COPR0..7, spec 6/4.6 */
 #define COPR_NUM                     0x8u
 #define COPR0                        0x118u      /* RW,SEP, spec 6/4.6 */
@@ -2727,6 +2790,8 @@
 #define VID_H                        0x240u      /* Picture height */
 #define BEAM_W                       0x360u      /* Beam pixels per line */
 #define BEAM_H                       0x271u      /* Beam lines per frame */
+#define SEQ_END                      0x7FFu      /* Sequencer: VSTART of the end-of-list entry */
+#define SEQ_ENTRY                    0x10u       /* Sequencer: bytes per list entry */
 #define SYSRESET_MAGIC               0xA5u       /* SYSRESET: a full reset */
 #define WDKICK_MAGIC                 0x5Au       /* WDKICK: restart the watchdog's time */
 

@@ -75,9 +75,22 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 11 | Custom block | `0x000`–`0x00F` video globals; `0x010`–`0x08F` sprites 0–7; `0x090`, `0x0B0`, `0x0D0` layers L0–L2 (32 bytes each); `0x0F0`–`0x0FF` video read-only; from `0x100`: copper control and state, sprite globals, attribute layer, DMA engine (4 channels), audio (reserved). Copper MOVE reaches `0x000`–`0x0EF` |
 | 11 | Small items | `CMOVEL` keeps retro68k's meaning (a whole wide register); the one-byte far move is `CMOVEF`. Unused addresses read `0xFF`. Serial: retro68k's control sequence; check RXCOUNT before reading. SDCON keeps retro68k's layout; no SD transmit buffer. SERDROP, a membrane key map and JOY1X/JOY2X get registers. PS/2 keys also show on `0xFE`. No IM 0, no hardware debugger. CHIPMB is a build option. No UPLOAD on a long reset press; beeper level fixed. Copper prefetch 2 words; RESUME doesn't save the latch. The boot console belongs to spec 7. Deferred: 48-bit TIME, timer capture, DMA job queue, high-speed SD, accelerator-pin interrupts, a faster paging port |
 | 11 | Next specs | 15 geometry unit (branch 10; its registers in the system page, reached by `OUT (C)` or the register page), 16 boot ROM |
+| 11 | Review | Sprite HSTART unsigned, as retro68k's RTL. Port `0xFE` border writes act immediately (mid-line stripes; a Spectrum extra); BGCOLOR written as a register keeps retro68k's line-start rule. Byte names are digits everywhere (NAME0, NAME1 …; `MMU0_0` where the name ends in a digit). The DMA engine reads the boot ROM through its second block-RAM port; port jobs move bytes over the register bus, paced by the unit |
+| 11 | Register writes | **Direct, no latches** (CPU, copper, DMA engine): every register byte is written straight through, in any order, with any instruction. Software changes wide display registers in the vertical blank or with the copper at a set position, as on the Amiga. Three exceptions: MMU pages commit on the high byte; palette entries change when the red byte arrives (the PALDAT assembly); reads of live counters capture on the low byte (one tagged capture per master, as retro68k). Replaces the per-register latches (saves about 1,000–2,000 LUTs) |
+| 11 | Sprite restart | As retro68k's rewritten sprite spec: a **CTL write starts** a sprite (one byte, never half-written); **the vertical blank stops every sprite**, so each frame the copper or CPU writes the sprite's registers with CTL last. PT, H, V and STEP act on a running sprite from the next line; a PT write sets the next image line's start (its three bytes within one line, or while the sprite is stopped); the window is checked every line; HSTART is 16 or more; SPRDMA pauses a sprite. Replaces the DMA-off workaround (spec 5, S10) |
 | 12 | First board | The **KS2** (issue 4) is the first hardware target, a bring-up build, while the KS3 is on its way. Same RTL with a board option (issue 4 / issue 5): the KS2 pin file from the Next's sources, 2 MB SRAM (CHIPMB), 9-bit VGA (HDMI keeps 24-bit), file `core2.bit` |
 | 12 | KS2 contents | CPU, MMU, SRAM, boot ROM, serial, interrupts, timers, layers with palettes, copper. Sprites, the DMA engine and the attribute layer are added only while they fit the XC7A15T's 10,400 LUTs; the full machine waits for the KS3 |
 | 12 | Loading | JTAG with the user's Xilinx Platform Cable USB (Vivado Hardware Manager). The FT232H module is still to get; until then KS2 output is on screen only |
+| 12 | RTL reuse | retro68k's modules are **copied** into this repo at a recorded retro68k commit, each listed with its origin and what was changed in a provenance file next to the RTL; later retro68k fixes are ported by hand. Each unit's register interface is **narrowed** to retro-z80's byte registers exactly as the specs lay them out (no 32-bit adapter). Each ticket copies the modules it needs; copy only from a committed retro68k state |
+| 13 | BASIC | **BBC BASIC (Z80) v5.00** by R. T. Russell (zlib licence; github.com/rtrussell/BBCZ80), the interpreter (16,374 bytes) unchanged apart from assembler syntax for sjasmplus, with Russell's ACORN.Z80 graphics and sound layer |
+| 13 | BASIC: where | A **ROM image in write-protected SRAM**: the boot ROM loads it from SD or over serial into SRAM pages and sets their write page to NONE; a checksum lets a warm reset skip the reload. No extra block RAM |
+| 13 | BASIC: host layer | A **new retro-z80 host layer** (OSINIT, OSWRCH, OSRDCH, OSLINE, OSKEY, OSCLI, files, TIME, VDU/PLOT and the rest): console on a tile layer, PS/2 and Spectrum keyboards, SD/FAT files, a 100 Hz tick from a timer; borrowing VDU, PLOT and line-editor code from Dean Belfield's Spectrum Next and Cerberus ports (zlib) |
+| 13 | BASIC: name | The README says the name "BBC BASIC" is not transferable to a derived work: ask R. T. Russell for permission to call it "BBC BASIC (Z80) for retro-z80"; until then "retro-z80 BASIC, based on BBC BASIC (Z80) by R. T. Russell" |
+| 13 | BASIC: when | After phase 1, with the boot ROM spec (16), the SD card, keyboard and console; research notes in `docs/notes/bbc-basic.md` |
+| 14 | Sprite sequencer | A retro-z80 extra (retro68k keeps it on its "later" list and may copy it unchanged): an alternative to copper lists for reusing the 8 sprites down the screen. A small **register-bus master** reads a list in SRAM sorted by start line and writes each entry into the SPRx registers in the gap line after a sprite's previous use ends (H, V, STEP, PT, then CTL last), so the sprite hardware is unchanged and the copper can be mixed in. A few hundred LUTs |
+| 14 | Sequencer: list | Each entry is a sprite's 16 register bytes as in the custom block (PT 3, H 4, V 4, CTL 1, STEP 4); its VSTART is the start line; software sorts by it; an entry with VSTART `0x7FF` ends the list. SEQLC (3 bytes) points at the list and is reloaded every frame, as COP1LC is |
+| 14 | Sequencer: sprites | The hardware gives each entry the **lowest-numbered free sprite** among those allowed by **SEQMASK** (one bit per sprite; the rest stay with the copper and CPU). An entry whose start line comes with no sprite free is **skipped** for that frame: SEQSTAT.SKIP (sticky) and a count of skipped entries, with an optional interrupt through VIDERR |
+| 14 | Sequencer: spec | New spec 17, written now; built in phase 4 after the sprite unit is copied from retro68k (main `bf91e97`). Registers in the custom block's MOVEF range |
 
 ## 2. Key decisions
 
@@ -224,6 +237,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | `0x130`–`0x13F` | Attribute layer (Spectrum extra) | MOVEF |
 | `0x140`–`0x23F` | DMA engine, 4 channels | MOVEF |
 | `0x240`–`0x2FF` | Audio (reserved) | MOVEF |
+| `0x300`–`0x30F` | Sprite sequencer (branch 14) | MOVEF |
 
 ## 4. Specs
 
@@ -240,19 +254,11 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 9 | [Timers](spec/timers.md) | Draft |
 | 10 | [USB serial](spec/serial.md) | Draft |
 | 11 | [SD card](spec/sd-card.md) | Draft |
-| 11 | Review | Sprite HSTART unsigned, as retro68k's RTL. Port `0xFE` border writes act immediately (mid-line stripes; a Spectrum extra); BGCOLOR written as a register keeps retro68k's line-start rule. Byte names are digits everywhere (NAME0, NAME1 …; `MMU0_0` where the name ends in a digit). The DMA engine reads the boot ROM through its second block-RAM port; port jobs move bytes over the register bus, paced by the unit |
-| 11 | Register writes | **Direct, no latches** (CPU, copper, DMA engine): every register byte is written straight through, in any order, with any instruction. Software changes wide display registers in the vertical blank or with the copper at a set position, as on the Amiga. Three exceptions: MMU pages commit on the high byte; palette entries change when the red byte arrives (the PALDAT assembly); reads of live counters capture on the low byte (one tagged capture per master, as retro68k). Replaces the per-register latches (saves about 1,000–2,000 LUTs) |
-| 11 | Sprite restart | As retro68k's rewritten sprite spec: a **CTL write starts** a sprite (one byte, never half-written); **the vertical blank stops every sprite**, so each frame the copper or CPU writes the sprite's registers with CTL last. PT, H, V and STEP act on a running sprite from the next line; a PT write sets the next image line's start (its three bytes within one line, or while the sprite is stopped); the window is checked every line; HSTART is 16 or more; SPRDMA pauses a sprite. Replaces the DMA-off workaround (spec 5, S10) |
 | 12 | [Input](spec/input.md) | Draft |
-| 12 | RTL reuse | retro68k's modules are **copied** into this repo at a recorded retro68k commit, each listed with its origin and what was changed in a provenance file next to the RTL; later retro68k fixes are ported by hand. Each unit's register interface is **narrowed** to retro-z80's byte registers exactly as the specs lay them out (no 32-bit adapter). Each ticket copies the modules it needs; copy only from a committed retro68k state |
-| 13 | BASIC | **BBC BASIC (Z80) v5.00** by R. T. Russell (zlib licence; github.com/rtrussell/BBCZ80), the interpreter (16,374 bytes) unchanged apart from assembler syntax for sjasmplus, with Russell's ACORN.Z80 graphics and sound layer |
-| 13 | BASIC: where | A **ROM image in write-protected SRAM**: the boot ROM loads it from SD or over serial into SRAM pages and sets their write page to NONE; a checksum lets a warm reset skip the reload. No extra block RAM |
-| 13 | BASIC: host layer | A **new retro-z80 host layer** (OSINIT, OSWRCH, OSRDCH, OSLINE, OSKEY, OSCLI, files, TIME, VDU/PLOT and the rest): console on a tile layer, PS/2 and Spectrum keyboards, SD/FAT files, a 100 Hz tick from a timer; borrowing VDU, PLOT and line-editor code from Dean Belfield's Spectrum Next and Cerberus ports (zlib) |
-| 13 | BASIC: name | The README says the name "BBC BASIC" is not transferable to a derived work: ask R. T. Russell for permission to call it "BBC BASIC (Z80) for retro-z80"; until then "retro-z80 BASIC, based on BBC BASIC (Z80) by R. T. Russell" |
-| 13 | BASIC: when | After phase 1, with the boot ROM spec (16), the SD card, keyboard and console; research notes in `docs/notes/bbc-basic.md` |
 | 13 | Sound | Waiting for Q1 |
 | 14 | [DMA engine](spec/dma-engine.md) | Draft |
 | 15 | Geometry unit (3D) | Next to write (branch 10) |
+| 17 | [Sprite sequencer](spec/sprite-sequencer.md) | Draft (branch 14) |
 
 ## 5. Phases
 
@@ -276,14 +282,14 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | Parked; custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved under retro68k's names; retro68k's audio narrowed would be the default |
 | Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. A 6502 sees the registers through the register page, as the Z80 can; the slots would serve it with no waits as they serve the Z80 |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
-| Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | Check in the first Vivado build (spec 1, B1); fallback: start a read speculatively in every T1 |
+| Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | On the KS2 (issue #11): yes, even single-cycle (+0.89 ns from tv80's IR to the bus interface's address register), with tv80's own paths as 5-clock multicycle paths. Check again on the KS3 build (spec 1, B1); fallback: start a read speculatively in every T1 |
 | Q5 | Copper priority | Closed: urgent display fetches come first in cycle 3, then the copper, then sprites (spec 2) |
 | Q6 | Kempston port | Closed: port `0x1F` reads joystick 1 (spec 12) |
 | Q7 | KS3 pins for the Spectrum keyboard, joysticks, PS/2 and `sd_miso`, not yet checked against the Next's pin file | Check before phase 3 (spec 7, SY1) |
 | Q8 | The KS3 details still open in retro68k (SRAM size, accelerator pins, Next core format) | Answered once for both projects |
 | Q9 | A Z80 faster than 20 MHz | Left for later. 25 MHz needs the swap back (spec 1, B10). Beyond that, the CPU would have to wait for SRAM, or run from block-RAM fast RAM only it uses; its limit is then tv80's own speed in the FPGA (Q3, Q4) |
 | Q10 | Hardware help for 3D filled polygons | Partly answered by branch 10: a geometry unit (matrices, perspective, multiply and divide) comes first. Still open: drawing help, either (a) a span filler, (y, x0, x1, colour) filled in spare memory cycles, about 0.5k LUTs, with the Z80 stepping the edges, or (b) a triangle job in the DMA engine taking three screen vertices, about 1–2k LUTs. With fast vertices, edge stepping becomes the Z80's main cost, so (b) looks the better value. Double buffering already works by switching the layer pointer at vertical blank |
-| Q11 | Does the KS2's XC7A15T-1 meet 100 MHz with the bring-up build? | First Vivado build for issue 4; fallbacks: trim the design, or relax the slowest paths |
+| Q11 | Does the KS2's XC7A15T-1 meet 100 MHz with the bring-up build? | Yes for the first computer build (issue #11: CPU, MMU, SRAM, boot ROM, serial, beam and background colour; 1,949 LUTs): worst slack +0.86 ns, with tv80's paths as 5-clock multicycle paths (`fpga/ks2/README.md`). To be checked again as layers, palettes and the copper are added; fallbacks: trim the design, or relax the slowest paths |
 
 ## 7. Next step
 

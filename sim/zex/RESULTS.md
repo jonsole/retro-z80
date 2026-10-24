@@ -140,7 +140,7 @@ Ticket #7: ZEXDOC on the computer itself, not the bare core. The memory timing o
 | Memory | SRAM pages 0–7 mapped flat by the loader `zexboot.asm`; a cycle model of the pads and the SRAM (`tb_zexsys.v`) |
 | Load | `+dma`: the DMA port busy with random reads and writes all the time |
 | Simulator | Verilator 5.050 (MSYS2 UCRT64, GCC 16.2, `-O2`), `tb_zexsys.v` with `zexsys_main.cpp` |
-| Commit | `1b34165` (the testbench as now, but with 32-bit counts) |
+| Commit | `1b34165` (the testbench as now, but with 32-bit counts). Merging main afterwards added only the video unit (ticket #11, no SRAM fetches yet, idle here); tv80, `z80_cpu.v`, `cpu_cen.v`, `bus_if.v`, `mmu.v`, `dmac.v` and `sram_ctl.v` are unchanged |
 | Command | `make zexsys ZEX_JOBS=14`, on a Ryzen 7 3700X (8 cores, 16 threads) |
 | Date | 2026-10-24 |
 

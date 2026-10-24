@@ -14,7 +14,7 @@ This is the one place that lists every register in the machine: the rules every 
 | System page | Page `0x00`: interrupts, the key map, timers, serial, SD card, input, system, the MMU and the geometry unit, in retro68k's order. SYSID is port `0x7000` (section 4) |
 | Custom block | The chipset, as retro68k's custom block: 1 KB of byte registers, offsets `0x000`–`0x3FF`. Custom offset k is port (k bits 7–0) × 256 + `0x10` + (k bits 9–8) (section 5) |
 | Register page | MMU page `0x3F8`, in any window: page p, register r at offset p × 256 + r, the port with its bytes swapped. The system page at `0x0000`, KEYROW0–7 at `0x0100`, the custom block at `0x1000`, the palettes at `0x1400`–`0x1FFF` (section 6) |
-| Register bus | 8-bit, one clock per access. Masters in order: the copper, the CPU, the DMA engine (section 3.2) |
+| Register bus | 8-bit, one clock per access. Masters in order: the copper, the CPU, the sprite sequencer, the DMA engine (section 3.2) |
 | Copper reach | Writes only, custom block only: MOVE `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF`, MOVEF `0x000`–`0x3FF` (section 5.1, spec 6) |
 | DMA engine reach | The custom block and the palettes (read and write), the boot ROM (read), and SERDATA and SDDATA through its port jobs; not the system page (spec 14) |
 | Unused ports, pages and offsets | Read `0xFF`; writes are ignored. No access ever gives an error (rule 11) |
@@ -33,6 +33,8 @@ This is the one place that lists every register in the machine: the rules every 
 | Boot ROM (MMU pages `0x3FC`–`0x3FF`) | Read; write with SYSCON.ROMWE | No | Read |
 | SRAM | Through the MMU (spec 2) | Reads its list only | Read and write |
 
+The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and writes only the registers of the sprites SEQMASK gives it (custom `0x010`–`0x08F`); it reads no registers.
+
 ## 2. Comparison with retro68k
 
 | retro68k (spec 3) | retro-z80 | Why |
@@ -49,7 +51,7 @@ This is the one place that lists every register in the machine: the rules every 
 | Unused addresses read 0; unmapped regions give a bus error | Unused ports, pages and offsets read `0xFF`; nothing gives an error (rule 11) | Z80: no bus error input; the register bus returns `0xFF` when no unit answers (spec 1, section 4.2) |
 | SYSCON.PROTECT: user mode cannot reach the registers | No protection | Z80: no user mode |
 | Set/clear: bit 15 of a 16-bit half | Bit 7 of a byte (DMACON, INTENA0–2); SPRDMA's SETCLR is in its second byte (rule 12) | 8-bit registers |
-| Custom block order: video `0x000`, layers `0x100`, DMA engine `0x300`, audio `0x400`, sprites `0x500`, copper `0x700` | Video globals `0x000`, sprites `0x010`, layers `0x090`, video read-only `0x0F0`; copper `0x100`, sprite globals `0x120`, attribute layer `0x130`, DMA engine `0x140`, audio `0x240` | A one-word copper MOVE reaches offsets `0x000`–`0x0EF` only, so everything a list changes per line sits there; the custom block is 1 KB |
+| Custom block order: video `0x000`, layers `0x100`, DMA engine `0x300`, audio `0x400`, sprites `0x500`, copper `0x700` | Video globals `0x000`, sprites `0x010`, layers `0x090`, video read-only `0x0F0`; copper `0x100`, sprite globals `0x120`, attribute layer `0x130`, DMA engine `0x140`, audio `0x240`, sprite sequencer `0x300` | A one-word copper MOVE reaches offsets `0x000`–`0x0EF` only, so everything a list changes per line sits there; the custom block is 1 KB |
 | Layer n at `0x100` + n × `0x80` | Layer n at `0x090` + n × `0x20`; three layers in both | Copper reach (spec 4) |
 | Sprite n at `0x520` + n × `0x20` | Sprite n at `0x010` + n × `0x10` | Copper reach; no SPRxDAT (spec 5) |
 | Palettes memory-mapped at `0xE04000`, 4-byte entries `0x00RRGGBB` | PALIDX and PALDAT; and the register page at `0x1400`–`0x1FFF`, 3-byte entries (blue, green, red) | 64 KB address space; four 4-byte palettes would not fit the 8 KB register page beside the custom block (spec 2, section 10.2) |
@@ -65,6 +67,7 @@ This is the one place that lists every register in the machine: the rules every 
 | — | MMU read and write pages, registers `0x80`–`0x9F` | Z80: 64 KB address space (spec 2) |
 | — | CPUSPEED, register `0x77` | retro-z80 only (spec 7) |
 | — | Geometry unit, registers `0xA0`–`0xBF` | retro-z80 only (design plan branch 10, spec 15) |
+| — | Sprite sequencer, custom `0x300`–`0x30F`, a fourth register bus master | retro-z80 extra (design plan branch 14, spec 17); on retro68k's "later" list |
 | — | KEYMAP0–6, JOY1, JOY2, JOYCON, JOY1X, JOY2X | In version 1 here; a later version in retro68k (spec 12) |
 | — | Kempston `0x1F`, port `0xFE`, KEYCON, KEYROW0–7, the attribute layer, the NMI monitor registers | Spectrum extras |
 | `hw.inc` for vasm; names are byte offsets in a 32-bit layout | `hw.inc` for sjasmplus, `hw.h` for C; a system name is its register number, a custom name its custom offset; `_P` names are ports, `_N` widths in bytes (section 8) | Z80 tools; the copper names offsets, the CPU's `OUT (C),r` ports |
@@ -83,6 +86,7 @@ This is the one place that lists every register in the machine: the rules every 
    | L0, L1, L2 BPL0PT | 3 | Custom `0x0A4`, `0x0C4`, `0x0E4` | 4, 6.3 |
    | SPRxPT | 3 | Custom `0x010` + n × `0x10` | 5, 6 |
    | COPPC | 3 | Custom `0x10A` | 6, 6 |
+   | SEQPT | 3 | Custom `0x308` | 17, 8 |
    | CHDESC (DMA channel n) | 3 | Custom `0x160` + n × `0x40` | 14, 8.1 |
    | TIME | 4 | Register `0x20` | 9, 3 |
    | TMRn_COUNT | 2 | Register `0x2D` + n × 8 | 9, 4.1 |
@@ -91,7 +95,7 @@ This is the one place that lists every register in the machine: the rules every 
 5. **Status bits.** Sticky flags (W1C) are cleared by writing 1 to them; writing 0 leaves them alone. Live bits in the same register ignore writes. A program clears exactly what it saw by writing back the value it read.
 6. **Reserved bits** read 0 and should be written 0.
 7. **Index, data and colours.** The palettes are reached through PALIDX and PALDAT (spec 4, section 6.5): PALDAT takes blue, green and red in turn, and the red byte changes the entry and steps the index. The register page also shows the palettes directly (section 6). A colour is shown live, so it changes whole: blue and green go into the master's colour assembly buffer, and the **red byte writes the colour whole**, with the buffer's blue and green. Each master (CPU, copper, DMA engine) has one buffer, shared by PALDAT, the register page palettes and BGCOLOR; it is not a latch per entry. BGCOLOR follows the same rule: its red byte (`0x006`) commits it (spec 4, section 6.1).
-8. **The register bus.** Every register access, from a port, the register page, the copper or the DMA engine, is one clock on the register bus; the copper goes first, then the CPU, then the DMA engine (section 3.2). A port access is the Z80's normal 4-T-state I/O cycle and a register page access a normal 3-T-state memory cycle, with no wait states. Register accesses use no memory cycle.
+8. **The register bus.** Every register access, from a port, the register page, the copper, the sprite sequencer or the DMA engine, is one clock on the register bus; the copper goes first, then the CPU, then the sprite sequencer, then the DMA engine (section 3.2). A port access is the Z80's normal 4-T-state I/O cycle and a register page access a normal 3-T-state memory cycle, with no wait states. Register accesses use no memory cycle.
 9. **I/O and memory are the same registers.** A write through a port and a write through the register page go to the same register, so a value can be written partly through one and partly through the other. The MMU's held byte 0, the CPU's colour assembly buffer and the CPU's capture are shared by both paths too. Reads have the same side effects both ways.
 10. **Write order.** With no latches, the bytes of a register can be written in any order and with any instruction: `LD (nn),HL`, `LD (nn),DE/BC/IX/IY`, `LDI`, `LDIR`, `PUSH`, `EX (SP),HL`, `LDDR`, and `OUT (C),r` with `INC B` or `DEC B`. `OUTI` decrements B, the register number, before the write, so unrolled `OUTI`s write a register from a table held high byte first; `OTIR` runs on down to register 0, so it is no use on a page. Two exceptions need their last byte last: an **MMU page** (byte 0, then byte 1: `LD (nn),HL`, or `OUT (C),r` with `INC B`; not `PUSH` or `LDDR`) and a **colour** (blue, green, then red: rising addresses, `LDIR`, not `LDDR`). Read-modify-write instructions (`INC (HL)`, `SET b,(HL)`) are fine on plain registers, but not on the data ports of rule 14.
 11. **Unused addresses.** A register of a page, a custom offset, a reserved page or a register page offset with no register reads `0xFF` and ignores writes. A write-only register reads `0x00`. A byte that belongs to a register reads its bits, with reserved bits 0. Bytes of a DMA descriptor that hold no bits are not registers: they read `0xFF`.
@@ -162,10 +166,12 @@ In each clock the first master in this order that wants the bus gets it:
 |-------|--------|-----------------|------|
 | 1 | **Copper** | Writes only: the custom block, `0x000`–`0x0EF` by MOVE, `0x000`–`0x0FF` by MOVR, any offset by MOVEF. At most one write every 2 clocks | 6 |
 | 2 | **CPU** | Everything: port accesses and register page accesses | 1 |
-| 3 | **DMA engine** | Reads and writes of the custom block and the palettes; SERDATA and SDDATA for its port jobs, paced by each unit's ready signals. A job that names anything else stops with an error | 14 |
+| 3 | **Sprite sequencer** | Writes only: the registers of the sprites SEQMASK gives it (custom `0x010`–`0x08F`), 16 bytes per list entry, in the line before the entry's first line | 17 |
+| 4 | **DMA engine** | Reads and writes of the custom block and the palettes; SERDATA and SDDATA for its port jobs, paced by each unit's ready signals. A job that names anything else stops with an error | 14 |
 
 - The copper goes first, so its writes always land on their pixel. The CPU's strobe then moves one clock, which every CPU access has room for (spec 1, sections 5.7 and 6).
-- The DMA engine waits a clock whenever the copper or the CPU has the bus. It never delays either of them.
+- The sprite sequencer waits a clock whenever the copper or the CPU has the bus, so it never delays either of them. Its 16 writes for an entry take at most 40 clocks (spec 17, section 5).
+- The DMA engine waits a clock whenever the copper, the CPU or the sequencer has the bus. It never delays any of them.
 - The boot ROM is not on this bus: the CPU reads it through the MMU, the DMA engine through the ROM's second block RAM port (spec 2, section 2).
 
 ## 4. Ports and the system page
@@ -388,7 +394,8 @@ Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at 
 | `0x130`–`0x13F` | `0x3011`–`0x3F11` | Attribute layer (Spectrum extra) | MOVEF | 4, 7.1 |
 | `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | DMA engine: 4 channels of `0x40`; DMXINT, DMXINTEN | MOVEF | 14, 8 |
 | `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio, reserved (design plan Q1) | MOVEF (no effect) | 13 |
-| `0x300`–`0x3FF` | `0x0013`–`0xFF13` | Free | MOVEF (no effect) | |
+| `0x300`–`0x30F` | `0x0013`–`0x0F13` | Sprite sequencer (retro-z80 extra) | MOVEF | 17, 8 |
+| `0x310`–`0x3FF` | `0x1013`–`0xFF13` | Free | MOVEF (no effect) | |
 
 A one-word MOVE names offsets `0x000`–`0x0EF` (its code byte); codes `0xF0`–`0xFF` are the copper's other instructions. MOVR takes its register code from X or from the instruction, so it reaches `0x000`–`0x0FF`. MOVEF (two words) reaches every offset. The copper only writes; read-only registers ignore its writes, as they do the CPU's (spec 6, section 6.6).
 
@@ -527,9 +534,24 @@ Channel n (0–3) at `0x140` + n × `0x40`:
 | `0x230` | `0x3012` | DMXINT | 1 | W1C | 14, 8.4 |
 | `0x234` | `0x3412` | DMXINTEN | 1 | RW | 14, 8.4 |
 
-### 5.10 Audio (`0x240`–`0x2FF`) and free space (`0x300`–`0x3FF`)
+### 5.10 Audio (`0x240`–`0x2FF`)
 
-Reserved for sound (spec 13, design plan Q1), under retro68k's names when it is specified. Reads give `0xFF`; writes, including the copper's, do nothing. `0x300`–`0x3FF` is free.
+Reserved for sound (spec 13, design plan Q1), under retro68k's names when it is specified. Reads give `0xFF`; writes, including the copper's, do nothing.
+
+### 5.11 Sprite sequencer (`0x300`–`0x30F`), a retro-z80 extra
+
+| Offset | Port | Name | Width | Access | Spec |
+|--------|------|------|-------|--------|------|
+| `0x300` | `0x0013` | SEQCON | 1 | RW | 17, 8 |
+| `0x301`–`0x303` | `0x0113`–`0x0313` | SEQLC | 3 | RW | 17, 8 |
+| `0x304` | `0x0413` | SEQMASK | 1 | RW | 17, 8 |
+| `0x305` | `0x0513` | SEQSTAT | 1 | R, W1C | 17, 8.1 |
+| `0x306` | `0x0613` | SEQSKIP | 1 | R | 17, 8.1 |
+| `0x307` | `0x0713` | SEQSKIPL | 1 | R | 17, 8.1 |
+| `0x308`–`0x30A` | `0x0813`–`0x0A13` | SEQPT | 3 | R, CAP | 17, 8 |
+| `0x30B`–`0x30F` | | – | | Reserved | |
+
+`0x310`–`0x3FF` is free.
 
 ## 6. The register page
 
@@ -562,7 +584,7 @@ From spec 8, section 4. The number is the fixed priority (lower first) and the I
 | 0 | VBLANK | Video (spec 4) | VIDSTAT.VBLANK and VIDINTEN.VBLANK | VECBASE + 0 |
 | 1 | LINE | Video (spec 4) | VIDSTAT.LINE and VIDINTEN.LINE | + 2 |
 | 2 | COPPER | Copper (spec 6) | COPSTAT.IRQ and COPCON.IRQEN | + 4 |
-| 3 | VIDERR | Video and sprites (specs 4, 5) | VIDSTAT OVERRUN0–2, OVERRUNA, SPRUNDER and their VIDINTEN bits | + 6 |
+| 3 | VIDERR | Video, sprites and the sprite sequencer (specs 4, 5, 17) | VIDSTAT OVERRUN0–2, OVERRUNA, SPRUNDER and their VIDINTEN bits; SEQSTAT.SKIP with SEQCON.IRQEN | + 6 |
 | 4 | DMA0 | DMA engine channel 0 (spec 14) | DMXINT.CH0 and DMXINTEN.CH0 | + 8 |
 | 5 | DMA1 | DMA engine channel 1 | DMXINT.CH1 and DMXINTEN.CH1 | + 10 |
 | 6 | DMA2 | DMA engine channel 2 | DMXINT.CH2 and DMXINTEN.CH2 | + 12 |
@@ -657,8 +679,8 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R2 | Bit layouts in each spec should be checked against the rules of section 3 once more when the generator is written (as retro68k's R2) |
 | R3 | Closed (design plan, branch 11): register writes are direct, with no latches, for the CPU, the copper and the DMA engine (rules 2 and 3). Latches for every wide register would have cost about 1,000–2,000 LUTs. Three exceptions stay: the MMU pages (byte 1 commits), the colours (the red byte commits, one assembly buffer per master) and the captures (one tagged capture per master, rule 4). Software changes wide display registers in the vertical blank or with the copper |
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
-| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). The range `0x70`–`0x7F` is full (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x300`–`0x3FF`. Register page: `0x0108`–`0x0FFF`. I/O pages `0x01`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
-| R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x300`–`0x3FF` |
+| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). The range `0x70`–`0x7F` is full (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Register page: `0x0108`–`0x0FFF`. I/O pages `0x01`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
+| R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
 | R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) and interrupt 19 are reserved for spec 15; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |
 | R9 | COP2LC changes by itself only at a frame restart with COPCON.RESUME (spec 6, section 6.5), so it has no capture; a CPU that reads it while a background list runs may see a mixed value. Read it while the copper runs the idle list |
@@ -667,3 +689,4 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R12 | PALDAT is a custom register, so `OTIR` cannot stream a palette (B is the register number). Making it a sixth low-byte-only port would let it (spec 4, V4) |
 | R13 | Closed (design plan, branch 11): the DMA engine's port jobs move bytes through SERDATA and SDDATA on the register bus, paced by each unit's ready signal (spec 1, section 4.2; specs 10, 11, 14); there is no direct port path. The engine reads the boot ROM through the ROM's second block RAM port, not the register bus (section 3.2) |
 | R14 | The DMA engine has one capture and one colour assembly buffer for its four channels (rules 4 and 7). Two channels that read counters, or write colours, at the same time can replace each other's capture or mix colour bytes. A capture and a buffer per channel would cost about 20 bytes more (spec 14, D11). Proposed: one each, as written; run such jobs on one channel |
+| R15 | Closed: the sprite sequencer (spec 17) is a fourth register bus master, after the CPU and before the DMA engine (section 3.2), and adds one capture (SEQPT) and one more cause of VIDERR (section 7). Spec 1, section 4.2 (the bus masters), spec 2, section 5 (the free order), spec 6, section 5.1 and spec 8, section 4 (VIDERR) now include it |

@@ -1295,6 +1295,69 @@ DMXINTEN_CH2_M               equ 0x4
 DMXINTEN_CH3_B               equ 0x3
 DMXINTEN_CH3_W               equ 0x1
 DMXINTEN_CH3_M               equ 0x8
+SEQCON                       equ 0x300         ; RW, spec 17/8
+SEQCON_N                     equ 0x1
+SEQCON_P                     equ 0x13
+SEQCON_EN_B                  equ 0x0
+SEQCON_EN_W                  equ 0x1
+SEQCON_EN_M                  equ 0x1
+SEQCON_IRQEN_B               equ 0x1
+SEQCON_IRQEN_W               equ 0x1
+SEQCON_IRQEN_M               equ 0x2
+SEQLC                        equ 0x301         ; RW, spec 17/8
+SEQLC_N                      equ 0x3
+SEQLC_P                      equ 0x113
+SEQLC0                       equ 0x301
+SEQLC0_P                     equ 0x113
+SEQLC1                       equ 0x302
+SEQLC1_P                     equ 0x213
+SEQLC2                       equ 0x303
+SEQLC2_P                     equ 0x313
+SEQLC_ADDR_B                 equ 0x1
+SEQLC_ADDR_W                 equ 0x15
+SEQLC_ADDR_M                 equ 0x3FFFFE
+SEQMASK                      equ 0x304         ; RW, spec 17/8
+SEQMASK_N                    equ 0x1
+SEQMASK_P                    equ 0x413
+SEQMASK_SPR_B                equ 0x0
+SEQMASK_SPR_W                equ 0x8
+SEQMASK_SPR_M                equ 0xFF
+SEQSTAT                      equ 0x305         ; RW1C, spec 17/8.1
+SEQSTAT_N                    equ 0x1
+SEQSTAT_P                    equ 0x513
+SEQSTAT_SKIP_B               equ 0x0
+SEQSTAT_SKIP_W               equ 0x1
+SEQSTAT_SKIP_M               equ 0x1
+SEQSTAT_END_B                equ 0x1
+SEQSTAT_END_W                equ 0x1
+SEQSTAT_END_M                equ 0x2
+SEQSTAT_RUN_B                equ 0x2
+SEQSTAT_RUN_W                equ 0x1
+SEQSTAT_RUN_M                equ 0x4
+SEQSKIP                      equ 0x306         ; R, spec 17/8.1
+SEQSKIP_N                    equ 0x1
+SEQSKIP_P                    equ 0x613
+SEQSKIP_COUNT_B              equ 0x0
+SEQSKIP_COUNT_W              equ 0x8
+SEQSKIP_COUNT_M              equ 0xFF
+SEQSKIPL                     equ 0x307         ; R, spec 17/8.1
+SEQSKIPL_N                   equ 0x1
+SEQSKIPL_P                   equ 0x713
+SEQSKIPL_COUNT_B             equ 0x0
+SEQSKIPL_COUNT_W             equ 0x8
+SEQSKIPL_COUNT_M             equ 0xFF
+SEQPT                        equ 0x308         ; R,CAP, spec 17/8
+SEQPT_N                      equ 0x3
+SEQPT_P                      equ 0x813
+SEQPT0                       equ 0x308
+SEQPT0_P                     equ 0x813
+SEQPT1                       equ 0x309
+SEQPT1_P                     equ 0x913
+SEQPT2                       equ 0x30A
+SEQPT2_P                     equ 0xA13
+SEQPT_ADDR_B                 equ 0x1
+SEQPT_ADDR_W                 equ 0x15
+SEQPT_ADDR_M                 equ 0x3FFFFE
 COPR                         equ 0x118         ; COPR0..7, spec 6/4.6
 COPR_NUM                     equ 0x8
 COPR0                        equ 0x118         ; RW,SEP, spec 6/4.6
@@ -2733,6 +2796,8 @@ VID_W                        equ 0x2D0         ; Picture width
 VID_H                        equ 0x240         ; Picture height
 BEAM_W                       equ 0x360         ; Beam pixels per line
 BEAM_H                       equ 0x271         ; Beam lines per frame
+SEQ_END                      equ 0x7FF         ; Sequencer: VSTART of the end-of-list entry
+SEQ_ENTRY                    equ 0x10          ; Sequencer: bytes per list entry
 SYSRESET_MAGIC               equ 0xA5          ; SYSRESET: a full reset
 WDKICK_MAGIC                 equ 0x5A          ; WDKICK: restart the watchdog's time
 

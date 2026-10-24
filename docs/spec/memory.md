@@ -114,6 +114,7 @@ One block, the DMA controller (`dmac.v`, retro68k's, the equivalent of the Amiga
 | BPL | Layer fetch: L0–L2 and the attribute layer (spec 4) | Hard deadline |
 | SPR | Sprites: the 8 sprite FIFOs (spec 5) | Hard deadline |
 | AUD | Audio (spec 13, parked; tied off) | Soft |
+| SEQ | Sprite sequencer: its list (spec 17, a retro-z80 extra) | Best effort, with a soft deadline |
 | COP | Copper: its list (spec 6) | Best effort |
 | BLT | DMA engine: its 4 channels take turns inside the engine (spec 14) | Best effort |
 | PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests | Best effort |
@@ -132,7 +133,7 @@ For each cycle, the first rule that finds a request wins:
    | 1, 3 | Hard-deadline channels, earliest deadline first |
    | 4 | Audio; then the copper at COPCON.PRI 1 (spec 6) |
 
-3. **The free order:** hard-deadline channels (earliest deadline first), audio, copper, DMA engine, the DMA port. The copper at COPCON.PRI 1 (high) moves to the front of this order, as in retro68k. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
+3. **The free order:** hard-deadline channels (earliest deadline first), audio, the sprite sequencer, copper, DMA engine, the DMA port. The sequencer goes before the copper at PRI 0, since its few reads have a deadline (the gap line), and after the copper at PRI 1 (spec 17, section 5.4). The copper at COPCON.PRI 1 (high) moves to the front of this order, as in retro68k. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
 
 So no cycle is wasted: whatever its owner leaves goes to the next channel that wants one. In particular the display can use a cycle 0 or 2 the CPU is not using, and cycle 4 when audio and the copper leave it.
 
@@ -183,6 +184,7 @@ During vertical blanking (49 of the 625 lines) there is no display fetch, so cyc
 | Sprites | Their FIFOs (spec 5) | Display cycles a layer leaves, then the free pool, first; urgent when a FIFO runs low |
 | Audio | Parked | Cycle 4 is kept for it |
 | Copper | 2 cycles per two-word instruction, 1 per MOVE (spec 6) | The free pool, after the hard-deadline channels and audio; first with high priority |
+| Sprite sequencer | 8 words per sprite reused (spec 17) | The free pool, after the hard-deadline channels and audio, before the copper at PRI 0 |
 | DMA engine | – | The rest of the free pool (spec 14) |
 
 There are no line buffers: display data is fetched just in time into each layer's data registers, as in retro68k (spec 4). Nothing is stored for a whole line.

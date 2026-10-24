@@ -116,6 +116,7 @@ Each event sets a sticky flag in VIDSTAT, cleared by writing 1 to it. VIDINTEN h
 | OVERRUN0–2 (4–6) | VIDERR | Layer 0's, 1's or 2's next group was not ready in time (section 5.5) |
 | SPRUNDER (7) | VIDERR | A sprite's FIFO ran dry (spec 5) |
 
+- VIDERR is also raised by the sprite sequencer, a retro-z80 extra: SEQSTAT.SKIP with SEQCON.IRQEN (spec 17, section 8.1). VIDSTAT has no free bit, so its flag and enable are in the sequencer's own registers; a VIDERR handler reads both VIDSTAT and SEQSTAT.
 - VIDSTAT.INVBLANK (bit 3, read only) is 1 while the beam is in lines 0–48.
 - The first picture line, 49, is fetched from beam (49, 0), so a VBLANK handler has 49 lines (1.57 ms) to set up the next frame.
 - The start of the vertical blank also stops every sprite: each frame the copper or the VBLANK handler starts each sprite again by writing its SPRxCTL (spec 5, section 4.2).

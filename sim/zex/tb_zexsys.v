@@ -6,7 +6,8 @@
 // in place of tb.v's timed models (Verilator runs it without its timing
 // scheduler; the datasheet timing of the SRAM pins is checked by tb.v's
 // runs in Icarus, and does not depend on what the Z80 runs). The FT232H is
-// left idle.
+// left idle, and so is the video unit: its pixel clock is held (it fetches
+// nothing from SRAM yet, and the loader leaves VIDCON.EN off).
 //
 // The boot ROM is the loader zexboot.asm (zexboot.hex): it maps windows 0-7
 // to SRAM pages 0-7 and jumps to 0x0100. Before the run the testbench puts
@@ -79,6 +80,7 @@ module tb_zexsys (input clk);
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq_i),
         .ft_rxf_n(1'b1), .ft_txe_n(1'b1), .ft_d_i(8'h00), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
+        .clk_pix(1'b0), .vid_rgb(), .vid_hsync(), .vid_vsync(), .vid_de(),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(2'b11), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
         .dbg_sc(sc)

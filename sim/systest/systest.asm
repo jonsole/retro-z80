@@ -1,5 +1,6 @@
-; System test ROM (tickets #4 and #5): the system registers, the I/O
-; decode, SRAM byte writes, the writable boot ROM, the boot ROM's memory and
+; System test ROM (tickets #4, #5 and #11): the system registers, the I/O
+; decode, SRAM byte writes, the writable boot ROM, the video unit's first
+; registers (VIDCON, BGCOLOR, VIDSIZE), the boot ROM's memory and
 ; MMU self-test (firmware/boot/selftest.asm, checks 0x41 up) and a soft
 ; reset. Runs in place of the
 ; boot ROM (tb.v +rom=systest.hex) and prints "PASS" or "FAIL" with the
@@ -66,8 +67,8 @@ start:  ld      sp,0x0000
         in      a,(c)
         cp      0xFF
         jp      nz,fail
-        ld      d,7                     ; check 7: a custom page with no unit yet reads 0xFF
-        ld      bc,0x0010
+        ld      d,7                     ; check 7: a reserved custom register reads 0xFF
+        ld      bc,0x0F10                       ; custom offset 0x00F
         in      a,(c)
         cp      0xFF
         jp      nz,fail
@@ -157,6 +158,57 @@ start:  ld      sp,0x0000
         in      a,(SYSPAGE)
         cp      0xFC
         jp      nz,fail
+
+        ; ---- video (spec 4): VIDCON, BGCOLOR, VIDSIZE
+        ld      d,23                    ; check 23 (0x17): VIDCON keeps bits 0, 2, 4, 5 only
+        ld      bc,VIDCON_P
+        ld      a,0xFF
+        out     (c),a
+        in      a,(c)
+        cp      VIDCON_EN_M | VIDCON_BLANKALL_M | VIDCON_DIRECT_M | VIDCON_SHAREPAL_M
+        jp      nz,fail
+        ld      a,VIDCON_EN_M
+        out     (c),a
+        ld      d,24                    ; check 24 (0x18): BGCOLOR changes when its red byte is written
+        ld      bc,BGCOLOR0_P
+        ld      a,0x11
+        out     (c),a                   ; blue and green wait in the CPU's colour assembly buffer
+        inc     b
+        ld      a,0x22
+        out     (c),a
+        in      a,(c)
+        or      a                       ; green still 0
+        jp      nz,fail
+        dec     b
+        in      a,(c)
+        or      a                       ; blue still 0
+        jp      nz,fail
+        ld      b,BGCOLOR2
+        ld      a,0x33
+        out     (c),a                   ; red: all three
+        in      a,(c)
+        cp      0x33
+        jp      nz,fail
+        dec     b
+        in      a,(c)
+        cp      0x22
+        jp      nz,fail
+        dec     b
+        in      a,(c)
+        cp      0x11
+        jp      nz,fail
+        ld      d,25                    ; check 25 (0x19): VIDSIZE reads 720 x 576
+        ld      hl,vidsize
+        ld      bc,VIDSIZE0_P
+.vsz:   in      a,(c)
+        cp      (hl)
+        jp      nz,fail
+        inc     hl
+        inc     b
+        ld      a,b
+        cp      VIDSIZE3 + 1
+        jr      nz,.vsz
+
         call    selftest                ; checks 0x41 up
         ld      d,a
         jp      nz,fail
@@ -213,6 +265,15 @@ second: ld      d,18                    ; check 18: SRAM kept across the soft re
         in      a,(c)
         or      a
         jp      nz,fail
+        ld      d,26                    ; check 26 (0x1A): the reset stopped the beam and cleared BGCOLOR
+        ld      bc,VIDCON_P
+        in      a,(c)
+        or      a
+        jp      nz,fail
+        ld      bc,BGCOLOR2_P
+        in      a,(c)
+        or      a
+        jp      nz,fail
         ld      hl,pass
         call    puts
         jr      stop
@@ -264,5 +325,6 @@ putc:   push    bc
 
         include "selftest.asm"
 
+vidsize: db     0xD0, 0x02, 0x40, 0x02  ; 720, 576
 pass:   db      "PASS", 13, 10, 0
 failmsg: db     "FAIL ", 0

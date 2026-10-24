@@ -10,6 +10,12 @@
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
 //                3.57 MHz started on every slot edge 0-9
+//   +failshow=N  a boot ROM built with -DFAILTEST=N: pass when it reports
+//                check N (hex) as failed and then shows it on the screen
+//                as N - 0x40 white stripes, 16 lines each, 16 apart, from
+//                picture line 17, the same in two frames running
+//                (firmware/boot/boot.asm)
+//   +vidlog      print the picture's colour bands in each frame
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
 //
@@ -23,7 +29,11 @@
 //     worked out here, not taken from the design);
 //   - every byte read is at di a set time before the core takes it, by
 //     speed (spec 1, sections 5.3 and 5.4);
-//   - the SRAM model's datasheet checks and the FT232H model's checks.
+//   - the SRAM model's datasheet checks and the FT232H model's checks;
+//   - the 576p timing from the video unit (864 pixels a line, 625 lines a
+//     frame) and that the background colour changes only between lines;
+//     with +hello, that the screen was blue (self-test running) and then
+//     green (passed), and BGCOLOR is green at the end.
 // and that each T-state is as long as CPUSPEED says (spec 1, section 3;
 // spec 7, section 6.1). The summary gives the measured rate at each speed.
 `timescale 1ns/1ps
@@ -32,6 +42,11 @@ module tb #(
 );
     reg clk = 1'b1;
     always #5 clk = ~clk;                       // 100 MHz
+
+    // The pixel clock: 27 MHz, free-running at its own phase against clk, so
+    // the crossings see every phase (spec 4, section 3.1)
+    reg clk_pix = 1'b0;
+    initial #3.3 forever #18.518 clk_pix = ~clk_pix;
 
     // Power-on reset: last seen high by the clock edge at 2000 ns (a slot boundary)
     reg por = 1'b1;
@@ -52,6 +67,8 @@ module tb #(
     wire        dma_ack, dma_rvalid;
     wire [15:0] dma_rdata;
     wire [3:0]  sc;
+    wire [23:0] vrgb;
+    wire        vhs, vvs, vde;
 
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
@@ -66,6 +83,7 @@ module tb #(
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(dma_be), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
+        .clk_pix(clk_pix), .vid_rgb(vrgb), .vid_hsync(vhs), .vid_vsync(vvs), .vid_de(vde),
         .dbg_sc(sc)
     );
     // The boot ROM image, loaded into the design's block RAM and into a copy
@@ -401,6 +419,93 @@ module tb #(
         end
     endtask
 
+    // ---------------------------------------------------------------- the picture
+    // Line and frame timing, the colours seen, and the white stripes of each
+    // frame (picture lines, sampled in the middle of each line)
+    localparam [23:0] C_BLUE = 24'h0000FF, C_GREEN = 24'h00FF00, C_WHITE = 24'hFFFFFF;
+    integer    vx = 0, vline = 0, hs_clocks = 0, hs_lines = 0, vframes = 0, vid_errors = 0;
+    integer    pix_blue = 0, pix_green = 0, mixed_lines = 0, b_start = 0;
+    reg        vde_d = 1'b0, vhs_d = 1'b1, vvs_d = 1'b1, hs_seen = 1'b0, vs_seen = 1'b0;
+    reg [23:0] l_first, l_last, l_mid, l_prev;
+    // White stripes in the frame: how many, where the first starts, the sum
+    // of their starts, and whether any stripe or gap was not 16 lines
+    integer    w_runs = 0, w_first = -1, w_sig = 0, w_bad = 0, w_start = 0, w_end = -1;
+    integer    fr_runs [0:63], fr_sig [0:63], fr_bad [0:63], fr_first [0:63];
+    integer    failshow = 0, fail_frame = -1;
+    initial if (!$value$plusargs("failshow=%h", failshow)) failshow = 0;
+
+    always @(posedge clk_pix) begin
+        vde_d <= vde;
+        vhs_d <= vhs;
+        vvs_d <= vvs;
+        hs_clocks = hs_clocks + 1;
+        if (!dut.vid.en_p) begin                // the beam stopped (VIDCON.EN clear, or a reset)
+            hs_seen = 1'b0;
+            vs_seen = 1'b0;
+            hs_lines = 0;
+        end
+        if (vhs_d && !vhs) begin                // a line: 864 pixels
+            if (hs_seen && hs_clocks != 864) begin
+                if (vid_errors < 10) $display("%t video: a line of %0d pixels", $realtime, hs_clocks);
+                vid_errors = vid_errors + 1;
+            end
+            hs_seen = 1'b1;
+            hs_clocks = 0;
+            hs_lines = hs_lines + 1;
+        end
+        if (vvs_d && !vvs) begin                // a frame: 625 lines
+            if (vs_seen && hs_lines != 625) begin
+                if (vid_errors < 10) $display("%t video: a frame of %0d lines", $realtime, hs_lines);
+                vid_errors = vid_errors + 1;
+            end
+            vs_seen = 1'b1;
+            hs_lines = 0;
+            if ($test$plusargs("vidlog") && vline > 0)
+                $display("%t video: frame %0d: lines %0d-%0d %h", $realtime, vframes, b_start, vline - 1, l_prev);
+            if (vframes < 64) begin
+                fr_runs[vframes] = w_runs; fr_sig[vframes] = w_sig;
+                fr_bad[vframes]  = w_bad;  fr_first[vframes] = w_first;
+            end
+            if ($test$plusargs("vidlog") || failshow != 0)
+                $display("%t video: frame %0d: %0d white stripes from line %0d%0s", $realtime, vframes,
+                         w_runs, w_first, w_bad ? ", not all 16 lines" : "");
+            vframes = vframes + 1;
+            vline = 0; b_start = 0;
+            w_runs = 0; w_first = -1; w_sig = 0; w_bad = 0; w_end = -1;
+        end
+        if (vde) begin
+            if (!vde_d) begin vx = 0; l_first = vrgb; end
+            if (vx == 360) l_mid = vrgb;
+            l_last = vrgb;
+            if (vrgb == C_BLUE)  pix_blue  = pix_blue + 1;
+            if (vrgb == C_GREEN) pix_green = pix_green + 1;
+            vx = vx + 1;
+        end else if (vde_d) begin               // the end of a picture line
+            if (l_first !== l_mid || l_mid !== l_last) begin
+                if (mixed_lines < 10) $display("%t video: line %0d changes colour", $realtime, vline);
+                mixed_lines = mixed_lines + 1;
+            end
+            if (vline > 0 && l_mid !== l_prev) begin
+                if ($test$plusargs("vidlog"))
+                    $display("%t video: frame %0d: lines %0d-%0d %h", $realtime, vframes, b_start, vline - 1, l_prev);
+                b_start = vline;
+            end
+            if (l_mid == C_WHITE && (vline == 0 || l_prev != C_WHITE)) begin
+                if (w_end >= 0 && vline - w_end != 16) w_bad = 1;     // the red gap
+                w_start = vline;
+                w_runs  = w_runs + 1;
+                if (w_first < 0) w_first = vline;
+                w_sig   = w_sig + vline;
+            end
+            if (l_mid != C_WHITE && vline > 0 && l_prev == C_WHITE) begin
+                if (vline - w_start != 16) w_bad = 1;                 // the stripe
+                w_end = vline;
+            end
+            l_prev = l_mid;
+            vline = vline + 1;
+        end
+    end
+
     // ---------------------------------------------------------------- finish
     integer hello = 0, nhello = 0, nself = 0, scan = 0, ls = 0, lk, done = 0, ok = 0, k;
     integer spd_hello [0:8];
@@ -436,6 +541,8 @@ module tb #(
             $display("---- SRAM timing errors: %0d, FT232H errors: %0d, send-immediate pulses: %0d",
                      sram.errors, ft.errors, ft.siwu_count);
             $display("---- speed: %0d errors; T1 at 3.57 MHz on slot edges %b (9-0)", speed_errors, spd_edges);
+            $display("---- video: %0d frames, %0d timing errors, %0d lines changing colour; %0d blue and %0d green pixels; BGCOLOR %h",
+                     vframes, vid_errors, mixed_lines, pix_blue, pix_green, dut.vid.bgcolor);
             for (s = 0; s < 9; s = s + 1)
                 if (spd_tstates[s] > 0)
                     $display("----   %s: %0d T-states, %0d clocks: %0.3f MHz; read data at di %0d+ clocks before taken; %0d \"hello\"",
@@ -453,8 +560,14 @@ module tb #(
             for (s = 0; s < 9; s = s + 1) if (spd_hello[s] == 0) all_hello = 0;
             if (pass && wait_errors == 0 && cpu_refused == 0 && sram.errors == 0 && ft.errors == 0
                 && dma_errors == 0 && cpu_cycles > 0 && reads_sram > 0 && writes_sram > 0
-                && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF)))
+                && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF))
+                && vid_errors == 0 && mixed_lines == 0
+                && (!hello || (pix_blue > 0 && pix_green > 0 && dut.vid.bgcolor == C_GREEN)))
                 $display("TEST PASSED");
+            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && dut.vid.bgcolor == C_GREEN))
+                $display("TEST FAILED: the screen was not blue, then green");
+            else if (pass && (vid_errors != 0 || mixed_lines != 0))
+                $display("TEST FAILED: video timing");
             else if (pass && speeds && !all_hello)
                 $display("TEST FAILED: no \"hello\" at some speed");
             else if (pass && speeds && spd_edges != 10'h3FF)
@@ -490,6 +603,9 @@ module tb #(
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
                     end else finish(1, "");
+                end else if (failshow != 0 && is_line(ls, "selftest FAIL ", 14)) begin
+                    $display("%t PC: the self-test failure, frame %0d", $realtime, vframes);
+                    fail_frame = vframes;
                 end else if (hello && is_line(ls, "selftest FAIL", 13)) finish(0, "the boot ROM self-test failed");
                 else if (!hello && is_line(ls, {"PASS", 8'h0D, 8'h0A}, 6)) finish(1, "");
                 else if (!hello && is_line(ls, "FAIL", 4)) finish(0, "the test ROM failed");
@@ -504,5 +620,16 @@ module tb #(
     initial begin
         for (k = 0; k < timeout_us && !done; k = k + 1) #1000;
         if (!done) finish(0, "timeout");
+    end
+
+    // +failshow: once the boot ROM has reported the failure, the second and
+    // third frames that start after it must show the stripes, the same in both
+    always @(posedge clk) if (!done && failshow != 0 && fail_frame >= 0 && vframes >= fail_frame + 3) begin
+        if (fr_runs[fail_frame + 1] == failshow - 64 && fr_runs[fail_frame + 2] == failshow - 64 &&
+            fr_bad[fail_frame + 1] == 0 && fr_bad[fail_frame + 2] == 0 &&
+            fr_sig[fail_frame + 1] == fr_sig[fail_frame + 2] && fr_first[fail_frame + 1] == 17)
+            finish(1, "");
+        else
+            finish(0, "the failure stripes are wrong");
     end
 endmodule
