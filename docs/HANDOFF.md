@@ -15,6 +15,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **retro-z80 runs on the KS2.** The phase 1 computer (tv80 at 20 MHz, MMU, scheduler and SRAM controller from retro68k, boot ROM, serial, a minimal video unit) loaded over JTAG passes its self-test on the real 2 MB SRAM and shows a green screen (#11). HDMI works (#10); VGA not yet checked (#12). Phase 1 in simulation is complete: ZEXDOC and ZEXALL pass 67/67 on the bare core, ZEXDOC 67/67 on the whole machine (#2, #7). Build and load: `fpga/ks2/README.md`.
 
+**Phase 2 has started (#13):** video layer L0 as a chunky bitmap (retro68k's fetch and pixel path: 1/2/4/8 bpp, 1×–8×, windows, live pointer with stride and wrap, fine scroll, TRANSP, PALOFS), PRIO, DMACON and the palettes (PALIDX/PALDAT and the register page), checked pixel by pixel against a Python model (`make -C sim vtest`). The KS2 build has one layer (`NLAYERS = 1`) and the boot ROM shows a palette chart in it; 3,062 LUTs, 100 MHz met. Not yet loaded on the board.
+
 ## 2. Where things are
 
 | File | What |
