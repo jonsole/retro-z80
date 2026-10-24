@@ -5,7 +5,8 @@
 // interface, the scheduler and SRAM controller, the boot ROM, the system
 // registers, USB serial, and the start of the video unit (the 576p beam and
 // the background colour). One DMA port stands in for the DMA users still
-// to come, so tests can load the memory while the Z80 runs.
+// to come, so tests can load the memory while the Z80 runs. Ticket #16 adds
+// the interrupt controller, with VBLANK and SOFT as its sources so far.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4
@@ -96,6 +97,7 @@ module retroz80 #(
     wire [6:0]  c_mcycle, c_tstate;
     wire        c_m1_n, c_mreq_n, c_iorq_n, c_rd_n, c_wr_n, c_rfsh_n, c_halt_n, c_busak_n;
     wire        c_iorq, c_no_read, c_write, c_intcycle_n;
+    wire        int_n;                 // from the interrupt controller
 
     // A T-state every 5n clocks on slot edges 0 and 5, or every 28 clocks,
     // as CPUSPEED says (spec 1, section 3; spec 7, section 6.1)
@@ -105,7 +107,7 @@ module retroz80 #(
 
     z80_cpu cpu (
         .clk(clk), .cen(cen), .reset_n(cpu_rst_n),
-        .wait_n(1'b1), .int_n(1'b1), .nmi_n(1'b1), .busrq_n(1'b1),
+        .wait_n(1'b1), .int_n(int_n), .nmi_n(1'b1), .busrq_n(1'b1),
         .m1_n(c_m1_n), .mreq_n(c_mreq_n), .iorq_n(c_iorq_n), .rd_n(c_rd_n), .wr_n(c_wr_n),
         .rfsh_n(c_rfsh_n), .halt_n(c_halt_n), .busak_n(c_busak_n),
         .A(c_a), .di(c_di), .dout(c_dout),
@@ -125,9 +127,11 @@ module retroz80 #(
     wire [14:1] rom_addr;
     wire [15:0] rom_wdata, rom_rdata;
     wire [12:0] rb_addr;
-    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid;
-    wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid;
+    wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid, rd_int;
+    wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
     wire        late;
+    wire        int_vreq, int_ack;
+    wire [7:0]  int_vec;
 
     bus_if bif (
         .clk(clk), .rst(!cpu_rst_n), .cen(cen),
@@ -140,7 +144,9 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid), .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int),
+        .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .late(late)
     );
 
@@ -220,12 +226,28 @@ module retroz80 #(
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
     );
 
+    // ---------------------------------------------------------------- interrupts (spec 8)
+    // Sources so far: VBLANK (0) and SOFT (18, inside the controller). The
+    // other lines are tied off until their units come; the NMI is not
+    // connected to the Z80 yet (it comes with the NMI paging, spec 1,
+    // section 8.2), so its inputs are tied off too.
+    wire        irq_vid;
+    wire [20:0] int_req = {20'd0, irq_vid};
+
+    intc ic (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_int), .rb_hit(hit_int),
+        .req(int_req), .int_n(int_n), .vreq(int_vreq), .vector(int_vec), .int_ack(int_ack),
+        .nmi_button(1'b0), .nmi_usb(1'b0), .nmi_ack(1'b0), .nmi_n()
+    );
+
     // ---------------------------------------------------------------- video (spec 4)
     video vid (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid),
-        .frame_tick(),
+        .frame_tick(), .irq(irq_vid),
         .clk_pix(clk_pix), .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );
 endmodule

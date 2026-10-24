@@ -1,13 +1,17 @@
 // Video (spec 4), first part: the 576p beam and the background colour.
 // After retro68k's video.v, narrowed to byte registers on the 8-bit
 // register bus. Version for ticket #11 (the KS2 bring-up build): no layers,
-// sprites, palettes or interrupts yet, so the picture is BGCOLOR all over.
+// sprites or palettes yet, so the picture is BGCOLOR all over. Ticket #16
+// added VIDINTEN and the request line to the interrupt controller.
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON   0x000  EN (0) starts the beam; BLANKALL (2), DIRECT (4) and
 //                   SHAREPAL (5) are kept and read back (no layers yet, so
 //                   the screen is BGCOLOR either way)
 //   VIDSTAT  0x001  VBLANK (0), sticky, write 1 to clear; INVBLANK (3), live
+//   VIDINTEN 0x002  enables for VIDSTAT's flags, bits 0-2 and 4-7 (bit 3
+//                   reads 0); irq is on while a flag and its enable are
+//                   (spec 4, section 3.4; spec 8: VBLANK is source 0)
 //   BGCOLOR  0x004  blue, green, red; blue and green go into the CPU's
 //                   colour assembly buffer, the red byte writes all three
 //                   (spec 3, rule 7)
@@ -41,6 +45,7 @@ module video (
     output reg         rb_hit,         // with rb_rdata: this unit answered
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
+    output wire        irq,            // to the interrupt controller: source VBLANK (0)
 
     input  wire        clk_pix,        // 27 MHz
     output reg  [23:0] rgb,            // RRGGBB
@@ -68,6 +73,7 @@ module video (
     // ================================================================ registers (100 MHz)
     reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
     reg         vs_vblank;             // VIDSTAT.VBLANK
+    reg  [7:0]  vidinten;              // VIDINTEN; bit 3 always 0
     reg  [23:0] bgcolor;               // RRGGBB
     reg  [15:0] cab;                   // the CPU's colour assembly buffer: green, blue
 
@@ -86,7 +92,9 @@ module video (
     always @(posedge clk) vb_s <= {vb_s[1:0], p_vb_t};
     assign frame_tick = vb_s[2] != vb_s[1];
 
-    wire sel = (rb_addr == `RM_VIDCON) || (rb_addr == `RM_VIDSTAT) ||
+    assign irq = vs_vblank && vidinten[`RM_VIDINTEN_VBLANK];
+
+    wire sel = (rb_addr == `RM_VIDCON) || (rb_addr == `RM_VIDSTAT) || (rb_addr == `RM_VIDINTEN) ||
                (rb_addr >= `RM_BGCOLOR0) && (rb_addr <= `RM_BGCOLOR2) ||
                (rb_addr >= `RM_VIDSIZE0) && (rb_addr <= `RM_VIDSIZE3);
 
@@ -94,6 +102,7 @@ module video (
         if (rst) begin
             vidcon    <= 6'd0;
             vs_vblank <= 1'b0;
+            vidinten  <= 8'd0;
             bgcolor   <= 24'd0;
             cab       <= 16'd0;
         end else begin
@@ -101,6 +110,7 @@ module video (
             if (rb_wr) case (rb_addr)
                 `RM_VIDCON:   vidcon <= {rb_wdata[5:4], 1'b0, rb_wdata[2], 1'b0, rb_wdata[0]};
                 `RM_VIDSTAT:  if (rb_wdata[`RM_VIDSTAT_VBLANK]) vs_vblank <= 1'b0;
+                `RM_VIDINTEN: vidinten <= rb_wdata & 8'hF7;
                 `RM_BGCOLOR0: cab[7:0]  <= rb_wdata;
                 `RM_BGCOLOR1: cab[15:8] <= rb_wdata;
                 `RM_BGCOLOR2: bgcolor   <= {rb_wdata, cab};
@@ -113,6 +123,7 @@ module video (
         if (rb_rd) case (rb_addr)
             `RM_VIDCON:   rb_rdata <= {2'd0, vidcon};
             `RM_VIDSTAT:  rb_rdata <= {4'd0, invblank, 2'd0, vs_vblank};
+            `RM_VIDINTEN: rb_rdata <= vidinten;
             `RM_BGCOLOR0: rb_rdata <= bgcolor[7:0];
             `RM_BGCOLOR1: rb_rdata <= bgcolor[15:8];
             `RM_BGCOLOR2: rb_rdata <= bgcolor[23:16];

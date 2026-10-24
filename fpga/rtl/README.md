@@ -15,18 +15,19 @@ Board builds live in `fpga/ks2/` (the computer on the KS2, issue #11, and its te
 
 | File | What | Spec |
 |------|------|------|
-| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial, video. `CHIPMB = 2` builds for a 2 MB board: physical bit 21 ignored | 1, 2, 7 |
+| `retroz80.v` | The computer without board parts: timebase, reset, CPU, memory, registers, serial, interrupts, video. `CHIPMB = 2` builds for a 2 MB board: physical bit 21 ignored | 1, 2, 7 |
 | `z80_cpu.v` | tv80 with retro-z80's own wrapper: cen, early cycle-type outputs | 1, section 2 |
 | `cpu_cen.v` | The CPU's clock enable, set by CPUSPEED: a T-state every 5n clocks on slot edges 0 and 5, or every 28; a new speed from the next T1 | 1, section 3; 7, section 6.1 |
-| `bus_if.v` | Bus interface: page looked up in T1, memory requests at E + 3, posted writes, boot ROM, NONE and reserved pages, the register page, I/O decode and register bus strobes | 1, sections 4–6 |
+| `bus_if.v` | Bus interface: page looked up in T1, memory requests at E + 3, posted writes, boot ROM, NONE and reserved pages, the register page, I/O decode and register bus strobes; the interrupt acknowledge (the vector asked for in the first T1 only, held at di from E + 4, one int_ack) | 1, sections 4–6 and 8.1 |
 | `mmu.v` | The MMU: read and write page registers MMUn and MMUnW (byte 1 commits; a read-page commit sets the write page), reset mapping. retro-z80's own | 2, section 9 |
 | `timebase.v` | Slot edge counter `sc` | 2, section 3 |
 | `dmac.v` | Scheduler: CPU on cycles 0 and 2, never turned away | 2, section 5 |
 | `sram_ctl.v` | SRAM controller, 20 ns cycles | 2, section 8 |
 | `bootrom.v` | 32 KB boot ROM in block RAM, writable with SYSCON.ROMWE | 7, section 4 |
+| `intc.v` | Interrupt controller: INTCON, INTENA0–2 (set/clear), INTPEND0–2, INTRAW0–2, VECBASE, SOFTINT, INTID, NMICON, NMISTAT; fixed priority by source number, IM 2 vector VECBASE + 2n, NONE (23) when nothing is pending. Sources so far: VBLANK (0) and SOFT (18); the NMI is not connected to the Z80 yet | 8 |
 | `sysregs.v` | SYSID, SYSVER, SYSCFG, RESETWHY, SYSCON, SYSRESET, SYSBTN, CPUSPEED | 7, section 11.1 |
 | `serial.v`, `fifo8.v` | USB serial (FT232H, 245 FIFO mode) and its FIFOs | 10 |
-| `video.v` | Video, first part: the 576p beam on the 27 MHz pixel clock, VIDCON, VIDSTAT (VBLANK, INVBLANK), BGCOLOR (the red byte commits, through the CPU's colour assembly buffer), VIDSIZE. No layers, sprites, palettes or interrupts yet | 4 |
+| `video.v` | Video, first part: the 576p beam on the 27 MHz pixel clock, VIDCON, VIDSTAT (VBLANK, INVBLANK), VIDINTEN and the VBLANK request line, BGCOLOR (the red byte commits, through the CPU's colour assembly buffer), VIDSIZE. No layers, sprites or palettes yet | 4 |
 | `platform/sim/oddr.v` | Behavioural DDR output register | – |
 | `tmds_encoder.v` | DVI TMDS encoder (8b/10b with DC balance) | – |
 | `platform/artix7/ks2_clocks.v` | KS2 clocks: 100 MHz system, 27 and 135 MHz video | – |

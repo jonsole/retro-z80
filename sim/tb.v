@@ -6,6 +6,10 @@
 //   +hello       the boot ROM: pass when "selftest ok, N MB" (N = the
 //                build's CHIPMB) and then "hello" arrive; then send the
 //                RESET control command and pass when both arrive again
+//   +bgcycle     with +hello, a boot ROM built with -DCYCLE_FRAMES=1: after
+//                the first "hello", pass when BGCOLOR has gone from green
+//                to yellow and then cyan, each change made in the
+//                vertical blank (the VBLANK handler); no RESET is sent
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
@@ -33,7 +37,11 @@
 //   - the 576p timing from the video unit (864 pixels a line, 625 lines a
 //     frame) and that the background colour changes only between lines;
 //     with +hello, that the screen was blue (self-test running) and then
-//     green (passed), and BGCOLOR is green at the end.
+//     green (passed), and BGCOLOR is green at the end;
+//   - every interrupt acknowledge (spec 1, section 8.1, B11): exactly one
+//     vector request, in its first T1; the byte the core takes at the end
+//     of T2 is the controller's vector, VECBASE + 2 x INTID, at di at
+//     least 16 clocks before; and exactly one int_ack, after that.
 // and that each T-state is as long as CPUSPEED says (spec 1, section 3;
 // spec 7, section 6.1). The summary gives the measured rate at each speed.
 `timescale 1ns/1ps
@@ -377,6 +385,43 @@ module tb #(
         end
     end
 
+    // Interrupt acknowledges (spec 1, section 8.1; open point B11)
+    integer acks = 0, vreqs = 0, int_acks = 0, ack_errors = 0, vec_since = 0;
+    reg     ack_asked = 1'b0, ack_took = 1'b0;
+    task ack_error(input [8*64-1:0] why);
+        begin
+            if (ack_errors < 10) $display("%t ACK ERROR: %0s", $realtime, why);
+            ack_errors = ack_errors + 1;
+        end
+    endtask
+    always @(posedge clk) if (dut.cpu_rst_n) begin
+        vec_since = vec_since + 1;
+        if (dut.int_vreq) begin
+            vreqs = vreqs + 1;
+            if (ack_asked) ack_error("a second vector request in one acknowledge");
+            if (!(dut.cpu.mcycle[0] && !dut.cpu.intcycle_n && dut.cpu.tstate[1]))
+                ack_error("a vector request outside an acknowledge's T1");
+            ack_asked = 1'b1;
+            vec_since = 0;
+        end
+        if (dut.cen && dut.cpu.tstate[2] && dut.cpu.mcycle[0] && !dut.cpu.intcycle_n) begin
+            acks = acks + 1;
+            if (!ack_asked) ack_error("an acknowledge with no vector request");
+            if (ack_took) ack_error("an acknowledge's byte taken twice");
+            if (dut.cpu.di !== dut.ic.vector ||
+                dut.cpu.di !== (({dut.ic.vecbase, 1'b0} + {2'd0, dut.ic.intid, 1'b0}) & 8'hFF))
+                ack_error("the byte taken is not the vector");
+            if (vec_since < 16) ack_error("the vector at di less than 16 clocks");
+            ack_took = 1'b1;
+        end
+        if (dut.int_ack) begin
+            int_acks = int_acks + 1;
+            if (!ack_took) ack_error("int_ack before the byte was taken");
+            ack_asked = 1'b0;
+            ack_took  = 1'b0;
+        end
+    end
+
     // Writes and I/O: the MMU model, the counts and the trace. A write is
     // seen the clock after wr_n falls, when A and dout are steady.
     always @(posedge clk) begin
@@ -514,8 +559,10 @@ module tb #(
         speeds = $test$plusargs("speeds");
         for (k = 0; k < 9; k = k + 1) spd_hello[k] = 0;
     end
-    integer timeout_us = 2000;
+    integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0;
+    reg [23:0] bg_seen;
     initial begin
+        bgcycle = $test$plusargs("bgcycle");
         hello = $test$plusargs("hello");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
@@ -540,6 +587,8 @@ module tb #(
             $display("---- DMA: %0d reads, %0d writes, %0d errors", dma_reads, dma_writes, dma_errors);
             $display("---- SRAM timing errors: %0d, FT232H errors: %0d, send-immediate pulses: %0d",
                      sram.errors, ft.errors, ft.siwu_count);
+            $display("---- interrupts: %0d acknowledges, %0d vector requests, %0d int_ack pulses, %0d errors",
+                     acks, vreqs, int_acks, ack_errors);
             $display("---- speed: %0d errors; T1 at 3.57 MHz on slot edges %b (9-0)", speed_errors, spd_edges);
             $display("---- video: %0d frames, %0d timing errors, %0d lines changing colour; %0d blue and %0d green pixels; BGCOLOR %h",
                      vframes, vid_errors, mixed_lines, pix_blue, pix_green, dut.vid.bgcolor);
@@ -560,12 +609,15 @@ module tb #(
             for (s = 0; s < 9; s = s + 1) if (spd_hello[s] == 0) all_hello = 0;
             if (pass && wait_errors == 0 && cpu_refused == 0 && sram.errors == 0 && ft.errors == 0
                 && dma_errors == 0 && cpu_cycles > 0 && reads_sram > 0 && writes_sram > 0
+                && ack_errors == 0 && acks == vreqs && acks == int_acks
                 && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF))
                 && vid_errors == 0 && mixed_lines == 0
-                && (!hello || (pix_blue > 0 && pix_green > 0 && dut.vid.bgcolor == C_GREEN)))
+                && (!hello || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_GREEN))))
                 $display("TEST PASSED");
-            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && dut.vid.bgcolor == C_GREEN))
+            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_GREEN)))
                 $display("TEST FAILED: the screen was not blue, then green");
+            else if (pass && (ack_errors != 0 || acks != vreqs || acks != int_acks))
+                $display("TEST FAILED: interrupt acknowledges");
             else if (pass && (vid_errors != 0 || mixed_lines != 0))
                 $display("TEST FAILED: video timing");
             else if (pass && speeds && !all_hello)
@@ -599,7 +651,11 @@ module tb #(
                     nhello = nhello + 1;
                     $display("%t PC: \"hello\" number %0d", $realtime, nhello);
                     if (nself != nhello) finish(0, "hello without the self-test");
-                    else if (nhello == 1) begin
+                    else if (nhello == 1 && bgcycle) begin
+                        $display("%t PC: waiting for the VBLANK colour cycle", $realtime);
+                        bgwait  = 1;
+                        bg_seen = dut.vid.bgcolor;
+                    end else if (nhello == 1) begin
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
                     end else finish(1, "");
@@ -620,6 +676,19 @@ module tb #(
     initial begin
         for (k = 0; k < timeout_us && !done; k = k + 1) #1000;
         if (!done) finish(0, "timeout");
+    end
+
+    // +bgcycle: green, then yellow, then cyan, each set in the vertical blank
+    always @(posedge clk) if (!done && bgwait && dut.vid.bgcolor !== bg_seen) begin
+        $display("%t video: BGCOLOR %h, beam line %0d", $realtime, dut.vid.bgcolor, dut.vid.s_vline);
+        bg_seen = dut.vid.bgcolor;
+        bgsteps = bgsteps + 1;
+        if (!dut.vid.invblank)
+            finish(0, "a colour change outside the blank");
+        else if (bgsteps == 1 && bg_seen != 24'hFFFF00)
+            finish(0, "not yellow after green");
+        else if (bgsteps == 2)
+            finish(bg_seen == 24'h00FFFF, "not cyan after yellow");
     end
 
     // +failshow: once the boot ROM has reported the failure, the second and

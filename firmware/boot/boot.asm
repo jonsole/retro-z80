@@ -8,7 +8,9 @@
 ;   no picture   the boot ROM did not get as far as starting the beam
 ;   blue         the self-test is running (it takes under a millisecond, so
 ;                a screen that stays blue means the Z80 stopped in it)
-;   green        the self-test passed; "hello" was sent
+;   green        the self-test passed; "hello" was sent. A second later the
+;                colour starts to change once a second (yellow, cyan,
+;                magenta, white, green, ...): the VBLANK interrupt works
 ;   red, with white stripes: the self-test failed. The number of stripes
 ;                is the failing check's number less 0x40 (1 stripe = check
 ;                41, 2 = check 42 ... 17 = check 51)
@@ -20,12 +22,23 @@
 ; window 7 is in SRAM. The boot ROM's real programs (monitor, loader) come
 ; with spec 16.
 ;
+; After the self-test the boot ROM runs in IM 2 (spec 8): I and VECBASE
+; point at the table `ivt` in the ROM; VBLANK's handler counts frames and
+; steps the colour, every other entry goes to a handler that just returns.
+;
 ; Assemble: sjasmplus --raw=boot.bin -I ../include boot.asm
 ; With -DFAILTEST=nn the self-test is skipped and check nn is shown as
-; failed (sim/Makefile, failshow).
+; failed (sim/Makefile, failshow). With -DCYCLE_FRAMES=n the colour
+; changes every n frames in place of 50 (sim/Makefile, bootvbl).
 
         DEVICE  NOSLOT64K
         include "hw.inc"
+
+    IFNDEF CYCLE_FRAMES
+CYCLE_FRAMES equ 50                     ; frames per colour: a second at 50 Hz
+    ENDIF
+FRAMES  equ     0xC000                  ; SRAM (window 6): frames left of this colour
+COLNUM  equ     0xC001                  ; ... and the number of the colour
 
         ORG     0x0000
 
@@ -73,8 +86,70 @@ start:  ld      sp,0x0000               ; stack grows down from 0xFFFF (SRAM pag
         call    puts
         ld      hl,hello
         call    puts
-stop:   halt                            ; interrupts are off: stays here
+        call    vblon
+stop:   halt                            ; woken by each VBLANK
         jr      stop
+
+; IM 2 with the VBLANK interrupt on (spec 8, section 12's example)
+vblon:  ld      a,CYCLE_FRAMES
+        ld      (FRAMES),a
+        ld      a,4                     ; green, the last of `cycle`
+        ld      (COLNUM),a
+        ld      a,high ivt
+        ld      i,a
+        ld      bc,VECBASE_P
+        ld      a,low ivt
+        out     (c),a
+        im      2
+        ld      bc,VIDSTAT_P
+        ld      a,VIDSTAT_VBLANK_M
+        out     (c),a                   ; clear an old VBLANK flag
+        ld      bc,VIDINTEN_P
+        ld      a,VIDINTEN_VBLANK_M
+        out     (c),a                   ; the unit's enable
+        ld      bc,INTENA0_P + (INTR_VBLANK << 8)
+        ld      a,INTENA_SETCLR_M | (1 << INTB_VBLANK)
+        out     (c),a                   ; the controller's enable
+        ld      bc,INTCON_P
+        ld      a,INTCON_MASTER_M
+        out     (c),a                   ; the master enable
+        ei
+        ret
+
+; VBLANK: every CYCLE_FRAMES frames, the next colour of `cycle`
+vbl:    push    af
+        push    bc
+        push    hl
+        ld      bc,VIDSTAT_P
+        ld      a,VIDSTAT_VBLANK_M
+        out     (c),a                   ; clear the cause
+        ld      hl,FRAMES
+        dec     (hl)
+        jr      nz,.done
+        ld      (hl),CYCLE_FRAMES
+        ld      a,(COLNUM)
+        inc     a
+        cp      5
+        jr      c,.next
+        xor     a
+.next:  ld      (COLNUM),a
+        ld      l,a                     ; HL = cycle + 3 x A
+        add     a,a
+        add     a,l
+        ld      l,a
+        ld      h,0
+        ld      bc,cycle
+        add     hl,bc
+        call    setbg
+.done:  pop     hl
+        pop     bc
+        pop     af
+        ei
+        reti
+
+; Every other source, and the spurious entry: nothing to do
+spur:   ei
+        reti
 
 ; Send the zero-terminated string at HL (A, B, C, E, HL changed)
 puts:   ld      a,(hl)
@@ -177,6 +252,21 @@ col_test:  db   0xFF, 0x00, 0x00        ; blue: testing
 col_ok:    db   0x00, 0xFF, 0x00        ; green: passed
 col_fail:  db   0x00, 0x00, 0xFF        ; red: failed ...
 col_white: db   0xFF, 0xFF, 0xFF        ; ... with white stripes
+; The VBLANK colour cycle, after green: no blue or red, which mean
+; "testing" and "failed"
+cycle:     db   0x00, 0xFF, 0xFF        ; yellow
+           db   0xFF, 0xFF, 0x00        ; cyan
+           db   0xFF, 0x00, 0xFF        ; magenta
+           db   0xFF, 0xFF, 0xFF        ; white
+           db   0x00, 0xFF, 0x00        ; green
+
+; IM 2 table (spec 8, section 5): 24 entries, sources 0-20, 21-22 unused,
+; 23 NONE; within one 256-byte page
+        ALIGN   64
+ivt:    dw      vbl
+        dup     23
+        dw      spur
+        edup
 
 hello:  db      "hello"
 crlf:   db      13, 10, 0

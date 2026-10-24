@@ -289,7 +289,7 @@ vbl:    push af
 | I1 | Every unit spec must give its flags, enables and request line in retro68k's form: VIDSTAT/VIDINTEN (spec 4: VBLANK, LINE, the VIDERR bits including the sprites'), COPSTAT.IRQ and COPCON.IRQEN (spec 6), DMXINT/DMXINTEN (spec 14), TMRn_STAT and CTRL.IRQ (spec 9), SERIRQ/SERIRQEN (spec 10), KBIRQ/KBIRQEN (spec 12). The SD controller (spec 11) has no interrupt in version 1. The earlier draft's edge latches in the controller are gone |
 | I2 | AUDIO (9) is reserved until spec 13 |
 | I3 | GEOM (19): does the geometry unit need an interrupt at all? It finishes in under 1 µs (design plan, branch 10). Keep the number reserved until spec 15 decides |
-| I4 | Check that tv80 samples /INT and runs the IM 2 acknowledge as a real Z80 does (design plan Q3), including the vector read timing in spec 1 |
+| I4 | Partly closed (ticket #16): tv80 runs the IM 2 and IM 1 acknowledges as spec 1, section 8.1 says, at 20, 3.57 and 2.5 MHz, and takes the vector at the end of T2 (spec 1, B11). The spurious acknowledge and the frozen choice cannot be made from software with this timing (the request is registered, and the core samples /INT a T-state before the end of the instruction), so they are tested on the controller alone (`sim/intc`) |
 | I5 | Closed: no IM 0 option (design plan, branch 11). Software sets IM 1 or IM 2 before the first `EI` (section 7) |
 | I6 | Closed: IM 1 uses INTID (the source at the last acknowledge) instead of a separate "highest pending" port. INTHIGH is gone |
 | I7 | Deferred (design plan, branch 11): interrupts from accelerator-port pins (retro68k I1). Source 20 is kept free for it |
