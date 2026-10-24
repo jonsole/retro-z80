@@ -17,6 +17,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **Phase 2 has started (#13):** video layer L0 as a chunky bitmap (retro68k's fetch and pixel path: 1/2/4/8 bpp, 1×–8×, windows, live pointer with stride and wrap, fine scroll, TRANSP, PALOFS), PRIO, DMACON and the palettes (PALIDX/PALDAT and the register page), checked pixel by pixel against a Python model (`make -C sim vtest`). The KS2 build has one layer (`NLAYERS = 1`) and the boot ROM shows a palette chart in it; 3,062 LUTs, 100 MHz met. Not yet loaded on the board.
 
+**Tile mode (#14):** any layer can be a tile map (MAPPT, PATPT, 8 × 8 tiles at 1/2/4/8 bpp, maps of 32–128 entries each way, SCROLLX/SCROLLY round the map, PAL, XFLIP, YFLIP, PRI), fetched with the map entries one group ahead (spec 4, section 5.2); `vtest` variant `t` checks it pixel by pixel. The boot ROM turns L0 into a scrolling tile map two seconds after the palette chart; 3,531 LUTs, 100 MHz met.
+
 ## 2. Where things are
 
 | File | What |

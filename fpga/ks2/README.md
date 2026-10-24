@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one bitmap layer, L0, and the palettes (issue #13) on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, changes the background colour once a second from a VBLANK interrupt, and two seconds after the chart turns L0 into a scrolling tile map.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -39,7 +39,7 @@ Loading over JTAG changes only the FPGA, until the power goes off. The flash and
 
 ## The computer: what you should see
 
-On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle:
+On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle, then the tile map over the whole screen:
 
 | Screen | Meaning |
 |--------|---------|
@@ -48,7 +48,18 @@ On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both
 | **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
 | **The palette chart** appears in the middle about 20 ms after green (at once, to the eye): a 512 × 512 square of 16 rows of 16 cells, each 32 × 32 pixels, with a black line on the right and bottom of each cell. Row 1 is the default palette's Spectrum colours: black, blue, red, magenta, green, cyan, yellow, white, then the same eight bright (the bright black looks black). Rows 2–14 and the first half of row 15 are a 6 × 6 × 6 colour cube: blue changes fastest along the row, then green, then red, from black (row 2's first cell) to white (row 15's eighth cell). The last 24 cells, the second half of row 15 and row 16, are a grey ramp from near black to near white | **The layer works** (issue #13): L0 is an 8-bit bitmap at 2 × across and 8 × down, fetched from the SRAM through the scheduler, coloured through PALETTE0, whose entries 16–255 the boot ROM wrote through PALIDX and PALDAT. A cell out of place, a torn or jumping chart, stripes in it or wrong colours point at the layer fetch or the palette. The background round the chart keeps changing colour (next row) |
 | Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
+| **The tile map**: two seconds after the chart, letters F over the whole screen, moving diagonally up and to the left | **Tile mode works** (issue #14; `firmware/boot/tiledemo.asm`). Below |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
+
+**The tile map.** Two seconds after the chart appears, the VBLANK handler turns L0 into a map of 64 × 32 tiles of 8 × 8 pixels at 4 bits per pixel, shown at 2 × 2 over the whole picture, so each tile is 16 × 16 screen pixels (45 across, 36 down). The chart goes and does not come back. The map is built from blocks of 4 × 4 tiles:
+
+- The top-left 2 × 2 tiles of each block are a letter **F** with a black drop shadow, four ways: top left as normal (F), top right mirrored (XFLIP: the bars point left), bottom left upside down (YFLIP: the long bar at the bottom), bottom right both (turned half round). Each F only looks right if XFLIP and YFLIP work.
+- The other 12 tiles of each block are a small dark grey dot in the middle.
+- The F's colour changes from block to block along diagonals: red, green, blue, yellow (each entry's PAL, 1–4, picks a palette block).
+- Everything else is transparent (TRANSP), so the background colour shows through and still changes once a second.
+- The map scrolls one source pixel right and one down each frame (SCROLLX and SCROLLY, written by the VBLANK handler): the picture moves smoothly up and to the left, 100 screen pixels a second. It never stops or jumps: the map (512 × 256 source pixels) wraps round both ways. The window is 288 source lines tall, so 32 of the map's lines show twice, at the top and at the bottom.
+
+A tile torn or shifted against its neighbours, an F the wrong way round, wrong colours, flicker or sparkle (late data: OVERRUN) or jerky movement point at the tile fetch.
 
 The checks (`firmware/boot/selftest.asm`):
 
@@ -115,12 +126,12 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 
 ## Results: the computer
 
-Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 and the palettes (issue #13) and the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns). One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
+Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 as a bitmap or a tile map and the palettes (issues #13 and #14) and the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns; issue #13's 3,062 LUTs, 2,227 flip-flops and +0.585 ns, so the tile mode costs about 470 LUTs and 430 flip-flops). One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
 
 | Resource | Used | Available | |
 |------|------|------|------|
-| LUTs | 3,062 | 10,400 | 29.4% |
-| Flip-flops | 2,227 | 20,800 | 10.7% |
+| LUTs | 3,531 | 10,400 | 34.0% |
+| Flip-flops | 2,660 | 20,800 | 12.8% |
 | Block RAM (36 Kb) | 11 (8 × 36 Kb boot ROM, 2 × 36 Kb palettes, 2 × 18 Kb serial FIFOs) | 25 | 44% |
 | DSP | 2 (the register page palettes' divide by 3) | 45 | 4% |
 | MMCMs | 2 | 5 | |
@@ -131,18 +142,18 @@ Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 and the
 |------|------|------|
 | tv80 (with the 32 LUT-RAM register file) | 1,156 | 232 |
 | Serial and its FIFOs | 263 | 195 |
-| Bus interface (it now also carries the palette read from its register bus input) | 393 | 117 |
-| Video (beam, registers, palettes, priority, pixel pipeline) | 382 | 436 |
-| Layer fetch (`bpldma.v`) | 453 | 552 |
-| Layer L0's pixel side (`layer_pix.v`) | 119 | 150 |
+| Bus interface (it now also carries the palette read from its register bus input) | 446 | 117 |
+| Video (beam, registers, palettes, priority, pixel pipeline, the tile map line) | 445 | 541 |
+| Layer fetch (`bpldma.v`, with the tile fetch) | 744 | 872 |
+| Layer L0's pixel side (`layer_pix.v`) | 149 | 158 |
 | MMU | 150 | 297 |
 | Interrupt controller (with only VBLANK and SOFT as sources, synthesis folds the tied-off lines away) | 9 | 54 |
 | Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 100 | about 180 |
 
 | Clock | Frequency | Worst setup slack | Worst hold slack |
 |------|------|------|------|
-| System (`c0`) | 100 MHz | +0.585 ns (the layer fetcher's pick of the next word, `want` to `a_first_w`) | +0.028 ns |
-| Pixel (`p0`) | 27 MHz | +24.614 ns | +0.058 ns |
+| System (`c0`) | 100 MHz | +0.574 ns (tv80's machine cycle into the bus interface's read data enable) | +0.040 ns |
+| Pixel (`p0`) | 27 MHz | +24.524 ns | +0.055 ns |
 | Serialiser (`p1`) | 135 MHz | (only the OSERDESE2 clock pins; pulse width slack +5.252 ns) | |
 
 Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). Other tight 100 MHz paths: tv80's instruction register to the bus interface's address register (+0.89 ns, single-cycle); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.
