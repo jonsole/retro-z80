@@ -2,16 +2,17 @@
 // the palettes, priority and the background colour. retro68k's video.v,
 // narrowed to byte registers on the 8-bit register bus.
 //
-// Version for ticket #13: layers as chunky bitmaps (1, 2, 4 or 8 bits per
-// pixel, 1x-8x, window, live pointer with stride and wrap, fine scroll,
-// TRANSP, PALOFS), fetched just in time by bpldma.v through the scheduler
-// (dmac.v), shown by layer_pix.v. NL sets how many layers are built (1-3):
-// the registers of layers not built read 0xFF and PRIO naming them shows
-// nothing. Not yet: tile mode (CTRL0.MODE = 1 layers are not fetched),
-// sprites, direct colour (VIDCON.DIRECT is kept and read back), the
-// attribute layer, LINECMP, the LINE and VIDERR requests, BEAMPOS and
-// FRAMECOUNT, port 0xFE. Ticket #16 added VIDINTEN and the request line to
-// the interrupt controller (VBLANK).
+// Layers as chunky bitmaps (ticket #13: 1, 2, 4 or 8 bits per pixel, 1x-8x,
+// window, live pointer with stride and wrap, fine scroll, TRANSP, PALOFS)
+// or tile maps (ticket #14: 8 x 8 tiles at 1-8 bits per pixel, MAPPT and
+// PATPT, maps of 32-128 entries each way, SCROLLX and SCROLLY round the map,
+// PAL, XFLIP, YFLIP, PRI), fetched just in time by bpldma.v through the
+// scheduler (dmac.v), shown by layer_pix.v. NL sets how many layers are
+// built (1-3): the registers of layers not built read 0xFF and PRIO naming
+// them shows nothing. Not yet: sprites, direct colour (VIDCON.DIRECT is
+// kept and read back), the attribute layer, LINECMP, the LINE and VIDERR
+// requests, BEAMPOS and FRAMECOUNT, port 0xFE. Ticket #16 added VIDINTEN
+// and the request line to the interrupt controller (VBLANK).
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
@@ -26,8 +27,8 @@
 //   PALIDX    0x009  entry (7-0), palette (9-8)
 //   PALDAT    0x00B  blue, green, red of the entry at PALIDX
 //   DMACON    0x00C  set/clear: DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN
-//   layers    0x090 + n x 0x20: CTRL0-CTRL3, WINX, WINY, SCROLLX here;
-//                    BPLSTRIDE and BPL0PT in bpldma.v
+//   layers    0x090 + n x 0x20: CTRL0-CTRL3, WINX, WINY, SCROLLX, SCROLLY
+//                    here; BPLSTRIDE, BPL0PT, MAPPT and PATPT in bpldma.v
 //   VIDSIZE   0x0F6  720 x 576, read only
 //   palettes  register page 0x1400-0x1FFF, 3 bytes per entry (spec 4, 6.5)
 //
@@ -113,16 +114,16 @@ module video #(
     reg  [7:0]  l_ctrl0 [0:2];      // EN (0), BPP (3-2), TRANSP (4), MODE (5), HSCALE (7-6)
     reg  [7:0]  l_ctrl1 [0:2];      // VSCALE (1-0), PALOFS (7-4)
     reg  [7:0]  l_ctrl2 [0:2];      // WRAP (7-4)
-    reg  [7:0]  l_ctrl3 [0:2];      // MAPW (1-0), MAPH (3-2): kept for tile mode
+    reg  [7:0]  l_ctrl3 [0:2];      // MAPW (1-0), MAPH (3-2)
     reg  [10:0] l_xs [0:2], l_xe [0:2], l_ys [0:2], l_ye [0:2];
-    reg  [9:0]  l_sx [0:2];
+    reg  [9:0]  l_sx [0:2], l_sy [0:2];
 
     // Layer registers: custom 0x090 + n x 0x20
     wire [7:0]  ll  = rb_addr[7:0] - 8'h90;
     wire [1:0]  ln  = ll[6:5];
     wire [4:0]  lo  = ll[4:0];
     wire        sel_lay = (rb_addr[12:8] == 5'h10) && (rb_addr[7:0] >= 8'h90) && ({1'b0, ll[7:5]} < NL)
-                          && (lo <= 5'h0D);
+                          && (lo <= 5'h0F);
 
     // From the pixel domain: the beam line, sampled until two samples agree
     reg  [10:0] p_vline;
@@ -205,7 +206,7 @@ module video #(
             for (i = 0; i < 3; i = i + 1) begin
                 l_ctrl0[i] <= 8'd0;  l_ctrl1[i] <= 8'd0;  l_ctrl2[i] <= 8'd0;  l_ctrl3[i] <= 8'd0;
                 l_xs[i] <= BH0;  l_xe[i] <= HTOT;  l_ys[i] <= BV0;  l_ye[i] <= VTOT;
-                l_sx[i] <= 10'd0;
+                l_sx[i] <= 10'd0;  l_sy[i] <= 10'd0;
             end
         end else begin
             if (frame_tick) vs_vblank <= 1'b1;
@@ -270,6 +271,8 @@ module video #(
                 5'h0B: l_ys[ln][10:8] <= rb_wdata[2:0];
                 5'h0C: l_sx[ln][7:0]  <= rb_wdata;
                 5'h0D: l_sx[ln][9:8]  <= rb_wdata[1:0];
+                5'h0E: l_sy[ln][7:0]  <= rb_wdata;
+                5'h0F: l_sy[ln][9:8]  <= rb_wdata[1:0];
                 default: ;
             endcase
         end
@@ -313,6 +316,8 @@ module video #(
             5'h0B: reg_q <= {5'd0, l_ys[ln][10:8]};
             5'h0C: reg_q <= l_sx[ln][7:0];
             5'h0D: reg_q <= {6'd0, l_sx[ln][9:8]};
+            5'h0E: reg_q <= l_sy[ln][7:0];
+            5'h0F: reg_q <= {6'd0, l_sy[ln][9:8]};
             default: ;
         endcase
     end
@@ -416,16 +421,19 @@ module video #(
         toy = (v < BV0) ? 11'd0 : (v > VTOT) ? VVIS : v - BV0;
     endfunction
     wire [10:0] w_xs [0:2], w_xe [0:2], w_ys [0:2], w_ye [0:2];
-    wire [2:0] l_on;                // the layer is on: CTRL0.EN, bitmap mode
+    wire [2:0] l_on;                // the layer is on: CTRL0.EN
     genvar gw;
     generate for (gw = 0; gw < 3; gw = gw + 1) begin : wins
         assign w_xs[gw] = tox(l_xs[gw]);
         assign w_xe[gw] = (tox(l_xe[gw]) < tox(l_xs[gw])) ? tox(l_xs[gw]) : tox(l_xe[gw]);
         assign w_ys[gw] = toy(l_ys[gw]);
         assign w_ye[gw] = toy(l_ye[gw]);
-        assign l_on[gw] = (gw < NL) && l_ctrl0[gw][0] && !l_ctrl0[gw][5];
+        assign l_on[gw] = (gw < NL) && l_ctrl0[gw][0];
     end endgenerate
     reg  [2:0]  b_vsub [0:2];       // screen lines shown of this source line
+    reg  [9:0]  b_srcl [0:2];       // source lines of the window before this one
+    reg  [9:0]  n_ty [0:2];         // tiles: the map line ...
+    reg  [6:0]  n_tcol [0:2];       // ... and the first group's map column
     reg  [2:0] b_act, b_adv;
     reg  [3:0]  n_pos0 [0:2];
     reg  [11:0] n_groups [0:2];
@@ -433,9 +441,13 @@ module video #(
     reg  [11:0] f_groups [0:2];
     reg  [1:0]  f_lb [0:2], f_hs [0:2];
     reg  [3:0]  f_wrap [0:2];
+    reg  [2:0]  f_tile;
+    reg  [1:0]  f_mw [0:2];
+    reg  [9:0]  f_ty [0:2];
+    reg  [6:0]  f_tcol [0:2];
     reg         line_t;
     // This line's settings, for the layer units
-    reg  [2:0] c_act, c_transp;
+    reg  [2:0] c_act, c_transp, c_tile;
     reg  [10:0] c_xs [0:2], c_xe [0:2];
     reg  [1:0]  c_lb [0:2], c_hs [0:2];
     reg  [3:0]  c_pos0 [0:2], c_palofs [0:2];
@@ -445,28 +457,39 @@ module video #(
         reg [2:0]  vmax, vs_n;
         reg [10:0] w, srcpix;
         reg [3:0]  fine;
+        reg [9:0]  sl_n;
         if (prst) begin
             line_t <= 1'b0;
             c_act  <= 3'd0;
             f_act  <= 3'd0;
             f_adv  <= 3'd0;
-            for (n = 0; n < 3; n = n + 1) b_vsub[n] <= 3'd0;
+            for (n = 0; n < 3; n = n + 1) begin b_vsub[n] <= 3'd0; b_srcl[n] <= 10'd0; end
         end else if (hc == HVIS || !en_p) begin
             // 1: which layers show on the next line, and whether their pointers move on after it
             for (n = 0; n < 3; n = n + 1) begin
                 vmax = 3'd7 >> (2'd3 - l_ctrl1[n][1:0]);
                 vs_n = (next_line == w_ys[n] || b_vsub[n] == vmax) ? 3'd0 : b_vsub[n] + 1'b1;
+                sl_n = (next_line == w_ys[n]) ? 10'd0 : (vs_n == 3'd0) ? b_srcl[n] + 1'b1 : b_srcl[n];
                 b_act[n] <= en_p && fetch_en && l_on[n] && next_line < VVIS &&
                             next_line >= w_ys[n] && next_line < w_ye[n];
                 b_adv[n] <= (vs_n == vmax);
-                if (next_line >= w_ys[n] && next_line < w_ye[n]) b_vsub[n] <= vs_n;
+                if (next_line >= w_ys[n] && next_line < w_ye[n]) begin
+                    b_vsub[n] <= vs_n;
+                    b_srcl[n] <= sl_n;
+                end
             end
         end else if (hc == HVIS + 1'b1) begin
-            // 2: first pixel, groups to fetch: a group is 16 source pixels
+            // 2: first pixel, groups to fetch: a group is 16 source pixels.
+            // Tiles: the map line (SCROLLY + source line, round the map),
+            // the first group's map column and the fine scroll (SCROLLX)
             for (n = 0; n < 3; n = n + 1) begin
                 w      = w_xe[n] - w_xs[n];
                 srcpix = (w + (3'd7 >> (2'd3 - l_ctrl0[n][7:6]))) >> l_ctrl0[n][7:6];
-                fine   = l_sx[n][3:0];
+                fine   = l_ctrl0[n][5] ? {1'b0, l_sx[n][2:0]} : l_sx[n][3:0];
+                n_ty[n]   <= (l_sy[n] + b_srcl[n]) & ((l_ctrl3[n][3:2] == 2'd0) ? 10'h0FF :
+                                                      (l_ctrl3[n][3:2] == 2'd1) ? 10'h1FF : 10'h3FF);
+                n_tcol[n] <= l_sx[n][9:3] & ((l_ctrl3[n][1:0] == 2'd0) ? 7'h1F :
+                                             (l_ctrl3[n][1:0] == 2'd1) ? 7'h3F : 7'h7F);
                 n_pos0[n]   <= fine;
                 /* verilator lint_off WIDTHTRUNC */ n_groups[n] <= ({10'd0, fine} + {3'd0, srcpix} + 14'd15) >> 4; /* verilator lint_on WIDTHTRUNC */
             end
@@ -481,6 +504,11 @@ module video #(
                 f_lb[n]     <= l_ctrl0[n][3:2];
                 f_hs[n]     <= l_ctrl0[n][7:6];
                 f_wrap[n]   <= l_ctrl2[n][7:4];
+                f_tile[n]   <= l_ctrl0[n][5];
+                f_mw[n]     <= l_ctrl3[n][1:0];
+                f_ty[n]     <= n_ty[n];
+                f_tcol[n]   <= n_tcol[n];
+                c_tile[n]   <= l_ctrl0[n][5];
                 c_xs[n]     <= w_xs[n];
                 c_xe[n]     <= w_xe[n];
                 c_lb[n]     <= l_ctrl0[n][3:2];
@@ -499,7 +527,13 @@ module video #(
     wire [5:0]  fv_lb, fv_hs;
     wire [11:0]  fv_wrap;
     wire [35:0] fv_groups;
+    wire [5:0]  fv_mw;
+    wire [29:0] fv_ty, at;
+    wire [20:0] fv_tcol;
     generate for (gw = 0; gw < 3; gw = gw + 1) begin : fvec
+        assign fv_mw[2*gw +: 2]       = f_mw[gw];
+        assign fv_ty[10*gw +: 10]     = f_ty[gw];
+        assign fv_tcol[7*gw +: 7]     = f_tcol[gw];
         assign fv_lb[2*gw +: 2]       = f_lb[gw];
         assign fv_hs[2*gw +: 2]       = f_hs[gw];
         assign fv_wrap[4*gw +: 4]     = f_wrap[gw];
@@ -511,16 +545,19 @@ module video #(
         .rb_rdata(dma_q), .rb_hit(dma_hit),
         .line_t(line_t), .act(f_act), .adv(f_adv),
         .lbpp(fv_lb), .hscale(fv_hs), .wrap(fv_wrap), .ngroups(fv_groups),
+        .tile(f_tile), .mapw(fv_mw), .ty(fv_ty), .tcol(fv_tcol),
         .line_go(line_go), .line_gen(line_gen),
-        .dat(dat), .fill_t(fill_t), .take_t(take_t),
+        .dat(dat), .attr(at), .fill_t(fill_t), .take_t(take_t),
         .req(disp_req), .urgent(disp_urgent), .deadline(disp_deadline), .addr(disp_addr),
         .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
 
     // ---- layer units: their output is stage 1
     wire [3:0]  bl_op;                 // padded to 4: PRIO value 3 names no layer
+    wire [3:0]  bl_pri;
     wire [31:0] bl_idx;
     assign bl_op[3]         = 1'b0;
+    assign bl_pri[3]        = 1'b0;
     assign bl_idx[31:24]    = 8'd0;
     // The layer units may take this line's first group once the fetcher has
     // restarted (line_gen caught up) and the handshake has crossed back
@@ -535,11 +572,13 @@ module video #(
             .line_start(hc == HVIS), .ready(buf_ready),
             .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .lb(c_lb[g]),
             .hs(c_hs[g]), .pos0(c_pos0[g]), .transp(c_transp[g]), .palofs(c_palofs[g]),
-            .dat(dat[128*g +: 128]), .fill_t(fill_t[g]), .take_t(take_t[g]),
-            .opaque(bl_op[g]), .idx(bl_idx[8*g +: 8]), .raw(), .overrun_t(ov_t[g])
+            .tile(c_tile[g]),
+            .dat(dat[128*g +: 128]), .attr(at[10*g +: 10]), .fill_t(fill_t[g]), .take_t(take_t[g]),
+            .opaque(bl_op[g]), .idx(bl_idx[8*g +: 8]), .pri(bl_pri[g]), .raw(), .overrun_t(ov_t[g])
         );
         end else begin : off               // not built: never fetched, never shown
             assign bl_op[g]          = 1'b0;
+            assign bl_pri[g]         = 1'b0;
             assign bl_idx[8*g +: 8]  = 8'd0;
             assign take_t[g]         = 1'b0;
             assign ov_t[g]           = 1'b0;
@@ -560,8 +599,10 @@ module video #(
         hs_d  <= {hs_d[1:0], hs0};
         vs_d  <= {vs_d[1:0], vs0};
         // 2: the front-most opaque layer (section 4.8): PRIO's FRONT, then
-        // MIDDLE, then BACK; 3 (or a layer not built) names no layer. Its
-        // palette goes with its index; with VIDCON.SHAREPAL, PALETTE0 for all.
+        // MIDDLE, then BACK; 3 (or a layer not built) names no layer. Tile
+        // pixels with PRI go in front of all of them, among themselves in
+        // PRIO's order. Its palette goes with its index; with
+        // VIDCON.SHAREPAL, PALETTE0 for all.
         begin : pix
             integer p;
             reg       any;
@@ -573,6 +614,10 @@ module video #(
             for (p = 2; p >= 0; p = p - 1) begin
                 l = prio_l[2*p +: 2];
                 if (bl_op[l]) begin any = 1'b1; fix = bl_idx[8*l +: 8]; fpal = l; end
+            end
+            for (p = 2; p >= 0; p = p - 1) begin
+                l = prio_l[2*p +: 2];
+                if (bl_op[l] && bl_pri[l]) begin fix = bl_idx[8*l +: 8]; fpal = l; end
             end
             opaque2 <= any;
             pidx2   <= {vidcon[5] ? 2'd0 : fpal, fix};

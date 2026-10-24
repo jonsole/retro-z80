@@ -12,7 +12,9 @@
 ;                later, the palette chart (chart, below) in the middle, on
 ;                layer L0, with the background round it. A second later the
 ;                background starts to change once a second (yellow, cyan,
-;                magenta, white, green, ...): the VBLANK interrupt works
+;                magenta, white, green, ...): the VBLANK interrupt works.
+;                A second after that, L0 becomes a scrolling tile map over
+;                the whole screen (tiledemo.asm)
 ;   red, with white stripes: the self-test failed. The number of stripes
 ;                is the failing check's number less 0x40 (1 stripe = check
 ;                41, 2 = check 42 ... 17 = check 51)
@@ -89,6 +91,7 @@ start:  ld      sp,0x0000               ; stack grows down from 0xFFFF (SRAM pag
         ld      hl,hello
         call    puts
         call    chart                   ; the palette chart in L0 (about 20 ms)
+        call    tileprep                ; the tile demo's map and patterns
         call    vblon
 stop:   halt                            ; woken by each VBLANK
         jr      stop
@@ -144,7 +147,8 @@ vbl:    push    af
         ld      bc,cycle
         add     hl,bc
         call    setbg
-.done:  pop     hl
+.done:  call    tilevbl                 ; the tile demo
+        pop     hl
         pop     bc
         pop     af
         ei
@@ -228,19 +232,9 @@ chart:  ld      hl,CHART
         add     a,10
         dec     e
         jr      nz,.grey
-        ; L0's settings, the layer still off
-        ld      hl,l0regs
-        ld      c,CUSTPAGE
-.reg:   ld      b,(hl)
-        inc     hl
-        ld      a,b
-        cp      0xFF
-        jr      z,.on
-        ld      a,(hl)
-        inc     hl
-        out     (c),a
-        jr      .reg
-.on:    ld      bc,VIDSTAT_P            ; wait for the next frame's start ...
+        ld      hl,l0regs               ; L0's settings, the layer still off
+        call    setregs
+        ld      bc,VIDSTAT_P            ; wait for the next frame's start ...
         ld      a,VIDSTAT_VBLANK_M
         out     (c),a
 .vb:    in      a,(c)
@@ -262,6 +256,22 @@ l0regs: db      L0_CTRL1, 3 << L_CTRL1_VSCALE_B                ; 8x down, PALOFS
         db      L0_BPL0PT0, 0x00, L0_BPL0PT1, 0x40, L0_BPL0PT2, 0x00    ; 0x004000
         db      DMACON, DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M
         db      0xFF
+
+; Write custom registers from the table at HL: offset (low byte), value;
+; 0xFF ends it (A, B, C, HL changed)
+setregs:
+        ld      c,CUSTPAGE
+.reg:   ld      b,(hl)
+        inc     hl
+        ld      a,b
+        cp      0xFF
+        ret     z
+        ld      a,(hl)
+        inc     hl
+        out     (c),a
+        jr      .reg
+
+        include "tiledemo.asm"
 
 ; Send the zero-terminated string at HL (A, B, C, E, HL changed)
 puts:   ld      a,(hl)

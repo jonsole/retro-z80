@@ -89,7 +89,7 @@ TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v
 SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
 
-$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
+$(BUILD)/boot.bin: $(ROOT)/firmware/boot/boot.asm $(ROOT)/firmware/boot/selftest.asm $(ROOT)/firmware/boot/tiledemo.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
 
 $(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
@@ -163,7 +163,7 @@ bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
 # beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
 # Variant a is a fixed set of bands, the others random. The variants run in
 # parallel with make -j.
-VTESTS ?= a b boot
+VTESTS ?= a t b boot
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
 
 # The boot ROM's palette chart, on a 2 MB build as the KS2's: beam frame 2

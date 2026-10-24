@@ -340,7 +340,7 @@ A tile layer is fetched by the same fetcher, through the same data registers and
 1. The two pattern rows of group g, from the entries already held: each at `PATPT + TILE × 8d + row × d`, row = y & 7, or 7 − (y & 7) with YFLIP.
 2. The two map entries of group g + 1, into the entry register.
 
-Group g is complete when its last pattern word arrives (step 1). The entries of step 2 follow and are in place before the shifters take group g, which is when group g + 1's pattern fetch starts.
+Group g is complete when its last pattern word arrives (step 1). The entries of step 2 follow and are in place before the shifters take group g, which is when group g + 1's pattern fetch starts. The line's last group reads no entries.
 
 **Line start.** At beam pixel 0 the entry register is empty, so the fetcher first reads group 0's entries, then group 0's rows (complete: the shifters take it at once), then group 1's entries, group 1's rows and group 2's entries. That is 6 entry words and two groups' rows before the window starts; the 144-pixel horizontal blank gives the display about 100 cycles of its own.
 

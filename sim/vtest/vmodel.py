@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Reference model of the video (spec 4) for the layers built so far (L0, a
-chunky bitmap; ticket #13): replays every write the testbench logged,
+chunky bitmap or a tile map; tickets #13 and #14): replays every write the testbench logged,
 renders a frame and compares it pixel by pixel with the frame the
 simulation sent.
 
@@ -29,6 +29,12 @@ The model is written from the spec, not from the RTL:
     source pixel shown HSCALE times; SCROLLX bits 3-0 source pixels skipped;
     the vertical copies counted from the window's first line (spec 4, 4.3-4.7)
   - SRAM bytes little-endian; chunky pixels leftmost in the high bits
+  - tile maps (spec 4, 4.5): map line (SCROLLY + n) mod (8 x map height),
+    n the source line from the window's top; map pixel (SCROLLX + i) mod
+    (8 x map width), i the source pixel across the window; entries at
+    MAPPT + (row x width + column) x 2; tile t's row at PATPT + 8dt + d x
+    row, YFLIP picking row 7 - y, XFLIP pixel 7 - x; PAL added to PALOFS
+    (mod 16) below 8 bits; MAPW and MAPH 3 as 128
 Exits 1 on any difference, an ambiguous write, or OVERRUN.
 """
 import sys
@@ -149,6 +155,7 @@ def main():
     vidcon = vidcon_w                  # written only before the beam starts
     ptr, stride = 0, 0
     vsub = 0
+    srcn = 0                                         # the window's source line (tiles)
     li = pi = vi = 0
     line_fx.sort(key=lambda e: (e[0], e[1]))       # stable: the order written within a line
     pic_fx.sort(key=lambda e: (e[0], e[1]))
@@ -201,6 +208,12 @@ def main():
             ye = R[0x098] | ((R[0x099] & 7) << 8)
             ys = R[0x09A] | ((R[0x09B] & 7) << 8)
             sx = R[0x09C] & 15
+            sxt = R[0x09C] | ((R[0x09D] & 3) << 8)
+            syt = R[0x09E] | ((R[0x09F] & 3) << 8)
+            mw = 32 << min(R[0x093] & 3, 2)
+            mh = 32 << min((R[0x093] >> 2) & 3, 2)
+            mappt = (R[0x0A8] & 0xFE) | (R[0x0A9] << 8) | ((R[0x0AA] & 0x3F) << 16)
+            patpt = (R[0x0AC] & 0xFE) | (R[0x0AD] << 8) | ((R[0x0AE] & 0x3F) << 16)
             xs_c, ys_c, ye_c = tox(xs), toy(ys), toy(ye)
             xe_c = max(tox(xe), xs_c)
             nl = (L - Y0) % VTOT                     # the picture line (576-624: the vertical blank)
@@ -208,9 +221,10 @@ def main():
             inwin = ys_c <= nl < ye_c
             vs_n = 0 if (nl == ys_c or vsub == vmax) else vsub + 1
             if inwin:
+                srcn = 0 if nl == ys_c else srcn + 1 if vs_n == 0 else srcn
                 vsub = vs_n
             fetch = bool(dmacon & 0x40 and dmacon & 0x20)
-            act = en and not mode and nl < H and inwin and fetch
+            act = en and nl < H and inwin and fetch
             fetched[(f, L)] = act
             bpp = 1 << lb
             m = (1 << (wrap + 9)) - 1 if wrap else 0x3FFFFF
@@ -222,7 +236,20 @@ def main():
                 shown = 0 in ((prio >> 4) & 3, (prio >> 2) & 3, prio & 3) and not vidcon & 4
                 for x in range(W):
                     col = bg
-                    if act and shown and xs_c <= x < xe_c:
+                    if act and shown and xs_c <= x < xe_c and mode:
+                        ty = (syt + srcn) % (8 * mh)
+                        xm = (sxt + ((x - xs_c) >> hs)) % (8 * mw)
+                        ea = mappt + ((ty >> 3) * mw + (xm >> 3)) * 2
+                        e = byte(ea) | (byte(ea + 1) << 8)
+                        t, tpal, xf, yf = e & 0x1FF, (e >> 9) & 15, (e >> 13) & 1, (e >> 14) & 1
+                        row = (ty & 7) ^ (7 if yf else 0)
+                        bo = ((xm & 7) ^ (7 if xf else 0)) * bpp
+                        b8 = byte(patpt + t * 8 * bpp + row * bpp + (bo >> 3))
+                        v = (b8 >> (8 - bpp - (bo & 7))) & ((1 << bpp) - 1)
+                        if not (transp and v == 0):
+                            col = pal[v if bpp == 8 else ((palofs + tpal) % 16) * 16 + v]
+                            nlay += 1
+                    elif act and shown and xs_c <= x < xe_c:
                         bo = (sx + ((x - xs_c) >> hs)) * bpp
                         a = wadd(ptr, 2 * (bo >> 4))
                         wv = (byte(a) << 8) | byte(a + 1)
@@ -231,7 +258,7 @@ def main():
                             col = pal[v if bpp == 8 else palofs * 16 + v]
                             nlay += 1
                     img[y * W + x] = col
-            if act and groups > 0:
+            if act and not mode and groups > 0:
                 sval = stride - 0x10000 if stride & 0x8000 else stride
                 ptr = wadd(ptr, sval if vs_n == vmax else 0)
 

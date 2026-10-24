@@ -14,6 +14,11 @@
 // holds the last word).
 //
 // Scaling repeats each source pixel 1, 2, 4 or 8 times.
+//
+// A tile layer's group is the same shape (bpldma.v): two tile columns of 8
+// pixels, with each column's PAL and PRI (attr) taken with the data. PAL is
+// added to PALOFS for depths of up to 4 bits; PRI goes out with the pixel
+// for the priority stage (spec 4, sections 4.7 and 4.8).
 module layer_pix (
     input  wire         clk_pix,
     input  wire         clk_pix5,      // 5 x clk_pix, edges lined up (same MMCM): for the fast synchroniser
@@ -31,15 +36,18 @@ module layer_pix (
     input  wire [3:0]   pos0,          // first pixel in the first group (fine scroll)
     input  wire         transp,
     input  wire [3:0]   palofs,
+    input  wire         tile,          // a tile map: PAL and PRI from attr
 
     // The data registers, and the full / taken handshake (toggles)
     input  wire [127:0] dat,           // data register 0 in the lowest 16 bits
+    input  wire [9:0]   attr,          // tiles: {PRI, PAL} of column 1 (9-5) and column 0 (4-0)
     input  wire         fill_t,        // from the 100 MHz side
     output reg          take_t,
 
     // This pixel
     output reg          opaque,
     output reg  [7:0]   idx,
+    output reg          pri,           // a tile pixel whose entry has PRI set
     output reg  [7:0]   raw,           // the pixel value itself (direct colour, later)
     output reg          overrun_t      // toggles when a group was missing
 );
@@ -52,6 +60,7 @@ module layer_pix (
     wire        in_win = active && (hc >= xs) && (hc < xe);
 
     reg  [15:0] sh [0:7];              // shifters
+    reg  [9:0]  sha;                   // ... and the group's PAL and PRI
     reg         ok;                    // the current group arrived
     reg         primed;                // the line's first group is in the shifters
     reg  [3:0]  pos;                   // pixel in the group
@@ -64,6 +73,8 @@ module layer_pix (
     wire [15:0] cw    = sh[wi] << bitp[3:0];
     wire [7:0]  value = cw[15:8] >> (5'd8 - bpp);
     wire        deep  = (lb == 2'd3);                      // 8 bits: no palette offset
+    wire [4:0]  ca    = pos[3] ? sha[9:5] : sha[4:0];      // the tile column's PRI and PAL
+    wire [3:0]  blk   = tile ? palofs + ca[3:0] : palofs;
 
     // Moving on by one source pixel
     wire [4:0]  np    = pos + 1'b1;
@@ -77,6 +88,7 @@ module layer_pix (
         begin
             if (avail) begin
                 for (i = 0; i < 8; i = i + 1) sh[i] <= dat[16*i +: 16];
+                sha    <= attr;
                 take_t <= ~take_t;
                 ok     <= 1'b1;
             end else begin
@@ -99,7 +111,8 @@ module layer_pix (
             primed <= 1'b0;
         end else begin
             opaque <= in_win && ok && !(transp && value == 8'd0);
-            idx    <= deep ? value : {palofs, value[3:0]};
+            idx    <= deep ? value : {blk, value[3:0]};
+            pri    <= tile && ca[4];
             raw    <= (in_win && ok) ? value : 8'd0;
             if (!primed && ready && avail) begin
                 load;                          // the first group, ahead of the window

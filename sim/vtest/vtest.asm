@@ -81,6 +81,7 @@ W3      equ     0x6000                  ; window 3: the register page
         out     (c),a
 
         ld      hl,0x8000               ; dly's SRAM byte: window 4, SRAM page 2
+        ld      (hl),0                  ; defined, so dly never writes back an unknown value
 
         ; ---- each frame: wait for its start, then the bands
 frame:  ld      bc,VIDSTAT_P

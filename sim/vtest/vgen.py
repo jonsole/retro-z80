@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Video test generator (spec 4; ticket #13): bands of L0 settings, palettes
-and random picture data for vtest.asm.
+"""Video test generator (spec 4; tickets #13 and #14): bands of L0 settings,
+palettes and random picture data for vtest.asm.
 
     vgen.py VARIANT OUTDIR
 
-VARIANT is a fixed set of bands ("a": every depth and scale, windows off
-the edges, fine scroll, negative and zero stride, pointer wrap within a
-line, TRANSP, PALOFS) or a seed for random bands ("b", "c", ...: the same
-kinds of settings at random, with PRIO and BGCOLOR changed between bands).
+VARIANT is a fixed set of bands ("a": bitmaps at every depth and scale,
+windows off the edges, fine scroll, negative and zero stride, pointer wrap
+within a line, TRANSP, PALOFS; "t": tile maps at every depth, scale and map
+size, with X and Y scroll round the map, fine scroll, TRANSP, PALOFS) or a
+seed for random bands ("b", "c", ...: the same kinds of settings at random,
+bitmaps and tile maps, with PRIO and BGCOLOR changed between bands). A tile
+band's map and patterns are random data too, so its entries have every
+TILE, PAL, XFLIP, YFLIP and PRI.
 Writes OUTDIR/vbands.inc (the band code, timed from the start of each
 frame, and the palette data for vtest.asm) and OUTDIR/ram.hex (16-bit
 words for the testbench's +ram=).
@@ -56,6 +60,26 @@ def bands_a():
     return B
 
 
+def bands_t():
+    """Hand-picked tile maps: every depth, scale and map size."""
+    B = []
+    def band(**k):
+        d = dict(bpp=0, hs=0, vs=0, transp=0, palofs=0, wrap=0, xs=144, xe=864, sx=0, sy=0, stride=0, off=0,
+                 mode=1, mapw=0, maph=0, mapoff=0, patoff=0)
+        d.update(k)
+        B.append(d)
+    band(ys=53,  ye=113, bpp=3)                                                     # 8 bits, 1x, full width: 1.25 bytes a pixel
+    band(ys=117, ye=177, bpp=2, hs=1, vs=1, xs=200, xe=700, sx=5, sy=250, mapw=1, transp=1, palofs=3, mapoff=0x1234)
+    band(ys=181, ye=241, bpp=1, hs=2, vs=2, xs=100, xe=600, sx=0x3FD, sy=0x3F0, mapw=2, maph=2, palofs=9, patoff=0x2A)
+    band(ys=245, ye=285, bpp=0, xs=300, xe=900, sx=0x123, sy=77, maph=1, transp=1, palofs=14, patoff=0x16)
+    band(ys=289, ye=349, bpp=3, hs=1, xs=160, xe=860, sx=7, sy=3, mapw=1, maph=2, transp=1, mapoff=0x3E)
+    band(ys=353, ye=413, bpp=2, vs=3, xs=400, xe=417, sx=15, mapw=2, palofs=15, patoff=0x7FFE)
+    band(ys=417, ye=477, bpp=1, sx=3, sy=0x2FF, mapw=3, maph=3, transp=1)            # MAPW and MAPH 3: as 128
+    band(ys=481, ye=541, bpp=0, vs=2, xs=150, xe=851, sx=9, sy=0x105, palofs=1, mapoff=0x7FE)
+    band(ys=545, ye=625, bpp=3, hs=3, vs=3, sx=0x3F1, sy=0x1FF, mapw=1, maph=1)      # 8 bits, 8x, to the last line
+    return B
+
+
 def bands_random(rnd):
     """Random bands with gaps of 4-9 lines, PRIO and BGCOLOR now and then."""
     B = []
@@ -70,6 +94,9 @@ def bands_random(rnd):
                  transp=rnd.randrange(2), palofs=rnd.randrange(16), wrap=rnd.choice([0, 0, 0, 1, 2, 4, 7]),
                  xs=xs, xe=xe, sx=rnd.randrange(1024), stride=2 * rnd.randrange(-200, 400),
                  off=2 * rnd.randrange(0, 0x7000))
+        if rnd.random() < 0.4:                      # a tile map
+            d.update(mode=1, mapw=rnd.randrange(4), maph=rnd.randrange(4), sy=rnd.randrange(1024),
+                     mapoff=2 * rnd.randrange(0x8000), patoff=2 * rnd.randrange(0x8000))
         if rnd.random() < 0.3:
             d["prio"] = rnd.choice([0x24, 0x24, 0x39, 0x1E, 0x3F, 0x0F])
         if rnd.random() < 0.4:
@@ -119,13 +146,20 @@ class Code:
 def main():
     variant, out = sys.argv[1], sys.argv[2]
     rnd = random.Random("retro-z80 vtest " + variant)
-    B = bands_a() if variant == "a" else bands_random(rnd)
+    B = bands_a() if variant == "a" else bands_t() if variant == "t" else bands_random(rnd)
 
     # Each band's data in the random area: its own 64 KB for the fixed bands;
     # random bands start in the middle (0x060000-0x09FFFF), so 90 lines at
     # any stride stay inside it
     for k, b in enumerate(B):
         b["ptr"] = (DATA_LO + k * 0x10000 if variant == "a" else 0x060000 + (k % 4) * 0x10000) + b["off"]
+        # Tiles: a map of up to 32 KB and patterns of up to 32 KB, each in its own 64 KB
+        if variant == "t":
+            b["mappt"] = DATA_LO + k * 0x10000 + b.get("mapoff", 0)
+            b["patpt"] = DATA_LO + k * 0x10000 + 0x8000 + b.get("patoff", 0)
+        else:
+            b["mappt"] = 0x040000 + b.get("mapoff", 0)
+            b["patpt"] = 0x080000 + b.get("patoff", 0)
 
     code = Code()
     prev_end = 0
@@ -133,19 +167,30 @@ def main():
         code.wait_until(prev_end * LINE_T + 45)
         assert code.px(code.t) < 200
         code.lines.append("        ; band %d: %s" % (k, b))
-        ctrl0 = 1 | (b["bpp"] << 2) | (b["transp"] << 4) | (b["hs"] << 6)
+        tile = b.get("mode", 0)
+        ctrl0 = 1 | (b["bpp"] << 2) | (b["transp"] << 4) | (tile << 5) | (b["hs"] << 6)
         code.write(L0 + 0x00, 0, "line", "L0 off")
         code.write(L0 + 0x01, b["vs"] | (b["palofs"] << 4), "line")
         code.write(L0 + 0x02, b["wrap"] << 4, "line")
+        if tile:
+            code.write(L0 + 0x03, b["mapw"] | (b["maph"] << 2), "line")
         for i, v in enumerate([b["xe"], b["xs"], b["ye"], b["ys"]]):
             code.write(L0 + 0x04 + 2 * i, v & 0xFF, "line")
             code.write(L0 + 0x05 + 2 * i, v >> 8, "line")
         code.write(L0 + 0x0C, b["sx"] & 0xFF, "line")
         code.write(L0 + 0x0D, b["sx"] >> 8, "line")
-        code.write(L0 + 0x10, b["stride"] & 0xFF, "line")
-        code.write(L0 + 0x11, (b["stride"] >> 8) & 0xFF, "line")
-        for i in range(3):
-            code.write(L0 + 0x14 + i, (b["ptr"] >> (8 * i)) & 0xFF, "line")
+        if tile:
+            code.write(L0 + 0x0E, b["sy"] & 0xFF, "line")
+            code.write(L0 + 0x0F, b["sy"] >> 8, "line")
+            for i in range(3):
+                code.write(L0 + 0x18 + i, (b["mappt"] >> (8 * i)) & 0xFF, "line")
+            for i in range(3):
+                code.write(L0 + 0x1C + i, (b["patpt"] >> (8 * i)) & 0xFF, "line")
+        else:
+            code.write(L0 + 0x10, b["stride"] & 0xFF, "line")
+            code.write(L0 + 0x11, (b["stride"] >> 8) & 0xFF, "line")
+            for i in range(3):
+                code.write(L0 + 0x14 + i, (b["ptr"] >> (8 * i)) & 0xFF, "line")
         if "prio" in b:
             code.write(PRIO, b["prio"], "pic")
         if "bg" in b:
