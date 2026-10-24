@@ -69,7 +69,7 @@ It also checks that the CPU never has both CPU cycles of one slot (spec 1, secti
 
 `make zexsyshello` (part of `make`) runs `hello.com`, which must pass, and `bad.com`, which must fail. It takes about a second once built; the Verilator build takes about a minute. `make zexsys` runs ZEXDOC's 67 tests as separate processes, `ZEX_JOBS` at a time, into `build/zexsys.log`, as `make zexdoc` does.
 
-The whole system runs about 0.63 million T-states a second per process with `+dma` (3.2 million clocks), and 0.68 million without: about 6 times slower than the bare core. ZEXDOC's 46,740 million T-states are about 21 CPU-hours. The wall time is set by test 5 (20,000 million T-states), about 9 hours however many CPUs there are. See `zex/RESULTS.md` for the run.
+The whole system runs about 0.63 million T-states a second per process with `+dma` (3.2 million clocks), and 0.68 million without: about 6 times slower than the bare core. ZEXDOC's 46,740 million T-states are about 21 CPU-hours. The wall time is set by test 5 (20,000 million T-states), however many CPUs there are: 9 hours 38 minutes with 14 jobs on 16 threads. So `make zexsys` is left out of `make` and CI. See `zex/RESULTS.md` for the run.
 
 ```
 make zexsys ZEX_JOBS=14

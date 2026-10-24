@@ -2,7 +2,7 @@
 
 Ticket #2 and design plan Q3: is tv80 exact enough to build on?
 
-**Yes.** ZEXDOC and ZEXALL both pass all 67 tests on the bare core, documented and undocumented flags alike. The R register counts as on a real Z80.
+**Yes.** ZEXDOC and ZEXALL both pass all 67 tests on the bare core, documented and undocumented flags alike. The R register counts as on a real Z80. ZEXDOC also passes on the whole system at 20 MHz, with the Z80 never waiting (ticket #7, "Whole system" below).
 
 ## Set-up
 
@@ -128,7 +128,39 @@ Without `TV80_REFRESH` the core never counts R: every check reads 0x00, and RUN 
 
 The rest matches: A and m1_n at the start of T1, mreq_n and rd_n low from the start of T2, dout valid at the start of T2, and an I/O cycle of 4 T-states with iorq_n and rd_n or wr_n low in T2 and TW. In `OUT (n),A` A15–A8 carry A.
 
+## Whole system
+
+Ticket #7: ZEXDOC on the computer itself, not the bare core. The memory timing of spec 1 and spec 2 holds under ZEXDOC's instruction mix.
+
+**ZEXDOC passes all 67 tests on the whole system at 20 MHz, and the Z80 never waited.**
+
+| Item | Value |
+|------|-------|
+| Design | `fpga/rtl/retroz80.v`: tv80 (as above) behind the bus interface, the MMU, the scheduler and the SRAM controller, 100 MHz clock, CPUSPEED 20 MHz |
+| Memory | SRAM pages 0–7 mapped flat by the loader `zexboot.asm`; a cycle model of the pads and the SRAM (`tb_zexsys.v`) |
+| Load | `+dma`: the DMA port busy with random reads and writes all the time |
+| Simulator | Verilator 5.050 (MSYS2 UCRT64, GCC 16.2, `-O2`), `tb_zexsys.v` with `zexsys_main.cpp` |
+| Commit | `1b34165` (the testbench as now, but with 32-bit counts) |
+| Command | `make zexsys ZEX_JOBS=14`, on a Ryzen 7 3700X (8 cores, 16 threads) |
+| Date | 2026-10-24 |
+
+| | Result |
+|--|--------|
+| ZEXDOC | 67 of 67 OK, TEST PASSED |
+| T-states | 46,735 million in all; each test the bare core's figure (table above) plus 1,086, the loader's. So the core ran the same instruction stream as on the bare core |
+| Clocks | 233,677 million (5 per T-state) |
+| Never waited | 0 errors in every test: no CPU request turned away or late, no CPU cycle outside cycles 0 and 2, the late flag never set, every byte taken equal to the memory's and at `di` at least 1 clock before the core took it (spec 1's figure at 20 MHz, 10n − 9) |
+| One CPU cycle per slot | 0 slots in which the CPU had both cycles 0 and 2 (spec 1, section 13) |
+| T-states | 0 speed errors: every T-state 5 clocks, ending on slot edge 0 or 5 |
+| DMA port | 0 errors |
+| Wall time | 9 hours 38 minutes (34,673 s, with the model build) |
+
+The tests' counts of cycles, reads and writes passed 2^31 in tests 5 and 6 and wrapped in this run's logs; the testbench now keeps them in 64 bits. The checks were not affected: each error is counted and shown when it happens, and no log has one.
+
+The model runs about 0.63 million T-states a second per process (3.2 million clocks) with `+dma`, 0.58 million with 14 processes running. That is about 6 times slower than the bare core; build options did not help (`-O3`: 6 % slower, `--threads 2`: 3 times slower), and the testbench's checks cost nothing measurable. The wall time is set by test 5 (20,007 million T-states), which ended after 577 minutes; test 6 ended after 314 and test 7 after 159, and the other 64 tests sooner. More jobs would not shorten it.
+
 ## Open points
 
 - Interrupts, NMI, wait states, HALT and the block I/O address (spec 1, B7, B8, B11) are not tested here; they come with the bus interface.
-- Test 5 sets the run time. Splitting it (the testbench could run part of its counter range) would bring both programs under 30 minutes on 16 threads, if that is ever needed in CI.
+- Test 5 sets the run time: about 85 minutes on the bare core, about 9.5 hours on the whole system. Splitting it (the testbench could run part of its counter range) would bring the runs down. A part's CRC is not printed by ZEXDOC, so the expected value of each part would have to come from a run of that part on the bare core, which passed whole.
+- Spec 1, section 13 also asks for ZEXALL on the whole system, ZEXDOC from the boot ROM and at 3.57 MHz. ZEXALL takes as long as ZEXDOC. ZEXDOC writes to its own code and data, so from the boot ROM it needs SYSCON.ROMWE. At 3.57 MHz a T-state is 28 clocks, not 5, so the run would be about 5.6 times longer (about 54 hours for test 5) unless test 5 is split.
