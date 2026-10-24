@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one bitmap layer, L0, and the palettes (issue #13) on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one bitmap layer, L0, and the palettes (issue #13) on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog).
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -48,6 +48,7 @@ On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both
 | **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
 | **The palette chart** appears in the middle about 20 ms after green (at once, to the eye): a 512 × 512 square of 16 rows of 16 cells, each 32 × 32 pixels, with a black line on the right and bottom of each cell. Row 1 is the default palette's Spectrum colours: black, blue, red, magenta, green, cyan, yellow, white, then the same eight bright (the bright black looks black). Rows 2–14 and the first half of row 15 are a 6 × 6 × 6 colour cube: blue changes fastest along the row, then green, then red, from black (row 2's first cell) to white (row 15's eighth cell). The last 24 cells, the second half of row 15 and row 16, are a grey ramp from near black to near white | **The layer works** (issue #13): L0 is an 8-bit bitmap at 2 × across and 8 × down, fetched from the SRAM through the scheduler, coloured through PALETTE0, whose entries 16–255 the boot ROM wrote through PALIDX and PALDAT. A cell out of place, a torn or jumping chart, stripes in it or wrong colours point at the layer fetch or the palette. The background round the chart keeps changing colour (next row) |
 | Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
+| Each background colour bright for half a second, then half as bright for half a second, and so on | **The timers work** (issue #17): timer 0 counts the 100 MHz clock � 50,000 (0.5 ms) and interrupts every 1,000 of those; its handler (TIMER0, IM 2) halves or restores the colour. The chart stays as it is. A colour that changes but never dims means no timer interrupt was taken. The two rates come from different clocks (VBLANK from the 27 MHz pixel clock), so the dimming drifts slowly against the colour changes |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
 
 The checks (`firmware/boot/selftest.asm`):
@@ -116,6 +117,8 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 ## Results: the computer
 
 Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324, with the video layer L0 and the palettes (issue #13) and the interrupt controller (issue #16; issue #11's build had 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns). One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
+
+Issue #17 (timers, TIME, the watchdog and the CPU's capture) adds about 600 LUTs and 490 flip-flops: 3,658 LUTs (35.2%) and 2,712 flip-flops (13.0%) in all; `timers.v` is 459 LUTs and 415 flip-flops (spec 9 estimated 250�350 LUTs), and the bus interface grew from 393 to 535 LUTs with the capture. Timing is met: +0.310 ns setup (the layer fetcher's `dlt` to `a_first_w`, not the timers), +0.043 ns hold. The tables below are issue #13's build.
 
 | Resource | Used | Available | |
 |------|------|------|------|

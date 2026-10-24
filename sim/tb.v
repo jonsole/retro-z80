@@ -10,6 +10,9 @@
 //                the first "hello", pass when BGCOLOR has gone from green
 //                to yellow and then cyan, each change made in the
 //                vertical blank (the VBLANK handler); no RESET is sent
+//   +bgdim       with +hello, a boot ROM built with -DTMR_HALF=n (#17):
+//                after the first "hello", pass when BGCOLOR goes from green
+//                to dim green and back, 2 ms apart (timer 0's interrupt)
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
@@ -637,10 +640,12 @@ module tb #(
         speeds = $test$plusargs("speeds");
         for (k = 0; k < 9; k = k + 1) spd_hello[k] = 0;
     end
+    integer bgdim = 0;                          // +bgdim (#17)
+    real    bgdim_at = 0.0;
     integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0;
     reg [23:0] bg_seen;
     initial begin
-        bgcycle = $test$plusargs("bgcycle");
+        bgcycle = $test$plusargs("bgcycle") || $test$plusargs("bgdim");
         hello = $test$plusargs("hello");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
@@ -763,7 +768,7 @@ module tb #(
     end
 
     // +bgcycle: green, then yellow, then cyan, each set in the vertical blank
-    always @(posedge clk) if (!done && bgwait && dut.vid.bgcolor !== bg_seen) begin
+    always @(posedge clk) if (!done && bgwait && !bgdim && dut.vid.bgcolor !== bg_seen) begin
         $display("%t video: BGCOLOR %h, beam line %0d", $realtime, dut.vid.bgcolor, dut.vid.s_vline);
         bg_seen = dut.vid.bgcolor;
         bgsteps = bgsteps + 1;
@@ -773,6 +778,22 @@ module tb #(
             finish(0, "not yellow after green");
         else if (bgsteps == 2)
             finish(bg_seen == 24'h00FFFF, "not cyan after yellow");
+    end
+
+    // +bgdim (#17): timer 0 dims and brightens the background, 2 ms apart
+    initial bgdim = $test$plusargs("bgdim");
+    always @(posedge clk) if (!done && bgwait && bgdim && dut.vid.bgcolor !== bg_seen) begin
+        $display("%t video: BGCOLOR %h", $realtime, dut.vid.bgcolor);
+        bg_seen = dut.vid.bgcolor;
+        bgsteps = bgsteps + 1;
+        if (bgsteps == 1 && bg_seen != 24'h007F00)
+            finish(0, "not dim green after green");
+        else if (bgsteps == 1)
+            bgdim_at = $realtime;
+        else if (bgsteps == 2 && bg_seen != 24'h00FF00)
+            finish(0, "not green after dim green");
+        else if (bgsteps == 2)
+            finish($realtime - bgdim_at > 1.99e6 && $realtime - bgdim_at < 2.01e6, "not 2 ms apart");
     end
 
     // +failshow: once the boot ROM has reported the failure, the second and

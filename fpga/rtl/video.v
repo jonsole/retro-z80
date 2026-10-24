@@ -62,6 +62,7 @@ module video #(
     output wire        rb_hit,         // with rb_rdata: this unit answered
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
+    output wire        line_tick,      // 1 clock (100 MHz) at the start of each beam line (timers, #17)
     output wire        irq,            // to the interrupt controller: source VBLANK (0)
 
     // The scheduler's layer channel (dmac.v)
@@ -138,6 +139,11 @@ module video #(
     reg  [2:0] vb_s;
     always @(posedge clk) vb_s <= {vb_s[1:0], p_vb_t};
     assign frame_tick = vb_s[2] != vb_s[1];
+
+    reg        p_ln_t;                 // toggles at the start of each beam line (pixel 0)
+    reg  [2:0] ln_s;
+    always @(posedge clk) ln_s <= {ln_s[1:0], p_ln_t};
+    assign line_tick = ln_s[2] != ln_s[1];
 
     wire [2:0] ov_t;                // OVERRUN toggles from the layer units
     (* ASYNC_REG = "TRUE" *) reg [2:0] ov_s1, ov_s2;
@@ -403,6 +409,10 @@ module video #(
             p_vb_t <= 1'b0;
         else if (en_p && bh == 11'd0 && bv == 11'd0)   // the frame starts: (0, 0)
             p_vb_t <= ~p_vb_t;
+        if (prst)
+            p_ln_t <= 1'b0;
+        else if (en_p && bh == 11'd0)                  // a line starts: pixel 0
+            p_ln_t <= ~p_ln_t;
     end
 
     // ---- settings for the next line, worked out in the horizontal blank

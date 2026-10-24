@@ -12,6 +12,9 @@ make systest    # the system test ROM: system registers, I/O decode, SRAM bytes,
 make intc       # the interrupt controller on its own: registers, every source's vector and priority, frozen choice, spurious, NMI
 make inttest    # the interrupt test ROM: IM 2 and IM 1, INTENA, INTPEND/INTRAW, SOFTINT, VBLANK (about 2 minutes)
 make bootvbl    # the boot ROM's VBLANK colour cycle, a colour a frame (about 4 minutes; not in make all)
+make timers     # the timers on their own: every source's rate to the clock, chaining, one-shot, reload, requests, capture path, watchdog (15 s)
+make timertest  # the timer test ROM: rates against TIME, lines, the frame tick, chaining, interrupts, the capture, the watchdog's resets (about 3 minutes)
+make boottmr    # the boot ROM's timer 0 effect, sped up to 2 ms (not in make all)
 make speeds     # the speed test ROM: "hello" at every CPUSPEED setting, T-state rates measured
 make failshow   # the boot ROM's failure screen: check 45 shown as 5 white stripes (about 4 minutes; not in make all)
 make -j3 vtest  # the video test: L0 bitmaps checked pixel by pixel against a Python model (minutes; not in make all)
