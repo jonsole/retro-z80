@@ -185,8 +185,8 @@ module tb_zexsys (input clk);
     // far from the Z80's pages), checked against a copy (as tb.v's +dma).
     reg  [15:0] shadow [0:(1<<18)-1];
     reg  [15:0] pend_v [0:7];
-    integer     pend_h = 0, pend_t = 0;
-    integer     dma_reads = 0, dma_writes = 0, dma_errors = 0;
+    reg  [63:0] pend_h = 0, pend_t = 0;          // 64 bits: long runs pass 2^31
+    reg  [63:0] dma_reads = 0, dma_writes = 0, dma_errors = 0;
     initial for (i = 0; i < (1<<18); i = i + 1) shadow[i] = 16'h0000;
     always @(posedge clk) begin
         if (dma_rvalid) begin
@@ -227,8 +227,8 @@ module tb_zexsys (input clk);
     //     at the next edge.
     //     Spec 1, section 13 ("one CPU cycle per slot"): the CPU never gets
     //     both cycles of one slot (cycle 0 and then cycle 2).
-    integer cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
-    integer both_cycles = 0;
+    reg  [63:0] cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
+    reg  [63:0] both_cycles = 0;
     reg     slot_had0 = 1'b0;
     wire    cpu_cycle_next = sc == 4'd9 || sc == 4'd3;
     always @(posedge clk) if (!por) begin
@@ -306,8 +306,10 @@ module tb_zexsys (input clk);
     //     read), the byte at di must be the memory's, and must have been
     //     there at least a clock. The end of the run is found here too.
     reg  [63:0] tstates = 0;
-    integer reads_rom = 0, reads_sram = 0, reads_other = 0, writes_sram = 0, ntrace = 0;
-    integer rd_since = 0, spare = 9999, zero_fetches = 0, speed_errors = 0, spd_clk = 0;
+    reg  [63:0] reads_rom = 0, reads_sram = 0, reads_other = 0, writes_sram = 0;
+    integer ntrace = 0;
+    integer rd_since = 0, spare = 9999, zero_fetches = 0, spd_clk = 0;
+    reg  [63:0] speed_errors = 0;
     reg  [15:0] ad;
     reg  [7:0]  want;
     reg  [9:0]  pg;
@@ -382,7 +384,7 @@ module tb_zexsys (input clk);
     reg  [15:0] aw;
     reg  [9:0]  pw;
     reg [111:0] tail = 0;
-    integer     oks = 0, errors = 0;
+    reg  [63:0] oks = 0, errors = 0;
     reg         complete = 1'b0;
     always @(posedge clk) begin
         if (!dut.cpu_rst_n) mmu_reset;
