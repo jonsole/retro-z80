@@ -1,8 +1,10 @@
-# retro-z80 tools: register map checks
+# retro-z80 tools: register map checks, and the debug bridge's tests
 #
 #   make check      regmap.py --verify, its self-test, and the generated headers
 #                   assembled (sjasmplus), compiled (C), simulated (Icarus) and
-#                   linted (Verilator, WIDTHTRUNC as an error, as retro68k)
+#                   linted (Verilator, WIDTHTRUNC as an error, as retro68k);
+#                   then the bridge's tests (bridge)
+#   make bridge     the debug bridge and rlink.py against the stub model (Python only)
 #   make regmap     rewrite the generated files from fpga/regmap.def
 #
 # Needs: python3, sjasmplus, a C compiler (cc), iverilog and verilator. Tools can be given
@@ -20,8 +22,8 @@ INC   := $(ROOT)/firmware/include
 RTL   := $(ROOT)/fpga/rtl
 BUILD := build
 
-.PHONY: check regmap verify selftest asm c verilog clean
-check: verify selftest asm c verilog
+.PHONY: check regmap verify selftest asm c verilog bridge clean
+check: verify selftest asm c verilog bridge
 
 regmap:
 	$(PYTHON) regmap.py
@@ -46,6 +48,9 @@ verilog: | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -I $(RTL) -s regmap_test -o $(BUILD)/regmap_test.vvp test/regmap_test.v
 	$(VVP) -n $(BUILD)/regmap_test.vvp | tee $(BUILD)/regmap_test.log
 	@grep -q "^TEST PASSED" $(BUILD)/regmap_test.log
+
+bridge:
+	$(PYTHON) test/test_bridge.py
 
 clean:
 	rm -rf $(BUILD)

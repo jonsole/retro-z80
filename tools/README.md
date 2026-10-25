@@ -4,9 +4,11 @@
 |------|--------------|
 | `bin2hex.py` | Turns a binary (the boot ROM, a test image) into a `$readmemh` file of 16-bit little-endian words, as the SRAM and boot ROM hold them (spec 2). Adapted from retro68k's, which writes big-endian words |
 | `mkfont.py` | Makes the boot console's font (`firmware/boot/font.inc`, spec 7, section 5.1) from the public-domain `font8x8` in `firmware/third_party/font8x8`: 256 characters in code page 437 order, the leftmost pixel in bit 7, with the 40 characters `font8x8` lacks drawn in the tool itself (`firmware/third_party/README.md`). `--show` prints the font as text, `--missing` lists what `font8x8` lacks |
+| `rlink.py` | The PC end of the USB serial link (shared spec `docs/spec/monitor.md`, section 8): uploads, image files (`image`, `show`), the control commands RESET, BREAK and UPLOAD, a terminal, and typing into the console. Also the link code the bridge imports: CRC-32, the image header, upload frames and the debug transport's frames. Needs `pyserial` for a real port |
+| `rz80_bridge.py` | The debug bridge (`docs/spec/debug.md`, section 3; design plan, branch 20): one process that owns the serial port and serves DAP to VS Code, MCP to Claude and other MCP clients, and the monitor console, at once. `--model` runs it against a Python model of the board, with no hardware. Its package is `rz80bridge/` (below) |
 | `regmap.py` | Reads `fpga/regmap.def` (every register, field and named number), checks it, checks it against `docs/spec/registers.md`, and writes `firmware/include/hw.inc` (sjasmplus), `firmware/include/hw.h` (C) and `fpga/rtl/regmap.vh` (Verilog). Adapted from retro68k's |
 
-Only the Python standard library is needed (Python 3.8 or newer).
+Only the Python standard library is needed (Python 3.8 or newer), and `pyserial` for `rlink.py` and the bridge on a real serial port.
 
 ## Register map
 
@@ -85,3 +87,28 @@ Example (C, z88dk):
 z80_outp(VIDCON_P, VIDCON_EN_M);
 z80_outp(CPORT(L0 + n * L_SPAN + L_CTRL1), 2 << L_CTRL1_PALOFS_B);
 ```
+
+## The debug bridge
+
+```
+python3 tools/rz80_bridge.py --port COM5      # the FT232H's serial port
+python3 tools/rz80_bridge.py --model          # the stub model: no board needed
+```
+
+It listens on `127.0.0.1` only: DAP on 4780 (VS Code's `debugServer`), MCP on 8780 (`http://127.0.0.1:8780/mcp`), the console on 4781 (any terminal program, or the extension's terminal). `--dap-port`, `--mcp-port` and `--console-port` change them; 0 picks a free one. While it runs it advertises itself in `<pid>.json` under `%LOCALAPPDATA%\retro-z80\bridges` (Windows) or `$XDG_RUNTIME_DIR/retro-z80/bridges`, in the zx emulator's advert layout, so the VS Code extension finds it.
+
+It leaves the board running until a debugger launches or attaches. Launch uploads the program (`rlink.py`'s upload, ACTION 0) and stops at its entry; attach sends BREAK. VS Code and MCP then share one session: the same stops, and one pool of the debug unit's 4 breakpoints and 2 watchpoints, each listed with who set it.
+
+| File in `rz80bridge/` | What |
+|------|------|
+| `bridge.py` | The command line; starts the servers and the advert |
+| `session.py` | The shared session: the link's reader, launch, attach, detach, the breakpoint pool, stepping (over and out with a spare breakpoint, or single steps), the call stack, addresses and symbols |
+| `protocol.py` | The debug channel: commands, replies, retries, STOP frames, the target description |
+| `dap.py` | The DAP server: the requests of debug.md section 3.4, as the zx emulator's DAP |
+| `console.py` | The console port |
+| `sld.py` | sjasmplus SLD files: source lines, labels, 8 KB pages |
+| `disasm.py` | The Z80 disassembler, copied from the zx emulator (`PROVENANCE.md`) |
+| `model.py`, `z80.py` | The stub model: the monitor, loader and debug stub as the link sees them, with a small Z80 interpreter |
+| `advert.py` | The advert file |
+
+`make -C tools bridge` (part of `make check`) runs `test/test_bridge.py`: the transport, the debug channel against the model (CRC errors each way, a lost reply, a lost STOP, a repeated SEQ, every refusal), the shared breakpoint pool, and whole DAP sessions over TCP as VS Code holds them. It needs nothing but Python and takes a few seconds.
