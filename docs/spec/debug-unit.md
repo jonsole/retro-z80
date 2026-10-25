@@ -28,7 +28,7 @@ retro68k has **no debug unit in the FPGA** for now. It debugs in software first:
 | Single step | The 68000's trace bit | The debug unit: an NMI after one instruction | Forced: the Z80 has no trace mode |
 | Breakpoints | `ILLEGAL` written into RAM | 4 hardware breakpoints, with an optional page match | Branch 18: they work in ROM, and in banked code the MMU maps in and out |
 | Watchpoints | None | 2, memory or I/O | Branch 18 |
-| Debugger on the PC | GDB (`m68k-elf-gdb`), the GDB remote protocol, a stub in its ROM | `tools/rdebug.py` and VS Code, the debug channel of `debug.md` | Each machine's choice; both use the transport of `debug.md`, section 2 |
+| Debugger on the PC | GDB (`m68k-elf-gdb`), the GDB remote protocol, a stub in its ROM | The bridge `tools/rz80_bridge.py` (VS Code and MCP), the debug channel of `debug.md` | Each machine's choice; both use the transport of `debug.md`, section 2 |
 | Monitor's step | `N`, with the trace bit | `N`, with the debug unit (spec 16, section 8.8) | Agreed for the shared monitor spec |
 
 ## 3. Live

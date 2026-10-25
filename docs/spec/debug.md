@@ -5,13 +5,13 @@ Status: **draft**
 This spec describes debugging a program on the real machine from VS Code, over the USB serial link: load, run, pause, breakpoints, watchpoints, step, registers and memory (design plan, branch 18). It has two parts:
 
 - **The transport** (section 2): frames over the FT232H link, reusing the upload frames and CRC-32 of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)), with a **channel** field so that console, debug and later video traffic can share the link. It is CPU-neutral and stands alone. It is **offered to retro68k to copy word for word**: retro68k uses its own debugger (the GDB remote protocol, with a stub in its ROM), but wants the same transport under it.
-- **The debug channel** (sections 3–9): the commands between `tools/rdebug.py` and retro-z80's debug stub in the boot ROM. This part is retro-z80's own. The register block is described by the machine itself (section 5.2), so the commands hold nothing Z80-only but the block's contents.
+- **The debug channel** (sections 3–9): the commands between the bridge (`tools/rz80_bridge.py`) and retro-z80's debug stub in the boot ROM. This part is retro-z80's own. The register block is described by the machine itself (section 5.2), so the commands hold nothing Z80-only but the block's contents.
 
 ## 1. Summary
 
 | Item | Value |
 |------|-------|
-| PC side | `tools/rdebug.py`, a debug adapter: the Debug Adapter Protocol (DAP) on stdio to VS Code, the debug channel to the machine. It shares the link code (frames, CRC-32, BREAK, RESET, UPLOAD) with `rlink.py`. A small VS Code extension in this repo registers the debug type `retro-z80` (section 3) |
+| PC side | `tools/rz80_bridge.py`, one bridge process that owns the serial port and serves DAP on TCP to VS Code and MCP on HTTP to an MCP client, at once, as the ZX Spectrum emulator's `zx_server` (design plan, branch 20). It shares the link code (frames, CRC-32, BREAK, RESET, UPLOAD) with `rlink.py`. The VS Code extension in `tools/vscode/` registers the debug type `retro-z80`, starts or joins the bridge, and gives the console a terminal (section 3) |
 | Transport | monitor.md's frames, TYPE `0x10` and up, with a CHANNEL byte in the OFFSET field; SYNC `LF` from the PC, `LD` from the machine (section 2) |
 | Channels | 1 debug, 2 console, 3 video (reserved), 4 GDB (retro68k); the rest free |
 | Launch | UPLOAD, the program uploaded with ACTION 0, then HELLO: the program is stopped at its entry point |
@@ -53,7 +53,7 @@ A transport frame has the layout of an upload frame (monitor.md, section 6.2), w
 | CHANNEL | Name | Carries | Used by |
 |---------|------|---------|---------|
 | 0 | – | Not used: the upload's own frames (TYPE 0–4) have no channel | – |
-| 1 | DEBUG | Debug commands, replies and stops | retro-z80's debug stub and `rdebug.py` (sections 3–9) |
+| 1 | DEBUG | Debug commands, replies and stops | retro-z80's debug stub and the bridge (sections 3–9) |
 | 2 | CONSOLE | The serial console's bytes, in either direction (TYPE `0x20` DATA) | A bridge that carries the console and another channel at once |
 | 3 | VIDEO | Screen capture, from the machine (TYPE `0x82`) | Reserved for later (section 10) |
 | 4 | GDB | GDB remote protocol bytes, in either direction (TYPE `0x20` DATA) | retro68k's debugger |
@@ -65,16 +65,30 @@ A transport frame has the layout of an upload frame (monitor.md, section 6.2), w
 
 ## 3. The PC side
 
+Design plan, branches 18 and 20. The PC side is shaped like the ZX Spectrum emulator's (`jonsole/zx-spectrum-emulator`): one process serves DAP and MCP, and the extension starts it or joins it. Its behaviour is copied where the two machines mean the same thing; its code is not (it is C++, this is Python).
+
 ### 3.1 Pieces
 
 | Piece | Where | What it does |
 |-------|-------|--------------|
-| `tools/rdebug.py` | This repo | The debug adapter. Python 3 and `pyserial`, like `rlink.py`. Speaks DAP on stdin and stdout; talks to the machine over the serial port |
-| The link code | `tools/rlink.py`, imported by `rdebug.py` | Frames, CRC-32, the control commands, the upload (monitor.md, section 8) |
-| The VS Code extension | `tools/vscode/` | Registers the debug type `retro-z80` and starts `rdebug.py` as its adapter. No logic of its own |
+| The bridge | `tools/rz80_bridge.py` and `tools/rz80bridge/` | Python 3, the standard library and `pyserial` only. **Owns the serial port** (only one process can open it). Serves DAP on TCP, MCP on HTTP and the console on TCP, all at once, to `127.0.0.1` only |
+| The link code | `tools/rlink.py`, imported by the bridge | Frames, CRC-32, the control commands, the upload (monitor.md, section 8) |
+| The stub model | `tools/rz80bridge/model.py` | A Python model of the board's debug stub and monitor behind a fake serial port, for tests and for working with no board (section 3.8) |
+| The VS Code extension | `tools/vscode/` | Debug type `retro-z80`; starts or joins the bridge and connects VS Code to its DAP port (`debugServer`); the console terminal; the z80-asm language, asm index and sjasmplus finder; the program and watchpoint panels; the build task type. Plain JavaScript, no build step, no dependencies, as the zx extension. Files copied from the zx extension are listed in `tools/vscode/PROVENANCE.md` |
 | Symbol files | The program's build | sjasmplus `--sld` output: addresses, pages, source lines, labels |
 
-### 3.2 launch.json
+### 3.2 The bridge
+
+| Item | Value |
+|------|-------|
+| Command line | `rz80_bridge.py --port COM5 [--dap-port N] [--mcp-port N] [--console-port N] [--model] [--no-advertise]` |
+| Default ports | DAP 4780, MCP 8780 (`http://127.0.0.1:8780/mcp`, streamable HTTP), console 4781. Not the emulator's (4711, 8000), so both can run. Port 0 picks a free one |
+| Advert | Once its ports are bound, the bridge writes `<pid>.json` (its pid, ports, serial port, start time, program last launched) into `$RZ80_BRIDGE_ADVERT_DIR`, else `%LOCALAPPDATA%\retro-z80\bridges` on Windows and `$XDG_RUNTIME_DIR` (or `~/.cache`)`/retro-z80/bridges` elsewhere: the zx emulator's advert layout, version 1 |
+| At start | Opens the serial port and **leaves the board running**: it attaches only when asked (section 3.4) |
+| Lifetime | Runs until stopped. Ending a VS Code debug session leaves it running, so MCP clients stay connected, as `zx_server` |
+| One target | One board per bridge. A second board needs a second bridge on other ports |
+
+### 3.3 launch.json
 
 ```json
 {
@@ -84,19 +98,24 @@ A transport frame has the layout of an upload frame (monitor.md, section 6.2), w
   "port": "COM5",
   "program": "build/game.rimg",
   "sld": "build/game.sld",
-  "stopOnEntry": true
+  "stopOnEntry": true,
+  "preLaunchTask": "retro-z80: build game"
 }
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `port` | The serial port of the FT232H |
+| `port` | The serial port of the FT232H, or `model` for the stub model. Left out: the setting `retroz80.bridge.serialPort` |
 | `program` | An image file with the 32-byte header (monitor.md, section 5), or a raw binary with `load` and `entry` given |
 | `sld` | The symbol file, for source lines, labels and the call stack |
 | `stopOnEntry` | Stop at ENTRY (true by default). With false, the adapter continues at once after the entry stop |
 | `request` | `launch` (section 4.1) or `attach` (section 4.2) |
+| `bridgePorts` | `{ "dap": n, "mcp": n, "console": n }`: join or start the bridge on these ports instead of the settings' |
+| `preLaunchTask` | Usually a `retro-z80-build` task (section 3.7) |
 
-### 3.3 What VS Code shows
+The extension joins a bridge if one is listening on the DAP port, and otherwise starts one and waits for its port to answer, as the zx extension does with `zx_server`. A bridge started on another serial port than `port` is refused with a message, not taken over.
+
+### 3.4 What VS Code shows
 
 | View | From |
 |------|------|
@@ -108,12 +127,60 @@ A transport frame has the layout of an upload frame (monitor.md, section 6.2), w
 | Breakpoints and watchpoints | SETBP, SETWP; VS Code's data breakpoints are watchpoints |
 | Debug console | CONSOLE: a monitor command line, and its output (section 5.9) |
 
+### 3.5 Sharing the board: VS Code and MCP
+
+- **Attach only when asked.** A VS Code launch or attach, or MCP's `launch` or `attach`, attaches (section 4). Every other MCP tool that needs a stopped machine answers "not attached" instead of stopping the board by itself.
+- **One session.** Once attached, VS Code and MCP drive the same stopped program. A stop caused by either is seen by both: VS Code shows it in its call stack and registers but does not move its editor for a stop it did not ask for (the zx emulator's rule); MCP's `get_state` reports it.
+- **One pool of breakpoints.** The 4 breakpoints and 2 watchpoints are shared, first come, first served. Each is kept with who set it (`vscode` or `mcp`). A fifth breakpoint or third watchpoint is refused: unverified in VS Code with "only 4 hardware breakpoints" (or "only 2 hardware watchpoints"), an error from MCP naming who holds them. `list_breakpoints` and `list_watchpoints` list all, with their owner. The adapter's own spare breakpoint for step over and step out (section 7.3) comes from the same pool, and only while a step needs it.
+- **Detach.** A VS Code disconnect detaches only if MCP holds no breakpoints or watchpoints; otherwise it leaves the session to MCP. MCP's `detach` ends the session for both.
+
+### 3.6 The console
+
+While no session is attached, the monitor console goes through the bridge, since nothing else can open the port:
+
+| Way in | What |
+|--------|------|
+| VS Code terminal | The extension's command **retro-z80: Console** opens a terminal panel joined to the bridge's console port: the monitor's output, and typed lines sent to it |
+| MCP | `send_console(text)` types a line (or bytes); `read_console(since, max)` gives the output since a given line number. The bridge keeps the last 2,000 lines |
+
+Output goes to every way in at once; input from either is sent as it comes. While attached, the console's serial side is off (section 4.3): the terminal shows `[attached: console on the screen only]`, and bytes the program writes to SERDATA directly are shown there as program output. The console port is a plain TCP port, so another terminal program can also join it.
+
+### 3.7 MCP tools
+
+The names and arguments are `zx_server`'s where they mean the same, so a client that knows the emulator knows these. Addresses take a number, or a string: hex as `"$8000"`, `"0x8000"`, `"8000"`, or a symbol expression such as `"loop+3"` once `load_debug_info` has loaded symbols. A banked address names its page in front: `"0x0A3:$4000"` (the page in that window, as SETBP's PAGE); a physical address is `"P012000"` (monitor.md, section 3.2).
+
+| Tool | Does | As zx_server |
+|------|------|--------------|
+| `launch(program, sld, stop_on_entry)` | Upload and attach, stopped at ENTRY (section 4.1) | retro-z80's own |
+| `attach()` / `detach(run)` | Attach to the running board (section 4.2); leave, with the program stopped or running (section 4.5) | Own |
+| `reset()` | The RESET control command: ends any session | As `reset`, without a machine choice |
+| `get_state()` | Attached or not, stopped or running, the last stop (REASON, PC with its symbol, the access for a watchpoint), breakpoints, watchpoints, call stack | Same |
+| `get_registers(raw)` / `set_registers(...)` | READREGS and WRITEREGS: PC with its symbol, the flags spelled out, the instruction at PC; `raw` every register as a number | Same |
+| `read_memory(address, length)` / `write_memory(address, data)` | READMEM and WRITEMEM; `P` addresses for physical; registers with read side effects read `0xFF` unless `side_effects: true` | Same, with `P` and pages in place of 128K banks |
+| `get_mmu()` | READMMU: each window's read and write page | Own |
+| `set_breakpoint(address)` / `clear_breakpoint(address)` / `list_breakpoints()` | SETBP and CLEARBP, from the shared pool (section 3.5) | Same |
+| `set_watchpoint(address, length, access)` / `clear_watchpoint(id)` / `list_watchpoints()` | SETWP and CLEARWP. `length` becomes a mask, so a power of two, aligned; `access` `read`, `write` or `readwrite`, and `io: true` for ports. zx's `on_change`, `value` and `not_value` are refused (the hardware has no data compare) | Same, narrower |
+| `step(instructions)` | STEP, 1 or more times | Same, no `ticks` |
+| `run()` / `pause()` | CONTINUE; BREAK | Same |
+| `load_debug_info(sld_path, asm_path)` | Load an SLD file for symbols and source lines | Same |
+| `resolve_symbol(name)` / `resolve_address(address)` | Symbol to address, address to the nearest symbol and offset | Same |
+| `monitor(command)` | CONSOLE: a monitor command line while attached (section 5.9) | Own |
+| `send_console(text)` / `read_console(since, max)` | The console while not attached (section 3.6) | Own |
+| `server_info()` | The bridge's pid, version, ports, serial port, start time, program last launched, advert path | Same |
+
+No screen, video, audio, profile or rewind tools: the board cannot give them (screen capture is future, section 10).
+
+### 3.8 Build task and stub model
+
+- **Build task.** The extension adds the task type `retro-z80-build` (`source`, `output`, `load`, `entry`): it runs sjasmplus with `--sld`, then `rlink.py image` to wrap the binary in the image header. sjasmplus is found as the zx extension finds it (setting, `tools/`, PATH, or offered for download).
+- **Stub model.** `--model` (or `"port": "model"`) runs the bridge against the Python model of the stub instead of a serial port: a 64 KB machine with eight MMU windows, the register block, 4 breakpoints and 2 watchpoints, a small Z80 interpreter enough to step and run test programs, and the monitor's prompt for the console. It is what the tests use (section 11), and what the extension and MCP are built against until the FT232H is fitted.
+
 ## 4. Entering and leaving debug mode
 
 ### 4.1 Launch
 
 ```
-PC (rdebug.py)                                Machine
+PC (the bridge)                               Machine
 UPLOAD control command            ──►         reset; loader: LOAD Z80 1
 HEADER, DATA …, END ACTION 0      ──►         the upload of monitor.md, section 6
                                               back to the monitor, PC = ENTRY
@@ -370,15 +437,15 @@ CHANNEL 3, VIDEO, and its TYPE `0x82` are **reserved** for screen capture: a lat
 
 ## 11. Test plan
 
-- **The transport:** `tools/test/test_rdebug.py` checks frames both ways against monitor.md's layout and CRC (its check value), CHANNEL in byte 4, bytes 5–7 not 0, a frame among stray bytes, a frame cut short (the 1 s drop), the control commands between frames.
-- **The adapter against a model:** the same test runs `rdebug.py` against a Python model of the stub (a fake serial port), with no hardware: launch and attach, every command and reply, each refusal code, every STOP reason, a fifth breakpoint refused, step over and step out with and without a spare breakpoint, a CRC error and a frame error each way, a lost reply and a lost STOP (QUERY), a repeated SEQ for a read and for a write, detach and continue with detach. DAP is checked with recorded VS Code requests.
-- **The stub in simulation:** the boot ROM's stub in the whole machine in Verilator, over the FT232H model (spec 10), driven by `rdebug.py` through a socket: launch a test program; a breakpoint in RAM, one in ROM and one with a page match in a banked window; both watchpoints (memory read, memory write, I/O write, a masked range); a step of each instruction class, `LDIR` and `HALT` included, and a step with INTO into an interrupt; pause while running; the program's serial output kept off the link; the screen untouched at a stop; no byte of the program's memory changed by a stop and a continue (a checksum); detach.
+- **The transport:** `tools/test/test_bridge.py` checks frames both ways against monitor.md's layout and CRC (its check value), CHANNEL in byte 4, bytes 5–7 not 0, a frame among stray bytes, a frame cut short (the 1 s drop), the control commands between frames.
+- **The bridge against the model:** `tools/test/test_bridge.py` runs the bridge against a Python model of the stub (a fake serial port), with no hardware: launch and attach, every command and reply, each refusal code, every STOP reason, a fifth breakpoint refused, step over and step out with and without a spare breakpoint, a CRC error and a frame error each way, a lost reply and a lost STOP (QUERY), a repeated SEQ for a read and for a write, detach and continue with detach. DAP is checked with recorded VS Code requests.
+- **The stub in simulation:** the boot ROM's stub in the whole machine in Verilator, over the FT232H model (spec 10), driven by the bridge through a socket: launch a test program; a breakpoint in RAM, one in ROM and one with a page match in a banked window; both watchpoints (memory read, memory write, I/O write, a masked range); a step of each instruction class, `LDIR` and `HALT` included, and a step with INTO into an interrupt; pause while running; the program's serial output kept off the link; the screen untouched at a stop; no byte of the program's memory changed by a stop and a continue (a checksum); detach.
 - **On the board:** a launch from VS Code on the KS2 once the FT232H is fitted: a source breakpoint, step, step over, a watchpoint, pause and continue.
 - **The shared section:** once retro68k takes the transport, a check that section 2 is the same in both repos (as monitor.md, section 12).
 
 ## 12. Open points
 
-Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), and the future items DB10 and DB11.
+Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), the future items DB10 and DB11, and branch 20's DB13–DB16.
 
 | # | Item |
 |---|------|
@@ -394,3 +461,7 @@ Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed
 | DB10 | VIDEO (CHANNEL 3, TYPE `0x82`) is reserved for screen capture (section 10), to be specified later together with retro68k |
 | DB11 | C source level (z88dk's debug output) is later; the protocol needs no change for it |
 | DB12 | The stub's frame buffers take SRAM page `0x0FC` (kept for the ROM's later use, spec 16, section 5.3) while attached; a program being debugged keeps out of it |
+| DB13 | Branch 20 (25 October 2026): the bridge's default ports, DAP 4780, MCP 8780, console 4781, chosen to sit beside the emulator's 4711 and 8000 |
+| DB14 | Both this extension and the zx extension contribute the `z80-asm` language. With both installed, check that the grammars and the asm index do not clash; if they do, this one stands down when the zx one is present |
+| DB15 | A VS Code disconnect leaves the session attached when MCP holds breakpoints or watchpoints (section 3.5); the other choice is to detach always |
+| DB16 | Whether retro68k wants the same bridge, carrying its GDB channel (CHANNEL 4) and an MCP server: to ask its session |
