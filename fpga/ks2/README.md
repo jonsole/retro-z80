@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog). Two seconds after the chart appears, L0 becomes the boot console (issue #15): text on the screen, which echoes what is typed on the Spectrum keyboard, a PS/2 keyboard or the USB serial link, with the joysticks and port `0xFE` shown on its status line (issue #19: the input units of spec 12). Built with `-DTILEDEMO` (by hand: assemble `boot.asm` with it in place of `build.sh`'s plain command), L0 becomes issue #14's scrolling tile map instead.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA, the timers and the watchdog (issue #17), the keyboards and joysticks (issue #19), port `0xFE`'s border and beeper (issue #21). The boot ROM (spec 16) tests the memory at power-on, sets up the boot console on L0 (issue #15) and starts the **monitor** (issue #22; the shared spec `docs/spec/monitor.md`): commands typed on the Spectrum keyboard or a PS/2 keyboard, a small program typed in and run, breakpoints, the registers, the ports. The tape loader demo of issue #21 is EDIT (or Tab) on an empty command line.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -39,72 +39,152 @@ Loading over JTAG changes only the FPGA, until the power goes off. The flash and
 
 ## The computer: what you should see
 
-On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it goes (`firmware/boot/boot.asm`), and, once the self-test has passed, the palette chart in the middle, then the boot console:
+On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it starts (`firmware/boot/boot.asm`, spec 16, section 4.4), then the boot console with the monitor:
 
 | Screen | Meaning |
 |--------|---------|
 | No signal | The beam is off: the FPGA is not loaded, the clocks are not running, or the Z80 did not run the boot ROM's first instructions (they start the beam a few microseconds after reset) |
-| Blue | The self-test is running. It takes about 0.8 ms (some 25 lines), so blue is only seen as a flash, if at all. **A screen that stays blue means the Z80 stopped inside the self-test** (for example an SRAM read that never returns the right byte and a loop that never ends) |
-| **Green** | **The self-test passed**: MMU, boot ROM pages, register page, SRAM data and address lines, and the 2 MB mirror. The boot ROM then sends "selftest ok, 2 MB" and "hello" and turns on the VBLANK interrupt (IM 2) |
-| **The palette chart** appears in the middle about 20 ms after green (at once, to the eye): a 512 × 512 square of 16 rows of 16 cells, each 32 × 32 pixels, with a black line on the right and bottom of each cell. Row 1 is the default palette's Spectrum colours: black, blue, red, magenta, green, cyan, yellow, white, then the same eight bright (the bright black looks black). Rows 2–14 and the first half of row 15 are a 6 × 6 × 6 colour cube: blue changes fastest along the row, then green, then red, from black (row 2's first cell) to white (row 15's eighth cell). The last 24 cells, the second half of row 15 and row 16, are a grey ramp from near black to near white | **The layer works** (issue #13): L0 is an 8-bit bitmap at 2 × across and 8 × down, fetched from the SRAM through the scheduler, coloured through PALETTE0, whose entries 16–255 the boot ROM wrote through PALIDX and PALDAT. A cell out of place, a torn or jumping chart, stripes in it or wrong colours point at the layer fetch or the palette. The background round the chart keeps changing colour (next row) |
-| Green for a second, then yellow, cyan, magenta, white, green, ... a colour a second | **The interrupts work** (issue #16): the VBLANK handler counts 50 frames and sets the next colour. Between interrupts the Z80 waits in HALT. Green that never changes means the self-test passed but no VBLANK interrupt was taken |
-| Each background colour bright for half a second, then half as bright for half a second, and so on | **The timers work** (issue #17): timer 0 counts the 100 MHz clock ÷ 50,000 (0.5 ms) and interrupts every 1,000 of those; its handler (TIMER0, IM 2) halves or restores the colour. The chart, and later the console's window, stay as they are. A colour that changes but never dims means no timer interrupt was taken. The two rates come from different clocks (VBLANK from the 27 MHz pixel clock), so the dimming drifts slowly against the colour changes |
-| **The boot console**: two seconds after the chart, text in a black 640 × 480 window in the middle, with the background colour as a border round it (still changing and dimming) | **The console works** (issue #15; `firmware/boot/console.asm`): L0 as a 1 bpp tile map. Below |
+| Blue | Start-up, and at power-on (a JTAG load is one) the memory and MMU self-test. It takes about a millisecond, so blue is only seen as a flash, if at all. **A screen that stays blue means the Z80 stopped there** (for example an SRAM read that never returns the right byte and a loop that never ends). A press of the reset button skips the self-test, so SRAM keeps what a program left |
+| Green, a flash | The self-test passed (or was skipped); the units, the monitor's workspace and the console are being set up, a few milliseconds |
+| **Black border, the console** | **The boot console and the monitor** (issue #22): text in a black 640 × 480 window in the middle, the border black round it. Below |
 | Red with white stripes | The self-test failed. The number of white stripes is the failing check's number less 0x40. The stripes are 16 lines tall with 16 red lines between them, starting at picture line 17, and stand still |
 
-**The boot console.** Two seconds after the chart appears, the chart goes and L0 shows the console: 80 columns × 30 rows of 8 × 8 characters shown 8 × 16 (2× tall), in a 640 × 480 window 40 pixels in from the left and 48 lines down, on black. Round the window the background colour keeps changing once a second and dimming every half second. The window shows, from the top:
+**The console.** 80 columns × 30 rows of 8 × 8 characters shown 8 × 16 (2× tall), in a 640 × 480 window 40 pixels in from the left and 48 lines down (spec 7, section 5.1). After a JTAG load it shows:
 
 ```
-retro-z80 0.1                                          white
-Z80 at 20 MHz, 2 MB SRAM                               light grey
-selftest ok, 2 MB                                      green
-hello                                                  light grey
-
-Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.
-Tab or EDIT (CAPS SHIFT + 1) plays a tape loader on the border and the beeper.
-_                                                      the cursor
-...
- retro-z80 boot console  J1 ........ J2 ........  FE FF  KB 00  up 000012 s     bottom row
+retro-z80 boot ROM 0.1  Z80 at 20 MHz, 2 MB SRAM
+Reset: power-on.  Self-test ok.
+Monitor.  H for help.
+> _
 ```
 
-(The bottom row is black on light grey.)
+- **0.1** is the boot ROM's version (ROMID, spec 16, section 3.1); **20 MHz** is CPUSPEED's speed, **2 MB** SYSCFG.CHIPMB. **Reset:** says why the machine started: `power-on` after a JTAG load, `button` after the reset button (with no `Self-test ok.`: the self-test runs at power-on only).
+- **The cursor** (an underscore) blinks, about four times a second, while the monitor waits for a key.
+- Lines go up the screen as the text reaches the bottom (SCROLLY, a row at a time).
+- The boot ROM looks for the start-up keys M, U and D for a quarter of a second before the `Monitor.` line (spec 16, section 4.3); today each of them ends at the monitor too.
 
-- **0.1** is SYSVER (major.minor), **20 MHz** is CPUSPEED's speed, **2 MB** SYSCFG.CHIPMB.
-- **The cursor** (an underscore) blinks: shown while the border is bright, gone while it is dim (timer 0).
-- **The status line** at the bottom counts the seconds since the console started, one a second (timer 0's interrupt). Seconds that count mean the Z80 is running, the interrupts work and the CPU's writes to the map show on the screen. It also shows the inputs (issue #19, below): **J1** and **J2**, the two joysticks, **FE**, port `0xFE` read with every row, and **KB**, the last byte from the PS/2 keyboard, in hex.
-- **Typed characters**, once the FT232H module is fitted: a terminal on its serial port shows the boot ROM's two lines, and what is typed appears on the screen at the cursor and is sent back (Return gives a new line; Backspace rubs out). With no module nothing arrives, so the cursor stays where it is. When the text reaches the status line it scrolls up a row (SCROLLY), and the status line stays at the bottom.
+### The monitor: try this
 
-**The keyboards and joysticks** (issue #19, spec 12; `fpga/rtl/ps2kb.v`, `ps2map.v`, `keys.v`, `joy.v`; the boot ROM's side is `firmware/boot/keys.asm`). Things to try, in this order, once the console is up:
+The monitor (the shared spec `docs/spec/monitor.md`, sections 2–4; spec 16, section 8) reads lines typed on the KS2's own keys or a PS/2 keyboard (and, once the FT232H is fitted, from a terminal), with the prompt `> `. Commands are one letter and hex numbers, upper or lower case; Enter runs the line. `H` lists them. **On the membrane**, the characters a monitor line needs:
 
-1. **The membrane keyboard.** Type on the KS2's own keys: letters appear in lower case, digits as digits, ENTER gives a new line, SPACE a space. Hold **CAPS SHIFT** for capitals (CAPS SHIFT + 0 rubs out); hold **SYMBOL SHIFT** for the Spectrum's red symbols (`" P`, `: Z`, `? C`, `/ V`, `* B`, `, N`, `. M`, `= L`, `+ K`, `- J`, `^ H`, `! 1` to `_ 0`, `; O`, `£ X`, `< R`, `> T`, and `[ ] ~ | \ { }` on Y, U, A, S, D, F, G; Q, W, E and I give nothing). The extra keys DELETE (rubs out), `;` `"` `,` `.` type their characters; EDIT (and CAPS SHIFT + 1) plays the tape loader (below); BREAK, the cursor keys and the others type nothing, but show on **FE** (below). A key is typed when it goes down, once; there is no auto-repeat.
-2. **Port `0xFE`** (FE on the status line). It reads `FF` with nothing pressed. Each held key clears its column's bit, whatever its row: a key in column 0 (CAPS SHIFT, A, Q, 1, 0, P, ENTER, SPACE) gives `FE`, column 1 (Z, S, W, 2, 9, O, L, SYMBOL SHIFT) `FD`, column 2 (X D E 3 8 I K M) `FB`, column 3 (C F R 4 7 U J N) `F7`, column 4 (V G T 5 6 Y H B) `EF`. Two keys in different columns clear both bits (A and Z: `FC`). The extra keys show as their Spectrum pairs (KEYCON.KXMAP): EDIT is CAPS SHIFT + 1, so `FE`; cursor right is CAPS SHIFT + 8, `FA`; `.` is SYMBOL SHIFT + M, `F9`.
-3. **A PS/2 keyboard** in the KS2's PS/2 socket (a keyboard that speaks PS/2: an old one, or a USB keyboard that works through a passive adapter; plug it in with the board on or off). **KB** shows each byte it sends, in hex: press A and it shows `1C`, release it and it shows `1C` again after an `F0`; plugging a keyboard in while the board runs usually gives `AA` (its self-test). Typed keys appear on the screen with a UK layout: letters, digits, Shift for capitals and symbols, Caps Lock, Return, Backspace, the keypad (Num Lock on), keypad Enter, Delete. The keyboard's lights do not change (nothing is sent to it). The bytes come through the KEYB interrupt (spec 8, source 17), so text appearing means the interrupt works.
-4. **PS/2 keys on port `0xFE`** (KEYCON.PS2MAP, on after reset). While a PS/2 key is held, FE shows the Spectrum key it stands for: A gives `FE`, Z `FD`; the Shifts are CAPS SHIFT (`FE`), Ctrl and Alt SYMBOL SHIFT (`FD`); the cursor keys CAPS SHIFT + 5–8; Backspace CAPS SHIFT + 0. Keys typed on the PS/2 keyboard are not typed twice: the console reads the membrane through KEYMAP0–6, which show the membrane alone.
-5. **Joysticks.** **J1** is the left joystick port (read through the Kempston port `0x1F`), **J2** the right (JOY2); which is which is an open point (spec 12, J2): if the left port shows on J2, say so. With an Atari-style stick, each direction lights its letter: **U**p, **D**own, **L**eft, **R**ight, and fire lights **1** (a second fire button, on pin 9, lights **2**). The boot ROM leaves JOYCON at 0, so a Mega Drive pad reads as a stick: directions, B as 1 and C as 2; A and START (letters A and S) need JOYCON.MD1 or MD2, which the boot ROM does not set yet.
+| To type | On the KS2's keys |
+|---------|-------------------|
+| Letters and digits | The keys themselves; lower case is fine (hold CAPS SHIFT for capitals) |
+| Space | SPACE |
+| Enter | ENTER |
+| Rub out the last character | CAPS SHIFT + 0 (DELETE), or the DELETE key |
+| `.` (sizes: `D.W`; ends `E`'s stepping) | SYMBOL SHIFT + M, or the `.` key |
+| `"` (text: `E 9000 "Hi"`) | SYMBOL SHIFT + P, or the `"` key |
+| `?` (help, as `H`) | SYMBOL SHIFT + C |
+| `'` (`R AF' 0`) | SYMBOL SHIFT + 7 |
+| `-` (back one in `E`'s stepping) | SYMBOL SHIFT + J |
+| `,` (works as a space) | SYMBOL SHIFT + N, or the `,` key |
+| Esc: drop the line, or stop `E`'s stepping | CAPS SHIFT + SPACE (BREAK), or the BREAK key |
+| The last line again | CAPS SHIFT + 7, or the cursor up key |
+| The tape loader demo (an empty line) | CAPS SHIFT + 1 (EDIT), or the EDIT key |
 
-**Port `0xFE` writes: the border and the beeper** (issue #21; spec 4, section 7.2, spec 7, section 10.2, spec 12, section 8.4; `fpga/rtl/video.v`, `audio.v`; the boot ROM's side is `firmware/boot/tape.asm`). Plug headphones or an amplifier into the KS2's audio jack (the internal speaker, if fitted, plays the same in mono). Then, with the console up, press **Tab** on a PS/2 keyboard or in the serial terminal, or **EDIT** on the membrane (**CAPS SHIFT + 1**, or the Next's own EDIT key). For about 3.6 seconds the boot ROM plays a Spectrum loading a tape, writing port `0xFE` for every edge (border and beeper together):
+A key held for half a second repeats, ten times a second. A PS/2 keyboard types as on a PC (UK layout): Backspace, Esc, the cursor up key and Tab do the same.
+
+Type these lines in turn (what you type follows `> `; the rest is what the monitor prints; the `R=` value and the bytes after `P7F0020` change from run to run):
+
+```
+> D 0040 20
+0040  F5 3E 01 C3 25 01 FF FF  52 5A 38 30 00 01 11 00  .>..%...RZ80....
+0050  32 30 32 36 2D 31 30 2D  32 35 00 00 00 00 00 00  2026-10-25......
+```
+
+The boot ROM itself: the EXIT entry at `0040` (where a program's `RET` goes), the identity block `RZ80`, version 0.1 and 17 functions at `0048`, the build date at `0050` (spec 16, section 3.1).
+
+```
+> P 7000
+7000: 5A
+```
+
+Port `0x7000` is SYSID: `5A` is retro-z80.
+
+```
+> E 8000 3E 41 CF C9
+> D 8000 4
+8000  3E 41 CF C9                                       >A..
+> G 8000
+A
+Program ended.
+AF=4100 BC=0000 DE=0000 HL=0000 IX=0000 IY=0000 SP=0000 PC=0040
+AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=7F IFF=0 IM=2?
+```
+
+A program typed in at `8000`: `LD A,'A'` (`3E 41`), `RST 08h` (`CF`: the ROM prints A), `RET` (`C9`: back to the monitor through EXIT). The monitor shows the registers the program left: A = `41`, SP back at `0000` after the `RET` popped `FFFE`, PC at EXIT. `R` shows them again; `G` alone runs the program again.
+
+```
+> E 8100 3E 42 CF 3E 43 CF C9
+> G 8100 8103
+B
+Breakpoint at 8103
+AF=4200 BC=0000 DE=0000 HL=0000 IX=0000 IY=0000 SP=FFFE PC=8103
+AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=7E IFF=0 IM=2?
+> G
+C
+Program ended.
+AF=4300 BC=0000 DE=0000 HL=0000 IX=0000 IY=0000 SP=0000 PC=0040
+AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=7D IFF=0 IM=2?
+```
+
+A breakpoint: `G 8100 8103` puts `RST 30h` at `8103`, so the program prints B and stops before printing C; the monitor puts the old byte back (`D 8103 1` shows `3E`). `G` goes on from there.
+
+```
+> E 8200 F7 3E 44 CF C9
+> G 8200
+Break at 8200
+AF=4300 BC=0000 DE=0000 HL=0000 IX=0000 IY=0000 SP=FFFE PC=8201
+AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=6A IFF=0 IM=2?
+> G
+D
+Program ended.
+```
+
+`RST 30h` (`F7`) in a program breaks into the monitor; `G` goes on after it.
+
+```
+> F 9000 10 2A
+> D.W 9000 10
+9000  2A2A 2A2A 2A2A 2A2A  2A2A 2A2A 2A2A 2A2A          ****************
+> E 9000
+9000: 2A 55
+9001: 2A .
+> D 9000 2
+9000  55 2A                                             U*
+```
+
+Fill 16 bytes with `2A`, dump them as words, then step through memory with `E`: type a new value and Enter, or Enter alone to keep it, `-` to go back, `.` (or BREAK) to stop.
+
+```
+> D P7F0020 4
+P7F0020  -- A8 03 00                                       ....
+> P FE
+00FE: FF
+> P 1F
+001F: 00
+> P 6700
+6700: 00
+```
+
+A `P` in front of an address makes it physical: `P7F0020` is the register page, where TIME0's read would capture TIME, so the monitor shows `--` for it (spec 16, section 8.1); the other three bytes of TIME count. `P FE` reads port `0xFE` with every keyboard row: `FF` with no key held, but the line runs the moment ENTER goes down, so ENTER (column 0) usually still shows: `FE` (hold SYMBOL SHIFT as well and it is `FC`). `P 1F` is joystick 1 through the Kempston port and `P 6700` joystick 2 (JOY2): hold a direction while pressing ENTER to see its bit (right 01, left 02, down 04, up 08, fire 10; issue #20).
+
+More to try: `S 8000 300 CF` finds the `RST 08h`s typed above; `C 8000 4 9000` then `V 8000 4 9000` (`Differences: 0000`); `R HL 1234` then `R`; `E 8300 FF` and `G 8300` (`Trap RST 38h at 8300`: a fetch of `0xFF`); `D P1FC000` shows the console's own map (each character, then its colour byte `02`); a wrong line answers `? syntax`, `? address` or `? size`. A program that never comes back needs the reset button (the Multiface NMI is not wired yet).
+
+**The tape loader demo** (issue #21): on an empty line, press **EDIT** (CAPS SHIFT + 1, or the EDIT key) or Tab on a PS/2 keyboard. Plug headphones or an amplifier into the KS2's audio jack (the internal speaker, if fitted, plays the same in mono). For about 3.6 seconds the boot ROM plays a Spectrum loading a tape, writing port `0xFE` for every edge (border and beeper together):
 
 1. **Pilot, 1.5 s.** The border fills with **red and cyan stripes**, each about 19 picture lines tall, rolling slowly up or down, and the jack plays a steady **807 Hz tone** (the Spectrum's pilot, 2,168 T-states a half wave).
-2. **Data, about 1.5 s.** After two short sync stripes, **thin blue and yellow stripes** (8�15 lines each, uneven, jittering) and the familiar **rasp** of data: the boot ROM's first 256 bytes as Spectrum tape bits (855 or 1,710 T-states a half wave).
+2. **Data, about 1.5 s.** After two short sync stripes, **thin blue and yellow stripes** (8–15 lines each, uneven, jittering) and the familiar **rasp** of data: the boot ROM's first 256 bytes as Spectrum tape bits (855 or 1,710 T-states a half wave).
 3. **Pause, 0.17 s.** Black border, quiet.
 4. **Beep, 0.4 s.** A **clean 880 Hz tone** (A), the border black.
-5. Then the border goes back to the boot ROM's background colour of the moment and keeps changing and dimming; the text in the window is untouched. Interrupts are off meanwhile, so the seconds on the status line and the cursor stop for those 3.6 s and then carry on (the count falls about 3 s behind); keys typed meanwhile are typed afterwards.
+5. Then the border is black again and a new prompt shows.
 
-What to look at: the stripes' edges are **ragged, in the middle of lines** (a Spectrum's loader look): each `OUT (0xFE),A` shows from the pixel on screen 15�52 ns later (spec 4: about 10�60 ns), not at the next line. A border that changes only on whole lines would mean the change waits for BGCOLOR's line rule. The stripes cover the border only: the console's black window stays on top (L0 is opaque there). The tone should be clean, at a modest level (the beeper is a fixed quarter of full scale), the same in both ears, with no hiss or whine between the parts (a steady beeper level is blocked by the board's coupling capacitors). Report: no sound at all (pins B4, A4, U16 or the jack), sound in one ear only, a rough or distorted tone, stripes only on whole lines, or wrong colours (red/cyan, then blue/yellow).
+What to look at: the stripes' edges are **ragged, in the middle of lines** (a Spectrum's loader look): each `OUT (0xFE),A` shows from the pixel on screen 15–52 ns later (spec 4: about 10–60 ns), not at the next line. The stripes cover the border only: the console's black window stays on top. The tone should be clean, at a modest level (the beeper is a fixed quarter of full scale), the same in both ears.
 
-What to report: any key that types the wrong character or none (the membrane's rows and columns, spec 12 open point K1), any FE value that differs from the list, a PS/2 keyboard that shows no KB bytes (the PS/2 pins, K2), and joystick letters that light for the wrong direction or the wrong port (J1, J2).
+**What to report:** a key that types the wrong character or none (the membrane's rows and columns, spec 12 open point K1), a command whose output differs from the lines above, characters torn, shifted or doubled (the tile fetch at 1 bit per pixel, spec 4, section 5.2), a cursor that does not blink (TIME), and anything the monitor does that the shared spec says otherwise.
 
-Characters torn, shifted or doubled, wrong colours, a window in the wrong place or flicker point at the tile fetch at 1 bit per pixel (1-bit rows are one byte of a word, spec 4, section 5.2), the 128-entry map width or the 2× vertical scale. Text but no counting seconds means the main loop or timer 0 stopped.
-
-**The tile map** (built with `-DTILEDEMO` only). Two seconds after the chart appears, the VBLANK handler turns L0 into a map of 64 × 32 tiles of 8 × 8 pixels at 4 bits per pixel, shown at 2 × 2 over the whole picture, so each tile is 16 × 16 screen pixels (45 across, 36 down). The chart goes and does not come back. The map is built from blocks of 4 × 4 tiles:
-
-- Each block has a letter **F** with a black drop shadow four ways, on every other tile across and down (one tile, 16 pixels, apart): top left as normal (F), top right mirrored (XFLIP: the bars point left, the shadow on the left), bottom left upside down (YFLIP: the long bar at the bottom), bottom right both (turned half round). Each F only looks right if XFLIP and YFLIP work.
-- The other 12 tiles of each block are a small dark grey dot in the middle, so the F's sit on a grid of dots.
-- The F's colour changes from block to block along diagonals: red, blue, orange, purple (each entry's PAL, 1–4, picks a palette block).
-- Everything else is transparent (TRANSP), so the background colour shows through, still changing once a second and dimming every half second.
-- The map scrolls one source pixel right and one down each frame (SCROLLX and SCROLLY, written by the VBLANK handler): the picture moves smoothly up and to the left, 100 screen pixels a second. It never stops or jumps: the map (512 × 256 source pixels) wraps round both ways. The window is 288 source lines tall, so 32 of the map's lines show twice, at the top and at the bottom.
-
-A tile torn or shifted against its neighbours, an F the wrong way round, wrong colours, flicker or sparkle (late data: OVERRUN) or jerky movement point at the tile fetch.
+The keyboards (issue #19, spec 12; `fpga/rtl/ps2kb.v`, `ps2map.v`, `keys.v`, `joy.v`; the boot ROM's side is `firmware/boot/keys.asm`): the membrane is read through KEYMAP0–6, a key typed when it goes down; a PS/2 keyboard in the KS2's PS/2 socket (one that speaks PS/2: an old one, or a USB keyboard that works through a passive adapter) through its FIFO, polled. While a PS/2 key is held, port `0xFE` shows the Spectrum key it stands for (KEYCON.PS2MAP), so `P FE` with A held gives `FE`.
 
 The checks (`firmware/boot/selftest.asm`):
 
@@ -130,9 +210,11 @@ The checks (`firmware/boot/selftest.asm`):
 
 Checks 4F–51 are the ones that test the board's SRAM wiring and timing; the earlier ones need the SRAM only for the stack and a few bytes.
 
-The reset button starts it all again: the beam stops for a moment (the monitor may lose the signal) and the boot ROM runs from the start. The MULTIFACE and DIVMMC buttons only show in SYSBTN.
+The reset button starts it all again: the beam stops for a moment (the monitor may lose the signal) and the boot ROM runs from the start, without the self-test. The MULTIFACE and DIVMMC buttons only show in SYSBTN (DIVMMC held at reset counts as M).
 
-**Serial.** The FT232H module is not fitted yet. When it is (on the accelerator header, pins as below), a terminal on its serial port shows `selftest ok, 2 MB` and `hello`, or `selftest FAIL nn`; then the console echoes what is typed. Without it the boot ROM does not wait: SERCON.TXDROP is set, so a full transmit FIFO drops its oldest bytes.
+**Serial.** The FT232H module is not fitted yet. When it is (on the accelerator header, pins as below), a terminal on its serial port shows everything the monitor prints and types into it, as the keyboards do. Without it the boot ROM does not wait: SERCON.TXDROP is set, so a full transmit FIFO drops its oldest bytes.
+
+**Earlier demos.** Issues #13–#19's demos (the palette chart, the colour cycle, the dimming and the console's status line) are gone from the boot ROM now that it runs the monitor (spec 16, section 4.1); the hardware they showed is still built. The tile map demo (`-DTILEDEMO`, issue #14) went with them; the commit before issue #22 still has it.
 
 ## The test pattern: what you should see
 
@@ -167,7 +249,7 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 - **VGA.** Three bits per colour straight from the pads' flip-flops (no DAC). The computer sends the top three bits of each colour; the test pattern makes RGB333 and widens it for HDMI.
 - **Configuration settings** follow the Next's: SPI ×4, 32-bit SPI addresses, 40 MHz configuration rate, no fallback, unused pins pulled up, and the bitstream compressed. The `.bin` is a raw flash image; nothing uses it yet.
 - **Input** (issue #19; spec 12, open points K2 and J1), pins from the Next's issue 4 pin file: the PS/2 keyboard on `ps2_clk_io` K1 and `ps2_data_io` L4 (LVCMOS33, pulled up, open collector; the KS3 moves them to N5 and N6); the membrane rows `keyb_row_o[7:0]` (J14, M16, M13, N16, K16, K15, K13, J15) open drain as the Next drives them, low for the row being scanned and let go (pulled up) otherwise, so two keys in one column never short two rows; the columns `keyb_col_i[6:0]` (R8, R7, T6, V7, U6, T18, R17) pulled up; the joysticks' shared lines `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i` (T13, R12, V16, U17, V15, V17, with weak pull-ups the Next does not have), `joysel_o` U14 (0 = the left port) and `joyp7_o` R13, the Mega Drive select for both ports. The KS3 (issue 5) has the same keyboard and joystick pins.
-- **Audio** (issue #21; spec 7, section 10.2), pins from the Next's issue 4 pin file: `audioext_l_o` B4 and `audioext_r_o` A4 (the jack; LVCMOS33, DRIVE 16, no termination) and `audioint_o` U16 (the internal speaker; DRIVE 8, slow slew). Each carries a 1-bit sigma-delta stream at 100 MHz from a second-order modulator (retro68k's `sigma_delta2`), from the pads' flip-flops; the board's RC filters make the sound. The Next drives the same pins the same way, with first-order DACs at 28 MHz (`zxnext_top_issue4.vhd`: `dac` on its 12-bit left and right mixes and a 13-bit mono one, each registered on its way out; the speaker's stream ANDed with its enable). Here the speaker always plays (no enable yet). The beeper is the only source: port `0xFE` bit 4, � a quarter of full scale.
+- **Audio** (issue #21; spec 7, section 10.2), pins from the Next's issue 4 pin file: `audioext_l_o` B4 and `audioext_r_o` A4 (the jack; LVCMOS33, DRIVE 16, no termination) and `audioint_o` U16 (the internal speaker; DRIVE 8, slow slew). Each carries a 1-bit sigma-delta stream at 100 MHz from a second-order modulator (retro68k's `sigma_delta2`), from the pads' flip-flops; the board's RC filters make the sound. The Next drives the same pins the same way, with first-order DACs at 28 MHz (`zxnext_top_issue4.vhd`: `dac` on its 12-bit left and right mixes and a 13-bit mono one, each registered on its way out; the speaker's stream ANDed with its enable). Here the speaker always plays (no enable yet). The beeper is the only source: port `0xFE` bit 4, ± a quarter of full scale.
 - **Unused parts** are held where the Next's top level leaves them: flash and both SD cards deselected; MIC low; expansion bus RAMCS pulled down. Every other pin is weakly pulled up.
 - **tv80 timing.** tv80 alone is far too slow for 100 MHz (its longest register-to-register path is about 18 ns here), but every register in it changes only on cen, at least 5 clocks apart, so those paths are 5-clock multicycle paths (`ks2_machine.xdc`; spec 1, section 3.3). The paths from the core into the bus interface stay single-cycle and still meet 100 MHz (+0.89 ns), so the 3-clock multicycle spec 1 allows for them is not needed yet.
 

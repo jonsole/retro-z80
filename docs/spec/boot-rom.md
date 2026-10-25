@@ -79,14 +79,19 @@ A boot ROM image uploaded with TARGET 1 and LOAD 0 must have `RZ80` at `0x0048`,
 
 ### 4.1 What the ROM does today
 
-The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#19, confirmed on the KS2:
+The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#21 with the first step of section 11 (ticket #22) in place of its demos: the entry table, the RST calls and the `RST 28h` functions `0x00`–`0x11`, the full start-up sequence of section 4.2 (the self-test at power-on only), and the monitor with `D E F C V S G R P H`, breakpoints, the break and the trap. The palette chart, the colour cycle, the dimming and the console's status line (tests of the hardware, #13–#19) are gone; the tape loader demo of #21 stays, as Tab (or EDIT) on an empty command line.
 
-1. At `0x0000`: `DI`, SP = `0x0000`; the background blue; the beam on; the serial link on with CTLEN and TXDROP.
-2. The memory and MMU self-test (`selftest.asm`) at **every** reset: green and `selftest ok, N MB` and `hello` on the serial link, or red with white stripes (the failing check) for good.
-3. The palette chart on L0 (#13); IM 2 with VBLANK changing the background once a second (#16) and timer 0 dimming it every half second (#17).
-4. Two seconds later, the boot console on L0 (#15): the start-up text, then what is typed on the membrane, a PS/2 keyboard or the serial link, with a status line of joysticks, port `0xFE`, the last PS/2 byte and the seconds (#19).
+| File | Contents |
+|------|----------|
+| `boot.asm` | Page 0: the entry table, start-up, the monitor's entry (`monent`) and exit (`g_final`), the IM 2 handler and table; includes the rest |
+| `console.asm`, `keys.asm` | Page 0: the console driver's core (section 7.5) and the keyboards and serial link as key codes (section 7.4) |
+| `calls.asm` | Page 0: the RST entries' routines, the `RST 28h` table, GETLINE's line editor, the window borrowing (section 7.6) |
+| `monitor.asm` | Page 1: the rest of start-up, the monitor's entry, the command line and the commands |
+| `selftest.asm`, `tape.asm` | Page 1: the self-test; the tape loader demo |
+| `font.inc`, `help.asm` | Page 2: the font at offset `0x4000`; the help text |
+| `rom.inc` | The constants: the console's state, the workspace's layout, the reasons for entering the monitor |
 
-The chart, the colour cycle, the dimming and the status line are tests of the hardware. The full ROM keeps the self-test, the colours of step 2 and the console, and drops the rest.
+Not built yet: the NMI page (the NMI is not wired to the Z80 yet, spec 1, section 8.2); `I` and `T` (ticket #23); `U`, `L`, `B`, `X` and functions `0x12`–`0x14` (tickets #24–#26). Those letters give `? not yet: a later ticket`.
 
 ### 4.2 The full sequence
 
@@ -186,22 +191,25 @@ The console and workspace pages are at the top of the first 2 MB, so they are in
 | `0x00C6`–`0x00CB` | 6 | The PS/2 decoder: F0 and E0 seen, Shifts, Caps Lock, the last byte |
 | `0x00CC`–`0x00D2` | 7 | KEYMAP0–6 as last seen, to find keys that have just gone down |
 | `0x00D3`–`0x00D7` | 5 | The serial escape decoder: bytes so far and the TIME they began |
-| `0x00D8`–`0x00FF` | 40 | Spare |
+| `0x00D8`–`0x00E0` | 9 | The map's base in the borrowed window; the cursor (drawn, and the entry under it); the membrane key that repeats, its place and when it next repeats; a key put back by the serial decoder |
+| `0x00E1`–`0x00FF` | 31 | Spare |
+
+The **last line typed** (GETLINE's Up, the monitor's too) is kept in columns 96–127 of map rows 1–4, 64 bytes a row, ending in 0.
 
 **The workspace,** page `0x0FF`, at `0x6000` in the monitor's map:
 
 | Offset | Size | Contents |
 |--------|------|----------|
 | `0x0000` | 2 KB | The console font (PATPT = `0x1FE000`) |
-| `0x0800` | 256 | The monitor's state: a marker and CRC of this block, why it was entered, the program's registers, its 16 page registers, the video and system registers the monitor took over (section 8.5), the breakpoint (address and old byte), what Enter carries on |
-| `0x0900` | 256 | The line being typed, and the last line (for Up) |
+| `0x0800` | 256 | The monitor's state: a marker (`RZ`) and a 16-bit sum of this block, why it was entered, the program's registers, its 16 page registers, the video and system registers the monitor took over (section 8.5), the breakpoint (address and old byte), what Enter carries on |
+| `0x0900` | 256 | The line being typed, E's line, the commands' temporaries. The last line (for Up) is kept in the console page instead (above), so GETLINE has it for a program too |
 | `0x0A00` | 512 | The SD card's sector buffer |
 | `0x0C00` | 256 | The SD card and FAT32: card type, partition, the current cluster and file |
 | `0x0D00` | 256 | The loader: the header being loaded, frames so far; and the **resident image record** (its header, its pages, a CRC of the record) |
-| `0x0E00` | 2.5 KB | Spare |
+| `0x0E00` | 2.5 KB | The entry frame and the MMU registers as the monitor found them (`0x0E00`–`0x0E3F`), the program's colour pairs while the monitor has the screen (`0x0E40`, 90 bytes); the rest spare |
 | `0x1800` | 2 KB | The monitor's stack, from `0x2000` (`0x8000` in the monitor's map) down |
 
-**When a program takes these pages.** A program may use every page, the console's included, but then makes no ROM calls other than EXIT and RESET (section 7.3). The console's marker and the workspace's CRC show the damage: whenever the monitor is entered (an NMI, a break, the end of the program) and finds either one broken, it sets up the font, the map and the workspace again, losing whatever the program had there. A program that wants to be looked at after a break keeps out of pages `0x0FE`–`0x0FF`. This closes spec 7's open point SY7.
+**When a program takes these pages.** A program may use every page, the console's included, but then makes no ROM calls other than EXIT and RESET (section 7.3). The console's marker and the workspace's marker and sum show the damage: whenever the monitor is entered (an NMI, a break, the end of the program) and finds either one broken, it sets up the font, the map and the workspace again, losing whatever the program had there. A program that wants to be looked at after a break keeps out of pages `0x0FE`–`0x0FF`. This closes spec 7's open point SY7.
 
 **The font as a resource.** The console font is code page 437, 8 × 8, 8 bytes a character: in ROM at offset `0x4000` (page `0x3FE`) and in SRAM at `0x1FE000` while the console runs. A program may point a tile layer's PATPT at `0x1FE000` (while it keeps page `0x0FF`), or copy the font from the ROM page.
 
@@ -219,7 +227,7 @@ The shared spec gives the shape (its section 10); this is retro-z80's content. I
 | Speed | CPUSPEED 0: 20 MHz |
 | MMU | The program map (section 5.1) |
 | Boot ROM | ROMWE clear; ROMLOCK set, unless D was held at power-on |
-| Video | L0 the console (1 bpp tile map, 640 × 480 window, MAPPT `0x1FC000`, PATPT `0x1FE000`); L1, L2 off; sprites off; PRIO as reset; BGCOLOR black; PALETTE0 entries 16–79 the console's colour pairs, entries 0–15 the Spectrum colours; the other palettes as left by reset (spec 4) |
+| Video | L0 the console (1 bpp tile map, 640 × 480 window, MAPPT `0x1FC000`, PATPT `0x1FE000`); L1, L2 off; sprites off; PRIO as reset; BGCOLOR black; PALETTE0's colour pairs 0–14 (entries 16(p + 1) and 16(p + 1) + 1, spec 7, section 5.1) the console's, entries 0–15 the Spectrum colours; the other palettes as left by reset (spec 4) |
 | Copper, DMA engine, sprite sequencer | Stopped |
 | Timers | All four stopped; the watchdog off and unlocked; TIME counting |
 | Serial | SERCON = EN, CTLEN, TXDROP; interrupts off |
@@ -281,7 +289,7 @@ msg:    db      "Clear the screen? ", 0
 ### 7.2 Calling conventions
 
 - **Kept:** every register except those a call gives back, and F. A call that returns nothing in A keeps A. The alternate registers, IX, IY and I are never touched; R counts on as usual.
-- **Stack:** a call uses up to 32 bytes of the caller's stack.
+- **Stack:** a call uses up to 48 bytes of the caller's stack (GETLINE, the deepest, about 44).
 - **Where things may be:** the caller's code, stack and data (a string, a line buffer) may be anywhere in `0x2000`–`0xFFFF`, under any mapping of windows 1–7 the program has made. Not in window 0.
 - **Interrupts:** as the caller had them, except for at most about 150 µs at 20 MHz inside a call (section 7.6). A call never enables interrupts that were off.
 - **Speed:** every call works at every CPUSPEED; it is slower at lower speeds, and its waits (the escape-sequence timeout, the cursor's blink) use TIME, so they last the same.
@@ -363,11 +371,11 @@ A program sends CR and LF for a new line, as the monitor does. The cursor shows,
 While a program runs, the console's page `0x0FE` is not in its map. A call that prints or reads a key:
 
 1. saves the interrupt state (`LD A,I` gives IFF2 in P/V) and disables interrupts;
-2. picks a window among 1–7 that holds neither the caller's stack (SP − 32 to SP) nor the data it was given, and reads that window's read and write pages;
+2. picks window 4, or window 2 when the caller's stack (SP − 48 to SP) touches window 4, and reads that window's read and write pages;
 3. maps page `0x0FE` there (read and write), does the work, and puts the window's pages back exactly;
 4. gives back the interrupt state.
 
-The serial link and the keyboards are ports, so they need no window. The longest time with a window borrowed is a scroll: clearing a map row, about 3,000 T-states (150 µs at 20 MHz). A string or line buffer that runs into the borrowed window is handled in pieces, so it may lie anywhere.
+The serial link and the keyboards are ports, so they need no window. The longest time with a window borrowed is a scroll: clearing a map row, about 3,000 T-states (150 µs at 20 MHz). Strings and line buffers are read and written a character at a time **outside** the borrowed window (PUTS calls PUTC for each character; GETLINE calls GETC and PUTC), so they may lie anywhere, the borrowed window included. GETC waits as a loop of short borrows, so interrupts are never held off while it waits. PUTC with code 12 clears the whole map in one borrow (about 5 ms with interrupts off); CLS (function `0x09`) clears a row a borrow.
 
 ### 7.7 `RST 38h`: the trap
 
@@ -457,7 +465,7 @@ When the monitor is entered while a program is running (a break, a breakpoint, a
 1. It saves the registers (a few bytes on the program's stack first, then into the workspace), the 16 page registers (window 0's from NMISAV0, NMISAVW0 and NMISAVHI after an NMI), CPUSPEED, and the interrupt state.
 2. It moves to its own map (section 5.2) and its stack in the workspace, sets CPUSPEED 0, and keeps interrupts off.
 3. If the console's state or the workspace is broken, it sets them up again (section 5.3).
-4. It **takes the screen**: it saves L0's 32 registers, PRIO, DMACON, BGCOLOR, COPCON and PALETTE0 entries 16–79, stops the copper (so a copper list does not rewrite L0), puts L0 back as the console in front of the other layers, and the border black. Sprites, L1, L2 and the DMA engine are left as they are (open point B5).
+4. It **takes the screen**: it saves L0's 32 registers, PRIO, DMACON, BGCOLOR, COPCON, VIDCON, PALIDX, PALETTE0's 30 entries of the console's colour pairs (section 6), and the console's CONMODE and colour pair; stops the copper (so a copper list does not rewrite L0), puts L0 back as the console in front of the other layers, the beam on, the border black, CONMODE all on and pair 0. Sprites, L1, L2 and the DMA engine are left as they are (open point B5).
 5. It kicks a running watchdog while it waits (WDKICK; a locked watchdog cannot be stopped).
 
 `G` puts all of it back, in reverse, and goes on: with `RET` after a break, a breakpoint or a trap; with `RETN` after an NMI, so the hardware puts window 0 back (spec 7, section 10.1). A copper list starts again from COP1LC at the next frame.
@@ -473,6 +481,19 @@ The NMI paging (spec 7, section 10.1; spec 1, section 8.2) puts ROM page 3 in wi
 The NMI mode (NMICTL.INNMI) lasts until the monitor's `RETN`, which puts the program's window 0 back. If the monitor starts a **new** program after an NMI (`U`, `B`, `L` then `G`, `G addr` after a load), it first ends the NMI mode: a `RETN` to a few bytes of code it has put in the workspace (window 3), which map ROM page 0 into window 0 again and carry on. So the new program can be broken into by the next NMI.
 
 With NMICTL.EN = 0, page 0's `0x0066` jumps to the same common entry; the program's window 0 is then whatever it was, and the monitor ends with `RETN` too.
+
+### 8.7 Going on, and what the shared spec leaves open
+
+- **At start-up** the program's registers are 0, SP = `0xFFFE`, PC = `0x8000` (so `G` alone runs a program typed in at `8000`), IM 2, I = `0x1F`, and the program map of section 5.1.
+- **A new run.** With no program stopped (after start-up or `Program ended.`), `G` starts one: SP = `0xFFFE` with EXIT at `0xFFFE` (section 6), PC = the address given, or else ENTRY (where the last run started) once a program has ended; the other registers as `R` shows them.
+- **Going on.** With a program stopped (a break, a breakpoint, a trap), `G` goes on with every register as `R` shows them; `G addr` changes only PC.
+- **After `Program ended.`** the registers stay as the program left them: after its `RET`, SP = `0000` and PC = `0040`, as the shared spec's example shows.
+- **The address in the message:** `Break at` gives the `RST 30h` (or the `RST 28h`) itself, with PC after it; `Trap RST 38h at` and `Breakpoint at` give the byte where PC is.
+- **The breakpoint** is taken out of the program whenever the monitor is entered, whichever way; a breakpoint is for one `G`.
+- **`P` and the monitor's own registers.** The monitor changes the MMU and CPUSPEED for itself, so `P` on the MMU registers (`0x8000`–`0x9F00`) and CPUSPEED (`0x7700`) reads and writes the program's copy, which `G` puts back.
+- **Tab or EDIT on an empty command line** plays ticket #21's tape loader demo (`tape.asm`) on the border and the beeper. It is not a command letter, so the shared command table is unchanged.
+- **Output the shared spec does not spell out:** `V` lists each difference as `addr: xx  addr2: yy` on a line of its own, then `Differences: n` (hex); `S` lists the places 8 to a line, then `Enter for more.` after 16, or `Not found.`; Enter after `D` carries on with another `80` bytes, after `S` with the next 16 places.
+- **Commands not built yet** (`I T U L B X`, section 11) answer `? not yet: a later ticket`.
 
 ## 9. The loader and image files on the Z80
 
@@ -521,7 +542,7 @@ The ROM is built in this order, each step a ticket:
 
 | Step | Contents | Needs |
 |------|----------|-------|
-| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging (done or ticketed) |
+| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging (done or ticketed). Built (ticket #22) but for `T` (ticket #23) and the NMI page, which waits for the NMI to be wired to the Z80 |
 | 2 | The disassembler (`I`) | Step 1 |
 | 3 | The SD card and FAT32: `L`, `B`, the boot file, LOADFILE, READBLOCK, WRITEBLOCK | Spec 11's controller |
 | 4 | The loader (`U`, UPLOAD, all three targets) and `tools/rlink.py` | Step 1; the FT232H for the board |
@@ -536,6 +557,7 @@ The ROM is built in this order, each step a ticket:
 - **Keys:** every code of section 7.4 from each source, including the serial escape sequences and a lone Esc; repeats.
 - **Printing:** every code of section 7.5; wrap at column 79; scrolling; PUTRAW; CONMODE turning each side off.
 - **Trap:** a jump into NONE, into the register page and to a byte `0xFF` each give `Trap RST 38h at` the right address; the self-test's check `0x4C` still passes at power-on.
+- **In simulation now** (ticket #22): `sim/mon/` types a session over the serial link in Verilator (`make -C sim mon`, about a minute): every command and size, `P` addresses, the side-effect bytes shown `--`, E stepping, Enter carrying on, the errors; a program typed in printing through `RST 08h`, `RST 18h` and `RST 28h`; IX, IY, BC, DE and HL' kept across a ROM call; a breakpoint, `RST 30h` and the trap, each followed by `G`; and the console's 30 rows read back from its map against what was sent. `make hello` checks the sign-on and the power-on-only self-test across a RESET; `make bootkeys` types on the PS/2 and membrane models.
 - **Monitor (Z80 parts):** plain and `P` addresses, including window 0 after an NMI and the register page; `P` reads and writes ports; `R` shows and sets every register, IFF and IM; `I` against a list of every opcode (checked against sjasmplus's own listing); breakpoints; a break, a trap and an NMI each followed by `G` that goes on with every register, the MMU, CPUSPEED and the screen as they were.
 - **NMI page:** the NMI path through page 3 into the common monitor and out by `RETN`, with the program's stack in window 0 and elsewhere; a new program started after an NMI can be broken into again.
 - **Broken workspace:** a program that overwrites pages `0x0FE`–`0x0FF` and is then broken into gets a working monitor.
@@ -551,7 +573,7 @@ The ROM is built in this order, each step a ticket:
 | B3 | BASIC's memory map: pages `0x0F8`–`0x0FB` (32 KB) at `0x2000`–`0x9FFF`, leaving `0x8000`–`0xFFFF` with a 24 KB image. To confirm with the BASIC tickets (design plan, branch 13) |
 | B4 | The key codes 130–139 and 145–156 are those BBC BASIC's line editor is believed to expect (Dean Belfield's ports); check against the host layer before it is written |
 | B5 | Taking the screen at a break leaves sprites, L1, L2 and the DMA engine running; whether the monitor should also pause them (and which of their registers read back, spec 4) |
-| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built |
+| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the commands 4.4 KB, the self-test 1.2 KB, the tape demo); page 2 2.7 KB (the font and the help); page 3 empty |
 | B7 | SRAM page 0 under the ROM and pages `0x0FC`–`0x0FD` are free; the ROM may later want them (for example for CP/M 3, design plan branch 7) |
 | B8 | CP/M 3 (later) has its own BIOS in place of the RST calls; how it sits with the boot ROM is for its own spec |
 | B9 | The console's state in the map's hidden columns relies on SCROLLX staying 0 for the console and on the fetcher never reading columns 96–127; spec 4's tile mode to confirm |
