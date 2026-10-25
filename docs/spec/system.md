@@ -2,7 +2,7 @@
 
 Status: **draft**
 
-This spec covers how the computer starts: what resets it and what a reset does, the boot ROM, what the boot ROM does first, the boot console, the board's buttons, identification, the CPU speed, the I2C master (real-time clock and HDMI DDC), how the design is installed on the ZX Spectrum Next KS3, and the board's connections. It follows retro68k's spec 7 and the system chapter of its guide, narrowed to 8-bit registers. Two Spectrum extras sit in their own section: the NMI monitor paging and the beeper. The system control registers are registers `0x70`–`0x7F` of page `0x00`, the system block (spec 3): SYSID is port `0x7000`.
+This spec covers how the computer starts: what resets it and what a reset does, the boot ROM, what the boot ROM does first, the boot console, the board's buttons, identification, the CPU speed, the I2C master (real-time clock and HDMI DDC), how the design is installed on the ZX Spectrum Next KS3, and the board's connections. It follows retro68k's spec 7 and the system chapter of its guide, narrowed to 8-bit registers. Two Spectrum extras sit in their own section: the NMI monitor paging and the beeper. The system control registers are registers `0x70`–`0x7B` of page `0x00`, the system block (spec 3): SYSID is port `0x7000`.
 
 The other system pieces have their own specs: the MMU (spec 2), interrupts (8), timers and watchdog (9), USB serial (10), SD card (11), keyboards and joysticks (12) and the DMA engine (14). The boot ROM's programs are in spec 16 ([boot ROM](boot-rom.md)) and in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)): the monitor, the loader, the boot file and the ROM calls.
 
@@ -22,8 +22,8 @@ The other system pieces have their own specs: the MMU (spec 2), interrupts (8), 
 | Boot console | 80 × 30 characters on layer L0 as a 1 bpp tile map, 8 × 8 public-domain font shown 2× tall (section 5.1) |
 | Buttons | Reset = reset; Multiface = NMI; DivMMC = "monitor" button, readable in SYSBTN |
 | I2C | A small I2C master for the battery-backed real-time clock and the HDMI DDC, as in retro68k |
-| Spectrum extras | NMI monitor paging (NMICTL and saved pages, registers `0x7C`–`0x7F`); the beeper (port `0xFE` bit 4) to the audio pins at a fixed level (section 10) |
-| Registers | Page `0x00`, registers `0x70`–`0x77` system control, `0x78`–`0x7B` I2C, `0x7C`–`0x7F` NMI monitor: ports `0x7000`–`0x7F00`, register page offsets `0x0070`–`0x007F` |
+| Spectrum extras | NMI monitor paging, now the NMI set's default of the interrupt pages (spec 2, section 9.7; registers in I/O page `0x01`); the beeper (port `0xFE` bit 4) to the audio pins at a fixed level (section 10) |
+| Registers | Page `0x00`, registers `0x70`–`0x77` system control, `0x78`–`0x7B` I2C: ports `0x7000`–`0x7B00`, register page offsets `0x0070`–`0x007B`. `0x7C`–`0x7F` are free |
 | Installing | Development: JTAG straight into the FPGA. Everyday use: an extra Next core in a free flash slot |
 
 ## 2. Comparison with retro68k
@@ -44,7 +44,7 @@ The other system pieces have their own specs: the MMU (spec 2), interrupts (8), 
 | I2C | I2CCON EN (0), CLKDIV (15–8); SCL = 100 MHz ÷ (4 × (CLKDIV + 1)) | I2CCON EN (0), CLKDIV (7–1); SCL = 100 MHz ÷ (8 × (CLKDIV + 1)) | Narrowed to one byte; the divider counts in eights so 100 kHz still fits 7 bits |
 | Boot console | 80 × 30 text drawn with an 8 × 16 font (Spleen) into a 1 bpp 640 × 480 bitmap | 80 × 30 text on a 1 bpp tile layer, 8 × 8 public-domain font shown 2× tall, in the same 640 × 480 window | A character is one 2-byte map write instead of 16 bytes of bitmap; the tile mode is the one new video unit (spec 4) |
 | Long press of reset | Open (its SY3) | No UPLOAD on a long press: UPLOAD comes only from the PC | Closed here (SY6) |
-| NMI monitor paging | None | Window 0 switched to the boot ROM's monitor page during an NMI | Spectrum extra (Multiface style) |
+| NMI monitor paging | None | Window 0 switched to the boot ROM's monitor page during an NMI, and the return address kept in registers: the NMI set's default of the interrupt pages (spec 2, section 9.7) | Spectrum extra (Multiface style); the interrupt pages are a retro-z80 extra (design plan, branch 17) |
 | Beeper | None (audio is its spec 6) | Port `0xFE` bit 4 to the audio pins, at a fixed quarter of full scale | Spectrum extra; sound itself is parked (design plan Q1) |
 
 ## 3. Reset
@@ -69,7 +69,7 @@ RESETWHY shows the cause of the last reset; exactly one bit is set.
 Every source gives the same **full reset**:
 
 - The Z80 is reset and starts at `0x0000` (spec 1), at **20 MHz** (CPUSPEED = `0x00`).
-- The MMU goes back to its reset state (spec 2): boot ROM pages 0–1 in windows 0–1, SRAM pages 0–5 in windows 2–7, each window's write page the same as its read page. NMI mode ends (NMICTL.INNMI = 0) and automatic paging is on (NMICTL.EN = 1).
+- The MMU goes back to its reset state (spec 2): boot ROM pages 0–1 in windows 0–1, SRAM pages 0–5 in windows 2–7, each window's write page the same as its read page. The interrupt pages go to their reset state (spec 2, section 9.8): maskable interrupts switch nothing, NMI mode ends (NMICTL.INNMI = 0), and the NMI set pages the monitor into window 0 with capture on (NMICTL = `0x05`).
 - Every chipset and system register goes back to its reset value: video shows only the background colour, sprites, copper and DMA engine stopped, all interrupts off, timers stopped, watchdog off, serial and keyboard FIFOs empty, I2C master idle.
 - SYSCON.ROMWE is cleared. ROMLOCK is cleared only at power-on.
 - **The SRAM keeps its contents.** Static RAM needs no refresh, so after anything except power-on, memory holds what it held before. A debugger can look at what a crashed program left, and software can keep data across resets (check RESETWHY.POWER first: after power-on the SRAM holds random values).
@@ -281,21 +281,23 @@ These are not part of retro68k. They are kept for Spectrum-style use (design pla
 
 ### 10.1 NMI monitor paging
 
-Like a Multiface, an NMI (Multiface button or USB BREAK, spec 8, section 10) brings up a monitor whatever the running program has done with the memory map. The bus interface does the paging (spec 1); the registers are NMICTL and the saved pages (section 11.3).
+Like a Multiface, an NMI (Multiface button or USB BREAK, spec 8, section 10) brings up a monitor whatever the running program has done with the memory map. This is now the NMI set of the **interrupt pages** at its reset values (spec 2, sections 9.7 and 9.8; spec 1, section 8.2), so the hardware is described there once. In short:
 
-**Entry.** When the Z80 takes an NMI, it first pushes PC through the program's own mapping. Then, just before the opcode fetch at `0x0066` reads memory, the bus interface:
+| Register (I/O page `0x01`) | Reset | Effect |
+|----------------------------|-------|--------|
+| NMICTL | `0x05`: EN and CAPTURE | Switch the windows in NMIMASK; keep the return address in NMICAPPC |
+| NMIMASK | `0x01` | Window 0 only |
+| NMIP0, NMIP0W | `0x3FF`, `0x3FB` | Window 0 reads boot ROM page 3 (the **monitor page**) and cannot be written (NONE) |
 
-1. copies window 0's read page and write page into NMISAV0, NMISAVW0 and NMISAVHI,
-2. sets window 0's read page to `0x3FF` (boot ROM page 3, the **monitor page**) and its write page to NONE (`0x3FB`),
-3. sets NMICTL.INNMI.
+**Entry.** The Z80's two pushes of PC are captured: NMICAPPC holds the program's PC and NMICAPSP its SP, and memory is not touched, so even a program whose SP points at ROM or nowhere can be looked at and carried on. At the fetch at `0x0066` the program's 16 page registers are saved in NMISAV0–NMISAV7 and NMISAV0W–NMISAV7W, window 0 switches to the monitor page, and INNMI is set. Windows 1–7 are not changed. While INNMI is 1, MMU0 and MMU0W read back `0x3FF` and `0x3FB`.
 
-So the fetch at `0x0066` already comes from the monitor page. Windows 1–7 are not changed. While INNMI is 1, MMU0 and MMU0W read back `0x3FF` and `0x3FB`.
+**Exit.** The monitor ends with `RETN` (`ED 45`), with SP as it found it (NMICAPSP − 2). As the `0x45` byte is taken, window 0 gets NMISAV0 and NMISAV0W back, INNMI clears, and the two stack reads of `RETN` come from NMICAPPC. So the program carries on at NMICAPPC with its own SP and its own window 0. Writing NMICAPPC first makes it carry on somewhere else; writing NMISAV0 changes the window 0 it gets back. If the monitor wrote MMU0 or MMU0W meanwhile, the saved pages still win.
 
-**Exit.** The monitor ends with `RETN` (`ED 45`). When the bus interface sees that instruction fetched in NMI mode, it puts the saved pages back in window 0 and clears INNMI, from the first memory access after the `0x45` byte. So the two stack reads of `RETN` and everything after it see the program's own window 0 again, even when the program's stack is in window 0. If the monitor wrote MMU0 or MMU0W meanwhile, the saved pages still win.
+**With NMICTL.EN = 0** window 0 is not switched: the NMI runs whatever window 0 holds at `0x0066` (boot ROM page 0 jumps to the monitor). **With CAPTURE = 0** the PC is pushed onto the program's stack and `RETN` pops it from there, as on a plain Z80. With both 0, `RETN` is not watched at all. EN and CAPTURE are looked at only on entry, so changing them inside the monitor does not change the exit.
 
-**With NMICTL.EN = 0** nothing is paged: the NMI runs whatever window 0 holds at `0x0066`, and `RETN` changes nothing, as on a plain Z80. EN is 1 after every reset. EN is read only at entry, so changing it inside the monitor does not stop the restore.
+**What changed:** spec 1, section 8.2 lists it. The registers moved from `0x7C`–`0x7F` of page `0x00` to I/O page `0x01`; the saved pages cover all eight windows and are writable; the PC is captured by default; and the entry is spotted by the NMI response itself rather than by the fetch at `0x0066`.
 
-**Nested NMIs.** While INNMI is 1 the interrupt controller holds /NMI high (spec 8, section 10). A press or break meanwhile sets its NMISTAT flag and gives a new NMI straight after `RETN`. So the monitor is never entered twice and the saved pages always belong to the interrupted program.
+**Nested NMIs.** While INNMI is 1 the interrupt controller holds /NMI high (spec 8, section 10). A press or break meanwhile sets its NMISTAT flag and gives a new NMI straight after `RETN`. So the monitor is never entered twice and the saved pages always belong to the interrupted program. An NMI that comes inside a maskable handler saves that handler's map and its `RETN` puts it back (spec 2, section 9.7).
 
 **Layout of the monitor page** (ROM offsets `0x6000`–`0x7FFF`, seen at `0x0000`–`0x1FFF` in window 0):
 
@@ -309,28 +311,26 @@ Boot ROM page 0 also has a jump to the monitor at `0x0066`, for an NMI taken wit
 
 **What the monitor does.** Its commands are in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)); how the NMI page hands over to it is in spec 16, section 8.6. The parts that touch the hardware:
 
-1. Save the registers on the interrupted program's stack (a few bytes, as any interrupt handler uses), then move to its own workspace (section 5.1; spec 16, section 5.3), mapped into a window after that window's own pages are saved.
-2. Show the interrupted program's state: its registers and PC (from its stack), its window-0 pages (NMISAV0, NMISAVW0, NMISAVHI) and windows 1–7 (unchanged). To show or edit the memory the program had in window 0, it maps the saved page into another window.
+1. Save a few registers on the program's stack (SP − 2 and below; the return address itself is not there), then move to its own workspace (section 5.1; spec 16, section 5.3), mapped into a window after that window's own pages are saved.
+2. Show the interrupted program's state: its registers, its PC and SP (NMICAPPC, NMICAPSP), and its map (NMISAV0–7 and NMISAV0W–7W). To show or edit the memory the program had in window 0, it maps the saved page into another window.
 3. Read and clear NMISTAT (spec 8), to report which source it was.
 4. Restore what it changed: every window it used goes back to its saved pages; registers and SP go back to the program's values.
-5. `RETN`. The hardware restores window 0, and the program carries on.
-
-If the program's SP pointed at ROM or nowhere, the pushed PC is lost; the monitor can still be used, and the way out is a reset.
+5. `RETN`. The hardware restores window 0 and the PC, and the program carries on.
 
 ```
 ; Monitor page 0x3FF, seen at 0x0000-0x1FFF in window 0
         org  0x0066
 nmi:    push af
         push bc
-        ld   a,0x7D              ; register NMISAV0
-        in   a,(0x00)            ; page 0x00: port 0x7D00, the program's window-0 read page, bits 7-0
+        ld   bc,NMICAPPC_P       ; port 0x4C01: the program's PC, bits 7-0
+        in   a,(c)
         ...                      ; save more, switch to the workspace, run commands
         ld   bc,NMISTAT_P        ; port 0x0E00 (spec 8)
         in   a,(c)
         out  (c),a               ; clear the sources seen
         pop  bc
         pop  af
-        retn                     ; window 0 back to the program's pages
+        retn                     ; window 0 and the PC back from the capture
 ```
 
 ### 10.2 The beeper and the audio output
@@ -385,23 +385,16 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. T
 | `0x7A` | `0x7A00` | I2CCMD | W | START (0), STOP (1), WRITE (2), READ (3), ACK (4) | – | Run these steps. Ignored while BUSY. Reads `0x00` |
 | `0x7B` | `0x7B00` | I2CSTAT | R | BUSY (0), NACK (1), ARBLOST (2) | `0x00` | Status. Bits 7–3 read 0 |
 
-### 11.3 NMI monitor, a Spectrum extra (`0x7C`–`0x7F`)
+### 11.3 Registers `0x7C`–`0x7F`
 
-| Register | Port | Name | Access | Bits | Reset | Description |
-|----------|------|------|--------|------|-------|-------------|
-| `0x7C` | `0x7C00` | NMICTL | RW | EN (0), INNMI (1) | `0x01` | EN: page the monitor in when an NMI is taken (section 10.1). INNMI: read only, 1 from the NMI entry to the `RETN` that ends it. Bits 7–2 read 0 |
-| `0x7D` | `0x7D00` | NMISAV0 | R | 7–0 | `0xFC` | Window 0's read page at the last NMI entry, bits 7–0 |
-| `0x7E` | `0x7E00` | NMISAVW0 | R | 7–0 | `0xFC` | Window 0's write page at the last NMI entry, bits 7–0 |
-| `0x7F` | `0x7F00` | NMISAVHI | R | READ (1–0), WRITE (5–4) | `0x33` | Bits 9–8 of the saved read page (1–0) and write page (5–4). Bits 7–6 and 3–2 read 0 |
-
-The saved pages reset to `0x3FC`, window 0's reset page, and keep their values after `RETN` until the next NMI entry. They are read only: the restore always puts back exactly what was saved. The high bits of both pages share one register, so the whole saved state fits in the system range. The names follow spec 3's byte names: NMISAV0 is byte 0 of the saved read page and NMISAVW0 byte 0 of the saved write page, as MMU0_0 and MMU0W_0. NMISAVHI is not a byte of one value: it holds bits 9–8 of both, so it has a name of its own rather than NMISAV1. The three are separate read-only bytes, with no capture (spec 3, section 3.1).
+Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI), which are now the NMI set of the interrupt pages in I/O page `0x01` (spec 2, section 9.8): NMICTL keeps its name and its EN and INNMI bits there, with CAPTURE added.
 
 ## 12. FPGA resources
 
 | Item | Resource |
 |------|----------|
 | Boot ROM, 32 KB | 16 block RAMs (in the design plan's budget) |
-| Reset control, button debounce, system registers, CPU clock enable, NMI monitor registers | Estimate 100–170 LUTs |
+| Reset control, button debounce, system registers, CPU clock enable | Estimate 90–160 LUTs (the NMI registers are now in spec 2, section 13) |
 | I2C master | Estimate 80–150 LUTs (as retro68k) |
 | Beeper and three sigma-delta modulators | About 280 LUTs (as retro68k) |
 
@@ -419,7 +412,7 @@ The saved pages reset to `0x3FC`, window 0's reset page, and keep their values a
 - **CPU speed:** every CPUSPEED value gives its T-state spacing (5n clocks for DIV = n − 1, 28 for SPECTRUM); the change happens at the first T1 of the next M-cycle; going back from 3.57 MHz, the T-states up to that T1 are lined up to slot edges 0 or 5 (28–32 clocks); at 3.57 MHz T1 reaches all ten slot edges when entered from both slot phases; slot-locked speeds keep the CPU's cycles on cycles 0 and 2 of the slot; at 3.57 MHz every memory access completes; ZEXDOC passes at 20 MHz and 3.57 MHz.
 - **Boot console:** text on the simulated screen at the addresses of section 5.1, checked pixel by pixel; a character is one map write; scrolling by SCROLLY wraps at 32 rows.
 - **I2C:** read and set the real-time clock; read the monitor's EDID; a missing device gives NACK; CLKDIV 124 and 31 give 100 kHz and 391 kHz in simulation against an I2C slave model.
-- **NMI paging:** with each read/write page pair in window 0 (SRAM, ROM, REGS, NONE, split), an NMI fetches `0x0066` from page `0x3FF`; the PC push goes through the old mapping; NMISAV0, NMISAVW0 and NMISAVHI hold the old pages; MMU0/MMU0W read `0x3FF`/`0x3FB` and INNMI = 1; writes to window 0 are ignored; `RETN` with SP in window 0 pops the program's own stack, and the next fetch uses the old pages; `RETI` and other `ED` instructions in the monitor change nothing; with EN = 0 nothing is paged; a second button press in the monitor gives no nested NMI but a new one after `RETN`; reset clears INNMI and sets EN.
+- **NMI paging:** with each read/write page pair in window 0 (SRAM, ROM, REGS, NONE, split), an NMI fetches `0x0066` from page `0x3FF`; the PC push is captured (memory at SP − 1 and SP − 2 unchanged, also with SP in ROM); NMICAPPC and NMICAPSP hold the PC and SP; NMISAV0–7 and NMISAV0W–7W hold the old pages; MMU0/MMU0W read `0x3FF`/`0x3FB` and INNMI = 1; writes to window 0 are ignored; `RETN` restores window 0 and the PC (SP in window 0 and elsewhere), a written NMICAPPC returns there and a written NMISAV0 maps that page; `RETI` and other `ED` instructions in the monitor change nothing; with EN = 0 nothing is paged, with CAPTURE = 0 the PC is pushed and popped through memory; a second button press in the monitor gives no nested NMI but a new one after `RETN`; reset sets NMICTL to `0x05` and the NMI pages to their reset values.
 - **Beeper:** toggling port `0xFE` bit 4 gives a square wave of ± a quarter of full scale on all three audio pins (averaged sigma-delta stream in simulation; heard on the jack and the speaker on the board); bits 3 and 5–7 have no effect on the sound.
 - **Board:** keyboard rows and columns, both joystick ports, I2C and all buttons checked on a real KS3.
 
@@ -437,6 +430,6 @@ The saved pages reset to `0x3FC`, window 0's reset page, and keep their values a
 | SY8 | Closed: the beeper level is fixed at a quarter of full scale (branch 11); software cannot set it before spec 13 exists |
 | SY9 | Which real-time clock chip the KS3 uses, and its I2C address and register layout (retro68k SY4) |
 | SY10 | Should Ctrl + Alt + Delete reset in hardware (RESETWHY.KEYBOARD)? Software does it in version 1, as in retro68k; spec 12 decides |
-| SY11 | The system range `0x70`–`0x7F` is full. A later system register (for example a SYSSTAT) goes in a free register of page `0x00` (spec 3) |
+| SY11 | Registers `0x7C`–`0x7F` are free again, since the NMI registers moved to I/O page `0x01` (design plan, branch 17). A later system register (for example a SYSSTAT) goes there |
 | SY12 | The console font: `font8x8` covers ASCII, Latin-1, box drawing, block elements and Greek; the 40 code page 437 characters it lacks (the symbols at `0x01`–`0x1F` and `0x7F`, and ten mathematical signs) are drawn in `tools/mkfont.py` (ticket #15). Still to do: check them by eye against code page 437 (`mkfont.py --show`) |
 | SY13 | A 25 MHz speed (a T-state every 4 clocks; the opcode fetch then needs data 80 ns after the address) is to be tried in simulation (design plan, branch 11); faster is parked (design plan Q9) |

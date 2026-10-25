@@ -105,10 +105,7 @@ reg  0x78 I2CCON   1 RW      7/11.2 EN=0 CLKDIV=7:1
 reg  0x79 I2CDATA  1 RW      7/11.2
 reg  0x7A I2CCMD   1 S       7/11.2 START=0 STOP=1 WRITE=2 READ=3 ACK=4
 reg  0x7B I2CSTAT  1 R       7/11.2 BUSY=0 NACK=1 ARBLOST=2
-reg  0x7C NMICTL   1 RW      7/11.3 EN=0 INNMI=1
-reg  0x7D NMISAV0  1 R       7/11.3
-reg  0x7E NMISAVW0 1 R       7/11.3
-reg  0x7F NMISAVHI 1 R       7/11.3 READ=1:0 WRITE=5:4
+# 0x7C-0x7F free: the NMI monitor registers moved to page 0x01 (spec 2, section 9.8)
 
 # MMU (spec 2): window n's read page MMUn, write page MMUnW
 array MMU 8 0x80 2 2/9.2
@@ -129,6 +126,47 @@ port SERDATA  0x53 0x53
 port SDDATA   0x5B 0x5B
 port KBDATA   0x62 0x62
 port ULA      0xFE 0xFE
+
+# ================================================================ interrupt pages
+block INTPAGES 0x01 0x100 "Interrupt pages, I/O page 0x01: port = register << 8 | 0x01; registers 0x00-0x3F reserved"
+
+# Maskable interrupts and the NMI: control and captured return address (spec 2, section 9.8)
+reg  0x40 IPCTL     1 RW      2/9.8  EN=0 CAPTURE=2
+reg  0x41 IPMASK    1 RW      2/9.8  WIN=7:0
+reg  0x42 IPDEPTH   1 RW      2/9.8  DEPTH=7:0
+reg  0x43 IPRESTORE 1 S       2/9.8  RET=0 NOW=1
+reg  0x44 IPCAPPC   2 RW      2/9.8
+reg  0x46 IPCAPSP   2 R       2/9.8
+reg  0x48 NMICTL    1 RW      2/9.8  EN=0 INNMI=1 CAPTURE=2
+reg  0x49 NMIMASK   1 RW      2/9.8  WIN=7:0
+reg  0x4C NMICAPPC  2 RW      2/9.8
+reg  0x4E NMICAPSP  2 R       2/9.8
+
+# The pages, at the MMU's register numbers and above: IPn is to page 0x01 what MMUn is to page 0x00
+array IP 8 0x80 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array IPnW 8 0x90 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array IPSAV 8 0xA0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array IPSAVnW 8 0xB0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array NMIP 8 0xC0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array NMIPnW 8 0xD0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array NMISAV 8 0xE0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
+array NMISAVnW 8 0xF0 2 2/9.8
+  reg 0x0 -        2 RW,MMU  2/9.8  PAGE=9:0
+end
 
 # ================================================================ custom block
 block CUSTOM 0x10 0x400 "Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8)"
@@ -242,6 +280,8 @@ area SPRPALETTE 0x1D00 0x300 RW 2/10.2
 
 # ================================================================ named numbers
 const SYSPAGE       0x00   "The system page"
+const IPPAGE        0x01   "The interrupt pages' I/O page"
+const REGS_IPPAGE   0x0100 "Register page: I/O page 0x01 (REGS_IPPAGE + register)"
 const CUSTPAGE      0x10   "The custom block's first page"
 const REGS_PALETTE  0x1400 "Register page: PALETTE0"
 const REGS_PAL_SPAN 0x300  "Register page: bytes from one palette to the next"
