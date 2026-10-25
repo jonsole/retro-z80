@@ -107,6 +107,15 @@ SESSION = [
     # The trap: a byte 0xFF
     ("E 8400 FF", []),
     ("G 8400", ["Trap RST 38h at 8400"] + regs(pc="8400")),
+    # The stack near window 4 (a ROM call borrows window 2), then in window 3 at a break (the
+    # monitor's entry puts the workspace in window 5 first), and EXIT by a jump
+    ("E 8600 31 00 90 3E 57 CF 31 00 70 F7 3E 56 CF C3 40 00", []),
+    ("G 8600", ["W", "Break at 8609"] + regs(pc="860A", sp="7000")),
+    ("G", ["V", "Program ended."] + regs(pc="0040", sp="7000")),
+    # A ROM call with interrupts on gives them back on: IFF=1 at the end
+    ("E 8600 FB 3E 49 CF C9", []),
+    ("G 8600", ["I", "Program ended.", REGS1, R(r"AF'=.* IFF=1 IM=2\?.*")]),
+    ("R IFF 0", []),
     # RST 28h: VERSION (A = 01, B = 11, HL = 0048), PUTDEC, a function that is not there (carry, A = 1)
     ("E 8500 EF 00 C9", []),
     ("G 8500", ["Program ended."] + regs(extra1={"AF": "01[0-9A-F]{2}", "BC": "11[0-9A-F]{2}", "HL": "0048"})),
