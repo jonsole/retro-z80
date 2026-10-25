@@ -191,7 +191,7 @@ def main():
     # The sprites: their registers as written (16 bytes each), and each one's state
     SR = [[0] * 16 for _ in range(8)]
     lst = [0] * 8
-    run, pend, fed, yf = [False] * 8, [False] * 8, [False] * 8, [0] * 8
+    run, pend, fed, syf = [False] * 8, [False] * 8, [False] * 8, [0] * 8
     sprdma, sprdma_w = 0xFF, 0
     si = 0
     spr_ev.sort(key=lambda e: (e[0], e[1]))
@@ -218,7 +218,7 @@ def main():
                     lst[n] = (lst[n] & ~(0xFF << sh)) | ((v & (0xFE, 0xFF, 0x3F)[k]) << sh)
                     pend[n] = False
                 if k == 11:                         # CTL: starts it
-                    run[n], pend[n], yf[n] = True, False, 0
+                    run[n], pend[n], syf[n] = True, False, 0
                     fed[n] = bool((sprdma >> n) & 1 and dmacon & 0x44 == 0x44)
         if L == 0:
             for n in range(8):
@@ -227,8 +227,6 @@ def main():
         for n in range(8):
             if not run[n]:
                 continue
-            if fed[n] and not ((sprdma >> n) & 1 and dmacon & 0x44 == 0x44):
-                raise Fail(["sprite %d's DMA turned off while it runs (line %d): not modelled" % (n, L)])
             r = SR[n]
             hs = r[3] | ((r[4] & 7) << 8)
             he = r[5] | ((r[6] & 7) << 8)
@@ -248,12 +246,15 @@ def main():
             wv = min((srcs * bpp + 15) // 16, wf) if srcs else 0
             if wv == 0 or not (vs <= L < ve):
                 continue
+            if fed[n] and not ((sprdma >> n) & 1 and dmacon & 0x44 == 0x44):
+                # off part way down, it would show its FIFO's last words (spec 5, 4.4): the test never does it
+                raise Fail(["sprite %d's DMA off on a line it shows (line %d): not modelled" % (n, L)])
             if pend[n]:
-                sm = yf[n] + (yst & 0x7FF)
-                yf[n] = sm & 0x7FF
+                sm = syf[n] + (yst & 0x7FF)
+                syf[n] = sm & 0x7FF
                 lst[n] = (lst[n] + ((yst >> 11) + (sm >> 11)) * 2 * wf) & 0x3FFFFF
             else:
-                yf[n] = 0
+                syf[n] = 0
             pend[n] = True
             if f != G or L < Y0 or not fed[n]:
                 continue
