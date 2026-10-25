@@ -571,6 +571,45 @@ class DapTests(unittest.TestCase):
         self.assertEqual(self.bridge.model.mode, "running")   # attach's disconnect lets it run on
 
 
+class TcpLinkTests(unittest.TestCase):
+    def test_bridge_over_a_raw_tcp_link(self):
+        """A simulation's FT232H model on a TCP port: here the stub model behind a socket."""
+        model = StubModel()
+        model.start()
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def serve():
+            conn, _ = srv.accept()
+            link = ModelLink(model)
+
+            def up():
+                while True:
+                    data = conn.recv(4096)
+                    if not data:
+                        return
+                    link.write(data)
+            threading.Thread(target=up, daemon=True).start()
+            while True:
+                data = link.read_some(0.1)
+                if data:
+                    conn.sendall(data)
+        threading.Thread(target=serve, daemon=True).start()
+        tmp = tempfile.mkdtemp()
+        try:
+            img = rlink.Image.parse(open(build_program(tmp)["rimg"], "rb").read())[0]
+            s = Session(rlink.open_link("tcp:127.0.0.1:%d" % srv.getsockname()[1]), "tcp")
+            stop = s.launch(img)
+            self.assertEqual((stop.reason, stop.pc), (P.R_ENTRY, ORG))
+            self.assertEqual(s.read_memory(ORG, 2), [0x3E, 0x41])
+            s.close()
+        finally:
+            model.shutdown()
+            srv.close()
+            shutil.rmtree(tmp)
+
+
 class SymbolTests(unittest.TestCase):
     def test_sld(self):
         tmp = tempfile.mkdtemp()

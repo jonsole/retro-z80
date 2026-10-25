@@ -311,6 +311,43 @@ class SerialLink:
         self.port.close()
 
 
+class TcpLink:
+    """A raw byte stream over TCP as a link, for a simulation's FT232H model:
+    exactly the bytes of the USB serial link, both ways, no framing."""
+
+    def __init__(self, host, port):
+        import socket
+        self.sock = socket.create_connection((host, port), timeout=10)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.lock = threading.Lock()
+
+    def write(self, data):
+        with self.lock:
+            self.sock.sendall(data)
+
+    def read_some(self, timeout):
+        import socket
+        self.sock.settimeout(max(0.001, timeout))
+        try:
+            data = self.sock.recv(65536)
+        except socket.timeout:
+            return b""
+        if not data:
+            raise OSError("the simulation closed the link")
+        return data
+
+    def close(self):
+        self.sock.close()
+
+
+def open_link(name):
+    """`COM5` or `/dev/ttyUSB1` (a serial port), or `tcp:HOST:PORT` (a simulation)."""
+    if name.startswith("tcp:"):
+        host, _, port = name[4:].rpartition(":")
+        return TcpLink(host or "127.0.0.1", int(port))
+    return SerialLink(name)
+
+
 def wait_ready(link, timeout=READY_WAIT, log=None):
     """Waits for the loader's ready line, `LOAD Z80 1`. Returns (machine, version)."""
     deadline = time.monotonic() + timeout
@@ -515,7 +552,7 @@ def main(argv=None):
             return 0
         if not args.port:
             raise SystemExit("rlink: no port: give -p PORT or set RLINK_PORT")
-        link = SerialLink(args.port)
+        link = open_link(args.port)
         if args.cmd in ("reset", "break", "uploadmode"):
             link.write(control({"reset": CTL_RESET, "break": CTL_BREAK, "uploadmode": CTL_UPLOAD}[args.cmd]))
             return 0

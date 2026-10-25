@@ -93,6 +93,7 @@ z80_outp(CPORT(L0 + n * L_SPAN + L_CTRL1), 2 << L_CTRL1_PALOFS_B);
 ```
 python3 tools/rz80_bridge.py --port COM5      # the FT232H's serial port
 python3 tools/rz80_bridge.py --model          # the stub model: no board needed
+python3 tools/rz80_bridge.py --port tcp:127.0.0.1:PORT   # a simulation's FT232H model, raw bytes
 ```
 
 It listens on `127.0.0.1` only: DAP on 4780 (VS Code's `debugServer`), MCP on 8780 (`http://127.0.0.1:8780/mcp`), the console on 4781 (any terminal program, or the extension's terminal). `--dap-port`, `--mcp-port` and `--console-port` change them; 0 picks a free one. While it runs it advertises itself in `<pid>.json` under `%LOCALAPPDATA%\retro-z80\bridges` (Windows) or `$XDG_RUNTIME_DIR/retro-z80/bridges`, in the zx emulator's advert layout, so the VS Code extension finds it.
