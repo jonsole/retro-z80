@@ -208,7 +208,7 @@ unitab: dw      INTCON_P
         dw      NMICON_P
         db      NMICON_BUTTONEN_M | NMICON_USBEN_M
         dw      NMICTL_P
-        db      NMICTL_EN_M | NMICTL_CAPTURE_M
+        db      NMICTL_EN_M             ; the stack capture is always on (spec 2, section 9.8)
         dw      IPCTL_P                 ; the interrupt pages off (spec 2, section 9.8)
         db      0
         dw      IPMASK_P

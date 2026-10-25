@@ -130,14 +130,12 @@ port ULA      0xFE 0xFE
 # ================================================================ interrupt pages
 block INTPAGES 0x01 0x100 "Interrupt pages, I/O page 0x01: port = register << 8 | 0x01; registers 0x00-0x3F reserved"
 
-# Maskable interrupts and the NMI: control and captured return address (spec 2, section 9.8)
-reg  0x40 IPCTL     1 RW      2/9.8  EN=0 CAPTURE=2
+# Maskable interrupts and the NMI: control, and the NMI's captured return address (spec 2, section 9.8; only the NMI captures, always)
+reg  0x40 IPCTL     1 RW      2/9.8  EN=0
 reg  0x41 IPMASK    1 RW      2/9.8  WIN=7:0
 reg  0x42 IPDEPTH   1 RW      2/9.8  DEPTH=7:0
 reg  0x43 IPRESTORE 1 S       2/9.8  RET=0 NOW=1
-reg  0x44 IPCAPPC   2 RW      2/9.8
-reg  0x46 IPCAPSP   2 R       2/9.8
-reg  0x48 NMICTL    1 RW      2/9.8  EN=0 INNMI=1 CAPTURE=2
+reg  0x48 NMICTL    1 RW      2/9.8  EN=0 INNMI=1
 reg  0x49 NMIMASK   1 RW      2/9.8  WIN=7:0
 reg  0x4C NMICAPPC  2 RW      2/9.8
 reg  0x4E NMICAPSP  2 R       2/9.8

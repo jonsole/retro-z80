@@ -22,7 +22,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 | Bandwidth | 100 MB/s in all; display 40 MB/s (1,280 bytes per line, as retro68k); free pool at least about 47 MB/s |
 | On and off | DMACON (spec 4) turns each memory user on and off, as retro68k's |
 | MMU | Eight 8 KB windows, each with a read page and a write page; 10-bit page numbers; registers `0x80`–`0x9F` of the system page `0x00` (ports `0x8000`–`0x9F00`) |
-| Interrupt pages | A retro-z80 extra: an interrupt or NMI switches chosen windows to pages of its own, and back at `RETI` or `RETN`; the return address can be kept in registers instead of on the stack (stack capture). Two sets, maskable and NMI; registers `0x40`–`0xFF` of I/O page `0x01` (sections 9.7 and 9.8) |
+| Interrupt pages | A retro-z80 extra: an interrupt or NMI switches chosen windows to pages of its own, and back at `RETI` or `RETN`; an NMI always keeps its return address in registers instead of on the stack (stack capture). Two sets, maskable and NMI; registers `0x40`–`0xFF` of I/O page `0x01` (sections 9.7 and 9.8) |
 | Register page | MMU page `0x3F8`: page p, register r at offset p × 256 + r; KEYROW0–7 at `0x0100`; the interrupt pages at `0x0140`–`0x01FF`; the palettes at `0x1400`–`0x1FFF` (section 10) |
 | Chipset addresses | 22-bit physical byte addresses straight into the SRAM, not through the MMU |
 | Refresh | None needed (SRAM) |
@@ -43,7 +43,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 | Boot ROM overlay at `0x000000` after reset | Boot ROM pages in windows 0 and 1 after reset (section 9.4) | MMU |
 | Chip RAM past the end on a 2 MB board is a bus error | On a 2 MB build, pages `0x100`–`0x1FF` mirror pages `0x000`–`0x0FF` | Z80: no bus errors |
 | DMACON 16 bits at `0xE00094` | DMACON one byte in the custom block's video globals (spec 4): the same enables in the same order | Z80 (8-bit registers) |
-| – | Interrupt pages and stack capture: an interrupt or NMI switches chosen windows and can keep its return address in registers (sections 9.7 and 9.8). The NMI monitor paging is the NMI set's default | A retro-z80 extra (design plan, branch 17): retro68k has no MMU |
+| – | Interrupt pages and stack capture: an interrupt or NMI switches chosen windows, and an NMI always keeps its return address in registers (sections 9.7 and 9.8). The NMI monitor paging is the NMI set's default | A retro-z80 extra (design plan, branch 17): retro68k has no MMU |
 
 ## 2. Memory types
 
@@ -327,7 +327,7 @@ So the Z80 starts at `0x0000` in the boot ROM, with 16 KB of ROM at the bottom a
 
 ### 9.5 NMI monitor paging (Spectrum extra)
 
-The NMI monitor paging is now one case of the interrupt pages (section 9.7): the NMI set's reset state switches window 0 to the monitor page when an NMI is taken (read `0x3FF`; write `0x0FF`, the monitor's workspace page, spec 16, section 5.3), and puts the program's pages back at `RETN`. The old paging made window 0 read only (write NONE); writing to the workspace page lets the monitor page save registers without touching the program's memory. Its registers are NMICTL, NMIMASK, NMIP0–NMIP7, NMISAV0–NMISAV7 and the capture registers in I/O page `0x01` (section 9.8). The earlier NMISAV0, NMISAVW0 and NMISAVHI at registers `0x7D`–`0x7F` of page `0x00` are gone, and NMICTL has moved from `0x7C` of page `0x00` to `0x48` of page `0x01`, with the same bits and one more (CAPTURE).
+The NMI monitor paging is now one case of the interrupt pages (section 9.7): the NMI set's reset state switches window 0 to the monitor page when an NMI is taken (read `0x3FF`; write `0x0FF`, the monitor's workspace page, spec 16, section 5.3), and puts the program's pages back at `RETN`. The old paging made window 0 read only (write NONE); writing to the workspace page lets the monitor page save registers without touching the program's memory. Its registers are NMICTL, NMIMASK, NMIP0–NMIP7, NMISAV0–NMISAV7 and the capture registers in I/O page `0x01` (section 9.8). The earlier NMISAV0, NMISAVW0 and NMISAVHI at registers `0x7D`–`0x7F` of page `0x00` are gone, and NMICTL has moved from `0x7C` of page `0x00` to `0x48` of page `0x01`, with the same bits; the stack capture it adds is always on and has no bit.
 
 ### 9.6 What split read and write pages are for
 
@@ -341,31 +341,31 @@ The NMI monitor paging is now one case of the interrupt pages (section 9.7): the
 
 ### 9.7 Interrupt pages and stack capture (a retro-z80 extra)
 
-retro68k has no MMU, so this has no counterpart there (design plan, branch 17). An interrupt or an NMI can switch chosen windows to pages of its own, so that a handler, its vector table, its stack and its data live in their own bank whatever the program has mapped. It can also keep the return address in registers instead of pushing it, so a bad SP corrupts nothing. The bus interface does the work, from the Z80's cycles as seen outside the core (spec 1, section 8). The registers are in I/O page `0x01` (section 9.8).
+retro68k has no MMU, so this has no counterpart there (design plan, branch 17). An interrupt or an NMI can switch chosen windows to pages of its own, so that a handler, its vector table, its stack and its data live in their own bank whatever the program has mapped. An NMI also keeps its return address in registers instead of pushing it (stack capture), so a bad SP corrupts nothing. Capture is always on for the NMI, and maskable interrupts have none: their return address goes through the switched map. The bus interface does the work, from the Z80's cycles as seen outside the core (spec 1, section 8). The registers are in I/O page `0x01` (section 9.8).
 
 **Two sets.** Maskable interrupts (IM 1 and IM 2) and the NMI each have a set of the same registers. They work alike and apart.
 
 | | Maskable interrupts | NMI |
 |---|---------------------|-----|
-| Control | IPCTL: EN, CAPTURE | NMICTL: EN, INNMI, CAPTURE |
+| Control | IPCTL: EN | NMICTL: EN, INNMI |
 | Windows switched | IPMASK, one bit per window | NMIMASK |
 | Interrupt pages | IP0–IP7 (read), IP0W–IP7W (write) | NMIP0–NMIP7, NMIP0W–NMIP7W |
 | Saved pages | IPSAV0–IPSAV7, IPSAV0W–IPSAV7W | NMISAV0–NMISAV7, NMISAV0W–NMISAV7W |
 | Depth | IPDEPTH, 0–255 | INNMI, 0 or 1: an NMI never nests (spec 8, section 10) |
 | Return | `RETI`; or IPRESTORE: a `RET` armed by its RET bit, or at once by its NOW bit | `RETN` |
-| Captured return address | IPCAPPC (the PC), IPCAPSP (the SP) | NMICAPPC, NMICAPSP |
-| After reset | Off | Window 0 reads the monitor page and writes the monitor's workspace page; capture on |
+| Stack capture | None: the pushes and pops go through the switched map | Always: NMICAPPC (the PC), NMICAPSP (the SP) |
+| After reset | Off | Window 0 reads the monitor page and writes the monitor's workspace page |
 
 **A response** is what the Z80 does to take an interrupt: the acknowledge (IM 1 or IM 2) or the NMI's response cycle, then **two writes that push PC**, then the first read or fetch of the handler: the IM 2 vector table, or the fetch at `0x0038` (IM 1) or `0x0066` (NMI). The bus interface knows each of these cycles by its order (spec 1, section 8.3). The windows switch at the acknowledge, **before the pushes**, and switch back **after the return's two stack reads**, so the pushes and the pops go through the same map.
 
-**Entry.** On the **outermost** response of a set (maskable: IPDEPTH = 0; NMI: INNMI = 0), if the set's EN or CAPTURE is 1:
+**Entry.** On the **outermost** response of a set (maskable: IPDEPTH = 0 and EN = 1; NMI: INNMI = 0, whatever EN holds):
 
-1. The set notes its mask, EN and CAPTURE as they are now. Changes to them inside the handler act at the next entry, not at this one's return.
+1. The set notes its mask and EN as they are now. Changes to them inside the handler act at the next entry, not at this one's return.
 2. The depth becomes 1 (INNMI = 1).
 3. **With EN:** in the acknowledge (or the NMI's response cycle), before the first push, the hardware copies all 16 page registers (MMU0–MMU7, MMU0W–MMU7W) into the set's saved pages, and loads each window in the mask with its interrupt read page and write page (section 9.9). Everything after that uses the new pages: the pushes, the IM 2 table read (or the fetch at `0x0038` or `0x0066`) and the handler. Windows outside the mask keep their pages.
-4. **With CAPTURE:** the two pushes do not reach memory. Their bytes go into the set's CAPPC (high byte first, as the Z80 pushes) and the SP the program had goes into CAPSP. No memory cycle, ROM write or register strobe is made, so memory at the stack is not changed, wherever SP points and whatever is mapped there. The Z80 still steps SP down by 2. **Without CAPTURE** the pushes are ordinary writes through the switched map: into the interrupt page if SP lies in a switched window, otherwise onto the program's stack as on a plain Z80.
+4. **NMI: stack capture.** The two pushes do not reach memory. Their bytes go into NMICAPPC (high byte first, as the Z80 pushes) and the SP the program had goes into NMICAPSP. No memory cycle, ROM write or register strobe is made, so memory at the stack is not changed, wherever SP points and whatever is mapped there. The Z80 still steps SP down by 2. **Maskable:** the pushes are ordinary writes through the switched map: into the interrupt page if SP lies in a switched window, otherwise onto the program's stack as on a plain Z80.
 
-With EN and CAPTURE both 0, a response changes nothing, and the depth stays 0. On a **nested** response (maskable: IPDEPTH ≥ 1), the depth counts up (it stays at 255 if it is there), the pushes go to memory as normal, and no window changes. The NMI cannot nest: while INNMI is 1 the controller holds /NMI high (spec 8, section 10).
+With IPCTL.EN = 0, a maskable response changes nothing, and the depth stays 0. An NMI with NMICTL.EN = 0 still captures and sets INNMI, and switches no window. On a **nested** response (maskable: IPDEPTH ≥ 1), the depth counts up (it stays at 255 if it is there), the pushes go to memory as normal, and no window changes. The NMI cannot nest: while INNMI is 1 the controller holds /NMI high (spec 8, section 10).
 
 **Return.** The instruction that ends the outermost handler of a set is:
 
@@ -374,7 +374,7 @@ With EN and CAPTURE both 0, a response changes nothing, and the depth stays 0. O
 
 The bus interface knows it as the core takes that instruction's last opcode byte (spec 1, section 8.4). Then:
 
-1. **The two stack reads.** With CAPTURE at the entry, they come from CAPPC (low byte, then high), not from memory; SP still steps up by 2, so it is back at the program's value. Without CAPTURE they are ordinary reads through the map the handler leaves, the switched one, so they find the return address where the pushes put it.
+1. **The two stack reads.** For `RETN`, they come from NMICAPPC (low byte, then high), not from memory; SP still steps up by 2, so it is back at the program's value. For a maskable return they are ordinary reads through the map the handler leaves, the switched one, so they find the return address where the pushes put it.
 2. **After the second stack read, before the fetch at the return address,** with EN at the entry: each window in the noted mask gets its saved read and write pages back. Other windows keep what they hold.
 3. The depth becomes 0 (INNMI = 0) at the second stack read.
 
@@ -384,17 +384,17 @@ So the pushes and the stack reads use the same switched map, and the fetch at th
 
 | Bit | Name | Effect |
 |-----|------|--------|
-| 0 | RET | Arms the return: the next `RET` (`C9`, with or without `DD` or `FD` before it) or `RETI` fetched counts down as `RETI` does. When it takes the depth to 0, its stack reads come from the capture (with CAPTURE) and the pages are restored after them. Conditional returns do not count. For handlers that end `EI` then `RET`: write it with interrupts off, just before `EI` |
-| 1 | NOW | Counts down at once. When the depth reaches 0 the pages are restored at once, in the clocks after the write, and a capture is dropped: the handler then leaves by its own jump (to IPCAPPC, with SP set by itself). The next instruction is fetched through the restored map, so the code that writes NOW must sit in a window outside the mask, or at the same address in both pages |
+| 0 | RET | Arms the return: the next `RET` (`C9`, with or without `DD` or `FD` before it) or `RETI` fetched counts down as `RETI` does. When it takes the depth to 0, the pages are restored after its stack reads. Conditional returns do not count. For handlers that end `EI` then `RET`: write it with interrupts off, just before `EI` |
+| 1 | NOW | Counts down at once. When the depth reaches 0 the pages are restored at once, in the clocks after the write: the handler then leaves by its own jump, having taken the return address off the stack before the write. The next instruction is fetched through the restored map, so the code that writes NOW must sit in a window outside the mask, or at the same address in both pages |
 
-Writing **IPDEPTH** sets the depth and changes no window: writing 0 abandons the saved pages and the capture, for a handler that never returns (a restart, or BASIC's Escape).
+Writing **IPDEPTH** sets the depth and changes no window: writing 0 abandons the saved pages, for a handler that never returns (a restart, or BASIC's Escape).
 
 **What a handler sees:**
 
 - MMUn reads the interrupt page of a switched window. A write to MMUn of a switched window lasts until the return, which puts the saved page back; to change what the program gets back, write IPSAVn. A write to IPn changes only the next entry.
-- **Stack, without capture:** the return address is pushed through the switched map. With SP in a window outside the mask it is on the program's stack, as on a plain Z80. With SP in a switched window it goes into the interrupt page at the program's SP, and so do the handler's own `PUSH`es: that window's interrupt read and write pages must then be the same RAM page, or the return address is lost (written to one page and popped from another). Or the handler loads its own SP, and puts it back before the return.
-- **The pops** use the map the handler leaves. A handler without capture that changes MMUn of the window holding SP must put it back before the return.
-- **Stack, with capture:** memory at SP is not changed. In the handler, (SP) and (SP + 1) hold whatever was there before, not the return address, which is in CAPPC. Code that reads or changes its return address on the stack (`EX (SP),HL`, `POP` then `JP`) must use CAPPC instead. Before the return, SP must be back at its value at entry (CAPSP − 2).
+- **Stack, maskable:** the return address is pushed through the switched map. With SP in a window outside the mask it is on the program's stack, as on a plain Z80. With SP in a switched window it goes into the interrupt page at the program's SP, and so do the handler's own `PUSH`es: that window's interrupt read and write pages must then be the same RAM page, or the return address is lost (written to one page and popped from another). Or the handler loads its own SP, and puts it back before the return.
+- **The pops** of a maskable return use the map the handler leaves. A maskable handler that changes MMUn of the window holding SP must put it back before the return.
+- **Stack, NMI:** memory at SP is not changed. In the handler, (SP) and (SP + 1) hold whatever was there before, not the return address, which is in NMICAPPC. Code that reads or changes its return address on the stack (`EX (SP),HL`, `POP` then `JP`) must use NMICAPPC instead. Before `RETN`, SP must be back at its value at entry (NMICAPSP − 2).
 - The IM 2 table is read through the switched map: when its window is in the mask, the table must be in the interrupt page.
 - A nested interrupt pushes onto the handler's own stack, and its `RETI` pops from there.
 - `DI`, `EI`, `HALT` and `IM` change nothing in either set. A `HALT` in a handler waits for the next interrupt, which nests.
@@ -402,7 +402,7 @@ Writing **IPDEPTH** sets the depth and changes no window: writing 0 abandons the
 - The copper, the DMA engine and the sprite sequencer use physical addresses (section 11), so the switch does not affect them; page `0x01` is outside their reach (spec 3). A window can switch to any page, the register page and the boot ROM included.
 - A posted write goes to the page mapped in its own T1 (spec 1, section 5.2), so the handler's last write before `RETI` goes to the interrupt page.
 
-**The NMI's defaults** are the old NMI monitor paging, with one change: NMIMASK = `0x01`, NMIP0 = `0x3FF` (boot ROM page 3, the monitor page), NMIP0W = `0x0FF` (the monitor's workspace page, spec 16, section 5.3; the old paging had NONE), EN and CAPTURE on. So an NMI fetches `0x0066` from the monitor page, the program's PC and SP are in NMICAPPC and NMICAPSP, and `RETN` puts window 0 back and returns. Writes to window 0 go to the workspace page, so the monitor page saves registers and sets up a stack there before it maps anything else: with capture on, an NMI writes nothing in the program's memory. Spec 7, section 10.1 and spec 16, section 8.6 use this.
+**The NMI's defaults** are the old NMI monitor paging, with one change: NMIMASK = `0x01`, NMIP0 = `0x3FF` (boot ROM page 3, the monitor page), NMIP0W = `0x0FF` (the monitor's workspace page, spec 16, section 5.3; the old paging had NONE), EN on. So an NMI fetches `0x0066` from the monitor page, the program's PC and SP are in NMICAPPC and NMICAPSP, and `RETN` puts window 0 back and returns. Writes to window 0 go to the workspace page, so the monitor page saves registers and sets up a stack there before it maps anything else: with the capture, an NMI writes nothing in the program's memory. Spec 7, section 10.1 and spec 16, section 8.6 use this.
 
 **With the boot ROM** (spec 16, section 6.1): while a program keeps the ROM in window 0 and makes ROM calls from its handlers, it leaves window 0 out of IPMASK, and its IM 2 table can be in a switched window (in the interrupt page) or in an unswitched one. A program that switches window 0 to its own page gets a `0x0038` of its own, so IM 1 works with the ROM in window 0 for the program, but its handlers then make no ROM calls.
 
@@ -418,7 +418,7 @@ A handler with its own bank in window 6, for every maskable interrupt:
         ld   a,0x40                ; window 6 (0xC000-0xDFFF)
         out  (c),a
         ld   bc,IPCTL_P
-        ld   a,IPCTL_EN_M          ; switch, no capture: SP stays outside window 6
+        ld   a,IPCTL_EN_M          ; switch: SP stays outside window 6
         out  (c),a
         ...
 ; the handler, its table and its data in page 0x040 at 0xC000-0xDFFF
@@ -434,17 +434,16 @@ The page registers sit at the MMU's own register numbers, in another page: IPn i
 
 | Register | Port | Name | Access | Bits | Reset | Meaning |
 |----------|------|------|--------|------|-------|---------|
-| `0x40` | `0x4001` | IPCTL | RW | EN (0), CAPTURE (2) | `0x00` | Maskable interrupts. EN: switch the windows in IPMASK. CAPTURE: keep the return address in IPCAPPC. Looked at on the outermost entry only. Bits 1 and 7–3 read 0 |
+| `0x40` | `0x4001` | IPCTL | RW | EN (0) | `0x00` | Maskable interrupts. EN: switch the windows in IPMASK. Looked at on the outermost entry only. Bits 7–1 read 0 |
 | `0x41` | `0x4101` | IPMASK | RW | WIN (7–0) | `0x00` | Bit n = window n switches |
 | `0x42` | `0x4201` | IPDEPTH | RW | DEPTH (7–0) | `0x00` | Maskable responses not yet returned from: 0 = none. Stays at 255 if it is there. Writing sets it and changes no window |
 | `0x43` | `0x4301` | IPRESTORE | W (S) | RET (0), NOW (1) | – | RET: the next `RET` or `RETI` returns. NOW: count down now. Ignored at depth 0. Reads `0x00` |
-| `0x44`–`0x45` | `0x4401`–`0x4501` | IPCAPPC (IPCAPPC0, IPCAPPC1) | RW | 15–0 | `0x0000` | The return address captured at the outermost entry; the returning `RETI` or `RET` takes it. Writable, to return somewhere else |
-| `0x46`–`0x47` | `0x4601`–`0x4701` | IPCAPSP (IPCAPSP0, IPCAPSP1) | R | 15–0 | `0x0000` | The program's SP at that entry (the pushes would have gone to CAPSP − 1 and CAPSP − 2) |
-| `0x48` | `0x4801` | NMICTL | RW | EN (0), INNMI (1), CAPTURE (2) | `0x05` | The NMI. EN: switch the windows in NMIMASK. INNMI: read only, 1 from an entry with EN or CAPTURE to its `RETN`. CAPTURE: keep the return address in NMICAPPC. Bits 7–3 read 0 |
+| `0x44`–`0x47` | | – | | | | Reserved |
+| `0x48` | `0x4801` | NMICTL | RW | EN (0), INNMI (1) | `0x01` | The NMI. EN: switch the windows in NMIMASK. INNMI: read only, 1 from an NMI's entry to its `RETN`. Stack capture is always on and has no bit. Bits 7–2 read 0 |
 | `0x49` | `0x4901` | NMIMASK | RW | WIN (7–0) | `0x01` | Bit n = window n switches on an NMI |
 | `0x4A`–`0x4B` | | – | | | | Reserved |
-| `0x4C`–`0x4D` | `0x4C01`–`0x4D01` | NMICAPPC (NMICAPPC0, NMICAPPC1) | RW | 15–0 | `0x0000` | As IPCAPPC, for the NMI; `RETN` takes it |
-| `0x4E`–`0x4F` | `0x4E01`–`0x4F01` | NMICAPSP (NMICAPSP0, NMICAPSP1) | R | 15–0 | `0x0000` | As IPCAPSP, for the NMI |
+| `0x4C`–`0x4D` | `0x4C01`–`0x4D01` | NMICAPPC (NMICAPPC0, NMICAPPC1) | RW | 15–0 | `0x0000` | The return address captured at the NMI's entry; `RETN` takes it. Writable, to return somewhere else |
+| `0x4E`–`0x4F` | `0x4E01`–`0x4F01` | NMICAPSP (NMICAPSP0, NMICAPSP1) | R | 15–0 | `0x0000` | The program's SP at that entry (the pushes would have gone to NMICAPSP − 1 and NMICAPSP − 2) |
 | `0x50`–`0x7F` | | – | | | | Free |
 | `0x80` + 2n | `0x8001` + 0x200n | IPn (IPn_0, IPn_1) | RW | 9–0 | MMUn's reset page | Window n's interrupt read page. Commits on byte 1, which also sets IPnW (section 9.2) |
 | `0x90` + 2n | `0x9001` + 0x200n | IPnW (IPnW_0, IPnW_1) | RW | 9–0 | The same | Window n's interrupt write page |
@@ -459,9 +458,9 @@ n = 0–7. MMUn's reset page is `0x3FC`, `0x3FD`, then `0x000`–`0x005` (sectio
 
 - **Page registers** (IPn, IPnW, IPSAVn, IPSAVnW and the NMI's) follow the MMU's rule, one of spec 3's exceptions (section 3.1): byte 0 is held, byte 1 commits with the held byte (or the current bits 7–0 if byte 0 has not been written since), and committing a read page also sets the write page of the same kind. Reading gives the committed value. Each register has a held byte of its own. A page register never holds half a page, even if an entry or a return comes between the two bytes. They are kept in distributed RAM, not flip-flops (section 9.9); that changes nothing a program sees.
 - **Saved pages are writable,** so a handler can change what the program gets back at the return: the monitor's `G`, or a task switcher that gives each task its own map. The entry overwrites all 16 of a set's saved pages.
-- **CAPPC and CAPSP** are plain registers, written directly (spec 3, rule 2): write CAPPC with interrupts off. They change only at an outermost entry with CAPTURE, so they need no capture of their own. CAPSP is read only.
+- **NMICAPPC and NMICAPSP** are plain registers, written directly (spec 3, rule 2). They change only at an NMI's entry, which cannot come while INNMI is 1, so they need no capture of their own. NMICAPSP is read only.
 - **Reset** (spec 7) clears IPDEPTH, INNMI, the RET arm and the noted masks, and sets every register to its reset value above (the page registers while reset is held, section 9.9).
-- The bus interface also keeps, for each set, the noted mask, EN and CAPTURE, and (maskable only) the RET arm. They cannot be read.
+- The bus interface also keeps, for each set, the noted mask and EN, and (maskable only) the RET arm. They cannot be read.
 
 ### 9.9 How the sets are kept
 
@@ -553,7 +552,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 |------|----------|
 | Scheduler and SRAM controller (`dmac.v`, `sram_ctl.v`, from retro68k without HIGH) | Estimate 150–250 LUTs |
 | MMU: 16 × 10-bit page registers, held low bytes, page decode | Estimate 100–150 LUTs |
-| Interrupt pages and stack capture: both sets' pages, saved pages and held bytes in distributed RAM (2 × (8 × 20 + 8 × 20 + 16 × 18) bits, section 9.9), the copy engine, one more load path into the MMU (a 20-bit bus into all 16 page registers) and the save path out of it, two masks and their noted copies, the depth, four capture registers, the read-back of page `0x01` | Estimate 200–350 LUTs, of which about 60 are distributed RAM, and about 130 flip-flops (open point M10) |
+| Interrupt pages and stack capture: both sets' pages, saved pages and held bytes in distributed RAM (2 × (8 × 20 + 8 × 20 + 16 × 18) bits, section 9.9), the copy engine, one more load path into the MMU (a 20-bit bus into all 16 page registers) and the save path out of it, two masks and their noted copies, the depth, the NMI's two capture registers, the read-back of page `0x01` | Estimate 190–330 LUTs, of which about 60 are distributed RAM, and about 100 flip-flops (open point M10) |
 | Boot ROM | 16 block RAMs (spec 7) |
 
 ## 14. Test plan
@@ -569,11 +568,11 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 - **Register page:** every page `0x00` register answers at its offset with the same value and side effects as through I/O; every custom register answers at `0x1000` + its offset as at its port; KEYROW0–7 at `0x0100`–`0x0107` match port `0xFE`; palette entries at `0x1400` + 0x300p + 3i commit on the red byte, and an `LDIR` of 768 bytes copies a palette without touching PALIDX; reserved offsets read `0xFF`; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` writes a 2-byte register in one instruction; `PUSH` writes a 2-byte custom register correctly; no SRAM cycle is used.
 - **Interrupt pages, maskable:** with each IPMASK pattern (none, one window, all eight, the window holding SP, the window holding the IM 2 table, window 0), in IM 2 and IM 1, at 20 MHz, 3.57 MHz and n = 8: the two pushes go through the switched map (into the interrupt page with SP in a switched window, onto the program's stack otherwise); the table read (or the fetch at `0x0038`) and the handler come from the interrupt pages; IPSAV0–7 and IPSAV0W–7W hold the old pages; MMUn reads the interrupt pages; windows outside the mask are unchanged; `RETI` pops through the switched map and restores after its second stack read, before the fetch at the return address (SP in a switched window and elsewhere); a switched window holding SP with different read and write pages loses the return address, as section 9.7 warns; `DD ED 4D` counts, `ED 45`, `ED 5D`, `CB ED` followed by `4D`, and `DD CB d ED` followed by `4D` behave as spec 1, section 8.4 says.
 - **Nesting:** with `EI` in the handler, a second interrupt counts IPDEPTH to 2 and switches nothing; its `RETI` counts to 1 and pops from memory; the outer `RETI` restores; IPDEPTH stays at 255 when pushed past it; writing IPDEPTH changes no window.
-- **IPRESTORE:** RET then `EI`, `RET` restores after the `RET`'s stack reads, which come from the capture when CAPTURE is on; a conditional return does not count; NOW restores at once (through a port and through the register page) and drops the capture; both do nothing at depth 0.
+- **IPRESTORE:** RET then `EI`, `RET` restores after the `RET`'s stack reads, which come from memory through the switched map; a conditional return does not count; NOW restores at once (through a port and through the register page); both do nothing at depth 0.
 - **The copy (section 9.9):** a switch and a restore each take 8 clocks, one window per clock; the switch is done before the first push's T1 and the restore before the return fetch's T1, at every speed, with the spare of spec 1, section 8.5; no CPU write to the MMU or page `0x01` falls inside a copy; reset writes the reset values into the RAMs and the held flags.
-- **Stack capture:** with CAPTURE, the two pushes make no SRAM request, no ROM write and no register strobe, and memory at SP − 1 and SP − 2 is unchanged (SP in SRAM, ROM, NONE and the register page); IPCAPPC and IPCAPSP hold the PC and SP; the handler reads the old memory at (SP); the returning `RETI` takes its two reads from IPCAPPC with no memory request, and SP is back at the program's value; a written IPCAPPC returns there; a nested interrupt pushes to memory; capture and switching together, and each alone.
-- **NMI set:** the defaults give the old NMI paging (spec 7, section 13), now with capture and with window 0's writes going to page `0x0FF`; with capture on, an NMI and the monitor page's entry change no byte outside page `0x0FF`; NMIMASK patterns as above; an NMI inside a maskable handler and an interrupt inside an NMI handler each restore in reverse order; with EN and CAPTURE both 0 an NMI changes nothing and INNMI stays 0.
-- **Interrupt page registers:** every register of page `0x01` at port r × 256 + `0x01` and at register page offset `0x0100` + r; registers `0x00`–`0x3F` read `0xFF` through I/O; the page registers commit on byte 1 and a read page commit sets its write page; each keeps its own held byte (byte 0 of IP0, byte 0 and 1 of IP1, then byte 1 of IP0 commits with IP0's held byte); an entry between the two bytes of IPn uses the old IPn; reset values.
+- **Stack capture (NMI only):** an NMI's two pushes make no SRAM request, no ROM write and no register strobe, and memory at SP − 1 and SP − 2 is unchanged (SP in SRAM, ROM, NONE and the register page); NMICAPPC and NMICAPSP hold the PC and SP; the handler reads the old memory at (SP); `RETN` takes its two reads from NMICAPPC with no memory request, and SP is back at the program's value; a written NMICAPPC returns there; a maskable interrupt inside the NMI handler pushes to memory; capture with NMICTL.EN on and off; a maskable response never captures, at any depth and with IPCTL.EN on or off; NMICTL bits 7–2 and IPCTL bits 7–1 read 0 whatever is written.
+- **NMI set:** the defaults give the old NMI paging (spec 7, section 13), now with capture and with window 0's writes going to page `0x0FF`; an NMI and the monitor page's entry change no byte outside page `0x0FF`; NMIMASK patterns as above; an NMI inside a maskable handler and an interrupt inside an NMI handler each restore in reverse order; with EN 0 an NMI switches no window but still captures, and INNMI is 1 until its `RETN`.
+- **Interrupt page registers:** every register of page `0x01` at port r × 256 + `0x01` and at register page offset `0x0100` + r; registers `0x00`–`0x3F` and reserved `0x44`–`0x47` and `0x4A`–`0x4B` read `0xFF` through I/O; the page registers commit on byte 1 and a read page commit sets its write page; each keeps its own held byte (byte 0 of IP0, byte 0 and 1 of IP1, then byte 1 of IP0 commits with IP0's held byte); an entry between the two bytes of IPn uses the old IPn; reset values.
 - **Physical addresses:** a pattern written by the CPU through every page is read by the DMA port at page × `0x2000` + offset; bits 23–22 of pointers are ignored.
 - **Board test:** a full RAM test from the CPU at 20 MHz and from the DMA engine at once, with the display, sprites and copper busy.
 
@@ -590,6 +589,6 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | M7 | Audio (spec 13, parked) has cycle 4 kept for it, as retro68k gives audio a cycle of its own (there cycle 2) |
 | M8 | Closed: palettes packed at `0x1400`–`0x1FFF` (section 10.2); KEYROW0–7 at `0x0100`–`0x0107`. `0x0108`–`0x0FFF` is free for later tables |
 | M9 | A descriptor RAM for the DMA engine (spec 14), if block RAM allows, would need a place in the register page; `0x0200`–`0x0FFF` is free for it |
-| M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 200–350 LUTs and about 130 flip-flops (section 13). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
+| M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
 | M11 | IPDEPTH stays at 255 when pushed past it, with no flag, so a runaway nest restores early. A sticky overflow bit could be added if it is ever needed |
 | M12 | Saved pages are a snapshot of all 16 page registers at the switch, but only the windows in the mask are put back. Proposed: as written (the monitor reads the program's whole map from one place) |

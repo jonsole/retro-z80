@@ -329,7 +329,6 @@
 `define RM_IPCTL                          13'h0140
 `define RM_IPCTL_BYTES                    1
 `define RM_IPCTL_EN                       0
-`define RM_IPCTL_CAPTURE                  2
 `define RM_IPMASK                         13'h0141
 `define RM_IPMASK_BYTES                   1
 `define RM_IPMASK_WIN                     7:0
@@ -340,19 +339,10 @@
 `define RM_IPRESTORE_BYTES                1
 `define RM_IPRESTORE_RET                  0
 `define RM_IPRESTORE_NOW                  1
-`define RM_IPCAPPC                        13'h0144
-`define RM_IPCAPPC_BYTES                  2
-`define RM_IPCAPPC0                       13'h0144
-`define RM_IPCAPPC1                       13'h0145
-`define RM_IPCAPSP                        13'h0146
-`define RM_IPCAPSP_BYTES                  2
-`define RM_IPCAPSP0                       13'h0146
-`define RM_IPCAPSP1                       13'h0147
 `define RM_NMICTL                         13'h0148
 `define RM_NMICTL_BYTES                   1
 `define RM_NMICTL_EN                      0
 `define RM_NMICTL_INNMI                   1
-`define RM_NMICTL_CAPTURE                 2
 `define RM_NMIMASK                        13'h0149
 `define RM_NMIMASK_BYTES                  1
 `define RM_NMIMASK_WIN                    7:0

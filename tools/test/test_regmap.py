@@ -108,11 +108,11 @@ class BrokenSpec(unittest.TestCase):
 
     def test_spec_page_01_row_changed(self):
         spec = SPEC.read_text(encoding="utf-8")
-        old = "| `0x46`–`0x47` | `0x4601`–`0x4701` | IPCAPSP (IPCAPSP0, IPCAPSP1) | 2 | R |"
+        old = "| `0x4E`–`0x4F` | `0x4E01`–`0x4F01` | NMICAPSP (NMICAPSP0, NMICAPSP1) | 2 | R |"
         self.assertIn(old, spec)
         code, err = run(spec_text=spec.replace(old, old.replace("| 2 | R |", "| 2 | RW |")))
         self.assertEqual(code, 1)
-        self.assertIn("IPCAPSP", err)
+        self.assertIn("NMICAPSP", err)
 
     def test_spec_quoted_value_changed(self):
         spec = SPEC.read_text(encoding="utf-8")
@@ -136,7 +136,7 @@ class Names(unittest.TestCase):
                             ("SPRDMA1", 0x121), ("TMR0_COUNT0", 0x2D), ("SPR0_PT0", 0x010),
                             ("L1_BPL0PT2", 0x0C6), ("DMX2_CHDESC0", 0x1E0),
                             ("MMU0_0", 0x80), ("MMU0_1", 0x81), ("MMU0W_0", 0x90), ("MMU0W_1", 0x91),
-                            ("IP0_1", 0x81), ("IP7W_0", 0x9E), ("NMISAV0W_1", 0xF1), ("IPCAPPC1", 0x45)]:
+                            ("IP0_1", 0x81), ("IP7W_0", 0x9E), ("NMISAV0W_1", 0xF1), ("NMICAPPC1", 0x4D)]:
             self.assertEqual(self.syms.get(name), value, name)
         for missing in ("MMU00", "MMU0W0", "TIMEL", "SDCONH"):
             self.assertNotIn(missing, self.syms)

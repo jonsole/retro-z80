@@ -888,9 +888,6 @@
 #define IPCTL_EN_B                   0x0u
 #define IPCTL_EN_W                   0x1u
 #define IPCTL_EN_M                   0x1u
-#define IPCTL_CAPTURE_B              0x2u
-#define IPCTL_CAPTURE_W              0x1u
-#define IPCTL_CAPTURE_M              0x4u
 #define IPMASK                       0x41u       /* RW, spec 2/9.8 */
 #define IPMASK_N                     0x1u
 #define IPMASK_P                     0x4101u
@@ -912,20 +909,6 @@
 #define IPRESTORE_NOW_B              0x1u
 #define IPRESTORE_NOW_W              0x1u
 #define IPRESTORE_NOW_M              0x2u
-#define IPCAPPC                      0x44u       /* RW, spec 2/9.8 */
-#define IPCAPPC_N                    0x2u
-#define IPCAPPC_P                    0x4401u
-#define IPCAPPC0                     0x44u
-#define IPCAPPC0_P                   0x4401u
-#define IPCAPPC1                     0x45u
-#define IPCAPPC1_P                   0x4501u
-#define IPCAPSP                      0x46u       /* R, spec 2/9.8 */
-#define IPCAPSP_N                    0x2u
-#define IPCAPSP_P                    0x4601u
-#define IPCAPSP0                     0x46u
-#define IPCAPSP0_P                   0x4601u
-#define IPCAPSP1                     0x47u
-#define IPCAPSP1_P                   0x4701u
 #define NMICTL                       0x48u       /* RW, spec 2/9.8 */
 #define NMICTL_N                     0x1u
 #define NMICTL_P                     0x4801u
@@ -935,9 +918,6 @@
 #define NMICTL_INNMI_B               0x1u
 #define NMICTL_INNMI_W               0x1u
 #define NMICTL_INNMI_M               0x2u
-#define NMICTL_CAPTURE_B             0x2u
-#define NMICTL_CAPTURE_W             0x1u
-#define NMICTL_CAPTURE_M             0x4u
 #define NMIMASK                      0x49u       /* RW, spec 2/9.8 */
 #define NMIMASK_N                    0x1u
 #define NMIMASK_P                    0x4901u

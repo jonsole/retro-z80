@@ -31,7 +31,7 @@
         assert MMU7_1_P = 0x8F00 && MMU6 = 0x8C
         assert KEYMAP6 = 0x16 && SERSTAT1 = 0x52 && SPRCOLL3 = 0x127
         assert NMISAV0_0 = 0xE0 && NMISAV0W_1 = 0xF1 && NMISAV0W_1_P = 0xF101
-        assert NMICTL = 0x48 && NMICTL_P = 0x4801 && IP7_1_P = 0x8F01 && IPCAPPC1 = 0x45 && IPPAGE = 0x01
+        assert NMICTL = 0x48 && NMICTL_P = 0x4801 && IP7_1_P = 0x8F01 && NMICAPPC1 = 0x4D && IPPAGE = 0x01
 
         ; arrays (specs 4, 5, 9, 14)
         assert L0 = 0x090 && L1 = 0x0B0 && L2 = 0x0D0 && L_SPAN = 0x20 && L_NUM = 3

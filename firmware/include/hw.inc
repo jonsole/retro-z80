@@ -894,9 +894,6 @@ IPCTL_P                      equ 0x4001
 IPCTL_EN_B                   equ 0x0
 IPCTL_EN_W                   equ 0x1
 IPCTL_EN_M                   equ 0x1
-IPCTL_CAPTURE_B              equ 0x2
-IPCTL_CAPTURE_W              equ 0x1
-IPCTL_CAPTURE_M              equ 0x4
 IPMASK                       equ 0x41          ; RW, spec 2/9.8
 IPMASK_N                     equ 0x1
 IPMASK_P                     equ 0x4101
@@ -918,20 +915,6 @@ IPRESTORE_RET_M              equ 0x1
 IPRESTORE_NOW_B              equ 0x1
 IPRESTORE_NOW_W              equ 0x1
 IPRESTORE_NOW_M              equ 0x2
-IPCAPPC                      equ 0x44          ; RW, spec 2/9.8
-IPCAPPC_N                    equ 0x2
-IPCAPPC_P                    equ 0x4401
-IPCAPPC0                     equ 0x44
-IPCAPPC0_P                   equ 0x4401
-IPCAPPC1                     equ 0x45
-IPCAPPC1_P                   equ 0x4501
-IPCAPSP                      equ 0x46          ; R, spec 2/9.8
-IPCAPSP_N                    equ 0x2
-IPCAPSP_P                    equ 0x4601
-IPCAPSP0                     equ 0x46
-IPCAPSP0_P                   equ 0x4601
-IPCAPSP1                     equ 0x47
-IPCAPSP1_P                   equ 0x4701
 NMICTL                       equ 0x48          ; RW, spec 2/9.8
 NMICTL_N                     equ 0x1
 NMICTL_P                     equ 0x4801
@@ -941,9 +924,6 @@ NMICTL_EN_M                  equ 0x1
 NMICTL_INNMI_B               equ 0x1
 NMICTL_INNMI_W               equ 0x1
 NMICTL_INNMI_M               equ 0x2
-NMICTL_CAPTURE_B             equ 0x2
-NMICTL_CAPTURE_W             equ 0x1
-NMICTL_CAPTURE_M             equ 0x4
 NMIMASK                      equ 0x49          ; RW, spec 2/9.8
 NMIMASK_N                    equ 0x1
 NMIMASK_P                    equ 0x4901

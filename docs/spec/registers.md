@@ -154,7 +154,7 @@ Each spec declares where a register departs from the rules above. The first thre
 | COP2LC (custom `0x104`–`0x106`) | Changed by the hardware at a frame restart with COPCON.RESUME; no capture | retro68k's RESUME | 6, 6.5 |
 | **Interrupt pages** (a retro-z80 extra) | | | |
 | IPSAVn, IPSAVnW, NMISAVn, NMISAVnW | Loaded by the hardware with all 16 MMU page registers at a switch; written by software to change what the return puts back | The saved map is the program's; a handler may change it | 2, 9.7 |
-| IPCAPPC, IPCAPSP, NMICAPPC, NMICAPSP | Loaded by the hardware at an outermost entry with CAPTURE; IPCAPPC and NMICAPPC are read by the returning instruction. No capture of their own: they do not change while a handler reads them | The return address kept off the stack | 2, 9.7 |
+| NMICAPPC, NMICAPSP | Loaded by the hardware at every NMI's entry; NMICAPPC is read by `RETN`. No capture of their own: they do not change while the NMI handler reads them | The NMI's return address kept off the stack | 2, 9.7 |
 | IPDEPTH | Counted by each maskable response and return; writing sets it and changes no window | Nesting | 2, 9.7 |
 | IPRESTORE | Strobe bits RET (arm the next `RET`) and NOW (return at once) | Handlers that do not end with `RETI` | 2, 9.7 |
 | IPCTL, IPMASK, NMICTL, NMIMASK | Looked at only on an outermost entry; the return uses the values noted then | Changing them in a handler cannot break its return | 2, 9.7 |
@@ -389,13 +389,12 @@ I/O page `0x01`: port = register × 256 + `0x01`; register page offset `0x0100` 
 
 | Register | Port | Name | Width | Access | Meaning | Spec |
 |----------|------|------|-------|--------|---------|------|
-| `0x40` | `0x4001` | IPCTL | 1 | RW | EN, CAPTURE (maskable interrupts) | 2, 9.8 |
+| `0x40` | `0x4001` | IPCTL | 1 | RW | EN (maskable interrupts) | 2, 9.8 |
 | `0x41` | `0x4101` | IPMASK | 1 | RW | Windows switched on an interrupt | 2, 9.8 |
 | `0x42` | `0x4201` | IPDEPTH | 1 | RW | Nesting depth, 0–255 | 2, 9.8 |
 | `0x43` | `0x4301` | IPRESTORE | 1 | W (S) | RET, NOW | 2, 9.8 |
-| `0x44`–`0x45` | `0x4401`–`0x4501` | IPCAPPC (IPCAPPC0, IPCAPPC1) | 2 | RW | Captured return address | 2, 9.8 |
-| `0x46`–`0x47` | `0x4601`–`0x4701` | IPCAPSP (IPCAPSP0, IPCAPSP1) | 2 | R | The program's SP at the capture | 2, 9.8 |
-| `0x48` | `0x4801` | NMICTL | 1 | RW | EN, INNMI (R), CAPTURE (the NMI) | 2, 9.8 |
+| `0x44`–`0x47` | | – | | | Reserved | |
+| `0x48` | `0x4801` | NMICTL | 1 | RW | EN, INNMI (R) (the NMI; its stack capture is always on) | 2, 9.8 |
 | `0x49` | `0x4901` | NMIMASK | 1 | RW | Windows switched on an NMI | 2, 9.8 |
 | `0x4A`–`0x4B` | | – | | | Reserved | |
 | `0x4C`–`0x4D` | `0x4C01`–`0x4D01` | NMICAPPC (NMICAPPC0, NMICAPPC1) | 2 | RW | Captured return address | 2, 9.8 |
