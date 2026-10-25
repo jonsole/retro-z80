@@ -491,6 +491,23 @@ class DapTests(unittest.TestCase):
         bad = d.request("dataBreakpointInfo", {"name": "result", "bytes": 3})["body"]
         self.assertIsNone(bad["dataId"])
 
+    def test_watchpoint_panel_requests(self):
+        self.launch()
+        self.stopped()
+        d = self.dap
+        self.bridge.session.set_watchpoints("mcp", "m", [(P.WP_READ, 0x801B, 0xFFFC)])
+        body = d.request("setWatchpoint", {"address": "result", "length": 1, "access": "write"})["body"]
+        self.assertEqual([(w["address"], w["access"], w["owners"]) for w in body["watchpoints"]],
+                         [(0x801B & 0xFFFC, "read", ["mcp"]), (0x9000, "write", ["vscode"])])
+        r = d.request("setWatchpoint", {"address": "$9001", "length": 2}, ok=False)
+        self.assertIn("multiple of 2", r["message"])
+        r = d.request("setWatchpoint", {"address": "$A000"}, ok=False)
+        self.assertIn("only 2 hardware watchpoints", r["message"])
+        body = d.request("clearWatchpoint", {"id": 0})["body"]
+        self.assertEqual([w["address"] for w in body["watchpoints"]], [0x9000])
+        self.assertEqual(d.request("clearWatchpoint", {})["body"]["watchpoints"], [])
+        self.assertEqual(self.bridge.model.wps, [None, None])
+
     def test_fifth_breakpoint_unverified(self):
         bps = self.launch([3, 4, 5, 7, 8])
         self.assertEqual([b["verified"] for b in bps], [True, True, True, True, False])
@@ -944,6 +961,21 @@ class McpFrontTests(unittest.TestCase):
 
 
 class SymbolTests(unittest.TestCase):
+    def test_sld_paths_relative_to_where_sjasmplus_ran(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmp, "src"))
+            os.makedirs(os.path.join(tmp, "build"))
+            open(os.path.join(tmp, "src", "game.asm"), "w").write("start: nop\n")
+            sld = os.path.join(tmp, "build", "game.sld")
+            open(sld, "w").write("|SLD.data.version|1\nsrc/game.asm|1||0|-1|32768|T|\n")
+            alone = Symbols.load(sld)
+            self.assertFalse(os.path.exists(alone.location(0x8000)[0]))
+            s = Symbols.load(sld, bases=[tmp])
+            self.assertEqual(s.location(0x8000), (os.path.join(tmp, "src", "game.asm"), 1))
+        finally:
+            shutil.rmtree(tmp)
+
     def test_sld(self):
         tmp = tempfile.mkdtemp()
         try:
