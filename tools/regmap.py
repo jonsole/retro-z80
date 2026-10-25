@@ -491,16 +491,19 @@ class SpecReg:
     rel_name: bool = False  # name is a group register's name (CTRL, PT), not a full name
 
 
-CHECKED = ("SYSTEM", "INTPAGES", "CUSTOM")  # the blocks spec 3's tables list
+CHECKED = ("SYSTEM", "INTPAGES", "DEBUG", "CUSTOM")  # the blocks spec 3's tables list
+# Section 4 subsections whose heading names one of these pages list that block, not the system page.
+PAGE_BLOCKS = (("page `0x01`", "INTPAGES"), ("page `0x02`", "DEBUG"))
 
 
 def spec_registers(md_text):
     """Every register row of spec 3's tables in sections 4 and 5, expanded to absolute offsets.
-    Section 4's subsection on page `0x01` is the INTPAGES block; the rest of section 4 the system page."""
+    Section 4's subsections on page `0x01` and page `0x02` are the INTPAGES and DEBUG blocks;
+    the rest of section 4 the system page."""
     rows_out = []  # [block, offset, name, width, access, where, rel, bases]
     for (h2, h3), header, rows, text in md_tables(md_text):
         if h2.startswith("## 4"):
-            blk = "INTPAGES" if "page `0x01`" in h3 else "SYSTEM"
+            blk = next((b for key, b in PAGE_BLOCKS if key in h3), "SYSTEM")
         elif h2.startswith("## 5"):
             blk = "CUSTOM"
         else:

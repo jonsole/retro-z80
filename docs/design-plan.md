@@ -110,6 +110,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 18 | Debugging: breakpoints | **Hardware only** (so they work in ROM); a fifth is refused (unverified in VS Code). The monitor uses the unit too: `G addr break` sets a hardware breakpoint, and a new step command (letter to agree with retro68k in the shared monitor spec) |
 | 18 | Debug stub | In the boot ROM's NMI handler, on **branch 17's NMI part** (NMI wired, the window switch to the workspace page, stack capture), so it never touches the program's memory or stack. That NMI part is built first; the maskable interrupt pages later |
 | 18 | Debugging: views | Registers (with alternates, I, R, IM, IFF), the 8 MMU windows (read and write pages), memory, disassembly, a call stack from return addresses on the stack that SLD knows, breakpoints and watchpoints, and a debug console for monitor-style commands |
+| 18 | Screen capture (future) | **Not built yet.** A unit taps the final pixel (after layers, sprites, copper, palettes and border, as HDMI/VGA get it), keeps a slice of each line in a small block RAM buffer, and sends it on the FT232H during the rest of the line, a further slice each frame: about 84 pixels a line in 24-bit colour at 8 MB/s, so a whole picture in about 8 frames (0.13 s), exact while the program is stopped, a slow-scan live view while it runs. No CPU involvement. Its packets are a frame type of the debug protocol; VS Code shows the picture in a panel. Synchronous FIFO mode (serial U5) would make it near live. It also lets the board's real output be compared pixel by pixel with the video model the simulation tests use (retro68k: vmodel.py). Replaces rebuilding the picture from memory |
 
 ## 2. Key decisions
 
@@ -238,10 +239,12 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | `0x00` | `0x50`–`0x57`, `0x5C` | USB serial (SERDATA `0x53` also any high byte), SERDROP |
 | `0x00` | `0x58`–`0x5F` | SD card (SDDATA `0x5B` also any high byte) |
 | `0x00` | `0x60`–`0x6F` | Keyboard, joysticks (KBDATA `0x62` also any high byte) |
-| `0x00` | `0x70`–`0x7F` | System, I2C, NMI monitor |
+| `0x00` | `0x70`–`0x7B` | System, I2C (`0x7C`–`0x7F` free: the NMI registers moved to page `0x01`) |
 | `0x00` | `0x80`–`0x9F` | MMU read and write pages |
 | `0x00` | `0xA0`–`0xBF` | Geometry unit (branch 10) |
 | `0x00` | `0xFE` | Spectrum keyboard rows, border, beeper (low byte `0xFE`, high byte picks rows) |
+| `0x01` | `0x40`–`0xFF` | Interrupt pages and the NMI's stack capture (branch 17); `0x00`–`0x3F` reserved |
+| `0x02` | `0x00`–`0x3C` | Debug unit (branch 18): DBGCTL, DBGSTAT, the watched access, 4 breakpoints, 2 watchpoints |
 | `0x10`–`0x13` | all | Custom block (below) |
 | Others | | Reserved, read `0xFF` |
 
@@ -280,6 +283,8 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 16 | [Boot ROM](spec/boot-rom.md) | Draft (branch 16): ROM pages, start-up, the program environment, the RST calls, the Z80 parts of the monitor and loader, BASIC as a resident image |
 | – | [Monitor and upload protocol](spec/monitor.md) (shared with retro68k) | Draft (branch 16), word for word the same in both repos; for retro68k to review and adopt |
 | 17 | [Sprite sequencer](spec/sprite-sequencer.md) | Draft (branch 14) |
+| 18 | [Debug unit](spec/debug-unit.md) | Draft (branch 18): single step, 4 breakpoints with an optional page match, 2 watchpoints, all on the NMI; I/O page `0x02` |
+| – | [Remote debugging protocol](spec/debug.md) | Draft (branch 18): its transport section (frames with a channel byte) offered to retro68k word for word; the debug channel is retro-z80's, for `tools/rdebug.py` and VS Code |
 
 ## 5. Phases
 

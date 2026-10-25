@@ -1449,6 +1449,230 @@ NMISAV7W_0_P                 equ 0xFE01
 NMISAV7W_1                   equ 0xFF
 NMISAV7W_1_P                 equ 0xFF01
 
+; ---- DEBUG: Debug unit, I/O page 0x02: port = register << 8 | 0x02; registers 0x3D-0xFF reserved
+DEBUG_SIZE                   equ 0x100
+DBGCTL                       equ 0x0           ; RW, spec 18/8
+DBGCTL_N                     equ 0x1
+DBGCTL_P                     equ 0x2
+DBGCTL_STEP_B                equ 0x0
+DBGCTL_STEP_W                equ 0x1
+DBGCTL_STEP_M                equ 0x1
+DBGCTL_STEPINT_B             equ 0x1
+DBGCTL_STEPINT_W             equ 0x1
+DBGCTL_STEPINT_M             equ 0x2
+DBGCTL_LIVE_B                equ 0x7
+DBGCTL_LIVE_W                equ 0x1
+DBGCTL_LIVE_M                equ 0x80
+DBGSTAT                      equ 0x1           ; W1C, spec 18/8
+DBGSTAT_N                    equ 0x1
+DBGSTAT_P                    equ 0x102
+DBGSTAT_BP0_B                equ 0x0
+DBGSTAT_BP0_W                equ 0x1
+DBGSTAT_BP0_M                equ 0x1
+DBGSTAT_BP1_B                equ 0x1
+DBGSTAT_BP1_W                equ 0x1
+DBGSTAT_BP1_M                equ 0x2
+DBGSTAT_BP2_B                equ 0x2
+DBGSTAT_BP2_W                equ 0x1
+DBGSTAT_BP2_M                equ 0x4
+DBGSTAT_BP3_B                equ 0x3
+DBGSTAT_BP3_W                equ 0x1
+DBGSTAT_BP3_M                equ 0x8
+DBGSTAT_WP0_B                equ 0x4
+DBGSTAT_WP0_W                equ 0x1
+DBGSTAT_WP0_M                equ 0x10
+DBGSTAT_WP1_B                equ 0x5
+DBGSTAT_WP1_W                equ 0x1
+DBGSTAT_WP1_M                equ 0x20
+DBGSTAT_STEP_B               equ 0x6
+DBGSTAT_STEP_W               equ 0x1
+DBGSTAT_STEP_M               equ 0x40
+DBGHITADDR                   equ 0x2           ; R, spec 18/6.3
+DBGHITADDR_N                 equ 0x2
+DBGHITADDR_P                 equ 0x202
+DBGHITADDR0                  equ 0x2
+DBGHITADDR0_P                equ 0x202
+DBGHITADDR1                  equ 0x3
+DBGHITADDR1_P                equ 0x302
+DBGHITDATA                   equ 0x4           ; R, spec 18/6.3
+DBGHITDATA_N                 equ 0x1
+DBGHITDATA_P                 equ 0x402
+DBGHITKIND                   equ 0x5           ; R, spec 18/6.3
+DBGHITKIND_N                 equ 0x1
+DBGHITKIND_P                 equ 0x502
+DBGHITKIND_WRITE_B           equ 0x0
+DBGHITKIND_WRITE_W           equ 0x1
+DBGHITKIND_WRITE_M           equ 0x1
+DBGHITKIND_IO_B              equ 0x1
+DBGHITKIND_IO_W              equ 0x1
+DBGHITKIND_IO_M              equ 0x2
+DBGHITKIND_WP_B              equ 0x2
+DBGHITKIND_WP_W              equ 0x1
+DBGHITKIND_WP_M              equ 0x4
+
+; ---- DBGBP0..DBGBP3: 4 x 0x8 bytes, spec 18/8
+DBGBP_NUM                    equ 0x4
+DBGBP_SPAN                   equ 0x8
+DBGBP_ADDR                   equ 0x0           ; RW, spec 18/5.1 (add to DBGBPn)
+DBGBP_ADDR_N                 equ 0x2
+DBGBP_ADDR0                  equ 0x0
+DBGBP_ADDR1                  equ 0x1
+DBGBP_PAGE                   equ 0x2           ; RW, spec 18/5.1 (add to DBGBPn)
+DBGBP_PAGE_N                 equ 0x2
+DBGBP_PAGE0                  equ 0x2
+DBGBP_PAGE1                  equ 0x3
+DBGBP_PAGE_PAGE_B            equ 0x0
+DBGBP_PAGE_PAGE_W            equ 0xA
+DBGBP_PAGE_PAGE_M            equ 0x3FF
+DBGBP_CTL                    equ 0x4           ; RW, spec 18/5.1 (add to DBGBPn)
+DBGBP_CTL_N                  equ 0x1
+DBGBP_CTL_EN_B               equ 0x0
+DBGBP_CTL_EN_W               equ 0x1
+DBGBP_CTL_EN_M               equ 0x1
+DBGBP_CTL_PAGEEN_B           equ 0x1
+DBGBP_CTL_PAGEEN_W           equ 0x1
+DBGBP_CTL_PAGEEN_M           equ 0x2
+DBGBP0                       equ 0x10
+DBGBP0_P                     equ 0x1002
+DBGBP0_ADDR                  equ 0x10
+DBGBP0_ADDR_N                equ 0x2
+DBGBP0_ADDR_P                equ 0x1002
+DBGBP0_ADDR0                 equ 0x10
+DBGBP0_ADDR0_P               equ 0x1002
+DBGBP0_ADDR1                 equ 0x11
+DBGBP0_ADDR1_P               equ 0x1102
+DBGBP0_PAGE                  equ 0x12
+DBGBP0_PAGE_N                equ 0x2
+DBGBP0_PAGE_P                equ 0x1202
+DBGBP0_PAGE0                 equ 0x12
+DBGBP0_PAGE0_P               equ 0x1202
+DBGBP0_PAGE1                 equ 0x13
+DBGBP0_PAGE1_P               equ 0x1302
+DBGBP0_CTL                   equ 0x14
+DBGBP0_CTL_N                 equ 0x1
+DBGBP0_CTL_P                 equ 0x1402
+DBGBP1                       equ 0x18
+DBGBP1_P                     equ 0x1802
+DBGBP1_ADDR                  equ 0x18
+DBGBP1_ADDR_N                equ 0x2
+DBGBP1_ADDR_P                equ 0x1802
+DBGBP1_ADDR0                 equ 0x18
+DBGBP1_ADDR0_P               equ 0x1802
+DBGBP1_ADDR1                 equ 0x19
+DBGBP1_ADDR1_P               equ 0x1902
+DBGBP1_PAGE                  equ 0x1A
+DBGBP1_PAGE_N                equ 0x2
+DBGBP1_PAGE_P                equ 0x1A02
+DBGBP1_PAGE0                 equ 0x1A
+DBGBP1_PAGE0_P               equ 0x1A02
+DBGBP1_PAGE1                 equ 0x1B
+DBGBP1_PAGE1_P               equ 0x1B02
+DBGBP1_CTL                   equ 0x1C
+DBGBP1_CTL_N                 equ 0x1
+DBGBP1_CTL_P                 equ 0x1C02
+DBGBP2                       equ 0x20
+DBGBP2_P                     equ 0x2002
+DBGBP2_ADDR                  equ 0x20
+DBGBP2_ADDR_N                equ 0x2
+DBGBP2_ADDR_P                equ 0x2002
+DBGBP2_ADDR0                 equ 0x20
+DBGBP2_ADDR0_P               equ 0x2002
+DBGBP2_ADDR1                 equ 0x21
+DBGBP2_ADDR1_P               equ 0x2102
+DBGBP2_PAGE                  equ 0x22
+DBGBP2_PAGE_N                equ 0x2
+DBGBP2_PAGE_P                equ 0x2202
+DBGBP2_PAGE0                 equ 0x22
+DBGBP2_PAGE0_P               equ 0x2202
+DBGBP2_PAGE1                 equ 0x23
+DBGBP2_PAGE1_P               equ 0x2302
+DBGBP2_CTL                   equ 0x24
+DBGBP2_CTL_N                 equ 0x1
+DBGBP2_CTL_P                 equ 0x2402
+DBGBP3                       equ 0x28
+DBGBP3_P                     equ 0x2802
+DBGBP3_ADDR                  equ 0x28
+DBGBP3_ADDR_N                equ 0x2
+DBGBP3_ADDR_P                equ 0x2802
+DBGBP3_ADDR0                 equ 0x28
+DBGBP3_ADDR0_P               equ 0x2802
+DBGBP3_ADDR1                 equ 0x29
+DBGBP3_ADDR1_P               equ 0x2902
+DBGBP3_PAGE                  equ 0x2A
+DBGBP3_PAGE_N                equ 0x2
+DBGBP3_PAGE_P                equ 0x2A02
+DBGBP3_PAGE0                 equ 0x2A
+DBGBP3_PAGE0_P               equ 0x2A02
+DBGBP3_PAGE1                 equ 0x2B
+DBGBP3_PAGE1_P               equ 0x2B02
+DBGBP3_CTL                   equ 0x2C
+DBGBP3_CTL_N                 equ 0x1
+DBGBP3_CTL_P                 equ 0x2C02
+
+; ---- DBGWP0..DBGWP1: 2 x 0x8 bytes, spec 18/8
+DBGWP_NUM                    equ 0x2
+DBGWP_SPAN                   equ 0x8
+DBGWP_ADDR                   equ 0x0           ; RW, spec 18/6.1 (add to DBGWPn)
+DBGWP_ADDR_N                 equ 0x2
+DBGWP_ADDR0                  equ 0x0
+DBGWP_ADDR1                  equ 0x1
+DBGWP_MASK                   equ 0x2           ; RW, spec 18/6.1 (add to DBGWPn)
+DBGWP_MASK_N                 equ 0x2
+DBGWP_MASK0                  equ 0x2
+DBGWP_MASK1                  equ 0x3
+DBGWP_CTL                    equ 0x4           ; RW, spec 18/6.1 (add to DBGWPn)
+DBGWP_CTL_N                  equ 0x1
+DBGWP_CTL_EN_B               equ 0x0
+DBGWP_CTL_EN_W               equ 0x1
+DBGWP_CTL_EN_M               equ 0x1
+DBGWP_CTL_READ_B             equ 0x1
+DBGWP_CTL_READ_W             equ 0x1
+DBGWP_CTL_READ_M             equ 0x2
+DBGWP_CTL_WRITE_B            equ 0x2
+DBGWP_CTL_WRITE_W            equ 0x1
+DBGWP_CTL_WRITE_M            equ 0x4
+DBGWP_CTL_IO_B               equ 0x3
+DBGWP_CTL_IO_W               equ 0x1
+DBGWP_CTL_IO_M               equ 0x8
+DBGWP0                       equ 0x30
+DBGWP0_P                     equ 0x3002
+DBGWP0_ADDR                  equ 0x30
+DBGWP0_ADDR_N                equ 0x2
+DBGWP0_ADDR_P                equ 0x3002
+DBGWP0_ADDR0                 equ 0x30
+DBGWP0_ADDR0_P               equ 0x3002
+DBGWP0_ADDR1                 equ 0x31
+DBGWP0_ADDR1_P               equ 0x3102
+DBGWP0_MASK                  equ 0x32
+DBGWP0_MASK_N                equ 0x2
+DBGWP0_MASK_P                equ 0x3202
+DBGWP0_MASK0                 equ 0x32
+DBGWP0_MASK0_P               equ 0x3202
+DBGWP0_MASK1                 equ 0x33
+DBGWP0_MASK1_P               equ 0x3302
+DBGWP0_CTL                   equ 0x34
+DBGWP0_CTL_N                 equ 0x1
+DBGWP0_CTL_P                 equ 0x3402
+DBGWP1                       equ 0x38
+DBGWP1_P                     equ 0x3802
+DBGWP1_ADDR                  equ 0x38
+DBGWP1_ADDR_N                equ 0x2
+DBGWP1_ADDR_P                equ 0x3802
+DBGWP1_ADDR0                 equ 0x38
+DBGWP1_ADDR0_P               equ 0x3802
+DBGWP1_ADDR1                 equ 0x39
+DBGWP1_ADDR1_P               equ 0x3902
+DBGWP1_MASK                  equ 0x3A
+DBGWP1_MASK_N                equ 0x2
+DBGWP1_MASK_P                equ 0x3A02
+DBGWP1_MASK0                 equ 0x3A
+DBGWP1_MASK0_P               equ 0x3A02
+DBGWP1_MASK1                 equ 0x3B
+DBGWP1_MASK1_P               equ 0x3B02
+DBGWP1_CTL                   equ 0x3C
+DBGWP1_CTL_N                 equ 0x1
+DBGWP1_CTL_P                 equ 0x3C02
+
 ; ---- CUSTOM: Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8)
 CUSTOM_SIZE                  equ 0x400
 VIDCON                       equ 0x0           ; RW, spec 4/6.1
@@ -3309,6 +3533,8 @@ ULA_PORT                     equ 0xFE
 SYSPAGE                      equ 0x0           ; The system page
 IPPAGE                       equ 0x1           ; The interrupt pages' I/O page
 REGS_IPPAGE                  equ 0x100         ; Register page: I/O page 0x01 (REGS_IPPAGE + register)
+DBGPAGE                      equ 0x2           ; The debug unit's I/O page
+REGS_DBGPAGE                 equ 0x200         ; Register page: I/O page 0x02 (REGS_DBGPAGE + register)
 CUSTPAGE                     equ 0x10          ; The custom block's first page
 REGS_PALETTE                 equ 0x1400        ; Register page: PALETTE0
 REGS_PAL_SPAN                equ 0x300         ; Register page: bytes from one palette to the next

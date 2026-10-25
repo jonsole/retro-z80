@@ -24,6 +24,7 @@ The design plan's branch 16 sets the frame: the boot ROM **stays in window 0** (
 | Start-up keys | M, U, D on the Spectrum keyboard or a PS/2 keyboard; the DivMMC button for M |
 | Boot file | `BOOT.Z80` on the SD card; BASIC is `BASIC.Z80` |
 | BASIC | BBC BASIC (Z80) as a resident image in write-protected SRAM; started at start-up or by `X` (section 10) |
+| Debugging | Hardware breakpoints for `G addr break`, the step command `N`, and the debug stub for VS Code (`debug.md`), all on the debug unit (spec 18) and the NMI (section 8.8) |
 | Without the FT232H | The monitor on the screen and keyboards; programs from the SD card or typed in. Upload needs the module |
 
 ## 2. Comparison with retro68k
@@ -174,7 +175,7 @@ The monitor keeps a copy of the program's 16 page registers (MMU0–MMU7 and MMU
 | Pages | Physical | Size | Contents |
 |-------|----------|------|----------|
 | `0x0F8`–`0x0FB` | `0x1F0000`–`0x1F7FFF` | 32 KB | The resident image (BASIC), write page NONE while it runs (section 10). Free when there is none |
-| `0x0FC`–`0x0FD` | `0x1F8000`–`0x1FBFFF` | 16 KB | Kept for the ROM's later use; free today |
+| `0x0FC`–`0x0FD` | `0x1F8000`–`0x1FBFFF` | 16 KB | Kept for the ROM's later use. Page `0x0FC` holds the debug stub's frame buffers while VS Code is attached (section 8.8); otherwise free |
 | `0x0FE` | `0x1FC000`–`0x1FDFFF` | 8 KB | The console map (spec 7, section 5.1), and the console's state in its hidden columns (below) |
 | `0x0FF` | `0x1FE000`–`0x1FFFFF` | 8 KB | The font (2 KB), then the monitor's workspace (6 KB) |
 
@@ -257,6 +258,8 @@ The shared spec gives the shape (its section 10); this is retro-z80's content. I
 | A breakpoint (`G addr break`) | `Breakpoint at <break>` |
 | The Multiface button, or `rlink.py break` | `NMI (button)` or `NMI (USB) at <addr>`; `G` goes on |
 | A fetch of `0xFF` (`RST 38h`): a runaway program in NONE, the register page or empty memory | `Trap RST 38h at <addr>` |
+| A step (`N`), with the debug unit | `Step at <addr>` (section 8.8) |
+| A watchpoint set from VS Code | A STOP frame to VS Code (section 8.8) |
 | `RST 28h` function RESET, or SYSRESET | A full reset (spec 7) |
 
 A jump to `0x0000` starts the boot ROM again without a hardware reset. The ROM sets every unit itself (step 4), so this is a clean restart; but if the last reset was power-on, RESETWHY still says so and the self-test runs again, wiping SRAM pages 0–5. Programs use RESET instead.
@@ -496,11 +499,23 @@ With NMICTL.EN = 0 (a program's choice), page 0's `0x0066` saves a few bytes on 
 - **Going on.** With a program stopped (a break, a breakpoint, a trap), `G` goes on with every register as `R` shows them; `G addr` changes only PC.
 - **After `Program ended.`** the registers stay as the program left them: after its `RET`, SP = `0000` and PC = `0040`, as the shared spec's example shows.
 - **The address in the message:** `Break at` gives the `RST 30h` (or the `RST 28h`) itself, with PC after it; `Trap RST 38h at` and `Breakpoint at` give the byte where PC is.
-- **The breakpoint** is taken out of the program whenever the monitor is entered, whichever way; a breakpoint is for one `G`.
+- **The breakpoint** is cleared whenever the monitor is entered, whichever way; a breakpoint is for one `G`. It is the debug unit's breakpoint 0, not a byte in the program (section 8.8).
 - **`P` and the monitor's own registers.** The monitor changes the MMU and CPUSPEED for itself, so `P` on the MMU registers (`0x8000`–`0x9F00`) and CPUSPEED (`0x7700`) reads and writes the program's copy, which `G` puts back.
 - **Tab or EDIT on an empty command line** plays ticket #21's tape loader demo (`tape.asm`) on the border and the beeper. It is not a command letter, so the shared command table is unchanged.
 - **What D, V and S print, and how far Enter carries on,** are in the shared spec (sections 2.3 and 4.1); this ROM follows them.
 - **Commands not built yet** (`I T U L B X`, section 11) answer `? not yet: a later ticket`: the shared spec's `? not yet` (section 2.3), with the reason after it.
+
+### 8.8 The debug unit and the debug stub
+
+The debug unit (spec 18) gives the monitor hardware breakpoints and a single step, and the **debug stub** in the monitor serves VS Code over the remote debugging protocol ([`debug.md`](debug.md)). Both run on the NMI part of branch 17 (section 8.6): a stop is an NMI, so it changes nothing in the program's memory or stack. That NMI part is built first; the maskable interrupt pages later.
+
+- **Leaving by `RETN`.** The monitor always goes back to a program by `RETN`, after an NMI and also after a break, a trap or a load (with INNMI = 0 a `RETN` pops the PC it pushed, as a `RET` would). The debug unit goes live at the first M1 after it (spec 18, section 3). Entered by a break or a trap, the monitor first writes DBGCTL.LIVE = 0, so its own code is never compared.
+- **`G addr break`** sets breakpoint 0 at break (DBGBP0_ADDR, DBGBP0_CTL.EN) instead of writing `RST 30h` there, so a breakpoint works in ROM and nothing is written into the program. On the stop the monitor sets NMICAPPC back by 1 (spec 18, section 5.2), clears breakpoint 0 and says `Breakpoint at <break>`. Still one breakpoint per `G` (section 8.7). This needs the shared spec's section 4.3 worded for both methods (open point B15).
+- **`N` step** (in the shared spec's command table, agreed with retro68k, which uses its trace bit; open point B16): `N` runs one instruction of the stopped program, then shows the registers and the prompt. It clears DBGSTAT, sets DBGCTL.STEP (STEPINT = 0, so no interrupt is taken during the step) and leaves by `RETN`; the step's NMI comes back to the monitor with `Step at <addr>`. Enter on an empty line after `N` steps again, as after `D`.
+- **What the NMI handler looks at.** NMISTAT (button, USB) and DBGSTAT (step, breakpoint n, watchpoint n). With a watchpoint, DBGHITADDR, DBGHITDATA and DBGHITKIND give the access. It clears both before it goes on.
+- **An NMI while the monitor itself runs** (BREAK sent at the prompt, as an attach does, or the button pressed there): the monitor keeps the stopped program's saved state as it is, ends the NMI with `RETN` at once and goes back to its prompt. A flag in the monitor's state block says the monitor is running.
+- **The debug stub** is the monitor in **debug mode**. At the prompt the monitor watches the serial link for a HELLO frame (debug.md, section 4.4), and then: turns the console's serial side off for the program (CONMODE), does not take the screen at stops (section 8.5, step 4, is skipped while attached), answers the debug channel's commands (debug.md, section 5) with the monitor's own code for memory, registers and the MMU copy, and sends a STOP frame at each stop. Its frame buffers (4 KB in, 2 KB out) are in SRAM page `0x0FC`, mapped into window 5 while it works; its state (attached, the last SEQ and its STATUS, the last STOP) is in the workspace's spare space at `0x0EE0`. DETACH puts the console back and takes the screen as usual.
+- **Program ended, break, trap** while attached become STOP frames (EXIT, BREAK, TRAP) instead of the monitor's messages on the serial link; the screen shows nothing.
 
 ## 9. The loader and image files on the Z80
 
@@ -567,6 +582,7 @@ The ROM is built in this order, each step a ticket:
 - **In simulation now** (ticket #22): `sim/mon/` types a session over the serial link in Verilator (`make -C sim mon`, about a minute): every command and size, `P` addresses, the side-effect bytes shown `--`, E stepping, Enter carrying on, the errors; a program typed in printing through `RST 08h`, `RST 18h` and `RST 28h`; IX, IY, BC, DE and HL' kept across a ROM call; a breakpoint, `RST 30h` and the trap, each followed by `G`; and the console's 30 rows read back from its map against what was sent. `make hello` checks the sign-on and the power-on-only self-test across a RESET; `make bootkeys` types on the PS/2 and membrane models.
 - **Monitor (Z80 parts):** plain and `P` addresses, including window 0 after an NMI and the register page; `P` reads and writes ports; `R` shows and sets every register, IFF and IM; `I` against a list of every opcode (checked against sjasmplus's own listing); breakpoints; a break, a trap and an NMI each followed by `G` that goes on with every register, the MMU, CPUSPEED and the screen as they were.
 - **NMI page:** the NMI path through page 3 into the common monitor and out by `RETN`, with the program's stack in window 0 and elsewhere; the PC and SP shown are NMICAPPC and NMICAPSP, also with SP pointing at ROM; the entry and the exit change no byte outside page `0x0FF` (a checksum of all other SRAM before and after); with NMICTL.EN = 0, page 0's `0x0066` reaches the same monitor, the PC shown is NMICAPPC and `G` returns to it; `G addr` after an NMI carries on at addr; a new program started after an NMI can be broken into again, and starts with the interrupt pages off; an NMI inside a program's maskable handler that uses the interrupt pages shows and restores the handler's map.
+- **Debug unit and stub** (section 8.8): `G addr break` in RAM and in ROM stops before the instruction with PC at break; `N` runs one instruction of each class and shows `Step at`; an NMI at the prompt goes back to the prompt with the stopped program unchanged; the monitor entered by `RST 30h` with breakpoints left on does not stop in its own code; the debug channel's tests of debug.md, section 11, with no byte outside pages `0x0FC`–`0x0FF` changed by a stop and a continue.
 - **Broken workspace:** a program that overwrites pages `0x0FE`–`0x0FF` and is then broken into gets a working monitor.
 - **Loader:** the shared spec's upload tests, with every range of section 9 accepted or refused; a boot ROM image written and running after the reset; in simulation with the FT232H model.
 - **BASIC:** a resident image loaded, protected (writes to its windows change nothing), kept across a button reset without an SD read, loaded again when its ICRC check fails.
@@ -589,3 +605,6 @@ The ROM is built in this order, each step a ticket:
 | B12 | Closed (the user confirmed): ROMLOCK is decided at power-on only (RESETWHY.POWER): with D held it stays clear; otherwise the ROM sets it (section 4.5; shared spec, section 9) |
 | B13 | Should the monitor or the ROM use the maskable interrupt pages itself (for example to serve its own interrupts from a ROM page without the program mapping anything)? Version 1: no; the ROM leaves them off and to programs (design plan, branch 17) |
 | B14 | Closed (design plan, branch 17): NMIP0W resets to the workspace page `0x0FF` instead of NONE. The entry saves SP, AF, BC and HL into the NMI save area (section 5.3) through window 0 while it reads the monitor page, and the exit runs its last bytes from there, so with capture on an NMI touches no program memory at all (section 8.6) |
+| B15 | `G addr break` is a hardware breakpoint here (section 8.8), but the shared spec's section 4.3 describes the break instruction written into memory and refuses a breakpoint in ROM. Proposed change to monitor.md, to agree with retro68k: "`G addr break` sets a breakpoint at break, by the machine's own means (each machine's spec), then runs from addr", with the ROM refusal only where a machine needs it |
+| B16 | The step command is `N` (agreed with retro68k; added to the shared spec's command table). Its message `Step at <addr>` and Enter repeating it are proposed here |
+| B17 | An NMI taken while the monitor itself runs goes back to the prompt and keeps the stopped program (section 8.8). Needed for attach (BREAK at the prompt) |

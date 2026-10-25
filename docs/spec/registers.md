@@ -9,11 +9,11 @@ This is the one place that lists every register in the machine: the rules every 
 | Item | Value |
 |------|-------|
 | Register size | 8 bits. Wider values are consecutive bytes, low byte first. Every byte is written straight through, with no latch, except the MMU and interrupt pages and the colours (rule 2) |
-| Ports | Every I/O port is **register (high byte) : page (low byte)**: port = register × 256 + page. Page `0x00` is the system page; registers `0x40`–`0xFF` of page `0x01` are the interrupt pages; pages `0x10`–`0x13` are the custom block; every other page is reserved (section 4.1) |
+| Ports | Every I/O port is **register (high byte) : page (low byte)**: port = register × 256 + page. Page `0x00` is the system page; registers `0x40`–`0xFF` of page `0x01` are the interrupt pages; page `0x02` is the debug unit; pages `0x10`–`0x13` are the custom block; every other page is reserved (section 4.1) |
 | Low-byte-only ports | `0x1F` (Kempston), `0x53` (SERDATA), `0x5B` (SDDATA), `0x62` (KBDATA) and `0xFE` (Spectrum port) answer whatever the high byte holds, so `IN A,(n)`, `OUT (n),A`, `INIR` and `OTIR` work on them. Each is also a register of page `0x00` (section 4.1) |
 | System page | Page `0x00`: interrupts, the key map, timers, serial, SD card, input, system, the MMU and the geometry unit, in retro68k's order. SYSID is port `0x7000` (section 4) |
 | Custom block | The chipset, as retro68k's custom block: 1 KB of byte registers, offsets `0x000`–`0x3FF`. Custom offset k is port (k bits 7–0) × 256 + `0x10` + (k bits 9–8) (section 5) |
-| Register page | MMU page `0x3F8`, in any window: page p, register r at offset p × 256 + r, the port with its bytes swapped. The system page at `0x0000`, KEYROW0–7 at `0x0100`, the interrupt pages at `0x0140`–`0x01FF`, the custom block at `0x1000`, the palettes at `0x1400`–`0x1FFF` (section 6) |
+| Register page | MMU page `0x3F8`, in any window: page p, register r at offset p × 256 + r, the port with its bytes swapped. The system page at `0x0000`, KEYROW0–7 at `0x0100`, the interrupt pages at `0x0140`–`0x01FF`, the debug unit at `0x0200`–`0x023C`, the custom block at `0x1000`, the palettes at `0x1400`–`0x1FFF` (section 6) |
 | Register bus | 8-bit, one clock per access. Masters in order: the copper, the CPU, the sprite sequencer, the DMA engine (section 3.2) |
 | Copper reach | Writes only, custom block only: MOVE `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF`, MOVEF `0x000`–`0x3FF` (section 5.1, spec 6) |
 | DMA engine reach | The custom block and the palettes (read and write), the boot ROM (read), and SERDATA and SDDATA through its port jobs; not the system page (spec 14) |
@@ -31,6 +31,7 @@ This is the one place that lists every register in the machine: the rules every 
 | Palettes | PALIDX and PALDAT, or the register page | PALIDX and PALDAT | Read and write, as laid out in the register page |
 | KEYROW0–7 (register page `0x0100`–`0x0107`) | Read, through the register page | No | No |
 | Interrupt pages (page `0x01`, registers `0x40`–`0xFF`; register page `0x0140`–`0x01FF`) | Read and write | No | No: a job that names them stops with an error |
+| Debug unit (page `0x02`; register page `0x0200`–`0x023C`) | Read and write | No | No: a job that names it stops with an error |
 | Boot ROM (MMU pages `0x3FC`–`0x3FF`) | Read; write with SYSCON.ROMWE | No | Read |
 | SRAM | Through the MMU (spec 2) | Reads its list only | Read and write |
 
@@ -411,6 +412,37 @@ I/O page `0x01`: port = register × 256 + `0x01`; register page offset `0x0100` 
 
 n = 0–7: IP0 at `0x80` (port `0x8001`), IP7 at `0x8E`; the eight page arrays sit at the MMU's own register numbers and above, so IPn is to page `0x01` what MMUn is to page `0x00`.
 
+### 4.14 Debug unit (page `0x02`), a retro-z80 extra
+
+I/O page `0x02`: port = register × 256 + `0x02`; register page offset `0x0200` + register. Registers `0x3D`–`0xFF` are reserved. The bits are in spec 18, section 8.
+
+| Register | Port | Name | Width | Access | Meaning | Spec |
+|----------|------|------|-------|--------|---------|------|
+| `0x00` | `0x0002` | DBGCTL | 1 | RW | STEP, STEPINT, LIVE | 18, 8 |
+| `0x01` | `0x0102` | DBGSTAT | 1 | W1C | BP0–BP3, WP0, WP1, STEP: what asked for the NMI | 18, 8 |
+| `0x02`–`0x03` | `0x0202`–`0x0302` | DBGHITADDR (DBGHITADDR0, DBGHITADDR1) | 2 | R | The watched access's address or port | 18, 6.3 |
+| `0x04` | `0x0402` | DBGHITDATA | 1 | R | Its data | 18, 6.3 |
+| `0x05` | `0x0502` | DBGHITKIND | 1 | R | WRITE, IO, WP | 18, 6.3 |
+| `0x06`–`0x0F` | | – | | | Reserved | |
+| `0x10`–`0x2F` | `0x1002`–`0x2F02` | DBGBP0–DBGBP3 | | | Breakpoints (below) | 18, 5 |
+| `0x30`–`0x3C` | `0x3002`–`0x3C02` | DBGWP0–DBGWP1 | | | Watchpoints (below) | 18, 6 |
+
+Breakpoint n (0–3) at register `0x10` + n × 8:
+
+| Offset | Name | Width | Access | Meaning | Spec |
+|--------|------|-------|--------|---------|------|
+| `+0`–`+1` | DBGBP_ADDR (DBGBP_ADDR0, DBGBP_ADDR1) | 2 | RW | The instruction's address | 18, 5.1 |
+| `+2`–`+3` | DBGBP_PAGE (DBGBP_PAGE0, DBGBP_PAGE1) | 2 | RW | The read page to match | 18, 5.1 |
+| `+4` | DBGBP_CTL | 1 | RW | EN, PAGEEN | 18, 5.1 |
+
+Watchpoint n (0–1) at register `0x30` + n × 8:
+
+| Offset | Name | Width | Access | Meaning | Spec |
+|--------|------|-------|--------|---------|------|
+| `+0`–`+1` | DBGWP_ADDR (DBGWP_ADDR0, DBGWP_ADDR1) | 2 | RW | The address or port | 18, 6.1 |
+| `+2`–`+3` | DBGWP_MASK (DBGWP_MASK0, DBGWP_MASK1) | 2 | RW | Bit 1 = compared | 18, 6.1 |
+| `+4` | DBGWP_CTL | 1 | RW | EN, READ, WRITE, IO | 18, 6.1 |
+
 ## 5. Custom block
 
 Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at port (k & `0xFF`) << 8 | (`0x10` + (k >> 8)), in pages `0x10`–`0x13`, and at register page offset `0x1000` + k. A unit's register names in `hw.inc` are custom offsets; `name_P` gives the port (section 8).
@@ -599,14 +631,15 @@ MMU page `0x3F8` (REGS) shows the registers as memory, in any window, for reads,
 | `0x0100`–`0x0107` | – | KEYROW0–7: membrane row r alone (with the extra keys and PS/2 keys as port `0xFE` shows them), in port `0xFE`'s read format; read only. Memory only (Spectrum extra) | 12, 8.1 |
 | `0x0108`–`0x013F` | – | Reserved | |
 | `0x0140`–`0x01FF` | `0x01` | The interrupt pages: register r of page `0x01` at `0x0100` + r, with the same values and commits as through I/O | Section 4.13 |
-| `0x0200`–`0x0FFF` | – | Reserved | |
+| `0x0200`–`0x023C` | `0x02` | The debug unit: register r of page `0x02` at `0x0200` + r | Section 4.14 |
+| `0x023D`–`0x0FFF` | – | Reserved | |
 | `0x1000`–`0x13FF` | `0x10`–`0x13` | The custom block: custom offset k at `0x1000` + k | Section 5 |
 | `0x1400`–`0x16FF` | – | PALETTE0 (layer L0) | 2, 10.2; 4, 6.5 |
 | `0x1700`–`0x19FF` | – | PALETTE1 (layer L1) | 2, 10.2 |
 | `0x1A00`–`0x1CFF` | – | PALETTE2 (layer L2) | 2, 10.2 |
 | `0x1D00`–`0x1FFF` | – | SPRPALETTE | 2, 10.2 |
 
-- **Palettes:** entry i of palette p is at `0x1400` + p × `0x300` + 3i: blue, green, red. The blue and green bytes go into the CPU's colour assembly buffer; the red byte writes the entry whole, as rule 7 and as PALDAT. This path does not use or change PALIDX. A rising `LDIR` of 768 bytes copies a palette, and the bytes are the same stream PALDAT takes. The palettes have no I/O page of their own; I/O pages `0x02`–`0x0F` and `0x14`–`0xFF` are reserved, and so are registers `0x00`–`0x3F` of page `0x01`.
+- **Palettes:** entry i of palette p is at `0x1400` + p × `0x300` + 3i: blue, green, red. The blue and green bytes go into the CPU's colour assembly buffer; the red byte writes the entry whole, as rule 7 and as PALDAT. This path does not use or change PALIDX. A rising `LDIR` of 768 bytes copies a palette, and the bytes are the same stream PALDAT takes. The palettes have no I/O page of their own; I/O pages `0x03`–`0x0F` and `0x14`–`0xFF` are reserved, and so are registers `0x00`–`0x3F` of page `0x01` and `0x3D`–`0xFF` of page `0x02`.
 - Reserved offsets read `0xFF` and ignore writes.
 - Opcode fetches from the register page read `0xFF` (`RST 38h`) and have no side effect (spec 1, section 5.7).
 - Register page accesses use no SRAM cycle.
@@ -682,12 +715,12 @@ port SERDATA 0x53 0x53
 
 - `firmware/include/hw.inc` for sjasmplus, `firmware/include/hw.h` for C (z88dk), and `fpga/rtl/regmap.vh` for the Verilog decoders.
 - **Register names.** A system register's name is its **register number**, which is also its register page offset (`INTID` = `0x0C`, `SYSID` = `0x70`): `ld a,INTID` then `in a,(SYSPAGE)`, or `REGS + INTID` through the register page. A custom register's name is its **custom offset**, which copper lists use (`CMOVE BGCOLOR,0`) and the register page uses (`REGS + REGS_CUSTOM + BGCOLOR`).
-- **Ports.** `name_P` is the register's port, for `ld bc,name_P` and `OUT (C),r`: register × 256 for the system page (`SYSID_P` = `0x7000`), (offset & `0xFF`) << 8 | `0x10` + (offset >> 8) for the custom block (`BGCOLOR_P` = `0x0410`). Low-byte-only ports also get their bare port (`SERDATA_PORT` = `0x53`, `KEMPSTON_PORT` = `0x1F`, `ULA_PORT` = `0xFE`). A page `0x01` register's name is its register number, and `name_P` its port, register × 256 + `0x01` (`NMICTL` = `0x48`, `NMICTL_P` = `0x4801`). `SYSPAGE` = `0x00`, `IPPAGE` = `0x01` and `CUSTPAGE` = `0x10` are the pages.
+- **Ports.** `name_P` is the register's port, for `ld bc,name_P` and `OUT (C),r`: register × 256 for the system page (`SYSID_P` = `0x7000`), (offset & `0xFF`) << 8 | `0x10` + (offset >> 8) for the custom block (`BGCOLOR_P` = `0x0410`). Low-byte-only ports also get their bare port (`SERDATA_PORT` = `0x53`, `KEMPSTON_PORT` = `0x1F`, `ULA_PORT` = `0xFE`). A page `0x01` register's name is its register number, and `name_P` its port, register × 256 + `0x01` (`NMICTL` = `0x48`, `NMICTL_P` = `0x4801`), and a page `0x02` register's likewise (`DBGCTL_P` = `0x0002`). `SYSPAGE` = `0x00`, `IPPAGE` = `0x01`, `DBGPAGE` = `0x02` and `CUSTPAGE` = `0x10` are the pages.
 - **Widths.** Every register has `name_N`, its width in bytes (spec 6's `CMOVEN` uses it).
 - **Byte names.** Each byte of a multi-byte register has a name too, with its own `_P`: the register's name and the byte's number, lowest first: NAME0, NAME1, NAME2, NAME3 (`TIME0`–`TIME3`, `SDCON1`, `SPRDMA1`, `WDTIME1`, `TMR0_COUNT0`, `SPR0_PT0`, `L1_BPL0PT2`, `DMX2_CHDESC0`). Where the name ends in a digit, or in an index and a letter (the MMU's `MMU0` and `MMU0W`), an underscore goes before the byte's number so that it cannot be read as part of the name: `MMU0_0`, `MMU0_1` (read page), `MMU0W_0`, `MMU0W_1` (write page). Every spec uses these names; there are no L/H byte names. The interrupt pages follow the same rule: `IP0_0`, `IP0W_1`, `NMISAV0_0`, `NMISAV0W_1`. Separate byte registers (section 3.1) keep their own names: CTRL0–CTRL3, INTENA0–2, SERSTAT0 and SERSTAT1, SPRCOLL0–3, KEYMAP0–6.
 - **Fields** give `name_FIELD_B` (first bit), `name_FIELD_W` (width in bits) and `name_FIELD_M` (mask), as retro68k's. Magic values are constants (`SYSRESET_MAGIC`, `WDKICK_MAGIC`).
 - **Arrays** give the bases (`L0`–`L2`; `SPR0`–`SPR7`; `TMR0`–`TMR3`; `DMX0`–`DMX3`; `MMU0`–`MMU7`), `NAME_NUM` and `NAME_SPAN`, the offsets within the group (`L_BPL0PT`, `SPR_H`, `TMR_COUNT`, `DMX_CHCTRL`), and ready-added names with their ports (`L1_BPL0PT`, `L1_BPL0PT_P`, `TMR2_COUNT`, `DMX2_CHCTRL_P`).
-- **Register page:** `REGS_SYSTEM` = `0x0000`, `REGS_KEYROW` = `0x0100`, `REGS_IPPAGE` = `0x0100` (add a page `0x01` register number), `REGS_CUSTOM` = `0x1000`, `REGS_PALETTE` = `0x1400`, `REGS_PAL_SPAN` = `0x300`.
+- **Register page:** `REGS_SYSTEM` = `0x0000`, `REGS_KEYROW` = `0x0100`, `REGS_IPPAGE` = `0x0100` (add a page `0x01` register number), `REGS_DBGPAGE` = `0x0200` (add a page `0x02` register number), `REGS_CUSTOM` = `0x1000`, `REGS_PALETTE` = `0x1400`, `REGS_PAL_SPAN` = `0x300`.
 - **Interrupts:** `INT_name` (the source number), `INTB_name` (its bit) and `INTR_name` (its byte), as spec 8 uses them.
 - **Video constants:** `VID_X0`, `VID_Y0`, `VID_W`, `VID_H`, `BEAM_W`, `BEAM_H` (spec 4, section 3.3).
 - `CPORT(offset)` gives the port of a computed custom offset (`CPORT(SPR0+SPR_H)`), in `hw.h` and in `hw.inc` (open point R1).
@@ -708,7 +741,8 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 9. **DMA engine reach:** jobs read and write the custom block and the palettes at `0x7F1000`–`0x7F1FFF`, read the boot ROM, and stop with an error on the system page and KEYROW (`0x7F0000`–`0x7F0FFF`).
 10. **Register page:** each system register at its offset, each custom register at `0x1000` + offset, with the same values and side effects; an MMU page started through a port commits through memory and the other way round; `LD (nn),HL` writes a 2-byte register in one instruction; the palettes read and write at their offsets without touching PALIDX; KEYROW0–7 match port `0xFE`; opcode fetches read `0xFF`.
 11. **Interrupt pages:** every register of section 4.13 at its port and at register page offset `0x0100` + register; registers `0x00`–`0x3F` of page `0x01` read `0xFF` through I/O with no strobe; the page registers commit on byte 1 through both paths; the copper and the DMA engine cannot reach them. The behaviour is tested in spec 2, section 14, and spec 1, section 13.
-12. **Generated files:** the sjasmplus, C and Verilog files agree with this spec; `CPORT` gives the same ports as the `_P` names; every code example in specs 1–14 assembles with `hw.inc`.
+12. **Debug unit:** every register of section 4.14 at its port and at register page offset `0x0200` + register; registers `0x3D`–`0xFF` of page `0x02` read `0xFF`; the copper and the DMA engine cannot reach them. The behaviour is tested in spec 18, section 11.
+13. **Generated files:** the sjasmplus, C and Verilog files agree with this spec; `CPORT` gives the same ports as the `_P` names; every code example in specs 1–14 assembles with `hw.inc`.
 
 ## 10. Open points
 
@@ -718,7 +752,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R2 | Bit layouts in each spec should be checked against the rules of section 3 once more when the generator is written (as retro68k's R2) |
 | R3 | Closed (design plan, branch 11): register writes are direct, with no latches, for the CPU, the copper and the DMA engine (rules 2 and 3). Latches for every wide register would have cost about 1,000–2,000 LUTs. Three exceptions stay: the MMU pages (byte 1 commits), the colours (the red byte commits, one assembly buffer per master) and the captures (one tagged capture per master, rule 4). Software changes wide display registers in the vertical blank or with the copper |
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
-| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Register page: `0x0108`–`0x013F`, `0x0200`–`0x0FFF`. I/O pages `0x02`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
+| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
 | R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
 | R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) and interrupt 19 are reserved for spec 15; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |

@@ -491,7 +491,8 @@ Page `0x3F8` shows the machine's registers as memory, in any window, so the Z80 
 | `0x0100`–`0x0107` | – | **KEYROW0–7**: the membrane keyboard's rows one by one, in port `0xFE`'s read format; read only. Memory only (a Spectrum extra, spec 12) |
 | `0x0108`–`0x013F` | – | Reserved |
 | `0x0140`–`0x01FF` | `0x01` | The **interrupt pages**: register r of I/O page `0x01` at `0x0100` + r (section 9.8) |
-| `0x0200`–`0x0FFF` | – | Reserved |
+| `0x0200`–`0x023C` | `0x02` | The **debug unit**: register r of I/O page `0x02` at `0x0200` + r (spec 18, section 8) |
+| `0x023D`–`0x0FFF` | – | Reserved |
 | `0x1000`–`0x13FF` | `0x10`–`0x13` | The **custom block**: custom offset k at `0x1000` + k (spec 3) |
 | `0x1400`–`0x1FFF` | – | The **palettes**, memory only (section 10.2) |
 
@@ -588,7 +589,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | M6 | Closed: the register page read fits easily at 20 MHz (spec 1, section 5.7) |
 | M7 | Audio (spec 13, parked) has cycle 4 kept for it, as retro68k gives audio a cycle of its own (there cycle 2) |
 | M8 | Closed: palettes packed at `0x1400`–`0x1FFF` (section 10.2); KEYROW0–7 at `0x0100`–`0x0107`. `0x0108`–`0x0FFF` is free for later tables |
-| M9 | A descriptor RAM for the DMA engine (spec 14), if block RAM allows, would need a place in the register page; `0x0200`–`0x0FFF` is free for it |
+| M9 | A descriptor RAM for the DMA engine (spec 14), if block RAM allows, would need a place in the register page; `0x0240`–`0x0FFF` is free for it |
 | M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
 | M11 | IPDEPTH stays at 255 when pushed past it, with no flag, so a runaway nest restores early. A sticky overflow bit could be added if it is ever needed |
 | M12 | Saved pages are a snapshot of all 16 page registers at the switch, but only the windows in the mask are put back. Proposed: as written (the monitor reads the program's whole map from one place) |

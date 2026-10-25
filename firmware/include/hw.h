@@ -1443,6 +1443,230 @@
 #define NMISAV7W_1                   0xFFu
 #define NMISAV7W_1_P                 0xFF01u
 
+/* ---- DEBUG: Debug unit, I/O page 0x02: port = register << 8 | 0x02; registers 0x3D-0xFF reserved */
+#define DEBUG_SIZE                   0x100u
+#define DBGCTL                       0x0u        /* RW, spec 18/8 */
+#define DBGCTL_N                     0x1u
+#define DBGCTL_P                     0x2u
+#define DBGCTL_STEP_B                0x0u
+#define DBGCTL_STEP_W                0x1u
+#define DBGCTL_STEP_M                0x1u
+#define DBGCTL_STEPINT_B             0x1u
+#define DBGCTL_STEPINT_W             0x1u
+#define DBGCTL_STEPINT_M             0x2u
+#define DBGCTL_LIVE_B                0x7u
+#define DBGCTL_LIVE_W                0x1u
+#define DBGCTL_LIVE_M                0x80u
+#define DBGSTAT                      0x1u        /* W1C, spec 18/8 */
+#define DBGSTAT_N                    0x1u
+#define DBGSTAT_P                    0x102u
+#define DBGSTAT_BP0_B                0x0u
+#define DBGSTAT_BP0_W                0x1u
+#define DBGSTAT_BP0_M                0x1u
+#define DBGSTAT_BP1_B                0x1u
+#define DBGSTAT_BP1_W                0x1u
+#define DBGSTAT_BP1_M                0x2u
+#define DBGSTAT_BP2_B                0x2u
+#define DBGSTAT_BP2_W                0x1u
+#define DBGSTAT_BP2_M                0x4u
+#define DBGSTAT_BP3_B                0x3u
+#define DBGSTAT_BP3_W                0x1u
+#define DBGSTAT_BP3_M                0x8u
+#define DBGSTAT_WP0_B                0x4u
+#define DBGSTAT_WP0_W                0x1u
+#define DBGSTAT_WP0_M                0x10u
+#define DBGSTAT_WP1_B                0x5u
+#define DBGSTAT_WP1_W                0x1u
+#define DBGSTAT_WP1_M                0x20u
+#define DBGSTAT_STEP_B               0x6u
+#define DBGSTAT_STEP_W               0x1u
+#define DBGSTAT_STEP_M               0x40u
+#define DBGHITADDR                   0x2u        /* R, spec 18/6.3 */
+#define DBGHITADDR_N                 0x2u
+#define DBGHITADDR_P                 0x202u
+#define DBGHITADDR0                  0x2u
+#define DBGHITADDR0_P                0x202u
+#define DBGHITADDR1                  0x3u
+#define DBGHITADDR1_P                0x302u
+#define DBGHITDATA                   0x4u        /* R, spec 18/6.3 */
+#define DBGHITDATA_N                 0x1u
+#define DBGHITDATA_P                 0x402u
+#define DBGHITKIND                   0x5u        /* R, spec 18/6.3 */
+#define DBGHITKIND_N                 0x1u
+#define DBGHITKIND_P                 0x502u
+#define DBGHITKIND_WRITE_B           0x0u
+#define DBGHITKIND_WRITE_W           0x1u
+#define DBGHITKIND_WRITE_M           0x1u
+#define DBGHITKIND_IO_B              0x1u
+#define DBGHITKIND_IO_W              0x1u
+#define DBGHITKIND_IO_M              0x2u
+#define DBGHITKIND_WP_B              0x2u
+#define DBGHITKIND_WP_W              0x1u
+#define DBGHITKIND_WP_M              0x4u
+
+/* ---- DBGBP0..DBGBP3: 4 x 0x8 bytes, spec 18/8 */
+#define DBGBP_NUM                    0x4u
+#define DBGBP_SPAN                   0x8u
+#define DBGBP_ADDR                   0x0u        /* RW, spec 18/5.1 (add to DBGBPn) */
+#define DBGBP_ADDR_N                 0x2u
+#define DBGBP_ADDR0                  0x0u
+#define DBGBP_ADDR1                  0x1u
+#define DBGBP_PAGE                   0x2u        /* RW, spec 18/5.1 (add to DBGBPn) */
+#define DBGBP_PAGE_N                 0x2u
+#define DBGBP_PAGE0                  0x2u
+#define DBGBP_PAGE1                  0x3u
+#define DBGBP_PAGE_PAGE_B            0x0u
+#define DBGBP_PAGE_PAGE_W            0xAu
+#define DBGBP_PAGE_PAGE_M            0x3FFu
+#define DBGBP_CTL                    0x4u        /* RW, spec 18/5.1 (add to DBGBPn) */
+#define DBGBP_CTL_N                  0x1u
+#define DBGBP_CTL_EN_B               0x0u
+#define DBGBP_CTL_EN_W               0x1u
+#define DBGBP_CTL_EN_M               0x1u
+#define DBGBP_CTL_PAGEEN_B           0x1u
+#define DBGBP_CTL_PAGEEN_W           0x1u
+#define DBGBP_CTL_PAGEEN_M           0x2u
+#define DBGBP0                       0x10u
+#define DBGBP0_P                     0x1002u
+#define DBGBP0_ADDR                  0x10u
+#define DBGBP0_ADDR_N                0x2u
+#define DBGBP0_ADDR_P                0x1002u
+#define DBGBP0_ADDR0                 0x10u
+#define DBGBP0_ADDR0_P               0x1002u
+#define DBGBP0_ADDR1                 0x11u
+#define DBGBP0_ADDR1_P               0x1102u
+#define DBGBP0_PAGE                  0x12u
+#define DBGBP0_PAGE_N                0x2u
+#define DBGBP0_PAGE_P                0x1202u
+#define DBGBP0_PAGE0                 0x12u
+#define DBGBP0_PAGE0_P               0x1202u
+#define DBGBP0_PAGE1                 0x13u
+#define DBGBP0_PAGE1_P               0x1302u
+#define DBGBP0_CTL                   0x14u
+#define DBGBP0_CTL_N                 0x1u
+#define DBGBP0_CTL_P                 0x1402u
+#define DBGBP1                       0x18u
+#define DBGBP1_P                     0x1802u
+#define DBGBP1_ADDR                  0x18u
+#define DBGBP1_ADDR_N                0x2u
+#define DBGBP1_ADDR_P                0x1802u
+#define DBGBP1_ADDR0                 0x18u
+#define DBGBP1_ADDR0_P               0x1802u
+#define DBGBP1_ADDR1                 0x19u
+#define DBGBP1_ADDR1_P               0x1902u
+#define DBGBP1_PAGE                  0x1Au
+#define DBGBP1_PAGE_N                0x2u
+#define DBGBP1_PAGE_P                0x1A02u
+#define DBGBP1_PAGE0                 0x1Au
+#define DBGBP1_PAGE0_P               0x1A02u
+#define DBGBP1_PAGE1                 0x1Bu
+#define DBGBP1_PAGE1_P               0x1B02u
+#define DBGBP1_CTL                   0x1Cu
+#define DBGBP1_CTL_N                 0x1u
+#define DBGBP1_CTL_P                 0x1C02u
+#define DBGBP2                       0x20u
+#define DBGBP2_P                     0x2002u
+#define DBGBP2_ADDR                  0x20u
+#define DBGBP2_ADDR_N                0x2u
+#define DBGBP2_ADDR_P                0x2002u
+#define DBGBP2_ADDR0                 0x20u
+#define DBGBP2_ADDR0_P               0x2002u
+#define DBGBP2_ADDR1                 0x21u
+#define DBGBP2_ADDR1_P               0x2102u
+#define DBGBP2_PAGE                  0x22u
+#define DBGBP2_PAGE_N                0x2u
+#define DBGBP2_PAGE_P                0x2202u
+#define DBGBP2_PAGE0                 0x22u
+#define DBGBP2_PAGE0_P               0x2202u
+#define DBGBP2_PAGE1                 0x23u
+#define DBGBP2_PAGE1_P               0x2302u
+#define DBGBP2_CTL                   0x24u
+#define DBGBP2_CTL_N                 0x1u
+#define DBGBP2_CTL_P                 0x2402u
+#define DBGBP3                       0x28u
+#define DBGBP3_P                     0x2802u
+#define DBGBP3_ADDR                  0x28u
+#define DBGBP3_ADDR_N                0x2u
+#define DBGBP3_ADDR_P                0x2802u
+#define DBGBP3_ADDR0                 0x28u
+#define DBGBP3_ADDR0_P               0x2802u
+#define DBGBP3_ADDR1                 0x29u
+#define DBGBP3_ADDR1_P               0x2902u
+#define DBGBP3_PAGE                  0x2Au
+#define DBGBP3_PAGE_N                0x2u
+#define DBGBP3_PAGE_P                0x2A02u
+#define DBGBP3_PAGE0                 0x2Au
+#define DBGBP3_PAGE0_P               0x2A02u
+#define DBGBP3_PAGE1                 0x2Bu
+#define DBGBP3_PAGE1_P               0x2B02u
+#define DBGBP3_CTL                   0x2Cu
+#define DBGBP3_CTL_N                 0x1u
+#define DBGBP3_CTL_P                 0x2C02u
+
+/* ---- DBGWP0..DBGWP1: 2 x 0x8 bytes, spec 18/8 */
+#define DBGWP_NUM                    0x2u
+#define DBGWP_SPAN                   0x8u
+#define DBGWP_ADDR                   0x0u        /* RW, spec 18/6.1 (add to DBGWPn) */
+#define DBGWP_ADDR_N                 0x2u
+#define DBGWP_ADDR0                  0x0u
+#define DBGWP_ADDR1                  0x1u
+#define DBGWP_MASK                   0x2u        /* RW, spec 18/6.1 (add to DBGWPn) */
+#define DBGWP_MASK_N                 0x2u
+#define DBGWP_MASK0                  0x2u
+#define DBGWP_MASK1                  0x3u
+#define DBGWP_CTL                    0x4u        /* RW, spec 18/6.1 (add to DBGWPn) */
+#define DBGWP_CTL_N                  0x1u
+#define DBGWP_CTL_EN_B               0x0u
+#define DBGWP_CTL_EN_W               0x1u
+#define DBGWP_CTL_EN_M               0x1u
+#define DBGWP_CTL_READ_B             0x1u
+#define DBGWP_CTL_READ_W             0x1u
+#define DBGWP_CTL_READ_M             0x2u
+#define DBGWP_CTL_WRITE_B            0x2u
+#define DBGWP_CTL_WRITE_W            0x1u
+#define DBGWP_CTL_WRITE_M            0x4u
+#define DBGWP_CTL_IO_B               0x3u
+#define DBGWP_CTL_IO_W               0x1u
+#define DBGWP_CTL_IO_M               0x8u
+#define DBGWP0                       0x30u
+#define DBGWP0_P                     0x3002u
+#define DBGWP0_ADDR                  0x30u
+#define DBGWP0_ADDR_N                0x2u
+#define DBGWP0_ADDR_P                0x3002u
+#define DBGWP0_ADDR0                 0x30u
+#define DBGWP0_ADDR0_P               0x3002u
+#define DBGWP0_ADDR1                 0x31u
+#define DBGWP0_ADDR1_P               0x3102u
+#define DBGWP0_MASK                  0x32u
+#define DBGWP0_MASK_N                0x2u
+#define DBGWP0_MASK_P                0x3202u
+#define DBGWP0_MASK0                 0x32u
+#define DBGWP0_MASK0_P               0x3202u
+#define DBGWP0_MASK1                 0x33u
+#define DBGWP0_MASK1_P               0x3302u
+#define DBGWP0_CTL                   0x34u
+#define DBGWP0_CTL_N                 0x1u
+#define DBGWP0_CTL_P                 0x3402u
+#define DBGWP1                       0x38u
+#define DBGWP1_P                     0x3802u
+#define DBGWP1_ADDR                  0x38u
+#define DBGWP1_ADDR_N                0x2u
+#define DBGWP1_ADDR_P                0x3802u
+#define DBGWP1_ADDR0                 0x38u
+#define DBGWP1_ADDR0_P               0x3802u
+#define DBGWP1_ADDR1                 0x39u
+#define DBGWP1_ADDR1_P               0x3902u
+#define DBGWP1_MASK                  0x3Au
+#define DBGWP1_MASK_N                0x2u
+#define DBGWP1_MASK_P                0x3A02u
+#define DBGWP1_MASK0                 0x3Au
+#define DBGWP1_MASK0_P               0x3A02u
+#define DBGWP1_MASK1                 0x3Bu
+#define DBGWP1_MASK1_P               0x3B02u
+#define DBGWP1_CTL                   0x3Cu
+#define DBGWP1_CTL_N                 0x1u
+#define DBGWP1_CTL_P                 0x3C02u
+
 /* ---- CUSTOM: Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8) */
 #define CUSTOM_SIZE                  0x400u
 #define VIDCON                       0x0u        /* RW, spec 4/6.1 */
@@ -3303,6 +3527,8 @@
 #define SYSPAGE                      0x0u        /* The system page */
 #define IPPAGE                       0x1u        /* The interrupt pages' I/O page */
 #define REGS_IPPAGE                  0x100u      /* Register page: I/O page 0x01 (REGS_IPPAGE + register) */
+#define DBGPAGE                      0x2u        /* The debug unit's I/O page */
+#define REGS_DBGPAGE                 0x200u      /* Register page: I/O page 0x02 (REGS_DBGPAGE + register) */
 #define CUSTPAGE                     0x10u       /* The custom block's first page */
 #define REGS_PALETTE                 0x1400u     /* Register page: PALETTE0 */
 #define REGS_PAL_SPAN                0x300u      /* Register page: bytes from one palette to the next */

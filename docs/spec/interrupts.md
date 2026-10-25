@@ -16,7 +16,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | IM 1 | `RST 38h`; INTID gives the source chosen at that acknowledge |
 | IM 0 | Not supported (section 7) |
 | Spurious acknowledge | Entry 23 of the table (NONE) |
-| NMI | Multiface button and USB BREAK; NMICON turns each off, NMISTAT says which. The NMI monitor paging is a Spectrum extra (spec 7, section 10.1) |
+| NMI | Multiface button and USB BREAK; NMICON turns each off, NMISTAT says which. Also the debug unit (spec 18), which has its own enables and DBGSTAT. The NMI monitor paging is a Spectrum extra (spec 7, section 10.1) |
 | Software interrupt | Source SOFT (18), raised and cleared through SOFTINT |
 | RETI | Not needed by the controller (section 8); the interrupt pages count it (spec 2, section 9.7) |
 | Interrupt pages | A retro-z80 extra in the MMU and bus interface: an interrupt or NMI can switch chosen windows and keep its return address in registers (spec 2, section 9.7). The controller does not take part |
@@ -142,6 +142,7 @@ An interrupt reaches the CPU only when four switches are all on: the unit's enab
 - **Nesting:** the controller has no "in service" state. If a handler does `EI` early, any pending enabled source can interrupt it, including one with a higher number. To let only lower numbers in, the handler clears the INTENA bits of the higher-numbered sources (one set/clear write per byte), does `EI`, and sets them again before it returns. This replaces retro68k's levels.
 - **RETI** is not needed by the controller. Zilog's daisy-chained peripherals watch the bus for `RETI` to end their "in service" state; this controller has none, so it ignores `RETI`. Handlers may end with `EI` then `RETI` (the usual habit, and harmless) or `EI` then `RET`. With the **interrupt pages** on (IPCTL.EN), the bus interface counts the nesting and puts the program's pages back at `RETI`; a handler ending `EI` then `RET` writes IPRESTORE.RET first (spec 2, section 9.7). Each nested handler's `EI` lets the next interrupt in as usual; only the outermost switches.
 - **HALT:** a pending interrupt (or NMI) wakes the CPU from `HALT` as usual.
+- **A debug step** (spec 18, section 4.2) holds the CPU's /INT high from DBGCTL.STEP until the step's NMI, unless DBGCTL.STEPINT is set. The controller does not see it: requests stay pending and are taken afterwards.
 
 ## 9. Software interrupt
 
@@ -157,8 +158,9 @@ The Z80's /NMI is edge-triggered and cannot be masked by `DI`. The CPU jumps to 
 |------------|-------|--------|------|
 | Multiface button | A press of the KS3's Multiface (NMI) button, debounced in the FPGA (spec 7, section 6) | NMICON.BUTTONEN | NMISTAT.BUTTON |
 | USB break | The BREAK control command from the PC (spec 10) | NMICON.USBEN | NMISTAT.USB |
+| Debug unit | A single step, a breakpoint or a watchpoint (spec 18, a retro-z80 extra) | The unit's own: DBGCTL.STEP, DBGBPn_CTL.EN, DBGWPn_CTL.EN | DBGSTAT (spec 18, section 8) |
 
-- Both enables are on after reset. INTCON.MASTER and INTENA do not affect the NMI. An event from a source that is turned off is ignored and sets no flag.
+- Both enables are on after reset. The debug unit has no NMICON bit: it asks only while it is live and something in it is enabled, never while INNMI is 1 (spec 18, section 3). INTCON.MASTER and INTENA do not affect the NMI. An event from a source that is turned off is ignored and sets no flag.
 - An enabled event sets its NMISTAT flag (sticky, W1C) and sets an internal **NMI request**. The controller holds /NMI low while the request is set, and the bus interface clears the request when the CPU starts its NMI response (an nmi_ack pulse, spec 1, section 8.2). So **each press or break gives exactly one NMI**, and the handler does not have to clear anything for the NMI to stop. It should still clear NMISTAT, so that next time it can tell which source it was.
 - Events that come in before the CPU has taken the request add to that one NMI; NMISTAT shows every source involved.
 - **NMI monitor paging** (a Spectrum extra, spec 7, section 10.1), now the NMI set of the interrupt pages (spec 2, section 9.7): by default taking an NMI switches window 0 to the boot ROM's monitor page and keeps the return address in NMICAPPC, and `RETN` puts both back. The bus interface sends nmi_ack when it sees the response's M1 (spec 1, section 8.2). While NMICTL.INNMI is 1 (from every NMI's entry until its `RETN`, whatever NMICTL.EN holds), the controller holds /NMI high: events still set their flags and the request, and the request gives a new NMI straight after `RETN`. So the monitor is never entered twice, and an NMI never interrupts an NMI handler.
@@ -279,7 +281,7 @@ vbl:    push af
 - **Spurious:** a request cleared in the instruction during which /INT was sampled gives entry 23 and INTID = 23.
 - **Frozen choice:** a lower-numbered source arriving during the acknowledge cycle does not change the vector driven in that cycle.
 - **SOFTINT:** SET raises, CLR clears, the bit shows in INTRAW2; SOFT runs only after lower-numbered pending sources.
-- **NMI:** the button and USB BREAK each give exactly one NMI per event and set their NMISTAT bit; a source turned off in NMICON gives none and sets nothing; MASTER and INTENA do not block it; two events before the response give one NMI; with NMICTL.EN on and off, no NMI reaches the CPU while INNMI is 1, and a request left pending gives one straight after `RETN`.
+- **NMI:** the button and USB BREAK each give exactly one NMI per event and set their NMISTAT bit; a source turned off in NMICON gives none and sets nothing; MASTER and INTENA do not block it; two events before the response give one NMI; with NMICTL.EN on and off, no NMI reaches the CPU while INNMI is 1, and a request left pending gives one straight after `RETN`. The debug unit's requests reach /NMI as the other two do (spec 18, section 11).
 - **RETI:** handlers ending with `RET` and with `RETI` behave the same at the controller (the interrupt pages, spec 2, section 14, test the difference).
 - **Latency:** in simulation, from a unit's flag to the first handler instruction, at each CPU speed; check against section 11.
 - **ZEXDOC/ZEXALL** still pass with a timer interrupt running (handlers keep all registers).

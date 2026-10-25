@@ -13,7 +13,7 @@ retro-z80 wrote the first draft (its design plan, branch 16); retro68k reviews a
 | Monitor | One-letter commands with hex arguments, on the screen and keyboard and on the USB serial console at once |
 | Addresses | Hex, 1–8 digits. A plain address is a CPU address; a `P` in front makes it a physical address (section 3.2) |
 | Access size | `.B`, `.W` or `.L` after the command letter; byte by default. Word and long accesses are checked for alignment where the CPU needs it, so the monitor never faults (section 3.3) |
-| Commands | Dump, enter, fill, copy, compare, search, go, registers, ports, disassemble, memory test, upload, load and boot from SD, resident image, help (section 4) |
+| Commands | Dump, enter, fill, copy, compare, search, go, step, registers, ports, disassemble, memory test, upload, load and boot from SD, resident image, help (section 4) |
 | Upload | Binary frames over the USB serial link, each with a length and a **CRC-32**; a reply to each frame: ok, CRC error, frame error or refused (section 6) |
 | Image header | 32 bytes, big-endian: magic `RIMG`, machine (`Z80 ` or `68K `), target, flags, load address, entry point, size, image CRC-32, header CRC-32 (section 5) |
 | Targets | 0 a program; 1 a **new boot ROM image** (written to the boot ROM with SYSCON.ROMWE, then a reset); 2 a resident image (a ROM image kept in RAM, for BASIC) |
@@ -122,6 +122,7 @@ Monitor.  H for help.
 | **V** compare | `V addr count addr2` | Compare two ranges; list the first 16 differences, then how many there were | Yes | Yes |
 | **S** search | `Ss addr count value ...` | Find a string of values or a quoted string; list the first 16 places. Enter carries on | Yes | Yes |
 | **G** go | `G [addr [break]]` | Run from addr, or from PC as `R` shows it. With break, a breakpoint at that address (section 4.3) | Yes | Yes |
+| **N** step | `N` | Run one instruction, then show the registers and the prompt | Yes | Yes |
 | **R** registers | `R [name [value]]` | Show the program's registers; with a name, show that one; with a name and value, set it (section 4.2) | Yes | Yes |
 | **P** ports | `P port [value]` | Read an I/O port, or write a byte to it | Yes: 16-bit ports, register (high byte) : page (low byte) | `? not on this machine` (no I/O space) |
 | **I** disassemble | `I [addr [count]]` | Show count instructions (16 by default) from addr. No address: carry on | Yes | Optional (retro68k decides) |
@@ -138,7 +139,7 @@ Monitor.  H for help.
 - **V** prints each difference on a line of its own, `addr: xx  addr2: yy` (the byte in each range), for the first 16 differences; then `Differences: n`, the count in hex with at least 4 digits.
 - **S** prints the places it finds, 8 to a line, each address followed by two spaces. After 16 places it prints `Enter for more.` and stops; Enter on an empty line goes on with the next 16 (section 2.3). If it reaches the end of the range without finding a place since the command or the last Enter, it prints `Not found.`
 
-Letters not in the table (A, J, K, M, N, O, Q, W, Y, Z) are kept free. A command that only one machine needs takes one of them, and is listed in this table first, so the two monitors never give a letter two meanings.
+Letters not in the table (A, J, K, M, O, Q, W, Y, Z) are kept free. A command that only one machine needs takes one of them, and is listed in this table first, so the two monitors never give a letter two meanings.
 
 ### 4.2 Registers
 

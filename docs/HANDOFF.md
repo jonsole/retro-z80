@@ -77,6 +77,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - The resident BASIC image in SRAM pages `0x0F8`–`0x0FB` (32 KB), mapped at `0x2000` with write page NONE (spec 16, section 10; open point B3).
    - Next: the boot ROM's tickets in spec 16, section 11 (monitor on screen and keyboard first; the loader waits for the FT232H).
 4a. **BBC BASIC (Z80)** (branch 13): ask R. T. Russell about the name; after phase 1, break the port into tickets (host layer, loader, files, VDU). Research: `docs/notes/bbc-basic.md`.
+4b. **Remote debugging** (branch 18), drafted: spec 18 `docs/spec/debug-unit.md` (registers in I/O page `0x02`) and `docs/spec/debug.md` (transport offered to retro68k; the `N` step command added to `monitor.md`); open points DU1–DU9, DB1–DB12, B15–B17. Screen capture over the link is recorded as future only (design plan, branch 18).
 5. Then phase 1 (section 7) and the KS2 bring-up build (phase 3, branch 12).
 
 ## 6. Open questions (design plan section 6)
