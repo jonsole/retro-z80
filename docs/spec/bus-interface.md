@@ -20,7 +20,7 @@ It follows retro68k's spec 1, with tv80 in place of fx68k. The memory side (the 
 | Register bus | 8-bit, one clock per access; masters the copper (first), the CPU, the sprite sequencer, the DMA engine (last) (section 4.2) |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
 | Interrupts | IM 2: the interrupt controller (spec 8) puts VECBASE + 2 × source on the bus in the acknowledge cycle. IM 1: the handler reads INTID. No IM 0 |
-| Interrupt pages, stack capture | A retro-z80 extra: an interrupt or NMI can switch chosen windows (after its two pushes, before the vector table read or the first fetch) and keep its pushed PC in registers instead of memory; `RETI` or `RETN` puts both back before its stack reads (sections 8.3–8.6) |
+| Interrupt pages, stack capture | A retro-z80 extra: an interrupt or NMI can switch chosen windows (at the acknowledge, before its two pushes) and keep its pushed PC in registers instead of memory; `RETI` or `RETN` takes its stack reads from the capture or through the same switched map, then puts the program's windows back before the fetch at the return address (sections 8.3–8.6) |
 | NMI paging | Spectrum extra, now the NMI set's default: window 0 to the boot ROM's monitor page, PC captured; `RETN` puts them back (section 8.2) |
 | Not used | busrq_n (tied high), busak_n, halt_n, IM 0 |
 
@@ -205,7 +205,7 @@ The CPU owns **cycles 0 and 2** of every slot, issued at slot edges 0 and 4 (spe
 | Register page | No SRAM cycle: a register bus cycle (section 5.7) | As above |
 | Refresh (rfsh_n low) | None | Section 7 |
 
-The page for an access is looked up in T1, from the window's read page for a fetch or read and its write page for a write, and kept with the request. So a posted write goes to the page that was mapped when it was made, even if the mapping changes before it reaches the SRAM (this matters for the interrupt pages, section 8.3).
+The page for an access is looked up in T1, from the window's read page for a fetch or read and its write page for a write, and kept with the request. So a posted write goes to the page that was mapped when it was made, even if the mapping changes before it reaches the SRAM (this matters for the interrupt pages, sections 8.3 and 8.4).
 
 ### 5.3 Timing at 20 MHz
 
@@ -390,7 +390,7 @@ The interrupt controller (spec 8) drives int_n low while an enabled source is pe
 | End of T2 (after the repeated T1s) | The core takes the byte, as it takes an opcode: at least 16 clocks to spare |
 | End of the cycle | The bus interface sends one **acknowledge pulse** (int_ack), which ends the freeze (spec 8). The acknowledge clears nothing; the handler clears its source |
 
-- In **IM 2** the byte is VECBASE + 2 × source (spec 8), the low byte of the table address, with I as the high byte. The two writes that push PC come first, then the two reads of the table; all are ordinary memory cycles (section 5), except that the interrupt pages may capture the pushes and switch windows before the table read (section 8.3).
+- In **IM 2** the byte is VECBASE + 2 × source (spec 8), the low byte of the table address, with I as the high byte. The two writes that push PC come first, then the two reads of the table; all are ordinary memory cycles (section 5), except that the interrupt pages may switch windows in the acknowledge, before the pushes, and may capture the pushes (section 8.3).
 - In **IM 1** the byte is ignored and the core does `RST 0x38`; the handler reads INTID (register `0x0C` of page `0x00`), which the controller set in the acknowledge.
 - IM 0 is not supported: the controller always drives the IM 2 byte, which IM 0 would run as an instruction (spec 8).
 
@@ -402,15 +402,17 @@ nmi_n comes from the interrupt controller, which drives it from the Multiface bu
 
 tv80 gives the dummy M1 the same automatic wait as an acknowledge: it repeats T1, with intcycle_n high. No other opcode fetch ever repeats T1 (wait_n is tied high, and only the acknowledge and the NMI response have automatic waits in M1), so the bus interface knows the NMI response by it, at the cen edge that starts the second T1 (E + 5n; E + 28 at 3.57 MHz). In that clock it sends **nmi_ack**, which ends the controller's NMI request (spec 8, section 10). The dummy fetch's read has already been made by then, through the program's map; it has no side effect (an opcode fetch from the register page makes no strobe).
 
-The **NMI monitor paging** (a Spectrum extra, Multiface style) is now the NMI set's default in the interrupt pages (section 8.3; spec 2, section 9.7): window 0 to the boot ROM's monitor page, read only, for the NMI; the program's PC and SP kept in NMICAPPC and NMICAPSP; both put back at `RETN`. The monitor itself is in spec 7, section 10.1 and spec 16, section 8.6.
+The **NMI monitor paging** (a Spectrum extra, Multiface style) is now the NMI set's default in the interrupt pages (section 8.3; spec 2, section 9.7): for the NMI, window 0 reads the boot ROM's monitor page and writes the monitor's workspace page (`0x0FF`, spec 16, section 5.3); the program's PC and SP kept in NMICAPPC and NMICAPSP; both put back at `RETN`. The monitor itself is in spec 7, section 10.1 and spec 16, section 8.6.
 
 What changed from the earlier NMI paging:
 
 | Earlier | Now | Why |
 |---------|-----|-----|
-| Entry spotted by the first fetch at `0x0066` after a falling nmi_n edge | Entry spotted by the response's own M1 (a fetch that repeats T1); the switch is at the first fetch after its two pushes, which is the fetch at `0x0066` | Exact: a program that jumps to `0x0066` between the edge and the response no longer pages early. And one rule for the NMI and maskable interrupts |
-| Window 0 only, fixed pages `0x3FF` and NONE | Any windows (NMIMASK), any pages (NMIP0–7, NMIP0W–7W); the reset values give the old behaviour | Design plan, branch 17 |
-| PC pushed onto the program's stack | Kept in NMICAPPC by default (NMICTL.CAPTURE), with the SP in NMICAPSP; `RETN` takes it from there | A bad SP corrupts nothing (design plan, branch 17) |
+| Entry spotted by the first fetch at `0x0066` after a falling nmi_n edge | Entry spotted by the response's own M1 (a fetch that repeats T1); the switch is made in that M1, before the two pushes | Exact: a program that jumps to `0x0066` between the edge and the response no longer pages early. And one rule for the NMI and maskable interrupts |
+| Window 0 only, fixed pages `0x3FF` and NONE | Any windows (NMIMASK), any pages (NMIP0–7, NMIP0W–7W); the reset values give the old behaviour, except the write page | Design plan, branch 17 |
+| Window 0 read only during the NMI (write page NONE) | Window 0's writes go to the monitor's workspace page `0x0FF` (NMIP0W) | The monitor page saves registers and sets up its stack there, so with capture an NMI writes nothing in the program's memory (design plan, branch 17; spec 16, section 8.6) |
+| PC pushed onto the program's stack | Kept in NMICAPPC by default (NMICTL.CAPTURE), with the SP in NMICAPSP; `RETN` takes it from there. With CAPTURE off it is pushed through the NMI's map | A bad SP corrupts nothing (design plan, branch 17) |
+| Window 0 put back as `RETN`'s second opcode byte is taken | Put back after `RETN`'s two stack reads, before the fetch at the return address | The stack reads use the same map as the pushes |
 | NMICTL at register `0x7C` of page `0x00`; NMISAV0, NMISAVW0, NMISAVHI at `0x7D`–`0x7F`, read only, window 0 only | NMICTL at `0x48` of page `0x01`, the same EN and INNMI bits and CAPTURE added; NMISAV0–7 and NMISAV0W–7W, 2 bytes each, writable, all 16 page registers | One layout for both sets; writable so the monitor's `G` can change the program's map |
 | `CB ED` followed by `45` would have ended NMI mode | The opcode watcher knows the CB prefix (section 8.4) | A fix |
 
@@ -431,11 +433,11 @@ A **response** is, in order, with nothing between (tv80's microcode, `tv80_mcode
 
 So the bus interface knows each step by the order of the cycles, not by addresses: after a response M1, the **first two memory writes** are the pushes and the **first memory read or fetch** after them is the handler's. A set is **taken** when its response is the outermost (maskable: IPDEPTH = 0; NMI: INNMI = 0) and its EN or CAPTURE is 1; then, in the response M1, the bus interface notes the set's mask, EN and CAPTURE and sets the depth to 1 (INNMI). A nested maskable response only counts IPDEPTH up (to at most 255).
 
-**Capture (steps 2 and 3),** when the taken set noted CAPTURE: at each push's T1 the early outputs say "write", and the bus interface, knowing it is a push, makes **no request**: no cpu_req, no ROM write, no register bus strobe, whatever page the write would go to. At the first push's T1 it loads CAPSP with A + 1 (the SP the program had); at each push's T2 + 1 it loads dout into CAPPC, high byte first. The core sees an ordinary write cycle and steps SP down by 2. A nested response, or a set without CAPTURE, pushes as normal.
+**Switch (step 1),** when the taken set noted EN: in the clock after the response is seen, the copy of spec 2, section 9.9 starts. In 8 clocks, one window per clock, it saves all 16 MMU page registers into the set's saved pages and loads the masked windows from the set's pages. It is done long before the first push's T1 (section 8.5), so the pushes, the table read (or the fetch at `0x0038` or `0x0066`) and the handler all use the switched map through the ordinary lookup (section 5.2), with no multiplexer added to it. The response M1's own read (the NMI's dummy fetch) has been looked up by then, through the program's map.
 
-**Switch (step 4),** when the taken set noted EN: in that access's T1 the MMU lookup (section 5.2) takes the window's page from the set's interrupt pages if the window is in the noted mask. At E + 4 the bus interface loads all 16 MMU page registers into the set's saved pages and loads the masked windows from the interrupt pages, so every later access uses them through the ordinary lookup. The switch and the capture are independent: with both, the pushes are captured and the table or the first opcode comes from the switched map.
+**Capture (steps 2 and 3),** when the taken set noted CAPTURE: at each push's T1 the early outputs say "write", and the bus interface, knowing it is a push, makes **no request**: no cpu_req, no ROM write, no register bus strobe, whatever page the write would go to. At the first push's T1 it loads CAPSP with A + 1 (the SP the program had); at each push's T2 + 1 it loads dout into CAPPC, high byte first. The core sees an ordinary write cycle and steps SP down by 2. A nested response, or a set without CAPTURE, pushes as normal, through the switched map. The switch and the capture are independent: with both, the pushes are captured and the table or the first opcode comes from the switched map.
 
-**Why after the pushes.** The return restores the pages as its last opcode byte is taken, before its two stack reads (design plan, branch 17), so the stack reads use the program's map. The pushes must use the same map, or the pops would not find the return address when SP is in a switched window. So the pushes go through the program's map (or into the capture), and only the table read and the handler see the switched windows. A handler that wants its stack in its own bank loads its own SP, or lets its `PUSH`es land in a switched window at the program's SP (spec 2, section 9.7).
+**Why before the pushes.** The return restores the pages after its two stack reads (design plan, branch 17), so the stack reads use the switched map, and the pushes must use the same map, or the pops would not find the return address when SP is in a switched window. Switching first also lets a handler's stack live in its own bank from the first push: with SP in a switched window, the return address goes into the interrupt page, not into the program's memory (spec 2, section 9.7).
 
 ### 8.4 The return: watching opcodes
 
@@ -460,24 +462,56 @@ Reset and every response M1 (acknowledge or NMI) put it in START. tv80 never tak
 **The return** is `RETI` while IPDEPTH ≥ 1, `C9` while IPRESTORE.RET is armed and IPDEPTH ≥ 1, or `RETN` while INNMI = 1. At the cen edge that ends T2 of that fetch, as the core takes the byte:
 
 - `RETI` or armed `RET` with IPDEPTH ≥ 2: IPDEPTH counts down; nothing else. An armed `RET` or a `RETI` clears the arm.
-- The outermost return of a set (IPDEPTH 1, or INNMI 1): the windows in the noted mask are loaded from the saved pages (if EN was noted); the **next two memory reads** are marked to come from the capture (if CAPTURE was noted); the depth becomes 0.
+- The outermost return of a set (IPDEPTH 1, or INNMI 1): the **next two memory reads** are marked as the stack reads. If CAPTURE was noted they come from the capture; if EN was noted, the windows in the noted mask are loaded from the saved pages after the second of them. The depth becomes 0 at the second of them.
 
-The next two memory reads are the instruction's stack reads (tv80's M2 and M3 of `RET`, `RETI` and `RETN`, with nothing between). Each makes **no request**: the bus interface puts CAPPC bits 7–0, then bits 15–8, at di, as it does a ROM byte, and ignores the address. The core steps SP up by 2, so SP is back at the program's value if the handler left it as it found it.
+The next two memory reads are the instruction's stack reads (tv80's M2 and M3 of `RET`, `RETI` and `RETN`, with nothing between). With capture, each makes **no request**: the bus interface puts CAPPC bits 7–0, then bits 15–8, at di, as it does a ROM byte, and ignores the address. Without capture they are ordinary reads through the switched map, the same map the pushes used. The core steps SP up by 2, so SP is back at the program's value if the handler left it as it found it.
 
-**IPRESTORE.NOW** acts in the clock after its write strobe (E + 7 of the `OUT`): the count, and at 0 the restore, with the capture dropped. The next access is the next opcode fetch, at E + 20 or later.
+**The restore** starts at the cen edge that starts the second stack read's T2 (E + 5n), when that read's page has been looked up and kept with its request (section 5.2), and loads one window per clock for 8 clocks (spec 2, section 9.9). The fetch at the return address, at E + 15n, uses the program's map.
+
+**IPRESTORE.NOW** acts in the clock after its write strobe (E + 7 of the `OUT`, or of the register page write): the count, and at 0 the restore, with the capture dropped. The copy runs from that clock for 8 clocks. The next opcode fetch is at E + 20 after an `OUT (C),r` and at E + 15 after a register page write; it is in a window outside the mask (or at the same address in both pages, spec 2, section 9.7), so it does not wait for the copy.
 
 ### 8.5 Timing at every speed
 
-Every step is fixed to the cycle's own cen edges, so it holds at every speed. Times are from the cen edge E that starts T1 of the cycle named, at speed n (5n clocks a T-state; 28 at 3.57 MHz).
+Every step is fixed to the cycle's own cen edges, so it holds at every speed. Times are from the cen edge E that starts T1 of the cycle named, at speed n (5n clocks a T-state; 28 at 3.57 MHz). A copy (the switch or the restore) loads one window per clock for 8 clocks, whatever the speed (spec 2, section 9.9).
 
-| Step | When | Needed by | Spare |
-|------|------|-----------|-------|
-| INT response seen | intcycle_n in T1, sampled at E + 3 (as for the vector, section 8.1) | Before the first push's T1, 3 T-states or more later | Over 10 clocks |
-| NMI response seen | The second T1, at E + 5n (E + 28) | The same | Over 10 clocks |
-| A push captured | Decided at E + 3 from the early outputs, as every request is (section 5.2); CAPSP loaded at E + 3; dout taken at T2 + 1 | The request it replaces would be loaded at E + 3 to E + 4 (T2 + 4 for the data) | As any write |
-| Switch | The lookup of the switching read takes the interrupt page through one more 2:1 multiplexer, inside the 3 clocks from E to cpu_req (B1); the MMU and saved pages load at E + 4 | The next access's T1, at E + 15 at the earliest (3 T-states at 20 MHz) | 11 clocks or more |
-| Return seen | The opcode byte is at di by E + 8 or E + 9 at 20 MHz (section 5.3), and the watcher acts at E + 10n, when the core takes it | The first stack read's T1, after T3 and T4: E + 20n (E + 112) | 10 clocks or more |
-| A pop from the capture | The byte at di from E + 4 (a register, no memory cycle) | The core takes it at E + 10n | 6 clocks or more |
+The response M1 is 7 T-states in tv80: 5 in its microcode (`tv80_mcode.v`), with T1 taken three times by the automatic wait (section 8.1; B7). So the first push's T1 is at E + 35n (E + 196 at 3.57 MHz).
+
+| Step | When | Needed by | Spare at 20 MHz | At speed n |
+|------|------|-----------|-----------------|------------|
+| INT response seen | intcycle_n in T1, sampled at E + 3 (as for the vector, section 8.1) | The switch's start | – | – |
+| NMI response seen | The second T1, at E + 5n (E + 28) | The switch's start | – | – |
+| Switch, INT | Windows 0–7 saved and loaded at E + 4 to E + 11 | The first push's T1, E + 35n | 24 clocks | 35n − 11 |
+| Switch, NMI | At E + 5n + 1 to E + 5n + 8 (E + 6 to E + 13) | The same | 22 clocks | 30n − 8 (160 at 3.57 MHz) |
+| A push captured | Decided at E + 3 from the early outputs, as every request is (section 5.2); CAPSP loaded at E + 3; dout taken at T2 + 1 | The request it replaces would be loaded at E + 3 to E + 4 (T2 + 4 for the data) | As any write | As any write |
+| Return seen | The opcode byte is at di by E + 8 or E + 9 at 20 MHz (section 5.3), and the watcher acts at E + 10n, when the core takes it | The first stack read's T1, after T3 and T4: E + 20n (E + 112) | 10 clocks | 10n |
+| A pop from the capture | The byte at di from E + 4 (a register, no memory cycle) | The core takes it at E + 10n | 6 clocks | 10n − 4 |
+| Restore | From the second stack read's T2: windows 0–7 at E + 5n to E + 5n + 7 (E + 5 to E + 12) | The T1 of the fetch at the return address, E + 15n | **3 clocks** | 10n − 7 (49 at 3.57 MHz) |
+| IPRESTORE.NOW | At E + 7 to E + 14 of the writing cycle (E + 8 to E + 15 if the copper has the bus) | The first access to a switched window, after the next fetch (which is outside the mask): E + 35 at the earliest | 20 clocks | More |
+
+**At 20 MHz,** the tightest speed. The switch, with E the cen edge that starts the response M1's first T1:
+
+| Edge | T-state | What happens |
+|------|---------|--------------|
+| E | T1 | intcycle_n low (INT). For the NMI, the dummy fetch is looked up through the program's map and asked for at E + 3 or E + 4 |
+| E + 3 | | INT response seen; the set is taken |
+| E + 4 – E + 11 | | INT copy: window k saved, and loaded if masked, at E + 4 + k |
+| E + 5 | T1 (repeated) | NMI response seen; nmi_ack |
+| E + 6 – E + 13 | | NMI copy: window k at E + 6 + k |
+| E + 10, E + 15 | T1 (repeated), T2 | |
+| E + 20, E + 25, E + 30 | T3, T4, T5 | Refresh: no lookup (section 7) |
+| E + 35 | T1 of the first push | Its lookup uses the switched map: **24 clocks** after the INT copy, **22** after the NMI copy |
+
+The restore, with E the cen edge that starts the second stack read's T1:
+
+| Edge | T-state | What happens |
+|------|---------|--------------|
+| E | T1 | The stack read is looked up through the switched map (or, with capture, makes no request) |
+| E + 3 | | Its request loaded, with its page (E + 4 when T1 is on slot edge 5) |
+| E + 5 – E + 12 | T2 from E + 5 | The copy: window k loaded from its saved pages, if in the noted mask, at E + 5 + k |
+| E + 10 | T3 | The core takes the byte |
+| E + 15 | T1 of the fetch at the return address | Its lookup uses the program's map: **3 clocks** after the copy |
+
+So all eight windows fit at every speed, the restore at 20 MHz with 3 clocks to spare. At 25 MHz (section 11) the restore would have 8 clocks for its 8 windows (E + 4 to E + 12), and fit with 1 clock to spare (B13).
 
 At 3.57 MHz the T-states do not fall on the slots, but none of these steps uses a memory cycle or a slot edge, so the only change is more room. The capture and the pops use no memory cycle at all, so the CPU uses fewer cycles than without them.
 
@@ -486,10 +520,12 @@ At 3.57 MHz the T-states do not fall on the slots, but none of these steps uses 
 `sim/tb.v` checks that every byte the core takes is the memory's, through a model of the MMU it keeps from the Z80's own writes (its "never waited" checks, section 13). With interrupt pages and capture, the model must work these out from the core's cycles too, as section 8.3 and 8.4 say, without taking them from the design:
 
 - a copy of page `0x01` from the Z80's writes (byte 0 held, byte 1 commits, a read page commit sets the write page), and the reset values;
-- the response: its M1 (an acknowledge, or a fetch with a repeated T1), the two pushes and the switching read; at that read the model's MMU takes the interrupt pages, and its saved pages the old ones;
+- the response: its M1 (an acknowledge, or a fetch with a repeated T1) and the two pushes; at the response M1 the model's MMU takes the interrupt pages and its saved pages the old ones, so the model checks the pushes, the table read and the handler through the switched map (the model switches at once; the design's copy must be done before the first push's T1, which the check of every lookup catches);
+- uncaptured pushes: the request goes to the page the switched map gives (the interrupt page when SP is in a switched window);
 - captured pushes: no CPU request may be made for them, and the SRAM word at each push address must be unchanged afterwards;
-- the opcode watcher of section 8.4, and the depth; at the return the model's MMU takes the saved pages back;
-- popped bytes from the capture: the two stack reads after a captured return must make no request, and the byte the core takes must be the captured PC (the model's own copy of the two pushed bytes, or of the Z80's later writes to CAPPC), not the memory's.
+- the opcode watcher of section 8.4, and the depth; the two stack reads of the return go through the switched map (or come from the capture), and only after the second of them does the model's MMU take the saved pages back, so the fetch at the return address is checked through the program's map;
+- popped bytes from the capture: the two stack reads after a captured return must make no request, and the byte the core takes must be the captured PC (the model's own copy of the two pushed bytes, or of the Z80's later writes to CAPPC), not the memory's;
+- the copy: a probe on the MMU's page registers checks that a switch and a restore each finish within 8 clocks of starting and before the next T1 that looks the MMU up, at every speed, and records the spare (section 8.5).
 
 The scheduler check (every CPU request issued in its cycle) needs no change: the capture only removes requests. The vector check (section 8.1, B11) is unchanged: the acknowledge itself is not touched.
 
@@ -545,8 +581,8 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 - **Instruction tests:** ZEXDOC and ZEXALL in Verilator, from SRAM and from the boot ROM, at 20 MHz and 3.57 MHz (design plan, Q3). Done for ZEXDOC from SRAM at 20 MHz on the whole system, with the never-waited checks of the system testbench (ticket #7, `sim/zex/RESULTS.md`); ZEXDOC and ZEXALL also pass on the bare core (ticket #2).
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.
 - **Interrupts:** in IM 2 each source's vector (VECBASE + 2 × source) reaches the core and one int_ack is sent; IM 1 runs `RST 0x38` and INTID names the source; NMI from the button and from USB BREAK reaches `0x0066`.
-- **NMI paging (the NMI set's defaults):** at 20 MHz, 3.57 MHz and n = 8, with the NMI taken during every kind of instruction, during `HALT`, in a repeat (`LDIR`) and during a posted write: the response is seen at its repeated T1 and nmi_ack sent once; the pushes are captured (no request; memory at SP − 1 and SP − 2 unchanged; NMICAPPC and NMICAPSP right); the fetch at `0x0066` comes from page `0x3FF`; MMU0/MMU0W and NMISAV0/NMISAV0W are as spec 2, section 9.8 says. `ED 45` restores window 0 and takes its two stack reads from NMICAPPC with no request (SP in window 0, elsewhere, and pointing at ROM); with CAPTURE off the pushes and pops use memory through the program's map; `ED 4D`, `ED 55`, `DD ED 45`, `CB ED` then `45`, an `ED` data byte and `0x45` fetched without `ED` before it behave as section 8.4 says; EN and CAPTURE both 0 page and capture nothing; a program that jumps to `0x0066` just after the nmi_n edge does not page early; reset ends NMI mode.
-- **Interrupt pages and capture (maskable):** IM 2 and IM 1, at every speed: the switch at the table read or the fetch at `0x0038`, never at a push; captured pushes make no request; `RETI`, `DD ED 4D` and an armed `RET` (also `DD C9`) return, a conditional `RET` does not; `DD CB d op` followed by `ED 4D` is seen; the pops come from IPCAPPC with no request; nesting counts and only the outermost returns. The testbench's model checks every byte the core takes through all of this (section 8.6).
+- **NMI paging (the NMI set's defaults):** at 20 MHz, 3.57 MHz and n = 8, with the NMI taken during every kind of instruction, during `HALT`, in a repeat (`LDIR`) and during a posted write: the response is seen at its repeated T1 and nmi_ack sent once; the switch is made in the response M1, before the pushes; the pushes are captured (no request; memory at SP − 1 and SP − 2 unchanged; NMICAPPC and NMICAPSP right); the fetch at `0x0066` comes from page `0x3FF`; writes to window 0 go to page `0x0FF`; MMU0/MMU0W and NMISAV0/NMISAV0W are as spec 2, section 9.8 says. `ED 45` takes its two stack reads from NMICAPPC with no request (SP in window 0, elsewhere, and pointing at ROM) and restores window 0 after them, before the fetch at the return address; with CAPTURE off the pushes and pops use memory through the NMI's map (with SP in window 0, the pushes land in page `0x0FF`); `ED 4D`, `ED 55`, `DD ED 45`, `CB ED` then `45`, an `ED` data byte and `0x45` fetched without `ED` before it behave as section 8.4 says; EN and CAPTURE both 0 page and capture nothing; a program that jumps to `0x0066` just after the nmi_n edge does not page early; reset ends NMI mode.
+- **Interrupt pages and capture (maskable):** IM 2 and IM 1, at every speed: the switch in the acknowledge, done before the first push's T1, so the pushes go through the switched map; the restore after the second stack read, done before the return fetch's T1 (3 clocks to spare at 20 MHz, as section 8.5); IPRESTORE.NOW through a port and through the register page, with the next fetch from an unswitched window; captured pushes make no request; `RETI`, `DD ED 4D` and an armed `RET` (also `DD C9`) return, a conditional `RET` does not; `DD CB d op` followed by `ED 4D` is seen; the pops come from IPCAPPC with no request; nesting counts and only the outermost returns. The testbench's model checks every byte the core takes through all of this (section 8.6).
 - **Reset:** the first T1 after every reset starts on slot edge 0; the core starts at `0x0000` in the boot ROM at 20 MHz.
 
 ## 14. Open points
@@ -565,4 +601,4 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 | B10 | 25 MHz: try in simulation (design plan, branch 11). It needs the CPU to take whichever cycle is issued 40 ns after T1 and give its next cycle back, with no clock to spare on the read path (section 11). Faster than 25 MHz is parked (design plan, Q9) |
 | B11 | Closed (ticket #16): tv80's acknowledge cycle repeats T1 for its wait states (T1, T1, T1, T2, as an I/O cycle has T1, T1, T2). The bus interface asks for the vector only in a T1 that follows another T-state, holds it at di from E + 4, and sends int_ack when the M1 ends. `sim/tb.v` checks every acknowledge: one vector request, the byte taken at the end of T2 is the vector (16 clocks to spare at 20 MHz), one int_ack. A request on every T1 is caught |
 | B12 | The opcode watcher and the response steps (sections 8.3 and 8.4) assume tv80 runs its cycles as a real Z80 does: both bytes of `CB` and `ED` instructions as M1 fetches; d and op of `DD CB d op` as operand reads; the two pushes as the two M-cycles after a response M1, and the stack reads of `RET`, `RETI` and `RETN` as the two M-cycles after the opcode, with nothing between. Read from `tv80_mcode.v`; to be checked in simulation over ZEXDOC with the watcher's trace |
-| B13 | At 25 MHz (B10) the switch's extra multiplexer in the lookup would sit on a read path with no clock to spare (section 8.5). The capture and the pops need no memory cycle and are unaffected |
+| B13 | At 25 MHz (B10) the restore's copy would have 8 clocks for its 8 windows, from the second stack read's T2 (E + 4) to the return fetch's T1 (E + 12), so 1 clock to spare (section 8.5); to check with B10. The switch adds nothing to the lookup any more (it copies into the MMU before the pushes), and the capture and the pops need no memory cycle |
