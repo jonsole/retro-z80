@@ -90,6 +90,7 @@ Monitor.  H for help.
 
 - Addresses are shown with as many digits as the machine needs: 4 for a Z80 CPU address, 6 for a physical address or a 68000 address.
 - Memory the machine forbids (where an access would hang or fault) gives `? address`.
+- **Registers whose reads have side effects.** Each machine's spec lists the registers whose reads have side effects; D, S and V show `--` for them and C refuses them (`? address`). E and an explicit single read still reach them.
 
 ### 3.3 Access sizes
 
@@ -145,6 +146,8 @@ Letters not in the table (A, J, K, M, N, O, Q, W, Y, Z) are kept free. A command
 ### 4.3 Breakpoints
 
 `G addr break` writes the machine's break instruction at break, then runs from addr. When the program reaches it, the monitor puts the old instruction back and says `Breakpoint at <break>`, with PC at break. A breakpoint in ROM, or at an address that cannot be written, gives `? address`. One breakpoint at a time. retro-z80's break instruction is `RST 30h` (one byte, `0xF7`); retro68k chooses its own (section 11).
+
+Code addresses (ENTRY, G, break): any on retro-z80; even on retro68k (`? alignment`; an odd ENTRY is refused with code 3).
 
 ### 4.4 Example sessions
 
@@ -294,7 +297,7 @@ The loader answers every frame it has read whole with a 5-byte reply:
 |------|-----------------|
 | 1 | MACHINE is not this machine |
 | 2 | The header is bad: MAGIC, VERSION, HCRC, or a reserved FLAGS bit |
-| 3 | LOAD to LOAD + SIZE, or ENTRY, is outside what this machine allows for this target |
+| 3 | LOAD to LOAD + SIZE, or ENTRY, is outside what this machine allows for this target; on retro68k, ENTRY is odd (section 4.3) |
 | 4 | SIZE is too large for this target |
 | 5 | The target is not allowed now (TARGET 1 while ROMLOCK is set; a target this machine does not have) |
 | 6 | At END, the image in memory does not match ICRC |
@@ -437,9 +440,13 @@ Both boot ROMs start in this order, after their own hardware set-up and (at powe
 |-----|--------|
 | M, or the DivMMC button | Go straight to the monitor |
 | U | Wait for an upload |
-| D | Development: leave the boot ROM writable (do not set ROMLOCK) |
+| D | Development: leave the boot ROM writable (do not set ROMLOCK). Counts at power-on only |
 
-They are read from the machine's keyboards; each machine's spec says which and how long it looks. A **long press of the reset button** is the same as a short one on both machines: the way into the loader from the PC is the UPLOAD control command.
+They are read from the machine's keyboards; each machine's spec says which and how long it looks.
+
+**ROMLOCK.** The boot ROM decides ROMLOCK at power-on only (RESETWHY.POWER): with D held it leaves it clear; otherwise it sets it. ROMLOCK then stays as it is until the next power-on.
+
+**A long press of the reset button:** does it do more than a short one (an UPLOAD, say)? retro-z80: no (decided); retro68k: to be confirmed (its SY3). The way into the loader from the PC is the UPLOAD control command.
 
 If the boot file or BASIC fails (a bad image, a read error), the boot ROM reports it and goes to the monitor.
 
@@ -493,7 +500,7 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 - **Breakpoints:** `G addr break` stops at break with the old instruction back; a breakpoint in ROM is refused.
 - **Upload:** a program, a resident image and a boot ROM image, each with ACTION 0 and 1; resends after CRC and frame errors; a lost reply; every refusal code; PING before and after HEADER; ABORT; a frame cut short (the 1 s drop); ICRC wrong in memory at END (code 6). In simulation against the FT232H model, and on the board.
 - **Boot file:** `BOOT.Z80` and `BOOT.68K` on one card, each machine starting its own; a bad header, a bad ICRC and a missing file go to the monitor with a message; a TARGET 1 boot file is not run at start-up.
-- **Start-up:** each start-up key; RESETWHY.UPLOAD reaches the loader; a long reset press is a plain reset.
+- **Start-up:** each start-up key; RESETWHY.UPLOAD reaches the loader; D at power-on leaves ROMLOCK clear across later resets, and D at a later reset changes nothing; on retro-z80, a long reset press is a plain reset.
 - **Tool:** `tools/test/test_rlink.py` (section 8.3); `rlink.py upload` works the same against both machines' simulations.
 - **The two copies:** a check in each repo's CI compares this file and `rlink.py` with the other repo's latest copy (open point M6).
 
@@ -506,6 +513,6 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 | M3 | 4,096-byte frames with a reply each: about 1 ms of turn-around a frame, so a 32 KB image costs 8 ms of waiting. Larger frames, or several frames in flight, only if uploads are too slow |
 | M4 | The 1 KB CRC table in each boot ROM, or built in RAM at start-up to save ROM space |
 | M5 | FAT16 cards as well as FAT32; long file names are not planned |
-| M6 | How the copies are kept in step: by hand, or a CI check against the other repo |
+| M6 | How the copies are kept in step: by hand, or a CI check against the other repo. A cross-repo check needs read access to the other repo; if either repo is private, a token stored as a secret |
 | M7 | Symbols (names for addresses) in the monitor and the disassembler: not planned for version 1 |
 | M8 | `pyserial` is the tool's only package outside the standard library; both repos' tool READMEs say so |

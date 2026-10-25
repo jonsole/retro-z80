@@ -392,15 +392,38 @@ The shared spec gives the commands. Here are the Z80's parts.
 | `0000`–`1FFF` | Window 0 as the program had it: ROM page 0 normally; after an NMI, the page the program had in window 0 (NMISAV0, NMISAVW0, NMISAVHI) | Reading. Writing only if the program's write page there is SRAM |
 | `2000`–`FFFF` | Windows 1–7 through the program's page registers | Reading and writing |
 | `P000000`–`P3FFFFF` | SRAM, page × `0x2000` + offset; on a 2 MB board (SYSCFG.CHIPMB = 2) only up to `P1FFFFF` | Reading and writing. Pages `0x0FE`–`0x0FF` (and `0x0F8`–`0x0FB` while BASIC is resident) can be read and written, with care |
-| `P7F0000`–`P7F1FFF` | The register page (spec 2, section 10) | Reading and writing; reading a stream register (SERDATA, KBDATA, SDDATA) takes a byte |
+| `P7F0000`–`P7F1FFF` | The register page (spec 2, section 10) | Reading and writing; some reads have side effects (below) |
 | `P7F8000`–`P7FFFFF` | Boot ROM pages 0–3 | Reading; writing only while ROMWE is set |
 | Others | Reserved and NONE pages | `? address` |
 
 `D` shows a CPU address with 4 digits and a physical one with `P` and 6 digits.
 
+**Registers whose reads have side effects** (shared spec, section 3.2; spec 3, rules 4 and 14). `D`, `S` and `V` show `--` for these bytes and `C` refuses them (`? address`). `E` and a `P` read still reach them. The rule holds for a `P` address in the register page, for a CPU address in a window where the program had the register page (`0x3F8`) mapped, and for every port form. Ports are register (high byte) : page (low byte); custom offset k is port (k bits 7–0) × 256 + `0x10` + (k bits 9–8), and register page offset `0x1000` + k.
+
+| Register | Port | Register page | A read |
+|----------|------|---------------|--------|
+| TIME0 | `0x2000` | `P7F0020` | Captures (below) |
+| TMRn_COUNT0, n = 0–3 | `0x2D00`, `0x3500`, `0x3D00`, `0x4500` | `P7F002D` + n × 8 | Captures |
+| SERDATA | `0x53` with any high byte | `P7F0053` | Takes a byte from the receive FIFO |
+| SDDATA | `0x5B` with any high byte | `P7F005B` | With SDCON.AUTO set, starts an SPI exchange (shown `--` whatever AUTO holds) |
+| SERDROP | `0x5C00` | `P7F005C` | Clears it |
+| SDCOUNT0 | `0x5D00` | `P7F005D` | Captures |
+| KBDATA | `0x62` with any high byte | `P7F0062` | Takes a byte from the PS/2 FIFO |
+| PALDAT (custom `0x00B`) | `0x0B10` | `P7F100B` | Steps PALDAT's byte order; the red read steps PALIDX |
+| SPRxPT0, x = 0–7 (custom `0x010` + x × `0x10`) | `0x1010` + x × `0x1000` | `P7F1010` + x × `0x10` | Captures |
+| L0, L1, L2 BPL0PT0 (custom `0x0A4`, `0x0C4`, `0x0E4`) | `0xA410`, `0xC410`, `0xE410` | `P7F10A4`, `P7F10C4`, `P7F10E4` | Captures |
+| BEAMPOS0 (custom `0x0F0`) | `0xF010` | `P7F10F0` | Captures |
+| FRAMECOUNT0 (custom `0x0F4`) | `0xF410` | `P7F10F4` | Captures |
+| COPPC0 (custom `0x10A`) | `0x0A11` | `P7F110A` | Captures |
+| CHDESC0 of DMA channel n = 0–3 (custom `0x160` + n × `0x40`) | `0x6011`, `0xA011`, `0xE011`, `0x2012` | `P7F1160` + n × `0x40` | Captures |
+| SEQPT0 (custom `0x308`) | `0x0813` | `P7F1308` | Captures |
+
+- **Captures:** reading a capturing register's low byte replaces the CPU's one capture (spec 3, rule 4), which the stopped program may have been part-way through reading. The higher bytes have no side effect, so they are shown.
+- **Not in the list:** INTID (reading it changes nothing, spec 8, section 6); the W1C status registers (reading is harmless; only writing 1 clears); port `0xFE` and KEYROW0–7; and the palettes in the register page (`P7F1400`–`P7F1FFF`), which do not use PALIDX.
+
 ### 8.2 Ports
 
-`P port` reads with `IN A,(C)` and BC = port; `P port value` writes with `OUT (C),A`. A port is 16 bits, register (high byte) : page (low byte) (spec 3): `P 7000` reads SYSID, `P 7700 08` sets the Spectrum speed. Only `.B`. Reading a stream port takes a byte, as any read does.
+`P port` reads with `IN A,(C)` and BC = port; `P port value` writes with `OUT (C),A`. A port is 16 bits, register (high byte) : page (low byte) (spec 3): `P 7000` reads SYSID, `P 7700 08` sets the Spectrum speed. Only `.B`. `P` is a single explicit read, so it reaches the registers in section 8.1's list, with their side effects: reading a stream port takes a byte.
 
 ### 8.3 Registers
 
@@ -533,3 +556,5 @@ The ROM is built in this order, each step a ticket:
 | B8 | CP/M 3 (later) has its own BIOS in place of the RST calls; how it sits with the boot ROM is for its own spec |
 | B9 | The console's state in the map's hidden columns relies on SCROLLX staying 0 for the console and on the fetcher never reading columns 96–127; spec 4's tile mode to confirm |
 | B10 | Video, sprite and copper state: section 6 lists what the ROM sets; anything not listed is as reset left it. Check the list against each unit's spec when the ROM is written |
+| B11 | Closed (the user confirmed): the program map of section 5.1. Windows 1–7 = SRAM pages 1–7, so a CPU address is its own physical address in RAM; SP = `0xFFFE` holding the return-to-monitor address (`0x0040`), so a `RET` ends the program |
+| B12 | Closed (the user confirmed): ROMLOCK is decided at power-on only (RESETWHY.POWER): with D held it stays clear; otherwise the ROM sets it (section 4.5; shared spec, section 9) |
