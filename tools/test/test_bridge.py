@@ -517,7 +517,7 @@ class DapTests(unittest.TestCase):
         self.launch()
         self.stopped()
         r = self.dap.request("evaluate", {"expression": "D 8000 4", "context": "repl"})["body"]
-        self.assertEqual(r["result"], "8000  3E 41 CD 14")
+        self.assertEqual(r["result"], "8000  3E 41 CD 14  >A..")
         r = self.dap.request("evaluate", {"expression": "G 8000", "context": "repl"}, ok=False)
         self.assertFalse(r["success"])
         self.assertIn("buttons", r["message"])
@@ -545,7 +545,7 @@ class DapTests(unittest.TestCase):
         deadline = time.time() + 3
         while b"PC=8000" not in got and time.time() < deadline:
             got += con.recv(4096)
-        self.assertIn(b"Detached at 8000", got)
+        self.assertIn(b"Loaded.  PC = 8000", got)      # the usual stop message (debug.md 4.5)
         self.assertIn(b"PC=8000", got)
         con.close()
 
