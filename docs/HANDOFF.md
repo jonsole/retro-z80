@@ -28,7 +28,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/copper.md` | Spec 6: retro68k's copper in 16-bit words |
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
 | `docs/spec/dma-engine.md` | Spec 14: retro68k's version-1 DMA engine, 4 channels |
-| Specs 13, 15, 16 | Not written: sound (parked), geometry unit (branch 10, another session), boot ROM |
+| `docs/spec/boot-rom.md`, `monitor.md` | Spec 16: the boot ROM (draft); the shared spec "Monitor and upload protocol" (draft, for retro68k to adopt) |
+| Specs 13, 15 | Not written: sound (parked), geometry unit (branch 10, another session) |
 | `docs/guide/playfields.md` | Programmer's guide, chapter 3: playfields (the first chapter written) |
 | `docs/guide/sprites.md` | Programmer's guide, chapter 4: sprites and the sprite sequencer |
 | `docs/guide/timing.md` | Programmer's guide, appendix A: timing and screen reference, figures to scale |
@@ -61,9 +62,18 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - DMA port jobs go over the register bus, paced by each unit's ready signal (spec 3, R13).
    - Byte names: L/H (MMUnL) or 0/1/2 (SPRxPT0)? Mixed today (spec 3, R10).
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
-2. **Programmer's guide:** the playfields chapter (`docs/guide/playfields.md`) is written; the user is checking its style and depth before the other chapters. Its spec gaps: no generated names for WINX/WINY/BEAMPOS halves, tile-map entry fields and MMU page numbers; what a loaded program inherits from the boot ROM (spec 16); level-sensitive VBLANK re-entering ported Spectrum handlers; the boot console font as a public resource.
+2. **Programmer's guide:** the playfields chapter (`docs/guide/playfields.md`) is written; the user is checking its style and depth before the other chapters. Its spec gaps: no generated names for WINX/WINY/BEAMPOS halves, tile-map entry fields and MMU page numbers; level-sensitive VBLANK re-entering ported Spectrum handlers. (What a loaded program inherits and the console font as a resource are now in spec 16, sections 5.3 and 6.)
 3. **Geometry unit (spec 15)**, branch 10, in the other session, against the new register map.
-4. **Boot ROM spec (16)**, including how it loads the BASIC image (branch 13).
+4. **Boot ROM (spec 16) and the shared monitor spec**, drafted (branch 16): `docs/spec/boot-rom.md` and `docs/spec/monitor.md`. For the user to review; then the retro68k session reviews `monitor.md` and adopts it word for word (its open point M1). Choices made in the drafts, to confirm:
+   - CRC-32 (zlib's) for frames and images; big-endian header and frames; 4,096-byte frames with a reply each (`LR` + `K`/`C`/`F`/`R`).
+   - Physical addresses with a `P` prefix: the MMU's page space, `P000000`–`P7FFFFF` (SRAM, register page `P7F0000`, ROM `P7F8000`); on retro68k the same as plain addresses.
+   - Command letters: D E F C V S G R P I T U L B X H; the disassembler is `I`, ports `P`, the resident image (BASIC) `X`. The PC tool is `tools/rlink.py` (needs `pyserial`).
+   - Program map: windows 1–7 = SRAM pages 1–7, so a CPU address is its own physical address; SP = `0xFFFE` holding the exit `0x0040`.
+   - RST calls: 08h PUTC, 10h GETC, 18h PUTS, 20h POLLC, 28h numbered functions (number in the next byte), 30h BREAK, 38h TRAP. IM 1 is not served with the ROM in window 0; the self-test's RST 38h clash is solved by I = 0 only during the self-test.
+   - The console's state in the tile map's hidden columns 96–127, so a ROM call borrows only one window; the monitor rebuilds the console and workspace if a program spoilt them (closes spec 7, SY7).
+   - ROMLOCK set at power-on only, so D at power-on starts a development session until power-off (spec 16, section 4.5).
+   - The resident BASIC image in SRAM pages `0x0F8`–`0x0FB` (32 KB), mapped at `0x2000` with write page NONE (spec 16, section 10; open point B3).
+   - Next: the boot ROM's tickets in spec 16, section 11 (monitor on screen and keyboard first; the loader waits for the FT232H).
 4a. **BBC BASIC (Z80)** (branch 13): ask R. T. Russell about the name; after phase 1, break the port into tickets (host layer, loader, files, VDU). Research: `docs/notes/bbc-basic.md`.
 5. Then phase 1 (section 7) and the KS2 bring-up build (phase 3, branch 12).
 

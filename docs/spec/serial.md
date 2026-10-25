@@ -78,7 +78,7 @@ The receiver watches the data stream for retro68k's 16-byte sequence, unchanged 
 |---|----|---------|--------|
 | `0x01` | `0xFE` | BREAK | NMI with NMISTAT.USB set (spec 8), to enter the debug monitor. Only while NMICON.USBEN is set |
 | `0x02` | `0xFD` | RESET | Reset the computer, with RESETWHY.USB set (spec 7) |
-| `0x03` | `0xFC` | UPLOAD | Reset with RESETWHY.UPLOAD set, so the boot ROM waits for a program over the link (spec 7). This is the only way into UPLOAD: the reset button has no long-press UPLOAD |
+| `0x03` | `0xFC` | UPLOAD | Reset with RESETWHY.UPLOAD set, so the boot ROM's loader waits for a program over the link (spec 16; the shared spec "Monitor and upload protocol", section 6). This is the only way into UPLOAD: the reset button has no long-press UPLOAD |
 
 - The sequence is recognised in hardware, so it works when the Z80 has crashed or runs with interrupts disabled.
 - The 16 bytes are removed from the stream; software and the DMA engine never see them. A partly matching sequence that turns out different is passed on unchanged and in order.
@@ -86,7 +86,7 @@ The receiver watches the data stream for retro68k's 16-byte sequence, unchanged 
 - While the hardware is matching the start of a sequence it holds those bytes back, so a message that ends with the start of the sequence (a single `0x00`, say) is seen only when the next byte arrives. With CTLEN and CTLLOCK both clear, nothing is held back.
 - **SERCON.CTLEN** turns recognition off (on after reset). With **SERCON.CTLLOCK** set, RESET and UPLOAD still work when CTLEN is off. Once set, CTLLOCK cannot be cleared by software; a reset clears it.
 
-The PC tool in `tools/` (shared with retro68k) sends the commands and uploads programs with the boot ROM's loader protocol (spec 16). The sequence is the same as retro68k's, so one tool and one command serve both machines; the tool tells them apart after the fact by what the boot ROM sends.
+The PC tool `tools/rlink.py` (shared with retro68k) sends the commands and uploads programs with the upload protocol of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md), sections 6 and 8). The sequence is the same as retro68k's, so one tool and one command serve both machines; after the reset the loader's ready line (`LOAD Z80 1`, or `LOAD 68K 1` on retro68k) tells the tool which machine it is talking to.
 
 ## 5. Using the link from the CPU
 
@@ -235,8 +235,8 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 |---|------|
 | U1 | Set the FT232H EEPROM to 245 FIFO mode with FT_Prog (once, before first use) |
 | U2 | The `accel_io` pin assignment is provisional, shared with retro68k (its open point U6) |
-| U3 | Closed: the control sequence is retro68k's, byte for byte, so one PC tool serves both machines. If the tool must know which machine it talks to, it asks after the reset (boot ROM protocol, U4) |
-| U4 | The boot ROM's upload protocol (spec 16), shared with retro68k's |
+| U3 | Closed: the control sequence is retro68k's, byte for byte, so one PC tool serves both machines. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
+| U4 | Closed: the upload protocol is the shared spec "Monitor and upload protocol" (`monitor.md`), the same in retro68k: frames with a CRC-32, a reply to each, the image header; spec 16 gives retro-z80's limits |
 | U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help DMA jobs on port 1; shared with retro68k's U5. The CPU cannot use it |
 | U6 | Closed: SERDROP is at register `0x5C` of page `0x00` (branch 11) |
 | U7 | Closed (spec 7): a reset clears SERCON and the FIFOs but does not disturb the FT232H or the PC, so the terminal stays connected. Still open in retro68k ("the serial link surviving a reset"); the two should end up the same |

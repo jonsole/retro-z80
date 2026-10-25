@@ -92,6 +92,11 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 14 | Sequencer: sprites | The hardware gives each entry the **lowest-numbered free sprite** among those allowed by **SEQMASK** (one bit per sprite; the rest stay with the copper and CPU). An entry whose start line comes with no sprite free is **skipped** for that frame: SEQSTAT.SKIP (sticky) and a count of skipped entries, with an optional interrupt through VIDERR |
 | 14 | Sequencer: spec | New spec 17, written now; built in phase 4 after the sprite unit is copied from retro68k (main `bf91e97`). Registers in the custom block's MOVEF range |
 | 15 | PC keyboard | **Now: a serial console**, as retro68k: the monitor, the boot console and BASIC's host layer read keys from the USB serial link as well as from the keyboards, so any PC terminal works. **Later: key injection** (a retro-z80 extra): control commands on the link carry PS/2 key-down and key-up codes into the keyboard unit, so they reach KBDATA and the Spectrum rows on port `0xFE` like a real keyboard's; with a small PC tool that sends presses and releases |
+| 16 | Monitor | **Designed once with retro68k:** one shared spec, "Monitor and upload protocol", kept word for word the same in both repos (commands, syntax, upload protocol, file header, one PC upload tool in `tools/`), plus each machine's own boot ROM spec (spec 16 here) for the CPU parts. Draft written here, reviewed and adopted by retro68k |
+| 16 | Monitor: commands | One letter and hex arguments (addresses up to 8 hex digits; `.B`/`.W`/`.L` access size, byte by default; sizes checked so a 68000 never faults): examine, enter, fill, copy, compare, go, registers, ports (Z80), disassemble, upload, boot from SD, help. On the screen and keyboard and the USB console at once |
+| 16 | Monitor: disassembler | In the Z80 boot ROM; optional on retro68k |
+| 16 | Upload and boot file | Binary frames with a length and a CRC; a header with machine ID, load address, entry point and a "new boot ROM image" flag; an "ok" or "CRC error" reply. The SD boot file (`BOOT.Z80` / `BOOT.68K`) uses the same header. No UPLOAD on a long reset press (both machines) |
+| 16 | Program environment (Z80) | The **boot ROM stays in window 0** (`0x0000`–`0x1FFF`) with RST entry points to its console routines (print, read key, and so on), like a Spectrum ROM; windows 1–7 are SRAM, so programs get 56 KB. Details in spec 16 |
 
 ## 2. Key decisions
 
@@ -259,11 +264,8 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 13 | Sound | Waiting for Q1 |
 | 14 | [DMA engine](spec/dma-engine.md) | Draft |
 | 15 | Geometry unit (3D) | Next to write (branch 10) |
-| 16 | Monitor | **Designed once with retro68k:** one shared spec, "Monitor and upload protocol", kept word for word the same in both repos (commands, syntax, upload protocol, file header, one PC upload tool in `tools/`), plus each machine's own boot ROM spec (spec 16 here) for the CPU parts. Draft written here, reviewed and adopted by retro68k |
-| 16 | Monitor: commands | One letter and hex arguments (addresses up to 8 hex digits; `.B`/`.W`/`.L` access size, byte by default; sizes checked so a 68000 never faults): examine, enter, fill, copy, compare, go, registers, ports (Z80), disassemble, upload, boot from SD, help. On the screen and keyboard and the USB console at once |
-| 16 | Monitor: disassembler | In the Z80 boot ROM; optional on retro68k |
-| 16 | Upload and boot file | Binary frames with a length and a CRC; a header with machine ID, load address, entry point and a "new boot ROM image" flag; an "ok" or "CRC error" reply. The SD boot file (`BOOT.Z80` / `BOOT.68K`) uses the same header. No UPLOAD on a long reset press (both machines) |
-| 16 | Program environment (Z80) | The **boot ROM stays in window 0** (`0x0000`–`0x1FFF`) with RST entry points to its console routines (print, read key, and so on), like a Spectrum ROM; windows 1–7 are SRAM, so programs get 56 KB. Details in spec 16 |
+| 16 | [Boot ROM](spec/boot-rom.md) | Draft (branch 16): ROM pages, start-up, the program environment, the RST calls, the Z80 parts of the monitor and loader, BASIC as a resident image |
+| – | [Monitor and upload protocol](spec/monitor.md) (shared with retro68k) | Draft (branch 16), word for word the same in both repos; for retro68k to review and adopt |
 | 17 | [Sprite sequencer](spec/sprite-sequencer.md) | Draft (branch 14) |
 
 ## 5. Phases

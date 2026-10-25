@@ -4,7 +4,7 @@ Status: **draft**
 
 This spec covers how the computer starts: what resets it and what a reset does, the boot ROM, what the boot ROM does first, the boot console, the board's buttons, identification, the CPU speed, the I2C master (real-time clock and HDMI DDC), how the design is installed on the ZX Spectrum Next KS3, and the board's connections. It follows retro68k's spec 7 and the system chapter of its guide, narrowed to 8-bit registers. Two Spectrum extras sit in their own section: the NMI monitor paging and the beeper. The system control registers are registers `0x70`–`0x7F` of page `0x00`, the system block (spec 3): SYSID is port `0x7000`.
 
-The other system pieces have their own specs: the MMU (spec 2), interrupts (8), timers and watchdog (9), USB serial (10), SD card (11), keyboards and joysticks (12) and the DMA engine (14). The boot ROM's programs (monitor, loader, boot file) get their own spec later (spec 16).
+The other system pieces have their own specs: the MMU (spec 2), interrupts (8), timers and watchdog (9), USB serial (10), SD card (11), keyboards and joysticks (12) and the DMA engine (14). The boot ROM's programs are in spec 16 ([boot ROM](boot-rom.md)) and in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)): the monitor, the loader, the boot file and the ROM calls.
 
 ## 1. Summary
 
@@ -110,23 +110,23 @@ Rebuilding the FPGA takes minutes. To try new boot ROM code quickly:
 - Setting **SYSCON.ROMWE** makes the boot ROM pages writable through any window whose write page is a ROM page.
 - A program or the USB upload loader writes a new image through the ROM pages, then writes SYSRESET.
 - The new ROM runs from the next reset onwards, until the FPGA is reloaded.
-- **SYSCON.ROMLOCK:** writing 1 locks ROMWE off until the next power-on. The boot ROM sets it, unless the development key (D) is held during reset (section 5).
+- **SYSCON.ROMLOCK:** writing 1 locks ROMWE off until the next power-on. The boot ROM sets it at power-on, unless the development key (D) is held (section 5; spec 16, section 4.5).
 
 The loader runs from SRAM, not from the ROM page it is rewriting.
 
 ## 5. What the boot ROM does
 
-The boot ROM's own spec (spec 16, not yet written) defines this in detail (open point SY2). In outline:
+Spec 16 defines this in detail (its section 4), with the start-up order shared with retro68k (the shared spec, section 9). In outline:
 
 1. Show each step as the screen's background colour and on the USB serial console.
-2. Read RESETWHY, SYSCFG, the keys held down (PS/2 or Spectrum keyboard, spec 12) and SYSBTN.DIVMMC.
-3. **Power-on only:** a quick SRAM test (data and address lines, and a pattern in each page), on the size SYSCFG.CHIPMB gives. The full test is a monitor command.
-4. Set up the stack, the interrupt controller in IM 2 (spec 8), and a timer tick (spec 9).
+2. Read RESETWHY and SYSCFG.
+3. **Power-on only:** a quick SRAM test (data and address lines, and a pattern in each page), on the size SYSCFG.CHIPMB gives. The full test is a monitor command (`T`).
+4. Set up the stack and IM 2 with the ROM's own table (spec 8), every source off. The ROM polls; it starts no timer tick, so a program finds every interrupt free (spec 16, section 6.1).
 5. Copy the font to SRAM and start the **boot console** (section 5.1).
-6. **If RESETWHY.UPLOAD, or U is held:** wait for a program over the USB serial link and run it.
-7. **Otherwise:** start the SD card (spec 11). If it holds a boot file, load and run it.
-8. **If there is no boot file, or M or the DivMMC button is held:** start the monitor, on the screen and the serial console at once. Without M, the boot ROM then starts **BBC BASIC (Z80)** (phase 5).
-9. Set SYSCON.ROMLOCK, unless D was held.
+6. Read the keys held down (PS/2 or Spectrum keyboard, spec 12) and SYSBTN.DIVMMC. **At power-on,** set SYSCON.ROMLOCK, unless D is held.
+7. **If RESETWHY.UPLOAD, or U is held:** wait for a program over the USB serial link and run it.
+8. **If M or the DivMMC button is held:** start the monitor, on the screen and the serial console at once.
+9. **Otherwise:** start the SD card (spec 11). If it holds the boot file (`BOOT.Z80`), load and run it; if not, start **BBC BASIC (Z80)** (phase 5) if it is resident or on the card; if not, the monitor.
 
 **Start-up progress and errors** are shown as the screen's **background colour** (BGCOLOR, spec 4), as the Amiga and retro68k do: a colour for each start-up step and a distinct colour for each error (for example "SRAM test failed"). The background shows on HDMI and VGA before any layer is set up, since every layer is off after reset. The same messages go to the serial console.
 
@@ -136,7 +136,7 @@ The boot ROM's own spec (spec 16, not yet written) defines this in detail (open 
 |-------------------|--------------------|
 | M, or the DivMMC button | Go straight to the monitor |
 | U | Wait for a program over USB |
-| D | Development: leave the boot ROM writable (do not set ROMLOCK) |
+| D | Development: leave the boot ROM writable (do not set ROMLOCK). Counts at power-on, so it lasts until the power goes off (spec 16, section 4.5) |
 
 ### 5.1 The boot console
 
@@ -159,11 +159,11 @@ The console is retro68k's 80 × 30 console in the same window, drawn as a tile m
 |------------------|----------|------|----------|
 | `0x1FC000`–`0x1FDFFF` | `0x0FE` | 8 KB | Console map (MAPPT = `0x1FC000`) |
 | `0x1FE000`–`0x1FE7FF` | `0x0FF`, first 2 KB | 2 KB | Console font (PATPT = `0x1FE000`), copied from the boot ROM |
-| `0x1FE800`–`0x1FFFFF` | `0x0FF`, the rest | 6 KB | Kept for the boot ROM: console state, the monitor's workspace (spec 16, open point SY7) |
+| `0x1FE800`–`0x1FFFFF` | `0x0FF`, the rest | 6 KB | Kept for the boot ROM: the monitor's workspace (spec 16, section 5.3) |
 
 A program that wants the whole SRAM may take these pages; the console then stops working until the next reset, and the boot ROM sets them up again.
 
-**Printing** a character is one 2-byte map write at `MAPPT + (row × 128 + column) × 2`. **Scrolling** up a line is SCROLLY += 8 (one map row) and clearing the new bottom row; the map wraps at 32 rows. The boot ROM's console driver keeps the cursor, the first visible row and the current pair in its workspace.
+**Printing** a character is one 2-byte map write at `MAPPT + (row × 128 + column) × 2`. **Scrolling** up a line is SCROLLY += 8 (one map row) and clearing the new bottom row; the map wraps at 32 rows. The boot ROM's console driver keeps the cursor, the first visible row and the current pair in the map's hidden columns 96–127 of row 0 (spec 16, section 5.3), so a ROM call needs only the map page mapped.
 
 ## 6. Buttons, identification and CPU speed
 
@@ -303,13 +303,13 @@ So the fetch at `0x0066` already comes from the monitor page. Windows 1–7 are 
 |------------------|------------|----------|
 | `0x0000`–`0x0065` | `0x6000`–`0x6065` | Reserved, filled with `0xFF`. The monitor runs with interrupts off (an NMI clears IFF1), so `0x0038` is never used here |
 | `0x0066` | `0x6066` | NMI entry: the first instruction of the monitor |
-| `0x0067`–`0x1FFF` | `0x6067`–`0x7FFF` | The monitor's code and tables. It runs from window 0 throughout; it reaches code in ROM pages 0–2 by mapping one into another window, after saving that window's pages |
+| `0x0067`–`0x1FFF` | `0x6067`–`0x7FFF` | The rest of the NMI entry: it saves the program's state, then switches window 0 to ROM page 0, where the one monitor runs (spec 16, section 8.6). The rest is spare |
 
 Boot ROM page 0 also has a jump to the monitor at `0x0066`, for an NMI taken with EN = 0 while page 0 is in window 0.
 
-**What the monitor does.** Its commands are in the boot ROM spec (spec 16, open point SY2). The parts that touch the hardware:
+**What the monitor does.** Its commands are in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)); how the NMI page hands over to it is in spec 16, section 8.6. The parts that touch the hardware:
 
-1. Save the registers on the interrupted program's stack (a few bytes, as any interrupt handler uses), then move to its own workspace (section 5.1; spec 16, open point SY7), mapped into a window after that window's own pages are saved.
+1. Save the registers on the interrupted program's stack (a few bytes, as any interrupt handler uses), then move to its own workspace (section 5.1; spec 16, section 5.3), mapped into a window after that window's own pages are saved.
 2. Show the interrupted program's state: its registers and PC (from its stack), its window-0 pages (NMISAV0, NMISAVW0, NMISAVHI) and windows 1–7 (unchanged). To show or edit the memory the program had in window 0, it maps the saved page into another window.
 3. Read and clear NMISTAT (spec 8), to report which source it was.
 4. Restore what it changed: every window it used goes back to its saved pages; registers and SP go back to the program's values.
@@ -428,12 +428,12 @@ The saved pages reset to `0x3FC`, window 0's reset page, and keep their values a
 | # | Item |
 |---|------|
 | SY1 | The KS3 pin locations for keyb_row_o, keyb_col_i, the joystick pins, PS/2, sd_miso_i and I2C are not yet in retro68k's `ks3.xdc`; take them from the Next's `zxnext_pins_issue5.xdc`, and check whether the keyboard rows need to be open drain on this issue (design plan Q7) |
-| SY2 | The boot ROM spec (spec 16, not yet written): monitor commands, the upload protocol (with spec 10), the boot file name and format, the background colour codes |
+| SY2 | Closed: spec 16 (the boot ROM) and the shared spec "Monitor and upload protocol" (`monitor.md`): monitor commands, the upload protocol (with spec 10), the boot file (`BOOT.Z80`, the shared image header), the background colours (spec 16, section 4.4) |
 | SY3 | Closed: there is a watchdog (spec 9, section 5); RESETWHY.WATCHDOG is bit 1, as in retro68k |
 | SY4 | The KS3 core file format and flash slot size, and installing from the SD card (shared with retro68k, its SY5) |
 | SY5 | Closed: SYSCFG.CHIPMB is a build constant (branch 11), not a test at power-on |
 | SY6 | Closed: no UPLOAD on a long press of the reset button (branch 11). UPLOAD comes only from the PC (spec 10) |
-| SY7 | The monitor's workspace: section 5.1 keeps 6 KB at `0x1FE800`–`0x1FFFFF` for the boot ROM; spec 16 decides how it is used, and how a program that uses every page keeps the monitor working |
+| SY7 | Closed: spec 16, section 5.3 lays out the workspace; the console's state sits in the map's hidden columns. A program may take every page; the monitor then sets the console and workspace up again when it is next entered, and the program loses what it had there |
 | SY8 | Closed: the beeper level is fixed at a quarter of full scale (branch 11); software cannot set it before spec 13 exists |
 | SY9 | Which real-time clock chip the KS3 uses, and its I2C address and register layout (retro68k SY4) |
 | SY10 | Should Ctrl + Alt + Delete reset in hardware (RESETWHY.KEYBOARD)? Software does it in version 1, as in retro68k; spec 12 decides |
