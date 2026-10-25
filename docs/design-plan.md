@@ -97,6 +97,9 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 16 | Monitor: disassembler | In the Z80 boot ROM; optional on retro68k |
 | 16 | Upload and boot file | Binary frames with a length and a CRC; a header with machine ID, load address, entry point and a "new boot ROM image" flag; an "ok" or "CRC error" reply. The SD boot file (`BOOT.Z80` / `BOOT.68K`) uses the same header. No UPLOAD on a long reset press (retro-z80; retro68k to confirm its SY3). ROMLOCK is decided at power-on only (D held leaves it clear) |
 | 16 | Program environment (Z80) | The **boot ROM stays in window 0** (`0x0000`–`0x1FFF`) with RST entry points to its console routines (print, read key, and so on), like a Spectrum ROM; windows 1–7 are SRAM, so programs get 56 KB. Details in spec 16 |
+| 17 | Interrupt pages | A retro-z80 extra (retro68k has no MMU): **the MMU switches chosen windows on an interrupt.** A mask picks the windows, each with an interrupt page; on the acknowledge the hardware saves those windows' pages and loads the interrupt pages, so a handler, its stack and data live in their own bank whatever the program has mapped |
+| 17 | Interrupt pages: restore | At **RETI** (spotted at its opcode fetch, before the return address is popped, as RETN is now), or by writing a **restore** register (for handlers ending EI; RET). **Nesting:** only the first acknowledge switches; nested ones count up, each RETI or restore counts down, and the program's pages return when the count reaches 0 |
+| 17 | Interrupt pages: NMI | The NMI uses the same mechanism with its own mask and pages (by default window 0 to the monitor ROM, as the NMI paging does now), restored at RETN: one design instead of two |
 
 ## 2. Key decisions
 
