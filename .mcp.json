@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "retro-z80": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["tools/rz80_mcp.py"]
+    }
+  }
+}

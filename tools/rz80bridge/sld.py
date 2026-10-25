@@ -138,6 +138,14 @@ class Symbols:
             return None
         return self.files[loc[0]].path, loc[1]
 
+    def location_within(self, addr, back=3):
+        """The line of the instruction that holds addr (an instruction is up to 4 bytes)."""
+        for a in range(addr, addr - back - 1, -1):
+            loc = self.location(a)
+            if loc:
+                return loc
+        return None
+
     def _sorted_symbols(self):
         if self._sorted is None:
             pairs = sorted((a, n) for n, a in self.symbols.items() if n not in self.equates)

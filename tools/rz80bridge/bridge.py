@@ -24,7 +24,7 @@ def open_link(port, log):
         model = StubModel()
         model.start()
         return ModelLink(model), model
-    return rlink.SerialLink(port), None
+    return rlink.open_link(port), None
 
 
 class Bridge:
@@ -78,7 +78,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="rz80_bridge.py",
                                  description="retro-z80's debug bridge: owns the serial port, serves DAP, MCP and the console.")
     ap.add_argument("--port", "-p", default=os.environ.get("RLINK_PORT"),
-                    help="the FT232H's serial port (COM5, /dev/ttyUSB1), or 'model' for the stub model")
+                    help="the FT232H's serial port (COM5, /dev/ttyUSB1), tcp:HOST:PORT for a simulation's raw link, or 'model'")
     ap.add_argument("--model", action="store_true", help="the stub model instead of a serial port")
     ap.add_argument("--dap-port", type=int, default=DEFAULT_PORTS["dap"])
     ap.add_argument("--mcp-port", type=int, default=DEFAULT_PORTS["mcp"])

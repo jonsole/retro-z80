@@ -110,6 +110,8 @@ class StubModel(threading.Thread):
         self.step_pending = False
         self.resume = False
         self.ended = False
+        self.ran = False
+        self.last_cmd = None
         self._after = None
         self._send_text("retro-z80 boot ROM model  Z80 at 20 MHz, 2 MB SRAM\r\n"
                         "Reset: %s.  Self-test ok.\r\n" % why)
@@ -207,13 +209,18 @@ class StubModel(threading.Thread):
                 self._frame(P.T_STOP, self.stop_count, self.last_stop)
             self.stop_count = (self.stop_count + 1) & 0xFF
         else:
-            msg = {P.R_BREAKPOINT: "Breakpoint at %04X", P.R_WATCHPOINT: "Watchpoint %d at %%04X" % n,
-                   P.R_STEP: "Step at %04X", P.R_BREAK: "Break at %04X", P.R_TRAP: "Trap at %04X",
-                   P.R_PAUSE: "NMI (USB) at %04X", P.R_BUTTON: "NMI (button) at %04X",
-                   P.R_EXIT: "Program ended."}.get(reason, "Stopped at %04X")
-            if "%" in msg:
-                msg = msg % pc
-            self._send_text("\r\n" + msg + "\r\n" + self._regs_text() + "> ")
+            self._send_text("\r\n" + self._stop_message() + "\r\n" + self._regs_text() + "> ")
+
+    def _stop_message(self):
+        """The monitor's message for the last stop (spec 16, sections 6.4 and 8.8)."""
+        reason, n, pc, aaddr, adata, akind = struct.unpack(">BBIIIB", self.last_stop)
+        if reason == P.R_WATCHPOINT:
+            return "Watchpoint %d at %04X (%s %s%04X: %02X)" % (
+                n, pc, "write" if akind & 1 else "read", "port " if akind & 2 else "", aaddr & 0xFFFF, adata & 0xFF)
+        return {P.R_BREAKPOINT: "Breakpoint at %04X" % pc, P.R_STEP: "Step at %04X" % pc,
+                P.R_BREAK: "Break at %04X" % ((pc - 1) & 0xFFFF), P.R_TRAP: "Trap RST 38h at %04X" % pc,
+                P.R_PAUSE: "NMI (USB) at %04X" % pc, P.R_BUTTON: "NMI (button) at %04X" % pc,
+                P.R_ENTRY: "Loaded.  PC = %04X" % pc, P.R_EXIT: "Program ended."}.get(reason, "Stopped at %04X" % pc)
 
     # ------------------------------------------------------------ the thread
     def run(self):
@@ -281,12 +288,7 @@ class StubModel(threading.Thread):
         elif c == rlink.CTL_BREAK:
             if self.mode == "running":
                 self._stop(P.R_PAUSE)
-            elif self.mode == "monitor":
-                # at the prompt: back to the prompt, the stopped program kept
-                if self.attached:
-                    pass
-                else:
-                    self._send_text("\r\n> ")
+            # at the prompt: the NMI ends at once and nothing is sent (spec 16 B17)
 
     def _bytes(self, data):
         if self.mode == "running":
@@ -301,8 +303,11 @@ class StubModel(threading.Thread):
             if item.type >= 0x10 and item.channel == P.CH_DEBUG:
                 if self.attached:
                     return self._debug_frame(item)
-                if item.type == P.HELLO and item.error is None and self.mode == "monitor":
+                if item.type == P.HELLO and self.mode == "monitor":
                     return self._debug_frame(item)
+            if self.mode == "monitor" and not self.attached and item.raw:
+                for ch in item.raw.decode("latin-1"):     # not a frame for the prompt: typed text
+                    self._key(ch)
             return
         if isinstance(item, (bytes, bytearray)) and self.mode == "monitor" and not self.attached:
             for ch in item.decode("latin-1"):
@@ -374,7 +379,9 @@ class StubModel(threading.Thread):
         c = self.cpu
         c.reset()
         c.a = c.f = c.b = c.c = c.d = c.e = c.h = c.l = 0
+        c.a_ = c.f_ = c.b_ = c.c_ = c.d_ = c.e_ = c.h_ = c.l_ = 0
         c.ix = c.iy = 0
+        c.i = 0x1F                # spec 16, section 6: the ROM's IM 2 table at 0x1FD0
         c.sp = 0xFFFE
         self.phys_write(7, 0x1FFE, 0x40)
         self.phys_write(7, 0x1FFF, 0x00)
@@ -383,6 +390,7 @@ class StubModel(threading.Thread):
         self.last_stop = struct.pack(">BBIIIB", P.R_ENTRY, 0, entry, 0, 0, 0)
         self.program = True
         self.ended = False
+        self.ran = False
 
     # ------------------------------------------------------------ running
     def _run_slice(self):
@@ -401,6 +409,7 @@ class StubModel(threading.Thread):
                     return self._stop(P.R_BREAKPOINT, n)
         self.resume = False
         self.access = None
+        self.ran = True
         if not (pc < 0x2000 and self.page_of(pc)[0] == ROM_PAGE0 and self._rom_call(pc)):
             c.step()
         if self.access is not None:
@@ -473,9 +482,15 @@ class StubModel(threading.Thread):
 
     # ------------------------------------------------------------ the monitor (typed)
     def _regs_text(self):
+        """R's display (shared spec, sections 4.2 and 4.5)."""
         c = self.cpu
+        im = "%d%s" % (c.im, "?" if self.ran else "")
+        flags = " ".join(name for name, bit in (("S", 0x80), ("Z", 0x40), ("H", 0x10), ("P", 0x04), ("N", 0x02), ("C", 0x01))
+                         if c.f & bit)
         return ("AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X PC=%04X\r\n"
-                % (c.af, c.bc, c.de, c.hl, c.ix, c.iy, c.sp, c.pc))
+                "AF'=%02X%02X BC'=%02X%02X DE'=%02X%02X HL'=%02X%02X I=%02X R=%02X IFF=%d IM=%s  %s\r\n"
+                % (c.af, c.bc, c.de, c.hl, c.ix, c.iy, c.sp, c.pc, c.a_, c.f_, c.b_, c.c_, c.d_, c.e_, c.h_, c.l_,
+                   c.i, c.r, c.iff1, im, flags))
 
     def _key(self, ch):
         if ch in "\r\n":
@@ -504,6 +519,8 @@ class StubModel(threading.Thread):
         if not parts:
             return ""
         cmd, args = parts[0].upper(), parts[1:]
+        if typed:
+            self.last_cmd = cmd
         try:
             nums = [int(a.lstrip("pP"), 16) for a in args]
         except ValueError:
@@ -518,7 +535,9 @@ class StubModel(threading.Thread):
             out = []
             for row in range(start, start + count, 16):
                 bs = [self.phys_read(self.page_of(a & 0xFFFF)[0], a & 0x1FFF) for a in range(row, min(row + 16, start + count))]
-                out.append("%04X  %s\r\n" % (row & 0xFFFF, " ".join("%02X" % b for b in bs)))
+                hexs = " ".join("%02X" % b for b in bs[:8]) + ("  " + " ".join("%02X" % b for b in bs[8:]) if len(bs) > 8 else "")
+                text = "".join(chr(b) if 32 <= b < 127 else "." for b in bs)
+                out.append("%04X  %s  %s\r\n" % (row & 0xFFFF, hexs.ljust(48), text))
             return "".join(out)
         if cmd in ("G", "N") and typed:
             if not self.program:
@@ -541,7 +560,7 @@ class StubModel(threading.Thread):
 
     def _regblock(self):
         c = self.cpu
-        im = c.im if self.program or self.attached else 0xFF
+        im = 0xFF if self.ran else c.im
         return struct.pack(">HHHHHHHHHHHHBBBB", c.af, c.bc, c.de, c.hl, c.ix, c.iy, c.sp, c.pc,
                            (c.a_ << 8) | c.f_, (c.b_ << 8) | c.c_, (c.d_ << 8) | c.e_, (c.h_ << 8) | c.l_,
                            c.i, c.r, c.iff1 | (c.iff2 << 1), im)
@@ -560,7 +579,12 @@ class StubModel(threading.Thread):
 
     def _mem_ok(self, space, addr, count, write):
         if space == 0:
-            return 0 <= addr and addr + count <= 0x10000
+            if not (0 <= addr and addr + count <= 0x10000):
+                return False
+            for w in range(addr >> 13, ((addr + count - 1) >> 13) + 1):
+                if STUB_PAGE in self.mmu[w]:
+                    return False
+            return True
         page_end = (addr + count - 1) >> 13
         for page in range(addr >> 13, page_end + 1):
             if write and page >= SRAM_PAGES:
@@ -641,7 +665,10 @@ class StubModel(threading.Thread):
             if start + len(vals) > 28:
                 raise _Refuse(P.E_REGISTER)
             blk = bytearray(self._regblock())
+            old_im = blk[27]
             blk[start:start + len(vals)] = vals
+            if blk[27] != old_im and blk[27] > 2:
+                raise _Refuse(P.E_LENGTH)
             self._set_regblock(bytes(blk))
             return "K", 0, b""
         if t == P.READMEM:
@@ -724,12 +751,16 @@ class StubModel(threading.Thread):
                 raise _Refuse(P.E_LENGTH)
             if line.strip()[:1].upper() in "GNULBXT" and line.strip():
                 raise _Refuse(P.E_CONSOLE)
+            if not line.strip() and self.last_cmd == "N":
+                raise _Refuse(P.E_CONSOLE)
             return "K", 0, self.monitor_line(line).encode("latin-1")[:2048]
         raise _Refuse(P.E_UNKNOWN)
 
     def _resend_stop(self):
         if self.last_stop is None:
             self.last_stop = struct.pack(">BBIIIB", P.R_PAUSE, 0, self.cpu.pc, 0, 0, 0)
+        else:   # the PC as it is now (R PC may have changed it at the prompt)
+            self.last_stop = self.last_stop[:2] + struct.pack(">I", self.cpu.pc) + self.last_stop[6:]
         if True:
             self._frame(P.T_STOP, self.stop_count, self.last_stop)
             self.stop_count = (self.stop_count + 1) & 0xFF
@@ -740,7 +771,8 @@ class StubModel(threading.Thread):
         self.attached = False
         self.last_seq = None
         if say:
-            self._send_text("\r\nDetached at %04X\r\n%s> " % (self.cpu.pc, self._regs_text()))
+            msg = self._stop_message() if self.last_stop else "Stopped at %04X" % self.cpu.pc
+            self._send_text("\r\n%s\r\n%s> " % (msg, self._regs_text()))
 
 
 class _Refuse(Exception):
