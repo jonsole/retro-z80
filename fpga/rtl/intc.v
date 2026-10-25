@@ -22,6 +22,9 @@
 // while the request is set, until the bus interface's nmi_ack, and is held
 // high while NMICTL.INNMI is 1 (an NMI handler is running), so an NMI
 // never nests: a request made meanwhile gives a new NMI right after RETN.
+// The debug unit (spec 18, section 7; ticket #28) is the third source: its
+// nmi_dbg pulses set the same request, with no NMICON or NMISTAT bit (its
+// own enables and DBGSTAT say what asked).
 `include "regmap.vh"
 
 module intc (
@@ -43,6 +46,7 @@ module intc (
 
     input  wire        nmi_button,     // debounced, 1 = pressed
     input  wire        nmi_usb,        // 1-clock pulse: BREAK from the PC
+    input  wire        nmi_dbg,        // 1-clock pulse: the debug unit (dbgunit.v)
     input  wire        nmi_ack,        // the CPU has started its NMI response (1 clock)
     input  wire        innmi,          // NMICTL.INNMI (intpages.v)
     output wire        nmi_n           // to the Z80
@@ -115,6 +119,7 @@ module intc (
             if (nmi_ack) nmi_pend <= 1'b0;
             if (nmi_button && !btn_d && nmicon[0]) begin nmi_pend <= 1'b1; nmistat[0] <= 1'b1; end
             if (nmi_usb && nmicon[1])              begin nmi_pend <= 1'b1; nmistat[1] <= 1'b1; end
+            if (nmi_dbg)                           nmi_pend <= 1'b1;
 
             if (rb_wr && sel) case (rb_addr)
                 `RM_INTCON:  master <= rb_wdata[`RM_INTCON_MASTER];

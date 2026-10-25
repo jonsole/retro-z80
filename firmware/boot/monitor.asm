@@ -498,6 +498,7 @@ ment2:  ld      a,MON_ON
         set     7,(hl)
         xor     a
         ld      (M_NMI),a
+        ld      (M_DBG),a
         ld      a,(WENT + 19)
         cp      R_NMI
         jr      z,.nmi
@@ -529,22 +530,12 @@ ment2:  ld      a,MON_ON
         cp      R_TRAP
         jr      z,.pc
         cp      R_FBREAK
-        jr      nz,.bk
+        jr      nz,.bp
         dec     hl                      ; RST 28h and its number
         ld      (M_SHOW),hl
         jr      .bp
-.bk:    ld      a,(M_BPON)              ; RST 30h: the breakpoint?
-        or      a
-        jr      z,.bp
-        ld      de,(M_BPADR)
-        or      a
-        sbc     hl,de
-        jr      nz,.bp
-        ld      a,R_BKPT
-        ld      (M_WHY),a
-        ex      de,hl
-.pc:    ld      (M_PC),hl               ; PC at the trap's or the breakpoint's byte
-.bp:    call    bpclr                   ; the breakpoint out of the program
+.pc:    ld      (M_PC),hl               ; PC at the trap's byte
+.bp:    call    dbgclr                  ; breakpoint 0 off: one breakpoint per G
         call    takescr
         call    wdkick
         call    bol
@@ -568,7 +559,18 @@ ment2:  ld      a,MON_ON
         ld      hl,s_trap
         cp      R_TRAP
         jr      z,.m2
-        ld      a,(M_NMI)               ; an NMI: which source
+        ld      a,(M_DBG)               ; an NMI: the debug unit's causes first (spec 16, section 8.8)
+        ld      hl,s_bkpt
+        and     DBGSTAT_BP0_M | DBGSTAT_BP1_M | DBGSTAT_BP2_M | DBGSTAT_BP3_M
+        jr      nz,.m2
+        ld      a,(M_DBG)
+        and     DBGSTAT_WP0_M | DBGSTAT_WP1_M
+        jr      nz,.wp
+        ld      a,(M_DBG)
+        ld      hl,s_step
+        and     DBGSTAT_STEP_M
+        jr      nz,.m2
+        ld      a,(M_NMI)               ; which source
         ld      hl,s_nmib
         rrca
         jr      c,.m2
@@ -585,8 +587,49 @@ ment2:  ld      a,MON_ON
 .m3:    call    pnl
         call    showregs
         jp      mloop
+; A watchpoint: "Watchpoint n at addr (write addr: dd)", or "(read port pppp: dd)"
+.wp:    ld      hl,s_watch
+        rst     18h
+        ld      a,(M_HITK)
+        and     DBGHITKIND_WP_M
+        rrca
+        rrca
+        add     a,'0'
+        rst     08h
+        ld      hl,s_at
+        rst     18h
+        ld      hl,(M_SHOW)
+        rst     28h
+        db      7                       ; PUTHEX16
+        ld      hl,s_wwr
+        ld      a,(M_HITK)
+        and     DBGHITKIND_WRITE_M
+        jr      nz,.w1
+        ld      hl,s_wrd
+.w1:    rst     18h
+        ld      a,(M_HITK)
+        and     DBGHITKIND_IO_M
+        jr      z,.w2
+        ld      hl,s_wport
+        rst     18h
+.w2:    ld      hl,(M_HITA)
+        rst     28h
+        db      7
+        call    pcolon
+        ld      a,(M_HITD)
+        rst     28h
+        db      6                       ; PUTHEX
+        ld      a,')'
+        rst     08h
+        jr      .m3
 s_break: db     "Break at ", 0
 s_bkpt: db      "Breakpoint at ", 0
+s_step: db      "Step at ", 0
+s_watch: db     "Watchpoint ", 0
+s_at:   db      " at ", 0
+s_wwr:  db      " (write ", 0
+s_wrd:  db      " (read ", 0
+s_wport: db     "port ", 0
 s_trap: db      "Trap RST 38h at ", 0
 s_nmib: db      "NMI (button) at ", 0
 s_nmiu: db      "NMI (USB) at ", 0
@@ -608,11 +651,32 @@ nmiwhy: ld      e,0
         and     NMISTAT_BUTTON_M | NMISTAT_USB_M
         or      e
         ld      (M_NMI),a
-        ld      bc,NMICAPPC0_P
+        ld      bc,DBGSTAT_P            ; the debug unit's causes (spec 18), then cleared
+        in      a,(c)
+        out     (c),a
+        ld      (M_DBG),a
+        and     DBGSTAT_WP0_M | DBGSTAT_WP1_M
+        jr      z,.nw
+        ld      bc,DBGHITADDR0_P        ; a watchpoint: the access it kept
         in      l,(c)
         inc     b
         in      h,(c)
-        ld      (M_PC),hl
+        ld      (M_HITA),hl
+        inc     b
+        in      a,(c)
+        ld      (M_HITD),a
+        inc     b
+        in      a,(c)
+        ld      (M_HITK),a
+.nw:    ld      bc,NMICAPPC0_P
+        in      l,(c)
+        inc     b
+        in      h,(c)
+        ld      a,(M_DBG)
+        and     DBGSTAT_BP0_M | DBGSTAT_BP1_M | DBGSTAT_BP2_M | DBGSTAT_BP3_M
+        jr      z,.pc
+        dec     hl                      ; a breakpoint: its NOP ran, so PC back by 1 (spec 18, section 5.2)
+.pc:    ld      (M_PC),hl
         ld      (M_SHOW),hl
         inc     b                       ; NMICAPSP0
         in      l,(c)
@@ -623,16 +687,13 @@ nmiwhy: ld      e,0
         ld      (M_RUN),a
         ret
 
-; The breakpoint's old byte back, if it is set
-bpclr:  ld      a,(M_BPON)
-        or      a
-        ret     z
+; Breakpoint 0 off (a breakpoint is for one G), and the debug unit off
+dbgclr: ld      bc,DBGBP0_CTL_P
         xor     a
-        ld      (M_BPON),a
-        ld      hl,(M_BPADR)
-        call    setcpu
-        ld      a,(M_BPOLD)
-        jp      wrb
+        out     (c),a
+        ld      bc,DBGCTL_P
+        out     (c),a
+        ret
 
 ; Z if the workspace's state has its marker and its sum
 wscheck:
@@ -819,8 +880,11 @@ mloop:  ld      sp,MSTACK
         ld      (T_SZSET),a
 .go:    xor     a
         ld      (M_LAST),a
+        ld      (M_STEPF),a
         ret                             ; to the command
-.empty: ld      a,(M_LAST)              ; Enter after D, S or I: carry on
+.empty: ld      a,(M_LAST)              ; Enter after D, S or I: carry on; after N: step again
+        cp      'N'
+        jp      z,c_step
         cp      'D'
         jp      z,c_dump.more
         cp      'S'
@@ -843,6 +907,8 @@ ctab:   db      'D'
         dw      c_search
         db      'G'
         dw      c_go
+        db      'N'
+        dw      c_step
         db      'R'
         dw      c_regs
         db      'P'
@@ -1945,6 +2011,14 @@ c_search:
         db      "Not found.", 13, 10, 0
         jp      mloop
 
+; ---- N: step one instruction (spec 16, section 8.8): G with DBGCTL.STEP
+c_step: call    pend
+        ld      a,'N'
+        ld      (M_LAST),a              ; Enter on an empty line steps again
+        ld      a,1
+        ld      (M_STEPF),a
+        jr      c_go.noad
+
 ; ---- G [addr [break]]: go
 c_go:   call    pskip
         jr      z,.noad
@@ -1993,24 +2067,7 @@ c_go:   call    pskip
         call    curinc
         pop     bc
         djnz    .fc
-.nofr:  ld      a,(T_FLAG)              ; the breakpoint: RST 30h, read back
-        or      a
-        jr      z,.wr
-        ld      hl,(T_NUM)
-        ld      (M_BPADR),hl
-        call    setcpu
-        call    rdx
-        ld      (M_BPOLD),a
-        ld      a,0xF7
-        call    wrb
-        call    rdx
-        cp      0xF7
-        jr      z,.bpok
-        ld      a,(M_BPOLD)
-        call    wrb
-        jp      e_addr
-.bpok:  ld      a,1
-        ld      (M_BPON),a
+.nofr:
 .wr:    ld      a,(M_RUN)
         or      a
         jr      nz,.w1
@@ -2042,7 +2099,27 @@ c_go:   call    pskip
         call    curinc
         pop     hl
         jr      .w2
-.go:    ld      a,1
+.go:    ld      bc,DBGSTAT_P            ; the debug unit (spec 16, section 8.8): every cause cleared
+        ld      a,0x7F
+        out     (c),a
+        ld      a,(T_FLAG)              ; the breakpoint: breakpoint 0, no page match, so ROM works
+        or      a
+        jr      z,.nob
+        ld      hl,(T_NUM)
+        ld      bc,DBGBP0_ADDR0_P
+        out     (c),l
+        inc     b
+        out     (c),h
+        ld      b,high DBGBP0_CTL_P
+        ld      a,DBGBP_CTL_EN_M
+        out     (c),a
+.nob:   ld      a,(M_STEPF)             ; N: STEP, with STEPINT = 0 (no interrupt taken in the step)
+        or      a
+        jr      z,.nos
+        ld      bc,DBGCTL_P
+        ld      a,DBGCTL_STEP_M
+        out     (c),a
+.nos:   ld      a,1
         ld      (M_RUN),a
         ld      hl,M_IM
         set     7,(hl)

@@ -20,8 +20,9 @@
 // Prints "SESSION DONE" and finishes once every line has been typed and the
 // machine is quiet after a prompt again, or "TEST FAILED: timeout".
 //
-// After a G line, a program that runs on quietly (4 ms with nothing sent,
-// and no prompt) is stopped with an NMI (ticket #27): the Multiface button,
+// After a G line, a program that runs on quietly (8 ms with nothing sent,
+// and no prompt; the monitor's own entry and exit after a stop can take
+// more than 4 ms) is stopped with an NMI (ticket #27): the Multiface button,
 // or the BREAK control command if the G line ends in a space. (An NMI that
 // finds the monitor itself still busy goes straight back; another follows
 // 4 ms later.)
@@ -30,6 +31,7 @@
 module tb_mon (input clk);
     localparam [5:0] CHIPMB = 6'd2;
     localparam integer QUIET = 400000;          // 4 ms with nothing sent: a prompt is waiting
+    localparam integer QUIETRUN = 800000;       // 8 ms with nothing sent and no prompt: a program runs on
 
     reg  [63:0] cycles = 0;
     reg         por = 1'b1;
@@ -152,7 +154,7 @@ module tb_mon (input clk);
         // A program running on quietly: an NMI, the button or BREAK in turn
         if (nmi_t > 0) nmi_t = nmi_t - 1;
         nmi_btn <= (nmi_t > 0);
-        if (quiet == QUIET && last != 8'h20 && qh == qt && !sess_end && go_line) begin
+        if (quiet == QUIETRUN && last != 8'h20 && qh == qt && !sess_end && go_line) begin
             nnmi = nnmi + 1;
             if (!go_brk) nmi_t = 100;
             else begin

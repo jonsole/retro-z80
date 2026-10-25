@@ -58,10 +58,9 @@ M_RUN   equ     0x6805                  ; 1: a program was stopped part-way (G g
 M_IM    equ     0x6806                  ; the program's IM (bits 1-0); bit 6: set by R; bit 7: it has run ("?")
 M_IFF   equ     0x6807                  ; IFF1 as the program had it
 M_ENTRY equ     0x6808                  ; 2: where the program was last started
-M_LAST  equ     0x680A                  ; the command Enter carries on ('D', 'S', 'I' or 0)
-M_BPON  equ     0x680B                  ; 1: a breakpoint is set
-M_BPADR equ     0x680C                  ; 2: its address
-M_BPOLD equ     0x680E                  ; its old byte
+M_LAST  equ     0x680A                  ; the command Enter carries on ('D', 'S', 'I', 'N' or 0)
+                                        ; 0x680B-0x680D: free (the RST 30h breakpoint's, before #28)
+M_STEPF equ     0x680E                  ; 1: G leaves with DBGCTL.STEP (N)
 M_SPEED equ     0x680F                  ; the program's CPUSPEED
 M_AF    equ     0x6810                  ; the program's registers, 2 bytes each
 M_BC    equ     0x6812
@@ -92,6 +91,10 @@ M_VID   equ     0x6890                  ; 43: L0's 32 registers, PRIO, DMACON, B
                                         ; PALIDX (2), and the console's CONMODE and colour pair
 M_INEXT equ     0x68C0                  ; 4: where I carries on
 M_IRST  equ     0x68C4                  ; 1: I's last instruction was RST 28h (a function number next)
+M_DBG   equ     0x68C5                  ; after an NMI: DBGSTAT as seen (0 otherwise)
+M_HITA  equ     0x68C6                  ; 2: ... with a watchpoint: DBGHITADDR
+M_HITD  equ     0x68C8                  ; ... DBGHITDATA
+M_HITK  equ     0x68C9                  ; ... DBGHITKIND
 WSTATE_END equ  0x6900
 
 LBUF    equ     0x6900                  ; the line being typed
@@ -143,7 +146,7 @@ R_BREAK equ     2                       ; RST 30h
 R_FBREAK equ    3                       ; RST 28h function BREAK
 R_TRAP  equ     4                       ; RST 38h
 R_NMI   equ     5
-R_BKPT  equ     6                       ; a breakpoint (found from R_BREAK)
+R_BKPT  equ     6                       ; (not used: a breakpoint is an NMI, with DBGSTAT in M_DBG)
 R_NMI3  equ     7                       ; an NMI through the NMI page (becomes R_NMI)
 
 ; ---- Colour pairs (spec 7, section 5.1): entries' high byte, PAL x 2

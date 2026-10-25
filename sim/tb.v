@@ -73,7 +73,15 @@
 //     stack reads make no request and must give the captured PC (or what
 //     the Z80 wrote to NMICAPPC); after the second, the model's MMU gets
 //     the saved pages back, so the fetch at the return address is checked
-//     through the program's map.
+//     through the program's map;
+//   - the debug unit (spec 18; ticket #28): a fetch whose byte a
+//     breakpoint replaced must take 0x00; every request the unit makes
+//     comes at the end of an M1's T2, with int_ack, or at E + 3 of a data
+//     cycle's T1; and a step (a write of DBGCTL.STEP at port 0x0002, then
+//     a RETN) runs exactly one instruction: the starts counted here (by
+//     the opcode watcher) from the resume M1, the first M1 after RETN's
+//     two stack reads, to the NMI response are 1, or 0 if the resume M1
+//     was an acknowledge.
 // and that each T-state is as long as CPUSPEED says (spec 1, section 3;
 // spec 7, section 6.1). The summary gives the measured rate at each speed.
 `timescale 1ns/1ps
@@ -373,6 +381,10 @@ module tb #(
 
     integer reads_rom = 0, reads_sram = 0, reads_regs = 0, reads_none = 0;
     integer nmis = 0, nmi_pops = 0, nmi_errors = 0, push_win = 0, ow = 0;
+    // The debug unit's step, as seen here: armed by a write of STEP; RETN's
+    // stack reads to come; the next M1 is the resume M1; counting starts
+    integer d_retn = 0, d_starts = 0, d_steps = 0, d_reqs = 0;
+    reg     d_armed = 1'b0, d_resume = 1'b0, d_stepping = 1'b0, d_ack = 1'b0;
     reg     pop_win = 1'b0, req_d = 1'b0;
     reg     t_last1 = 1'b0, t_rep = 1'b0;     // the last T-state was a T1; this M1 repeated its T1
     task nmi_error(input [8*64-1:0] why);
@@ -430,6 +442,11 @@ module tb #(
                 want = 8'hFF;
                 reads_none = reads_none + 1;
             end
+            if (dut.cpu.mcycle[0] && dut.bif.bp_nop) want = 8'h00;   // a breakpoint's NOP
+            if (!dut.cpu.mcycle[0] && d_retn > 0) begin
+                d_retn = d_retn - 1;
+                if (d_retn == 0) d_resume = 1'b1;
+            end
             if (trace > ntrace) begin
                 $display("%t  %s %h = %h (page %h)", $realtime, dut.cpu.mcycle[0] ? "F" : "R", ad, dut.cpu.di, pg);
                 ntrace = ntrace + 1;
@@ -446,6 +463,15 @@ module tb #(
             if (dut.cpu.mcycle[0] && t_rep) begin
                 nmis = nmis + 1;
                 ow = 0;
+                d_resume = 1'b0;
+                if (d_stepping) begin
+                    d_stepping = 1'b0;
+                    d_steps = d_steps + 1;
+                    if (d_starts != (d_ack ? 0 : 1)) begin
+                        $display("%t step: %0d instructions run, not %0d", $realtime, d_starts, d_ack ? 0 : 1);
+                        nmi_error("a step did not run exactly one instruction");
+                    end
+                end
                 if (m_innmi) nmi_error("an NMI response while INNMI is 1");
                 else begin
                     m_innmi = 1; m_noten = m_nen; m_notmask = m_nmask; m_push = 2;
@@ -459,12 +485,18 @@ module tb #(
                     end
                 end
             end else if (dut.cpu.mcycle[0]) begin
+                if (d_resume) begin
+                    d_resume = 1'b0;
+                    if (d_armed) begin d_armed = 1'b0; d_stepping = 1'b1; d_starts = 0; d_ack = 1'b0; end
+                end
+                if (ow == 0 && d_stepping) d_starts = d_starts + 1;
                 // The opcode watcher (spec 1, section 8.4): 0 START, 1 XY, 2 CB, 3 ED
                 case (ow)
                     2: ow = 0;
                     3: begin
                         ow = 0;
                         if (dut.cpu.di == 8'h45 && m_innmi) begin m_pop = 2; pop_win = 1'b1; end
+                        if (dut.cpu.di == 8'h45) d_retn = 2;
                     end
                     default:
                         if (dut.cpu.di == 8'hDD || dut.cpu.di == 8'hFD) ow = 1;
@@ -485,8 +517,28 @@ module tb #(
                             end
                 end
             end
-        end else if (dut.cpu.mcycle[0] && !dut.cpu.intcycle_n)
+        end else if (dut.cpu.mcycle[0] && !dut.cpu.intcycle_n) begin
             ow = 0;                                             // an acknowledge
+            if (d_resume) begin
+                d_resume = 1'b0;
+                if (d_armed) begin d_armed = 1'b0; d_stepping = 1'b1; d_starts = 0; d_ack = 1'b1; end
+            end
+        end
+    end
+    // The debug unit's requests: the clock after the end of an M1's T2, or
+    // after int_ack, or after E + 3 of a data cycle's first T1
+    reg [2:0] d_tc = 3'd7;
+    reg       d_m1end = 1'b0, d_iack = 1'b0, d_t1 = 1'b0, d_wast1 = 1'b0;
+    always @(posedge clk) begin
+        if (dut.dbg_nmi) begin
+            d_reqs = d_reqs + 1;
+            if (!(d_m1end || d_iack || d_t1)) nmi_error("a debug request at the wrong time");
+        end
+        d_m1end <= dut.cen && dut.cpu.tstate[2] && dut.cpu.mcycle[0];
+        d_iack  <= dut.int_ack;
+        d_t1    <= d_tc == 3'd2 && dut.cpu.tstate[1] && !d_wast1 && !dut.cpu.mcycle[0];
+        if (d_tc == 3'd2) d_wast1 <= dut.cpu.tstate[1];
+        d_tc    <= dut.cen ? 3'd0 : (d_tc == 3'd7) ? 3'd7 : d_tc + 3'd1;
     end
     // The capture makes no memory request, ROM write or register strobe
     always @(posedge clk) begin
@@ -662,6 +714,8 @@ module tb #(
                 mmu_write(ad[15:8], dut.cpu.dout);
             else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad[7:0] == 8'h01 && ad[15:14] != 2'b00)
                 ip_write(ad[15:8], dut.cpu.dout);
+            else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad == 16'h0002)
+                d_armed = dut.cpu.dout[0];                      // DBGCTL.STEP
             else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad == 16'h0003) begin
                 if (dut.cpu.dout == 8'h01) begin
                     $display("%t test ROM: the NMI button pressed", $realtime);
@@ -875,6 +929,7 @@ module tb #(
                      acks, vreqs, int_acks, ack_errors);
             $display("---- NMI: %0d responses, %0d stack reads from the capture, %0d errors",
                      nmis, nmi_pops, nmi_errors);
+            $display("---- debug unit: %0d requests, %0d steps counted", d_reqs, d_steps);
             $display("---- speed: %0d errors; T1 at 3.57 MHz on slot edges %b (9-0)", speed_errors, spd_edges);
             $display("---- video: %0d frames, %0d timing errors, %0d lines changing colour; %0d blue and %0d green pixels; BGCOLOR %h",
                      vframes, vid_errors, mixed_lines, pix_blue, pix_green, dut.vid.bgcolor);

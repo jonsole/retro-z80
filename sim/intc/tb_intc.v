@@ -28,7 +28,7 @@ module tb_intc;
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rb_rdata), .rb_hit(rb_hit),
         .req(req), .int_n(int_n), .vreq(vreq), .vector(vector), .int_ack(int_ack),
-        .nmi_button(nmi_button), .nmi_usb(nmi_usb), .nmi_ack(nmi_ack), .innmi(1'b0), .nmi_n(nmi_n)
+        .nmi_button(nmi_button), .nmi_usb(nmi_usb), .nmi_dbg(1'b0), .nmi_ack(nmi_ack), .innmi(1'b0), .nmi_n(nmi_n)
     );
 
     integer errors = 0, checks = 0;

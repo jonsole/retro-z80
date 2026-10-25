@@ -55,6 +55,13 @@
 //     low and then high byte are put at di. After the second, nmi_ret
 //     restores the pages and ends INNMI.
 //
+// The debug unit (spec 18; dbgunit.v; ticket #28) gets the cycle's strobes
+// from here (dbg_t1s, dbg_t2s, dbg_take, dbg_take_f), the opcode watcher's
+// START and every RETN (with INNMI 1 or 0). When it says a breakpoint
+// matches the fetch at E + 3 (dbg_bp), the byte read is replaced by 0x00
+// at di: the core runs a NOP, and takes the NMI after it (section 5.2).
+// I/O page 0x02 is its register page (register bus 0x200-0x2FF).
+//
 // No register bus arbiter yet (the CPU is the only master).
 `include "regmap.vh"
 
@@ -128,6 +135,15 @@ module bus_if (
     output reg         cap_pc_hi,      // ... the first push's (PC bits 15-8)
     output reg  [7:0]  nmi_pd,
 
+    // The debug unit (dbgunit.v)
+    output wire        dbg_t1s,        // E + 3 of an M-cycle's first T1
+    output wire        dbg_t2s,        // E + 3 of T2
+    output wire        dbg_take,       // the cen edge that ends T2
+    output wire        dbg_take_f,     // ... of a fetch that is not an NMI response
+    output wire        dbg_ow_start,   // the opcode watcher is in START
+    output reg         dbg_retn,       // 1 clock: RETN's second byte taken
+    input  wire        dbg_bp,         // with dbg_t1s of a fetch: a breakpoint matches
+
     // Checks: the core took a byte before it was at di (never, if the
     // timing of spec 1, section 5 holds)
     output reg         late
@@ -194,6 +210,14 @@ module bus_if (
     localparam [1:0] OW_START = 2'd0, OW_XY = 2'd1, OW_CB = 2'd2, OW_ED = 2'd3;
     wire nmi_resp = at3 && tstate[1] && was_t1 && is_fetch && !m1_rep;
     wire pop      = at3 && first_t1 && is_read && pop_n != 2'd0;
+    wire take_f   = cen && tstate[2] && is_fetch && !m1_rep;
+    reg  bp_nop;                       // this fetch's byte is replaced by 0x00
+
+    assign dbg_t1s      = at3 && first_t1;
+    assign dbg_t2s      = at3 && tstate[2];
+    assign dbg_take     = cen && tstate[2];
+    assign dbg_take_f   = take_f;
+    assign dbg_ow_start = (ow == OW_START);
 
     always @(posedge clk) begin
         rom_en <= 1'b0;
@@ -206,6 +230,7 @@ module bus_if (
         nmi_ret   <= 1'b0;
         cap_sp_ld <= 1'b0;
         cap_pc_ld <= 1'b0;
+        dbg_retn  <= 1'b0;
         if (rst) begin
             m1_rep  <= 1'b0;
             push_n  <= 2'd0;
@@ -213,6 +238,7 @@ module bus_if (
             pop_cyc <= 1'b0;
             pop_n   <= 2'd0;
             ow      <= OW_START;
+            bp_nop  <= 1'b0;
             cpu_req <= 1'b0;
             cpu_we  <= 1'b0;
             rd_wait <= 1'b0;
@@ -255,11 +281,12 @@ module bus_if (
                 if (pop_n == 2'd1) nmi_ret <= 1'b1;
             end
             // The opcode watcher, as the core takes each fetched byte
-            if (cen && tstate[2] && is_fetch && !m1_rep) case (ow)
+            if (take_f) case (ow)
                 OW_CB: ow <= OW_START;
                 OW_ED: begin
                     ow <= OW_START;
                     if (di == 8'h45 && innmi) pop_n <= 2'd2;    // RETN
+                    if (di == 8'h45) dbg_retn <= 1'b1;
                 end
                 default:
                     if (di == 8'hDD || di == 8'hFD) ow <= OW_XY;
@@ -269,7 +296,8 @@ module bus_if (
             endcase
 
             if (at3 && first_t1 && (is_fetch || is_read) && !pop) begin
-                rd_hi <= A[0];
+                rd_hi  <= A[0];
+                bp_nop <= is_fetch && dbg_bp;
                 if (pg_sram) begin
                     cpu_req  <= 1'b1;
                     cpu_we   <= 1'b0;
@@ -283,7 +311,7 @@ module bus_if (
                 end else if (pg_regs && is_read)
                     rd_wait  <= 1'b1;                   // a register bus read, at T2
                 else
-                    di <= 8'hFF;                        // NONE, reserved; a fetch from REGS
+                    di <= (is_fetch && dbg_bp) ? 8'h00 : 8'hFF;   // NONE, reserved; a fetch from REGS
             end
             // The acknowledge: the vector at di from E + 4; int_ack once
             // the M1 is over (the core has taken the byte at the end of T2)
@@ -310,11 +338,11 @@ module bus_if (
             end
 
             if (cpu_rvalid && rd_wait) begin
-                di      <= rd_hi ? mem_rdata[15:8] : mem_rdata[7:0];
+                di      <= bp_nop ? 8'h00 : rd_hi ? mem_rdata[15:8] : mem_rdata[7:0];
                 rd_wait <= 1'b0;
             end
             if (rom_rd && rd_wait) begin
-                di      <= rd_hi ? rom_rdata[15:8] : rom_rdata[7:0];
+                di      <= bp_nop ? 8'h00 : rd_hi ? rom_rdata[15:8] : rom_rdata[7:0];
                 rd_wait <= 1'b0;
             end
 
@@ -347,9 +375,11 @@ module bus_if (
     wire       p_sys    = (lo == 8'h00);
     wire       p_custom = (lo[7:2] == 6'b000100);       // 0x10-0x13
     wire       p_ip     = (lo == 8'h01) && (hi[7:6] != 2'b00);  // page 0x01, registers 0x40-0xFF
+    wire       p_dbg    = (lo == 8'h02);                         // page 0x02, the debug unit
     wire [12:0] io_addr = p_low    ? {5'd0, lo} :
                           p_sys    ? {5'd0, hi} :
                           p_ip     ? {5'd1, hi} :
+                          p_dbg    ? {5'd2, hi} :
                                      {3'b100, lo[1:0], hi};
     wire       io_strobe = !iorq_n && m1_n && (!rd_n || !wr_n);
     // A memory read or write (not a fetch) whose page is REGS; never a
@@ -379,7 +409,7 @@ module bus_if (
             rb_addr  <= io_addr;
             rb_hi    <= p_low ? hi : 8'h00;
             rb_wdata <= dout;
-            if (p_low || p_sys || p_custom || p_ip) begin
+            if (p_low || p_sys || p_custom || p_ip || p_dbg) begin
                 rb_rd <= !rd_n;
                 rb_wr <= !wr_n;
             end else

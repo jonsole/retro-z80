@@ -7,7 +7,8 @@ helptext:
         db      "C addr count dest        copy", 13, 10
         db      "V addr count addr2       compare", 13, 10
         db      "S[.s] addr count value.. search (Enter: carry on)", 13, 10
-        db      "G [addr [break]]         go, with one breakpoint (RST 30h)", 13, 10
+        db      "G [addr [break]]         go, with one breakpoint (ROM too)", 13, 10
+        db      "N                        step one instruction (Enter: step again)", 13, 10
         db      "R [name value]           show or set the program's registers", 13, 10
         db      "P port [value]           read or write an I/O port (register:page)", 13, 10
         db      "I [addr [count]]         disassemble (Enter: carry on)", 13, 10

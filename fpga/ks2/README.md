@@ -129,7 +129,7 @@ AF=4300 BC=0000 DE=0000 HL=0000 IX=0000 IY=0000 SP=0000 PC=0040
 AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=7D IFF=0 IM=2?
 ```
 
-A breakpoint: `G 8100 8103` puts `RST 30h` at `8103`, so the program prints B and stops before printing C; the monitor puts the old byte back (`D 8103 1` shows `3E`). `G` goes on from there.
+A breakpoint: `G 8100 8103` sets the debug unit's breakpoint 0 at `8103` (issue #28; before it, an `RST 30h` written there), so the program prints B and stops before printing C, with nothing written into it (`D 8103 1` shows `3E`). `G` goes on from there.
 
 ```
 > E 8200 F7 3E 44 CF C9
@@ -181,6 +181,54 @@ More to try: `S 8000 300 CF` finds the `RST 08h`s typed above; `C 8000 4 9000` t
 ```
 
 The program (`LD SP,9000`, `LD HL,0`, then `INC HL` for ever) runs with nothing on the screen. Press the Multiface button: `NMI (button) at 8806` (or `8807`) and the registers, with `SP=9000` and HL counting. `D 8FFE 2` shows `AA AA`: the NMI's return address went into NMICAPPC, not onto the program's stack. `G` goes on (HL keeps counting: press the button again and `R` shows a bigger HL); `G 8809` ends it (`Program ended.`). With SP pointing at ROM: `E 8900 31 00 10 18 FE`, `G 8900`, the button: `NMI (button) at 8903` with `SP=1000`; `G` goes on, the button stops it again; `R SP 9000` and `G 8809` end it. The reset button is still there for a program that has switched the NMI off.
+
+**The debug unit: step, breakpoints in ROM, a watchpoint** (issue #28). On the membrane keyboard SPACE separates the items, ENTER ends the line. With the program at `8100` typed in as above (`E 8100 3E 42 CF 3E 43 CF C9`):
+
+```
+> R PC 8100
+> N
+Step at 8102
+AF=42.. BC=.... DE=.... HL=.... IX=.... IY=.... SP=FFFE PC=8102
+AF'=.... BC'=.... DE'=.... HL'=.... I=1F R=.. IFF=0 IM=2?
+>
+Step at 0008
+AF=42.. ... SP=FFFC PC=0008
+...
+> N
+Step at 0953
+...
+> G
+BC
+Program ended.
+```
+
+`N` runs one instruction (`LD A,42`) and shows the registers; ENTER on an empty line steps again: the `RST 08h`, which stops at `0008` in ROM with its return address on the stack (`SP=FFFC`); `N` once more is the ROM's own `JP` to PUTC (`0953`). `G` goes on: B and C, then `Program ended.` (`R PC 8100` first because after `Program ended.` a new run starts from the last ENTRY.)
+
+```
+> G 8100 0008
+Breakpoint at 0008
+AF=42.. ... SP=FFFC PC=0008
+> G
+BC
+Program ended.
+```
+
+A breakpoint in ROM: at the `RST 08h` entry, before it runs. With RST 30h (before issue #28) this gave `? address`.
+
+```
+> E 8700 3E 5A 32 00 90 C9
+> P 3002 0
+> P 3102 90
+> P 3402 5
+> G 8700
+Watchpoint 0 at 8705 (write 9000: 5A)
+AF=5A.. ... SP=FFFE PC=8705
+> P 3402 0
+> G
+Program ended.
+```
+
+A watchpoint set by hand: DBGWP0's address `9000` (ports `0x3002` and `0x3102`: register × 256 + page `0x02`), its mask left at `FFFF`, and DBGWP0_CTL = `05` (EN and WRITE). The program `LD A,5A`, `LD (9000),A`, `RET` stops after the write, with the access. `P 3402 0` turns it off again; `G` goes on to the end. Other things to try: `P 3402 3` (EN and READ) with `E 8700 3A 00 90 C9` (`LD A,(9000)`) stops on the read; `P 3202 0` (mask `FF00`, the low byte 0) watches the whole page `90xx`.
 
 **The tape loader demo** (issue #21): on an empty line, press **EDIT** (CAPS SHIFT + 1, or the EDIT key) or Tab on a PS/2 keyboard. Plug headphones or an amplifier into the KS2's audio jack (the internal speaker, if fitted, plays the same in mono). For about 3.6 seconds the boot ROM plays a Spectrum loading a tape, writing port `0xFE` for every edge (border and beeper together):
 

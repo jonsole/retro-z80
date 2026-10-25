@@ -2,8 +2,8 @@
 ; start-up, the boot console and the monitor (the shared spec "Monitor and
 ; upload protocol", docs/spec/monitor.md). Ticket #22: the RST calls and
 ; the monitor's commands D E F C V S G R P H; ticket #23: the disassembler
-; (I) and the memory test (T); the loader, SD card and BASIC come with
-; later tickets.
+; (I) and the memory test (T); ticket #28: G's breakpoint on the debug unit
+; and the step N; the loader, SD card and BASIC come with later tickets.
 ;
 ;   Page 0 (0x0000)  the entry table (spec 16, section 3.1), start-up, the
 ;                    console and keyboard core, the ROM calls, the monitor's
@@ -196,6 +196,9 @@ monent: push    hl
         push    bc
         push    de
         ld      e,a                     ; E = why
+        ld      bc,DBGCTL_P             ; the debug unit off: the monitor's own code
+        xor     a                       ; is never compared (spec 16, section 8.8)
+        out     (c),a
         ld      a,i                     ; P/V = IFF2: the program's IFF1; A = I
         di
         push    af                      ; [I, IFF][DE][BC][HL][AF][return]
@@ -589,9 +592,12 @@ nmi3:   ld      (NMX_SP - 0x6000),sp
         cp      MMU4_1 + 1
         jr      nz,.m
         jp      nmiw0
-; The monitor itself was running (spec 16, section 8.8): NMISTAT cleared,
-; and straight back
+; The monitor itself was running (spec 16, section 8.8): NMISTAT and
+; DBGSTAT cleared, and straight back
 .mon:   ld      bc,NMISTAT_P
+        in      a,(c)
+        out     (c),a
+        ld      bc,DBGSTAT_P
         in      a,(c)
         out     (c),a
         ld      sp,NMX_HL

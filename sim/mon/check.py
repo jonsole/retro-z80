@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The monitor's scripted session (ticket #22): what to type and what must come back.
+"""The monitor's scripted session (tickets #22, #27, #28): what to type and what must come back.
 
     check.py make DIR    write DIR/session.in, the lines tb_mon.v types
     check.py check DIR   compare DIR/mon.log with the transcript below
@@ -124,6 +124,21 @@ SESSION = [
     ("G 8200 8203", ["B", "Breakpoint at 8203"] + regs(pc="8203")),
     ("D 8203 1", [dump(0x8203, [0x3E])]),
     ("G", ["C", "Program ended."] + regs(pc="0040")),
+    # N (ticket #28): a new run from ENTRY, one instruction at a time; Enter steps again,
+    # into the ROM call; G goes on
+    ("N", ["Step at 8202"] + regs(pc="8202", extra1={"AF": "42[0-9A-F]{2}"})),
+    ("", ["Step at 0008"] + regs(pc="0008")),
+    ("N", [R(r"Step at [0-9A-F]{4}")] + regs()),
+    ("G", ["BC", "Program ended."] + regs(pc="0040")),
+    # A watchpoint set by hand (DBGWP0: address 9000, mask FFFF, EN and WRITE), then off:
+    # LD A,5A / LD (9000),A / RET stops after the write
+    ("P 3002 0", []),
+    ("P 3102 90", []),
+    ("P 3402 5", []),
+    ("E 8700 3E 5A 32 00 90 C9", []),
+    ("G 8700", ["Watchpoint 0 at 8705 (write 9000: 5A)"] + regs(pc="8705", extra1={"AF": "5A[0-9A-F]{2}"})),
+    ("P 3402 0", []),
+    ("G", ["Program ended."] + regs(pc="0040")),
     # RST 30h: break, then G goes on after it
     ("E 8300 F7 3E 44 CF C9", []),
     ("G 8300", ["Break at 8300"] + regs(pc="8301")),
@@ -212,7 +227,9 @@ SESSION = [
     ("Q", ["? syntax"]),
     ("U", ["? not yet: a later ticket"]),
     ("E 0000 00", ["? address"]),
-    ("G 8000 0010", ["? address"]),
+    # A breakpoint in ROM (the debug unit's breakpoint 0): at RST 08h's entry, then on
+    ("G 8000 0008", ["Breakpoint at 0008"] + regs(pc="0008", extra1={"AF": "41[0-9A-F]{2}"})),
+    ("G", ["A", "Program ended."] + regs(pc="0040")),
     # T: a range in a window and by P address; the monitor's pages, the ROM and the registers refused
     ("T 9000 100", ["Pass 1 2 3 4", "Errors: 0000"]),
     ("T P00A123 1F00", ["Pass 1 2 3 4", "Errors: 0000"]),

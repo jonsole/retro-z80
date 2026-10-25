@@ -15,7 +15,9 @@
 // out through the sigma-delta audio streams (audio.v). Ticket #27 wires the
 // NMI: the Multiface button and the BREAK control command through the
 // controller to the Z80, with the NMI set of the interrupt pages and the
-// stack capture (intpages.v; spec 2, sections 9.7-9.9).
+// stack capture (intpages.v; spec 2, sections 9.7-9.9). Ticket #28 adds
+// the debug unit (dbgunit.v; spec 18): single step, breakpoints and
+// watchpoints on the NMI, its registers on I/O page 0x02.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
@@ -123,6 +125,7 @@ module retroz80 #(
     wire        c_m1_n, c_mreq_n, c_iorq_n, c_rd_n, c_wr_n, c_rfsh_n, c_halt_n, c_busak_n;
     wire        c_iorq, c_no_read, c_write, c_intcycle_n;
     wire        int_n;                 // from the interrupt controller
+    wire        dbg_inthold;           // the debug unit holds /INT off during a step
     wire        nmi_n;
 
     // A T-state every 5n clocks on slot edges 0 and 5, or every 28 clocks,
@@ -133,7 +136,7 @@ module retroz80 #(
 
     z80_cpu cpu (
         .clk(clk), .cen(cen), .reset_n(cpu_rst_n),
-        .wait_n(1'b1), .int_n(int_n), .nmi_n(nmi_n), .busrq_n(1'b1),
+        .wait_n(1'b1), .int_n(int_n || dbg_inthold), .nmi_n(nmi_n), .busrq_n(1'b1),
         .m1_n(c_m1_n), .mreq_n(c_mreq_n), .iorq_n(c_iorq_n), .rd_n(c_rd_n), .wr_n(c_wr_n),
         .rfsh_n(c_rfsh_n), .halt_n(c_halt_n), .busak_n(c_busak_n),
         .A(c_a), .di(c_di), .dout(c_dout),
@@ -157,6 +160,8 @@ module retroz80 #(
     wire [7:0]  rd_tmr;                // timers (#17), and their capture path
     wire [7:0]  rd_ip;                 // the interrupt pages (#27)
     wire        hit_ip;
+    wire [7:0]  rd_dbg;                // the debug unit (#28)
+    wire        hit_dbg, dbg_t1s, dbg_t2s, dbg_take, dbg_take_f, dbg_ow_start, dbg_retn, dbg_bp, dbg_nmi;
     wire        innmi, nmi_ack, nmi_ret, cap_sp_ld, cap_pc_ld, cap_pc_hi;
     wire [15:0] cappc, cap_sp;
     wire [7:0]  cap_d;
@@ -183,13 +188,27 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg),
         .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
         .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .nmi_pd(cap_d),
+        .dbg_t1s(dbg_t1s), .dbg_t2s(dbg_t2s), .dbg_take(dbg_take), .dbg_take_f(dbg_take_f),
+        .dbg_ow_start(dbg_ow_start), .dbg_retn(dbg_retn), .dbg_bp(dbg_bp),
         .late(late)
+    );
+
+    // ---------------------------------------------------------------- debug unit (spec 18)
+    dbgunit dbg (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_dbg), .rb_hit(hit_dbg),
+        .A(c_a), .dout(c_dout), .di(c_di), .m1(c_mcycle[0]), .intcycle_n(c_intcycle_n),
+        .iorq(c_iorq), .no_read(c_no_read), .write(c_write), .rpage(mmu_rpage),
+        .t1s(dbg_t1s), .t2s(dbg_t2s), .take(dbg_take), .take_f(dbg_take_f),
+        .ow_start(dbg_ow_start), .retn(dbg_retn), .nmi_ack(nmi_ack), .int_ack(int_ack),
+        .bp_nop(dbg_bp), .nmi_req(dbg_nmi), .int_hold(dbg_inthold)
     );
 
     // ---------------------------------------------------------------- MMU (spec 2, section 9)
@@ -302,7 +321,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_int), .rb_hit(hit_int),
         .req(int_req), .int_n(int_n), .vreq(int_vreq), .vector(int_vec), .int_ack(int_ack),
-        .nmi_button(buttons[0]), .nmi_usb(cmd_break), .nmi_ack(nmi_ack), .innmi(innmi), .nmi_n(nmi_n)
+        .nmi_button(buttons[0]), .nmi_usb(cmd_break), .nmi_dbg(dbg_nmi), .nmi_ack(nmi_ack), .innmi(innmi), .nmi_n(nmi_n)
     );
 
     // ---------------------------------------------------------------- video (spec 4)

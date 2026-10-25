@@ -19,7 +19,7 @@ Modules and files copied from [retro68k](https://github.com/jonsole/retro68k) (d
 | `sim/sram_model.v` | `sim/sram_model.v` | 57e7f6d | Unchanged |
 | `sim/ft232h_model.v` | `sim/ft232h_model.v` | 57e7f6d | Unchanged |
 | `sim/tb.v` | `sim/tb.v` | 57e7f6d | Structure only (pads, SRAM and FT232H models, DMA port load, the PASS/FAIL scan, the control-command task); rewritten for the Z80, with the never-waited checks |
-| `fpga/rtl/audio.v` | `fpga/rtl/audio.v` | 5333e92 | Only `sigma_delta2`, unchanged, and the three modulators' wiring (left, right, mono as (left + right) � 2). The sample channels, their registers and DMA are left out (sound is spec 13); the input is the beeper (spec 7, section 10.2) |
+| `fpga/rtl/audio.v` | `fpga/rtl/audio.v` | 5333e92 | Only `sigma_delta2`, unchanged, and the three modulators' wiring (left, right, mono as (left + right) ÷ 2). The sample channels, their registers and DMA are left out (sound is spec 13); the input is the beeper (spec 7, section 10.2) |
 | `fpga/rtl/retroz80.v` | `fpga/rtl/retro68k.v` | 57e7f6d | Structure only (timebase, microsecond tick, reset logic, unit wiring); rewritten for tv80 on one clock. RESETWHY sets exactly one bit (UPLOAD alone, not USB too). The scheduler and SRAM controller are reset only at power-on |
 | `fpga/rtl/z80_cpu.v` | – (tv80's `tv80s.v`, upstream `66a131c`) | – | retro-z80's own wrapper (spec 1, section 2.1): cen passed to the core and gating the strobes and read register, the early cycle-type outputs brought out, each strobe assigned once per clock |
 | `fpga/rtl/tmds_encoder.v` | `fpga/rtl/tmds_encoder.v` | 81ea91d | Two disparity terms built 5 bits wide in place of 6 (`{3'd0, qm[8], 1'b0}`), the same values, so the WIDTHTRUNC lint passes |

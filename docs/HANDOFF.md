@@ -19,6 +19,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **Ticket #27 (built, to be tried on the KS2):** the NMI is wired (Multiface button, BREAK), with the NMI set of the interrupt pages (`fpga/rtl/intpages.v`: window 0 reads ROM page 3 and writes the workspace page; the pages in distributed RAM, copied one window a clock) and the stack capture (NMICAPPC, NMICAPSP; RETN pops from the capture). The boot ROM's NMI page enters the monitor without touching the program's memory (`NMI (button) at`, `NMI (USB) at`; `G` goes on through the save area). In simulation: `make -C sim nmitest`, and NMI stops in `make -C sim mon`. The maskable interrupt pages are still to come.
 
+**Ticket #28 (built, to be tried on the KS2):** the debug unit of spec 18 (`fpga/rtl/dbgunit.v`, registers in I/O page `0x02`): single step, 4 breakpoints with an optional page match, 2 watchpoints, all on the NMI, /INT held off during a step unless STEPINT. The monitor's `G addr break` now uses breakpoint 0 (works in ROM; nothing written into the program), `N` steps one instruction (`Step at <addr>`, Enter steps again), and a watchpoint set by hand with `P` stops with `Watchpoint n at <addr> (write <addr>: <data>)` (that message is a proposal, spec 16 open point B18). In simulation: `make -C sim dbg` (each stop reason and its timing; DU6 confirmed), and N, a ROM breakpoint and a watchpoint in `make -C sim mon`. The debug stub for VS Code (debug.md) is still to come.
+
 ## 2. Where things are
 
 | File | What |

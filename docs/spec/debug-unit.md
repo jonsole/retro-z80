@@ -216,7 +216,11 @@ The KS2's XC7A15T has 10,400 LUTs; the bring-up build is about 2,000 (design pla
 
 ## 12. Open points
 
-Accepted as proposed on 25 October 2026. DU1 is done (the shared spec's section 4.3 now allows a hardware breakpoint). DU5 and DU6 are still to be checked: DU5 on the KS2, DU6 in simulation.
+Accepted as proposed on 25 October 2026. DU1 is done (the shared spec's section 4.3 now allows a hardware breakpoint). Ticket #28 checked DU5 and DU6:
+
+- **DU5:** the KS2 build meets 100 MHz with the unit (see `fpga/ks2/README.md` for the slack); the breakpoint compare uses the MMU's lookup at E + 3 and the `NOP` is chosen where the byte read is put at di, so it adds no path to the SRAM pads.
+- **DU6:** confirmed in simulation (`make -C sim dbg`, check 85): with STEPINT, a step whose resume M1 is an IM 2 acknowledge stops with NMICAPPC = the handler's address, no instruction of it run; tv80 takes the NMI at the end of the interrupt response.
+- **Cost:** `dbgunit.v` is about 100 LUTs and 243 flip-flops; with the bus interface's part (the compares and the `NOP` there) the build grew by about 290 LUTs (section 10's estimate 300–400).
 
 | # | Item |
 |---|------|

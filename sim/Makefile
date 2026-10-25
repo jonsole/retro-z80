@@ -21,6 +21,11 @@
 #                   INTPEND/INTRAW, SOFTINT, VBLANK (one frame: a minute or so)
 #   make nmitest    the NMI test ROM: the NMI pages, the stack capture, RETN,
 #                   a written NMICAPPC, NMICTL.EN off, NMIMASK (seconds)
+#   make dbg        the debug unit test ROM (ticket #28): registers, each
+#                   breakpoint, the page match, single step of each
+#                   instruction class at three speeds, /INT held off and
+#                   STEPINT, watchpoints and the kept access; tb.v checks
+#                   the requests' timing and counts each step (seconds)
 #   make speeds     the speed test ROM: "hello" at every CPUSPEED setting,
 #                   with the T-state rates measured
 #   make failshow   the boot ROM built to report check 45 as failed: the
@@ -56,8 +61,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -91,7 +96,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
@@ -157,6 +162,14 @@ $(BUILD)/nmitest.bin: nmitest/nmitest.asm $(INC)/hw.inc | $(BUILD)
 nmitest: $(BUILD)/tb.vvp $(BUILD)/nmitest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=nmitest.hex +dma +timeout=2000 | tee nmitest.log
 	@grep -q "^TEST PASSED" $(BUILD)/nmitest.log
+
+# The debug unit test ROM (ticket #28; spec 18, section 11)
+$(BUILD)/dbgtest.bin: dbg/dbgtest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+dbg: $(BUILD)/tb.vvp $(BUILD)/dbgtest.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dbgtest.hex +dma +timeout=20000 | tee dbg.log
+	@grep -q "^TEST PASSED" $(BUILD)/dbg.log
 
 speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=speeds.hex +speeds +dma +timeout=10000 | tee speeds.log
