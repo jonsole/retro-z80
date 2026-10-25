@@ -85,6 +85,7 @@ class Console:
         self.lines = []          # finished lines
         self.first = 0           # number of the first line kept
         self.partial = ""
+        self.cr = False
         self.listeners = []
         self.lock = threading.Lock()
 
@@ -92,7 +93,12 @@ class Console:
         if not text:
             return
         with self.lock:
-            buf = self.partial + text.replace("\r\n", "\n").replace("\r", "\n")
+            if self.cr and text.startswith("\n"):
+                text_n = text[1:]          # the LF of a CR LF split across two reads
+            else:
+                text_n = text
+            self.cr = text.endswith("\r")
+            buf = self.partial + text_n.replace("\r\n", "\n").replace("\r", "\n")
             parts = buf.split("\n")
             self.partial = parts.pop()
             self.lines.extend(parts)
@@ -209,8 +215,10 @@ class Session:
             if mode == "upload" and self.feed is not None:
                 if data:
                     self.feed.q.put(data)
-                    # the loader's text for the console; its binary replies left out
-                    self.console.add(re.sub(rb"LR[KCFR][\x00-\xff]{2}", b"", data).decode("latin-1"))
+                    # the loader's text for the console; its binary replies left out,
+                    # even when one is split across reads
+                    text = b"".join(i for i in self.upload_text.feed(data) if isinstance(i, bytes))
+                    self.console.add(text.decode("latin-1"))
                 continue
             if mode == "debug":
                 items = self.parser.feed(data) if data else self.parser.poll()
@@ -347,6 +355,7 @@ class Session:
             if self.attached:
                 self._end_session()
             self.feed = ByteFeed(self.link)
+            self.upload_text = rlink.FrameParser(syncs=(), replies=True)
             self.mode = "upload"
             try:
                 rlink.upload(self.feed, image, action=0, reset=True, log=self.log)

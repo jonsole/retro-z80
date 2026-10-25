@@ -363,11 +363,12 @@ KIND with neither READ nor WRITE is refused (2). Watchpoints compare data access
 
 - **CONTINUE** runs the stopped program with the registers as they now are. With DETACH, it leaves debug mode first (section 4.5).
 - **STEP** runs one instruction and stops (reason STEP). Maskable interrupts are held off for the step unless INTO is set; with INTO, an interrupt taken at that point stops at the first instruction of its handler. A block instruction that repeats (`LDIR` and the others) steps one iteration; `HALT` steps past itself without waiting.
+- **After EXIT** (the program ended), CONTINUE and STEP are refused (3): there is no program to run. A new launch, or `G` after detach, starts one.
 - **DETACH**: section 4.5.
 
 ### 5.9 CONSOLE
 
-A monitor command line, run as if typed at the monitor's prompt, against the stopped program. Its output comes back as the reply's data, at most 2,048 bytes (cut short beyond that). Commands that run code or leave the monitor (`G`, `N`, `U`, `L`, `B`, `X`, and `T`, which destroys memory) are refused (7); the adapter offers the VS Code buttons instead.
+A monitor command line, run as if typed at the monitor's prompt, against the stopped program. Its output comes back as the reply's data, at most 2,048 bytes (cut short beyond that). Commands that run code or leave the monitor (`G`, `N`, `U`, `L`, `B`, `X`, and `T`, which destroys memory) are refused (7); the adapter offers the VS Code buttons instead. So is an empty line when the monitor's last command was `N`, since Enter would step again (7).
 
 ## 6. Stops
 

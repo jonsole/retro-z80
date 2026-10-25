@@ -159,7 +159,7 @@ def transport_frame(ftype, seq, channel, payload=b"", sync=SYNC_PC):
 
 
 class Frame:
-    __slots__ = ("sync", "type", "seq", "channel", "offset", "payload", "error")
+    __slots__ = ("sync", "type", "seq", "channel", "offset", "payload", "error", "raw")
 
     def __init__(self, sync, ftype, seq, offset, payload, error=None):
         self.sync = sync
@@ -169,6 +169,7 @@ class Frame:
         self.channel = (offset >> 24) & 0xFF
         self.payload = payload
         self.error = error   # None, "crc" or "frame"
+        self.raw = b""       # the frame's bytes as they came
 
     def __repr__(self):
         return "Frame(%r, type=%#x, seq=%d, ch=%d, %d bytes%s)" % (
@@ -255,7 +256,9 @@ class FrameParser:
             if bad_len:
                 if i > stray_from:
                     out.append(bytes(buf[stray_from:i]))
-                out.append(Frame(sync, ftype, seq, offset, b"", "frame"))
+                fr = Frame(sync, ftype, seq, offset, b"", "frame")
+                fr.raw = bytes(buf[i:i + 12])
+                out.append(fr)
                 i += 12
                 stray_from = i
                 continue
@@ -271,7 +274,9 @@ class FrameParser:
                 err = "crc"
             elif self.check_reserved and ftype >= 0x10 and (offset & 0x00FFFFFF):
                 err = "frame"
-            out.append(Frame(sync, ftype, seq, offset, body[10:], err))
+            fr = Frame(sync, ftype, seq, offset, body[10:], err)
+            fr.raw = bytes(buf[i:i + total])
+            out.append(fr)
             i += total
             stray_from = i
         # keep what may still become a frame; give back the rest

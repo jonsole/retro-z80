@@ -517,7 +517,7 @@ class DapTests(unittest.TestCase):
         self.launch()
         self.stopped()
         r = self.dap.request("evaluate", {"expression": "D 8000 4", "context": "repl"})["body"]
-        self.assertEqual(r["result"], "8000  3E 41 CD 14  >A..")
+        self.assertEqual(r["result"], "8000  3E 41 CD 14" + " " * 37 + "  >A..")
         r = self.dap.request("evaluate", {"expression": "G 8000", "context": "repl"}, ok=False)
         self.assertFalse(r["success"])
         self.assertIn("buttons", r["message"])
@@ -569,6 +569,118 @@ class DapTests(unittest.TestCase):
         d.request("disconnect", {})
         time.sleep(0.3)
         self.assertEqual(self.bridge.model.mode, "running")   # attach's disconnect lets it run on
+
+
+class ModelAgreesWithTheRom(unittest.TestCase):
+    """The differences found against the ROM's stub in simulation (issue #29)."""
+
+    def setUp(self):
+        self.model = StubModel()
+        self.model.start()
+        self.link = ModelLink(self.model)
+        self.session = Session(self.link, "model")
+        self.session.client.reply_wait = 0.3
+        self.tmp = tempfile.mkdtemp()
+        with open(build_program(self.tmp)["rimg"], "rb") as f:
+            self.image = rlink.Image.parse(f.read())[0]
+
+    def tearDown(self):
+        self.session.close()
+        self.model.shutdown()
+        shutil.rmtree(self.tmp)
+
+    def test_entry_registers(self):
+        self.session.launch(self.image)
+        r = self.session.registers()
+        self.assertEqual([r[n] for n in ("AF'", "BC'", "DE'", "HL'")], [0, 0, 0, 0])
+        self.assertEqual((r["I"], r["IM"]), (0x1F, 2))
+        self.session.step()
+        self.assertEqual(self.session.registers()["IM"], 0xFF)
+
+    def test_dump_pads_the_text_column(self):
+        self.session.launch(self.image)
+        out = self.session.monitor("D 8000 4")
+        self.assertEqual(out, "8000  3E 41 CD 14" + " " * 37 + "  >A..\r\n")
+
+    def test_break_at_the_prompt_sends_nothing(self):
+        time.sleep(0.2)
+        before = self.session.console.read()[1:]
+        self.link.write(rlink.control(rlink.CTL_BREAK))
+        time.sleep(0.3)
+        self.assertEqual(self.session.console.read()[1:], before)
+
+    def test_damaged_hello_answered_and_frames_typed(self):
+        time.sleep(0.2)
+        replies = []
+        self.session.mode = "debug"
+        self.session.client.frame = lambda f: replies.append(f)
+        hello = bytearray(rlink.transport_frame(P.HELLO, 1, P.CH_DEBUG, b"\x01"))
+        hello[-1] ^= 1
+        self.link.write(bytes(hello))
+        time.sleep(0.3)
+        self.assertEqual([(f.type, f.payload[:1]) for f in replies], [(P.T_REPLY, b"C")])
+        self.assertFalse(self.model.attached)
+        self.session.mode = "console"
+        self.link.write(rlink.upload_frame(rlink.PING, 0) + b"\r")
+        time.sleep(0.3)
+        self.assertIn("? ", "".join(self.session.console.read()[0][-2:]))   # typed, and not understood
+
+    def test_stub_page_refused_through_a_window(self):
+        self.session.launch(self.image)
+        with self.model.lock:
+            self.model.mmu[5] = (0x0FC, 0x0FC)
+        with self.assertRaises(P.Refused) as e:
+            self.session.client.read_mem(0xA000, 1)
+        self.assertEqual(e.exception.code, P.E_ADDRESS)
+
+    def test_writeregs_im(self):
+        self.session.launch(self.image)
+        c = self.session.client
+        c.write_regs(27, b"\x01")
+        with self.assertRaises(P.Refused) as e:
+            c.write_regs(27, b"\x03")
+        self.assertEqual(e.exception.code, P.E_LENGTH)
+        c.write_regs(26, b"\x00\x01")          # IFF changed, IM unchanged
+
+    def test_hello_stop_has_the_current_pc(self):
+        self.session.launch(self.image)
+        self.session.detach()
+        time.sleep(0.2)
+        with self.model.lock:
+            self.model.cpu.pc = 0x8005          # as R PC 8005 at the prompt would
+        stop = self.session.attach()
+        self.assertEqual((stop.reason, stop.pc), (P.R_ENTRY, 0x8005))
+
+    def test_console_empty_line_after_n_and_after_exit(self):
+        self.session.launch(self.image)
+        with self.model.lock:
+            self.model.last_cmd = "N"
+        with self.assertRaises(P.Refused) as e:
+            self.session.client.console(" ")
+        self.assertEqual(e.exception.code, P.E_CONSOLE)
+        self.session.cont()
+        time.sleep(0.3)
+        self.assertTrue(self.session.ended)
+        for cmd in (lambda: self.session.client.cont(), lambda: self.session.client.step()):
+            with self.assertRaises(P.Refused) as e:
+                cmd()
+            self.assertEqual(e.exception.code, P.E_ADDRESS)
+
+
+class ConsoleTextTests(unittest.TestCase):
+    def test_cr_lf_split_across_reads(self):
+        from rz80bridge.session import Console
+        c = Console()
+        c.add("one\r")
+        c.add("\ntwo\r\n")
+        self.assertEqual(c.read()[0], ["one", "two"])
+
+    def test_upload_replies_split_across_reads(self):
+        p = rlink.FrameParser(syncs=(), replies=True)
+        text = b""
+        for chunk in (b"LOAD Z80 1\r\nL", b"RK\x00", b"\x00LRK\x01\x00"):
+            text += b"".join(i for i in p.feed(chunk, now=0) if isinstance(i, bytes))
+        self.assertEqual(text, b"LOAD Z80 1\r\n")
 
 
 class TcpLinkTests(unittest.TestCase):
