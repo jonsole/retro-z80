@@ -39,6 +39,13 @@ def dump(addr, data, size=1, phys=False):
     return s
 
 
+def dis(addr, data, text, phys=False):
+    """An I line (spec 16, section 8.4): the address, two spaces, the bytes
+    padded to 4, a space, the instruction"""
+    return (("P%06X" % addr if phys else "%04X" % addr) + "  " + "".join("%02X " % b for b in data)
+            + "   " * (4 - len(data)) + " " + text)
+
+
 REGS1 = R(r"AF=[0-9A-F]{4} BC=[0-9A-F]{4} DE=[0-9A-F]{4} HL=[0-9A-F]{4} IX=[0-9A-F]{4} "
           r"IY=[0-9A-F]{4} SP=[0-9A-F]{4} PC=[0-9A-F]{4}")
 REGS2 = R(r"AF'=[0-9A-F]{4} BC'=[0-9A-F]{4} DE'=[0-9A-F]{4} HL'=[0-9A-F]{4} I=[0-9A-F]{2} "
@@ -76,6 +83,22 @@ SESSION = [
     ("E 8000 3E 41 CF C9", []),
     ("D 8000 4", [dump(0x8000, [0x3E, 0x41, 0xCF, 0xC9])]),
     ("D P008000 4", [dump(0x8000, [0x3E, 0x41, 0xCF, 0xC9], phys=True)]),
+    # I: the program, the spec's example (RST 28h's number shown as DB), Enter carrying on,
+    # DD CB, a negative displacement, a jump to itself, the ROM by CPU and P addresses
+    ("I 8000 3", [dis(0x8000, [0x3E, 0x41], "LD   A,41"), dis(0x8002, [0xCF], "RST  08h"),
+                  dis(0x8003, [0xC9], "RET")]),
+    ("E 8010 EF 09 2A 00 C0 ED 52", []),
+    ("F 8017 10 0", []),
+    ("I 8010 4", [dis(0x8010, [0xEF], "RST  28h"), dis(0x8011, [0x09], "DB   09        ; CLS"),
+                  dis(0x8012, [0x2A, 0x00, 0xC0], "LD   HL,(C000)"), dis(0x8015, [0xED, 0x52], "SBC  HL,DE")]),
+    ("", [dis(a, [0], "NOP") for a in range(0x8017, 0x8027)]),
+    ("E 8030 DD CB 05 46 FD 36 FE 3C 18 FE DD 00", []),
+    ("I 8030 4", [dis(0x8030, [0xDD, 0xCB, 0x05, 0x46], "BIT  0,(IX+05)"),
+                  dis(0x8034, [0xFD, 0x36, 0xFE, 0x3C], "LD   (IY-02),3C"),
+                  dis(0x8038, [0x18, 0xFE], "JR   8038"), dis(0x803A, [0xDD], "DB   DD")]),
+    ("I 0 2", [dis(0, [0xF3], "DI"), R(r"0001  C3 [0-9A-F]{2} [0-9A-F]{2}     JP   [0-9A-F]{4}")]),
+    ("I P7F8000 1", [dis(0x7F8000, [0xF3], "DI", phys=True)]),
+    ("I.W 8000", ["? size"]),
     ("G 8000", ["A", "Program ended."] + regs(pc="0040", sp="0000", extra1={"AF": "41[0-9A-F]{2}"})),
     ("R", regs(pc="0040", sp="0000")),
     # G again after the end: from ENTRY
@@ -187,9 +210,17 @@ SESSION = [
     ("D.W 8000 3", ["? size"]),
     ("P.W 7000", ["? size"]),
     ("Q", ["? syntax"]),
-    ("I 8000", ["? not yet: a later ticket"]),
+    ("U", ["? not yet: a later ticket"]),
     ("E 0000 00", ["? address"]),
     ("G 8000 0010", ["? address"]),
+    # T: a range in a window and by P address; the monitor's pages, the ROM and the registers refused
+    ("T 9000 100", ["Pass 1 2 3 4", "Errors: 0000"]),
+    ("T P00A123 1F00", ["Pass 1 2 3 4", "Errors: 0000"]),
+    ("T P1FE000 10", ["? address"]),
+    ("T P1FBFF0 20", ["? address"]),
+    ("T 0 10", ["? address"]),
+    ("T P7F0000 1", ["? address"]),
+    ("T.B 9000 10", ["? size"]),
     ("H", [ANY]),
 ]
 

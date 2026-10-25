@@ -8,6 +8,7 @@ make smoke      # tool-chain smoke test: sjasmplus assembles a tiny ROM, Icarus 
 make vsmoke     # the same test built with Verilator
 make hello      # the system: the boot ROM's self-test passes and the monitor signs on over USB serial, twice
 make mon        # the monitor typed at over USB serial, in Verilator: a session of every command (about a minute)
+make dis        # the boot ROM's disassembler on a table of every opcode, against a reference sjasmplus checks (seconds)
 make hello2mb   # the same on a build for a 2 MB board (CHIPMB = 2)
 make systest    # the system test ROM: system registers, I/O decode, SRAM bytes, writable boot ROM, the self-test, MMU reset, soft reset
 make intc       # the interrupt controller on its own: registers, every source's vector and priority, frozen choice, spurious, NMI
@@ -76,9 +77,14 @@ Ticket #22. `mon/tb_mon.v` runs the whole computer in Verilator, a 2 MB build as
 - a program typed in that prints with `RST 08h` and returns; `G` again from ENTRY; IX, IY, BC, DE and HL' kept across `RST 08h`; `RST 18h` and `RST 28h` PUTHEX; `R` setting a word, a byte and IM;
 - a breakpoint (and its byte put back), `RST 30h` and the trap, each with `G` going on; the errors `? syntax`, `? address`, `? size` and `? not yet`;
 - the NMI (ticket #27): after a `G` line, a program that runs on quietly for 4 ms is stopped by the Multiface button, or by BREAK if the line ends in a space: `NMI (button) at` and `NMI (USB) at` with the right PC and SP, the program's stack untouched, `G` going on, `G addr` and `R SP` through the capture, with SP in SRAM and pointing at ROM;
+- `I` (ticket #23): a program, spec 16's example with `RST 28h`'s function number as `DB`, Enter carrying on, DD CB, a negative displacement, a relative jump, the ROM by CPU and `P` address; `T` on a range in a window and on one across a page edge by `P` address, and `? address` for the monitor's pages, the ROM and the register page;
 - the console's 30 rows, read from its map (with SCROLLY's top row from the console's state), against the last 30 lines sent.
 
 The Verilator build takes about two minutes, the run under a minute (0.8 s of simulated time). `make mon` is part of `make`.
+
+## The disassembler (`make dis`)
+
+Ticket #23. `dis/disref.py make` writes a table of every Z80 opcode (`build/distab.bin`, 1,828 entries: all 256 of the plain, CB, ED, DD, FD, DD CB and FD CB tables with operands, displacements and jumps at their limits, and every `RST 28h` function number), the text a Python reference disassembler gives for each in the monitor's format (`dis_expect.txt`), and the same text in sjasmplus's number syntax (`dis_sj.asm`). sjasmplus assembles that, and `disref.py sj` checks it gives the table's bytes (for the undocumented duplicate codes, sjasmplus's own encoding), so the reference's names are sjasmplus's. Then `dis/distest.asm`, a CP/M program that includes the ROM's `firmware/boot/disasm.asm`, runs in the ZEX testbench (`vl_zex/vzex`, the bare core) and prints the length and text of each entry, and `disref.py check` compares them with the reference. It takes a few seconds once `vzex` is built.
 
 ## ZEXDOC and ZEXALL
 
