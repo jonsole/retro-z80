@@ -5,6 +5,7 @@
 | `bin2hex.py` | Turns a binary (the boot ROM, a test image) into a `$readmemh` file of 16-bit little-endian words, as the SRAM and boot ROM hold them (spec 2). Adapted from retro68k's, which writes big-endian words |
 | `mkfont.py` | Makes the boot console's font (`firmware/boot/font.inc`, spec 7, section 5.1) from the public-domain `font8x8` in `firmware/third_party/font8x8`: 256 characters in code page 437 order, the leftmost pixel in bit 7, with the 40 characters `font8x8` lacks drawn in the tool itself (`firmware/third_party/README.md`). `--show` prints the font as text, `--missing` lists what `font8x8` lacks |
 | `rlink.py` | The PC end of the USB serial link (shared spec `docs/spec/monitor.md`, section 8): uploads, image files (`image`, `show`), the control commands RESET, BREAK and UPLOAD, a terminal, and typing into the console. Also the link code the bridge imports: CRC-32, the image header, upload frames and the debug transport's frames. Needs `pyserial` for a real port |
+| `rz80_mcp.py` | MCP over stdio for Claude Code and other MCP clients (`.mcp.json` at the repo root): uses a running bridge, or starts one on `RLINK_PORT` and stops it again at the end; forwards everything to the bridge's MCP server |
 | `rz80_bridge.py` | The debug bridge (`docs/spec/debug.md`, section 3; design plan, branch 20): one process that owns the serial port and serves DAP to VS Code, MCP to Claude and other MCP clients, and the monitor console, at once. `--model` runs it against a Python model of the board, with no hardware. Its package is `rz80bridge/` (below) |
 | `regmap.py` | Reads `fpga/regmap.def` (every register, field and named number), checks it, checks it against `docs/spec/registers.md`, and writes `firmware/include/hw.inc` (sjasmplus), `firmware/include/hw.h` (C) and `fpga/rtl/regmap.vh` (Verilog). Adapted from retro68k's |
 
@@ -106,6 +107,7 @@ It leaves the board running until a debugger launches or attaches. Launch upload
 | `session.py` | The shared session: the link's reader, launch, attach, detach, the breakpoint pool, stepping (over and out with a spare breakpoint, or single steps), the call stack, addresses and symbols |
 | `protocol.py` | The debug channel: commands, replies, retries, STOP frames, the target description |
 | `dap.py` | The DAP server: the requests of debug.md section 3.4, as the zx emulator's DAP |
+| `mcp.py` | The MCP server: the tools of debug.md section 3.7, named as the zx emulator's |
 | `console.py` | The console port |
 | `sld.py` | sjasmplus SLD files: source lines, labels, 8 KB pages |
 | `disasm.py` | The Z80 disassembler, copied from the zx emulator (`PROVENANCE.md`) |
@@ -113,3 +115,20 @@ It leaves the board running until a debugger launches or attaches. Launch upload
 | `advert.py` | The advert file |
 
 `make -C tools bridge` (part of `make check`) runs `test/test_bridge.py`: the transport, the debug channel against the model (CRC errors each way, a lost reply, a lost STOP, a repeated SEQ, every refusal), the shared breakpoint pool, and whole DAP sessions over TCP as VS Code holds them. It needs nothing but Python and takes a few seconds.
+
+## Connecting Claude Code (MCP)
+
+The repo's `.mcp.json` runs `tools/rz80_mcp.py` over stdio, so opening the repo in Claude Code offers the `retro-z80` server (approve it once). It needs to know the board's serial port, unless a bridge is already running:
+
+```
+set RLINK_PORT=COM5            (Windows; export RLINK_PORT=/dev/ttyUSB1 elsewhere)
+set RZ80_PORT=model            (or the stub model, with no board)
+```
+
+- **A bridge is running** (a VS Code debug session, or `rz80_bridge.py` by hand): it is used and left running. VS Code and Claude then share the board: the same stops, one pool of breakpoints.
+- **None is running:** `rz80_mcp.py` starts one on `RLINK_PORT` and stops it when the client ends.
+- **Neither:** the server connects with no tools, and every call says what to do.
+
+To talk to a running bridge's HTTP endpoint directly instead: `claude mcp add retro-z80 --transport http --url http://127.0.0.1:8780/mcp`.
+
+The tools (debug.md section 3.7) are named and used as the zx emulator's (`get_registers`, `read_memory`, `set_breakpoint`, `run`, `step` ...), plus `launch`, `attach`, `detach`, `reset`, `get_mmu`, `monitor`, `send_console` and `read_console`. Nothing stops the board until `launch` or `attach`. `run` blocks until the program stops (`wait: false` returns at once). Addresses take numbers, hex (`$8000`, `0x8000`, `8000`), symbols and expressions (`loop+3`) once an SLD file is loaded, `P012000` for a physical address, and `page:address` for a breakpoint in a banked window.

@@ -722,6 +722,227 @@ class TcpLinkTests(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class McpClient:
+    def __init__(self, port):
+        self.url = "http://127.0.0.1:%d/mcp" % port
+        self.seq = 0
+
+    def rpc(self, method, params=None):
+        import urllib.request
+        self.seq += 1
+        body = json.dumps({"jsonrpc": "2.0", "id": self.seq, "method": method, "params": params or {}}).encode()
+        req = urllib.request.Request(self.url, body, {"Content-Type": "application/json",
+                                                      "Accept": "application/json, text/event-stream"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+
+    def call(self, _tool, ok=True, **args):
+        r = self.rpc("tools/call", {"name": _tool, "arguments": args})["result"]
+        text = r["content"][0]["text"]
+        if ok and r.get("isError"):
+            raise AssertionError("%s failed: %s" % (_tool, text))
+        if not ok:
+            assert r.get("isError"), "%s should have failed: %s" % (_tool, text)
+        return text
+
+    def json(self, _tool, **args):
+        return json.loads(self.call(_tool, **args))
+
+
+class McpTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.paths = build_program(self.tmp)
+        os.environ["RZ80_BRIDGE_ADVERT_DIR"] = os.path.join(self.tmp, "adverts")
+        self.bridge = Bridge("model").start()
+        self.mcp = McpClient(self.bridge.ports["mcp"])
+
+    def tearDown(self):
+        self.bridge.close()
+        shutil.rmtree(self.tmp)
+
+    def test_initialize_and_tools(self):
+        r = self.mcp.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                        "clientInfo": {"name": "test", "version": "1"}})["result"]
+        self.assertEqual((r["protocolVersion"], r["serverInfo"]["name"]), ("2025-06-18", "retro-z80"))
+        names = {t["name"] for t in self.mcp.rpc("tools/list")["result"]["tools"]}
+        for n in ("get_state", "get_registers", "set_registers", "read_memory", "write_memory", "set_breakpoint",
+                  "clear_breakpoint", "list_breakpoints", "set_watchpoint", "clear_watchpoint", "list_watchpoints",
+                  "step", "run", "pause", "load_debug_info", "resolve_symbol", "resolve_address", "server_info",
+                  "launch", "attach", "detach", "reset", "get_mmu", "monitor", "send_console", "read_console"):
+            self.assertIn(n, names)
+        self.assertEqual(self.mcp.rpc("ping")["result"], {})
+        self.assertEqual(self.mcp.rpc("nope")["error"]["code"], -32601)
+        info = self.mcp.json("server_info")
+        self.assertEqual((info["serialPort"], info["ports"]["mcp"]), ("model", self.bridge.ports["mcp"]))
+
+    def test_not_attached(self):
+        text = self.mcp.call("get_registers", ok=False)
+        self.assertIn("not attached", text)
+        self.assertEqual(self.mcp.json("get_state")["attached"], False)
+
+    def test_console_while_not_attached(self):
+        time.sleep(0.2)
+        start = self.mcp.json("read_console")["next"]
+        self.mcp.call("send_console", text="H\n")
+        time.sleep(0.3)
+        lines = self.mcp.json("read_console", since=start)["lines"]
+        self.assertTrue(any("help" in l for l in lines), lines)
+
+    def test_launch_break_registers_memory(self):
+        m = self.mcp
+        self.assertIn("Entry at 8000 (start)", m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"]))
+        self.assertEqual(m.call("set_breakpoint", address="add1"), "breakpoint 0 at 8019 (add1)")
+        self.assertEqual(m.call("run"), "Breakpoint 0 at 8019 (add1)")
+        r = m.json("get_registers")
+        self.assertEqual((r["PC"], r["AF"][:2], r["instruction"]), ("$8019 (add1)", "42", "INC A"))
+        self.assertEqual(len(r["flags"]), 8)
+        st = m.json("get_state")
+        self.assertEqual([f["symbol"] for f in st["call_stack"]], ["add1", "add2+4", "start+5"])
+        self.assertEqual(m.json("read_memory", address="msg", length=3)["hex"], "68 69 0D")
+        m.call("write_memory", address="$9000", data="AA BB")
+        self.assertEqual(m.json("read_memory", address=0x9000, length=2)["hex"], "AA BB")
+        self.assertEqual(m.json("read_memory", address="P009000", length=1)["hex"], "AA")
+        self.assertEqual(m.json("resolve_symbol", name="add2+1")["address"], "8015")
+        ra = m.json("resolve_address", address="8016")
+        self.assertEqual((ra["symbol"], ra["source"]["line"]), ("add2+2", 15))   # inside call add1
+        self.assertEqual(m.json("get_mmu")[7]["read_page"], "007")
+        self.assertIn("8000  3E 41", m.call("monitor", command="D 8000 2"))
+        self.assertIn("buttons", m.call("monitor", ok=False, command="G"))
+        m.json("set_registers", hl="msg", a=7, af_=0x1234)
+        r = m.json("get_registers", raw=True)
+        self.assertEqual((r["HL"], r["AF"] >> 8, r["AF'"]), (0x801B, 7, 0x1234))
+        s = m.json("step", instructions=2)
+        self.assertEqual(s["registers"]["PC"], "$8018 (add2+4)")     # INC A, RET: back in add2
+
+    def test_watchpoint(self):
+        m = self.mcp
+        m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"])
+        w = m.json("set_watchpoint", address="result", access="write")
+        self.assertEqual(w["id"], 0)
+        self.assertIn("aligned", m.call("set_watchpoint", ok=False, address="$9001", length=2))
+        self.assertIn("not offered", m.call("set_watchpoint", ok=False, address="$9000", value=5))
+        self.assertEqual(m.call("run"), "Watchpoint 0 at 8008 (start+8) (write 9000: 43)")
+        self.assertEqual(m.json("list_watchpoints")[0]["owners"], ["mcp"])
+        m.call("clear_watchpoint")
+        self.assertEqual(m.json("list_watchpoints"), [])
+
+    def test_run_wait_false_pause_and_detach(self):
+        m = self.mcp
+        m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"])
+        m.call("write_memory", address="$800F", data="18 FE")
+        self.assertEqual(m.call("run", wait=False), "running")
+        time.sleep(0.2)
+        self.assertEqual(m.call("pause"), "Paused at 800F (loop+3)")
+        self.assertIn("runs on", m.call("detach", run=True))
+        time.sleep(0.2)
+        self.assertEqual(self.bridge.model.mode, "running")
+        self.assertEqual(m.call("attach"), "Paused at 800F (loop+3)")
+
+    def test_shared_with_vscode(self):
+        dap = DapClient(self.bridge.ports["dap"])
+        try:
+            dap.request("initialize", {"adapterID": "retro-z80"})
+            dap.request("launch", {"program": self.paths["rimg"], "sld": self.paths["sld"]})
+            dap.event("initialized")
+            r = dap.request("setBreakpoints", {"source": {"path": self.paths["asm"]},
+                                               "breakpoints": [{"line": n} for n in (3, 4, 5)]})
+            self.assertTrue(all(b["verified"] for b in r["body"]["breakpoints"]))
+            dap.request("configurationDone")
+            dap.event("stopped")
+            m = self.mcp
+            m.call("set_breakpoint", address="add1")
+            text = m.call("set_breakpoint", ok=False, address="add2")
+            self.assertIn("only 4 hardware breakpoints", text)
+            self.assertIn("vscode", text)
+            owners = {b["address"]: b["owners"] for b in m.json("list_breakpoints")}
+            self.assertEqual(owners["8019"], ["mcp"])
+            self.assertEqual(owners["8005"], ["vscode"])
+            # a stop MCP causes is seen by VS Code, without moving its editor
+            dap.drain()
+            self.assertTrue(m.call("run").startswith("Breakpoint"))
+            ev = dap.event("stopped")["body"]
+            self.assertTrue(ev.get("preserveFocusHint"))
+            # VS Code disconnects: MCP holds a breakpoint, so the session stays (DB15)
+            dap.request("disconnect", {})
+            time.sleep(0.2)
+            self.assertTrue(self.bridge.session.attached)
+            self.assertEqual([b["owners"] for b in m.json("list_breakpoints")], [["mcp"]])
+        finally:
+            dap.close()
+
+
+class McpFrontTests(unittest.TestCase):
+    """tools/rz80_mcp.py: MCP over stdio, adopting a bridge or starting one."""
+
+    def run_front(self, env, messages):
+        import subprocess
+        full = dict(os.environ)
+        full.pop("RLINK_PORT", None)
+        full.pop("RZ80_PORT", None)
+        full.update(env)
+        p = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(HERE), "rz80_mcp.py")],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=full)
+        out = []
+        for m in messages:
+            p.stdin.write((json.dumps(m) + "\n").encode())
+            p.stdin.flush()
+            if "id" in m:
+                out.append(json.loads(p.stdout.readline()))
+        p.stdin.close()
+        p.wait(10)
+        return out
+
+    @staticmethod
+    def free_port():
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def test_spawns_the_bridge_and_stops_it(self):
+        port = self.free_port()
+        tmp = tempfile.mkdtemp()
+        try:
+            out = self.run_front({"RZ80_PORT": "model", "RZ80_MCP_PORT": str(port),
+                                  "RZ80_BRIDGE_ADVERT_DIR": tmp}, [
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}},
+            ])
+            self.assertEqual(out[0]["result"]["serverInfo"]["name"], "retro-z80")
+            self.assertIn("launch", [t["name"] for t in out[1]["result"]["tools"]])
+            state = json.loads(out[2]["result"]["content"][0]["text"])
+            self.assertEqual((state["attached"], state["serial_port"]), (False, "model"))
+            time.sleep(0.3)
+            with self.assertRaises(OSError):
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_adopts_a_running_bridge_and_leaves_it(self):
+        tmp = tempfile.mkdtemp()
+        os.environ["RZ80_BRIDGE_ADVERT_DIR"] = tmp
+        b = Bridge("model").start()
+        try:
+            out = self.run_front({"RZ80_MCP_PORT": str(b.ports["mcp"])}, [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "server_info", "arguments": {}}},
+            ])
+            self.assertEqual(json.loads(out[0]["result"]["content"][0]["text"])["pid"], os.getpid())
+            socket.create_connection(("127.0.0.1", b.ports["mcp"]), timeout=1).close()   # still up
+        finally:
+            b.close()
+            shutil.rmtree(tmp)
+
+    def test_no_bridge_and_no_port(self):
+        out = self.run_front({"RZ80_MCP_PORT": str(self.free_port())}, [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}},
+        ])
+        self.assertIn("RLINK_PORT", out[0]["result"]["instructions"])
+        self.assertTrue(out[1]["result"]["isError"])
+
+
 class SymbolTests(unittest.TestCase):
     def test_sld(self):
         tmp = tempfile.mkdtemp()

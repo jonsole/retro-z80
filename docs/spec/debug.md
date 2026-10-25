@@ -73,6 +73,7 @@ Design plan, branches 18 and 20. The PC side is shaped like the ZX Spectrum emul
 |-------|-------|--------------|
 | The bridge | `tools/rz80_bridge.py` and `tools/rz80bridge/` | Python 3, the standard library and `pyserial` only. **Owns the serial port** (only one process can open it). Serves DAP on TCP, MCP on HTTP and the console on TCP, all at once, to `127.0.0.1` only |
 | The link code | `tools/rlink.py`, imported by the bridge | Frames, CRC-32, the control commands, the upload (monitor.md, section 8) |
+| The MCP front | `tools/rz80_mcp.py` | MCP over stdio, for `.mcp.json`: uses a running bridge, or starts one on `RLINK_PORT` and stops it at the end; forwards every message to the bridge's MCP server |
 | The stub model | `tools/rz80bridge/model.py` | A Python model of the board's debug stub and monitor behind a fake serial port, for tests and for working with no board (section 3.8) |
 | The VS Code extension | `tools/vscode/` | Debug type `retro-z80`; starts or joins the bridge and connects VS Code to its DAP port (`debugServer`); the console terminal; the z80-asm language, asm index and sjasmplus finder; the program and watchpoint panels; the build task type. Plain JavaScript, no build step, no dependencies, as the zx extension. Files copied from the zx extension are listed in `tools/vscode/PROVENANCE.md` |
 | Symbol files | The program's build | sjasmplus `--sld` output: addresses, pages, source lines, labels |
@@ -160,8 +161,8 @@ The names and arguments are `zx_server`'s where they mean the same, so a client 
 | `get_mmu()` | READMMU: each window's read and write page | Own |
 | `set_breakpoint(address)` / `clear_breakpoint(address)` / `list_breakpoints()` | SETBP and CLEARBP, from the shared pool (section 3.5) | Same |
 | `set_watchpoint(address, length, access)` / `clear_watchpoint(id)` / `list_watchpoints()` | SETWP and CLEARWP. `length` becomes a mask, so a power of two, aligned; `access` `read`, `write` or `readwrite`, and `io: true` for ports. zx's `on_change`, `value` and `not_value` are refused (the hardware has no data compare) | Same, narrower |
-| `step(instructions)` | STEP, 1 or more times | Same, no `ticks` |
-| `run()` / `pause()` | CONTINUE; BREAK | Same |
+| `step(instructions, mode)` | STEP, 1 or more times; `mode` `over` or `out` as VS Code's buttons (section 7.3) | Same, no `ticks`; `mode` is own |
+| `run(wait, timeout_ms)` / `pause()` | CONTINUE, and with `wait` (the default) the stop; BREAK | Same |
 | `load_debug_info(sld_path, asm_path)` | Load an SLD file for symbols and source lines | Same |
 | `resolve_symbol(name)` / `resolve_address(address)` | Symbol to address, address to the nearest symbol and offset | Same |
 | `monitor(command)` | CONSOLE: a monitor command line while attached (section 5.9) | Own |
