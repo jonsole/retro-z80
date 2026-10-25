@@ -320,8 +320,8 @@ Boot ROM page 0 also has a jump to the monitor at `0x0066`, for an NMI taken wit
 ```
 ; Monitor page 0x3FF, seen at 0x0000-0x1FFF in window 0 (writes go to page 0x0FF)
         org  0x0066
-nmi:    ld   (0x0E10),sp         ; the program's SP, into the workspace page
-        ld   sp,0x0E10           ; a stack in the workspace page, through window 0
+nmi:    ld   (0x0EB0),sp         ; the program's SP, into the workspace page
+        ld   sp,0x0EB0           ; a stack in the workspace page, through window 0
         push af                  ; written to page 0x0FF; no POP or CALL here,
         push bc                  ; since window 0 reads the monitor page
         push hl
@@ -331,11 +331,11 @@ nmi:    ld   (0x0E10),sp         ; the program's SP, into the workspace page
         ...                      ; map the workspace in window 3, save more, run commands
 ; the exit, a few bytes in the workspace page, run through window 0
         ...                      ; window 3 back to the program's page
-        ld   sp,0x0E0A
+        ld   sp,0x0EAA
         pop  hl
         pop  bc
         pop  af
-        ld   sp,(0x0E10)
+        ld   sp,(0x0EB0)
         retn                     ; the PC from the capture, then window 0 back
 ```
 

@@ -3,9 +3,12 @@
 // After retro68k's sim/tb.v.
 //
 //   +rom=FILE    load FILE into the boot ROM (default boot.hex)
-//   +hello       the boot ROM: pass when "selftest ok, N MB" (N = the
-//                build's CHIPMB) and then "hello" arrive; then send the
-//                RESET control command and pass when both arrive again
+//   +hello       the boot ROM (spec 16): pass when its sign-on lines
+//                arrive ("retro-z80 boot ROM ... N MB SRAM", N = the
+//                build's CHIPMB; "Reset: power-on.  Self-test ok."; the
+//                monitor's "Monitor.  H for help."); then send the RESET
+//                control command and pass when they arrive again, with
+//                "Reset: USB." and no self-test (it runs at power-on only)
 //   +bgcycle     with +hello, a boot ROM built with -DCYCLE_FRAMES=1: after
 //                the first "hello", pass when BGCOLOR has gone from green
 //                to yellow and then cyan, each change made in the
@@ -13,12 +16,11 @@
 //   +bgdim       with +hello, a boot ROM built with -DTMR_HALF=n (#17):
 //                after the first "hello", pass when BGCOLOR goes from green
 //                to dim green and back, 2 ms apart (timer 0's interrupt)
-//   +keys        with +hello (#19): after the first "hello", once the boot
-//                console has turned the PS/2 FIFO on, type "h" and "i" on
-//                the PS/2 keyboard model (through the KEYB interrupt), hold
-//                Z on the membrane model for 30 ms, then press Enter on
-//                the PS/2 keyboard; pass when the console echoes the line
-//                "hiz" back over the serial link
+//   +keys        with +hello (#19, #22): after the first sign-on, type
+//                "h" and "i" on the PS/2 keyboard model, hold Z on the
+//                membrane model for 30 ms, then press Enter on the PS/2
+//                keyboard; pass when the monitor echoes the command line
+//                "> hiz" back over the serial link
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
@@ -532,7 +534,7 @@ module tb #(
     // ---------------------------------------------------------------- the picture
     // Line and frame timing, the colours seen, and the white stripes of each
     // frame (picture lines, sampled in the middle of each line)
-    localparam [23:0] C_BLUE = 24'h0000FF, C_GREEN = 24'h00FF00, C_WHITE = 24'hFFFFFF;
+    localparam [23:0] C_BLUE = 24'h0000FF, C_GREEN = 24'h00FF00, C_WHITE = 24'hFFFFFF, C_BLACK = 24'h000000;
     integer    vx = 0, vline = 0, hs_clocks = 0, hs_lines = 0, vframes = 0, vid_errors = 0;
     integer    pix_blue = 0, pix_green = 0, mixed_lines = 0, b_start = 0;
     reg        vde_d = 1'b0, vhs_d = 1'b1, vvs_d = 1'b1, hs_seen = 1'b0, vs_seen = 1'b0;
@@ -684,7 +686,7 @@ module tb #(
         keys = $test$plusargs("keys");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
-    function is_line(input integer at, input [8*24-1:0] s, input integer n);
+    function is_line(input integer at, input [8*40-1:0] s, input integer n);
         integer q;
         begin
             is_line = (at + n <= ft.nout);
@@ -730,10 +732,10 @@ module tb #(
                 && ack_errors == 0 && acks == vreqs && acks == int_acks
                 && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF))
                 && vid_errors == 0 && mixed_lines == 0
-                && (!hello || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_GREEN))))
+                && (!hello || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK))))
                 $display("TEST PASSED");
-            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_GREEN)))
-                $display("TEST FAILED: the screen was not blue, then green");
+            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK)))
+                $display("TEST FAILED: the screen was not blue, then green, then black");
             else if (pass && (ack_errors != 0 || acks != vreqs || acks != int_acks))
                 $display("TEST FAILED: interrupt acknowledges");
             else if (pass && (vid_errors != 0 || mixed_lines != 0))
@@ -766,13 +768,19 @@ module tb #(
                     s = nline <= nlf && nline <= 64 ? lf_speed[nline-1] : 9;
                     $display("%t PC: \"hello\" at speed %0d", $realtime, s);
                     if (s < 9) spd_hello[s] = spd_hello[s] + 1;
-                end else if (hello && is_line(ls, {"selftest ok, ", "0" + {2'd0, CHIPMB}, " MB", 8'h0D, 8'h0A}, 19)) begin
+                end else if (hello && is_line(ls, "retro-z80 boot ROM ", 19)) begin
+                    if (!is_line(scan - 12, {", ", "0" + {2'd0, CHIPMB}, " MB SRAM", 8'h0D, 8'h0A}, 13))
+                        finish(0, "the sign-on gives the wrong SRAM size");
+                end else if (hello && is_line(ls, {"Reset: power-on.  Self-test ok.", 8'h0D, 8'h0A}, 33)) begin
                     nself = nself + 1;
                     $display("%t PC: self-test passed, number %0d", $realtime, nself);
-                end else if (hello && is_line(ls, {"hello", 8'h0D, 8'h0A}, 7)) begin
+                end else if (hello && is_line(ls, {"Reset: USB.", 8'h0D, 8'h0A}, 13)) begin
+                    $display("%t PC: started again by RESET", $realtime);
+                    if (nhello != 1) finish(0, "a USB reset before the first sign-on");
+                end else if (hello && is_line(ls, {"Monitor.  H for help.", 8'h0D, 8'h0A}, 23)) begin
                     nhello = nhello + 1;
-                    $display("%t PC: \"hello\" number %0d", $realtime, nhello);
-                    if (nself != nhello) finish(0, "hello without the self-test");
+                    $display("%t PC: the monitor's sign-on, number %0d", $realtime, nhello);
+                    if (nself != 1) finish(0, "the monitor without the self-test at power-on");
                     else if (nhello == 1 && bgcycle) begin
                         $display("%t PC: waiting for the VBLANK colour cycle", $realtime);
                         bgwait  = 1;
@@ -784,8 +792,8 @@ module tb #(
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
                     end else finish(1, "");
-                end else if (keys && is_line(ls, {"hiz", 8'h0D, 8'h0A}, 5)) begin
-                    $display("%t PC: the console echoed \"hiz\"", $realtime);
+                end else if (keys && is_line(ls, {"> hiz", 8'h0D, 8'h0A}, 7)) begin
+                    $display("%t PC: the monitor echoed \"hiz\"", $realtime);
                     finish(1, "");
                 end else if (failshow != 0 && is_line(ls, "selftest FAIL ", 14)) begin
                     $display("%t PC: the self-test failure, frame %0d", $realtime, vframes);
@@ -806,7 +814,7 @@ module tb #(
     // +keys: PS/2 "h", "i", then Z on the membrane, then PS/2 Enter
     always @(type_keys) begin
         wait (dut.kb.en);
-        #1000000;
+        #100000;
         kbm.send(8'h33, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h33, 1'b0);
         kbm.send(8'h43, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h43, 1'b0);
         #5000000;

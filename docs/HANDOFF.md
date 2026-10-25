@@ -15,6 +15,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **On the KS2, all confirmed by the user:** the HDMI test pattern (#10); the computer passing its self-test on the real 2 MB SRAM (#11); IM 2 interrupts from VBLANK (#16); timers and the watchdog (#17); layer L0 as a bitmap (palette chart, #13) and as a full-screen smoothly scrolling tile map (#14); the 80 x 30 boot console (#15); the membrane keyboard and port 0xFE (#19). 4,663 LUTs (45% of the XC7A15T), 100 MHz met. Still to check: VGA (#12), PS/2 and joysticks (#20). Phase 1 in simulation is complete, including ZEXDOC on the whole machine (#7). Build and load: `fpga/ks2/README.md`. Way of working: hardware first (CLAUDE.md).
 
+**Ticket #22 (built, to be tried on the KS2):** the boot ROM is now the monitor of spec 16 and the shared monitor spec: the RST calls and `RST 28h` functions 0x00-0x11, start-up with the self-test at power-on only, the commands D E F C V S G R P H with sizes, P addresses and the side-effect rule, breakpoints, RST 30h and the trap. The old bring-up demos are gone but the tape loader (EDIT or Tab on an empty line). In simulation: `make -C sim mon` (a scripted session over serial, in Verilator). The KS2 README has a "try this" session.
+
 ## 2. Where things are
 
 | File | What |

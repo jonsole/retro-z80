@@ -3,10 +3,14 @@
 #   make            build and run every test written so far
 #   make smoke      the tool-chain smoke test (sjasmplus, bin2hex, Icarus)
 #   make vsmoke     the same test built with Verilator
-#   make hello      the system: the boot ROM prints "hello" over USB serial,
-#                   twice (the second time after the RESET control command)
+#   make hello      the system: the boot ROM's self-test passes and it signs
+#                   on over USB serial with the monitor's lines, twice (the
+#                   second time after the RESET control command)
 #   make hello2mb   the same on a build for a 2 MB board (CHIPMB = 2): the
 #                   self-test sees pages 0x100-0x1FF mirror 0x000-0x0FF
+#   make mon        the monitor (ticket #22) typed at over the serial link,
+#                   in Verilator: a scripted session of every command, the
+#                   RST calls, a breakpoint, a break and the trap (mon/)
 #   make systest    the system test ROM: system registers, I/O decode, SRAM
 #                   bytes, writable boot ROM, the self-test, soft reset
 #   make intc       the interrupt controller on its own (sim/intc/tb_intc.v)
@@ -20,10 +24,6 @@
 #   make vtest      the video test: L0 bitmaps in bands of different settings,
 #                   checked pixel by pixel against a Python model (about 5
 #                   minutes for each variant; not part of make all)
-#   make bootvbl    the boot ROM built to change colour every frame: after
-#                   "hello" the VBLANK handler must turn the screen from
-#                   green to yellow, then cyan (40 ms simulated, a few
-#                   minutes; not part of make all)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -51,8 +51,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb systest intc inttest speeds failshow bootvbl vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb systest intc inttest speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon systest intc inttest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon systest intc inttest speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -89,10 +89,13 @@ TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v
 SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
-BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm keys.asm tape.asm font.inc) $(INC)/hw.inc
+BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
+                 selftest.asm tape.asm help.asm font.inc) $(INC)/hw.inc
 
+# The simulations' boot ROM looks for the start-up keys for 1 ms in place of
+# 250 (KEYWAIT), which Icarus would take over an hour to get through
 $(BUILD)/boot.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+	$(SJASMPLUS) --nologo -I $(INC) -DKEYWAIT=1 --raw=$@ $<
 
 $(BUILD)/systest.bin: systest/systest.asm $(ROOT)/firmware/boot/selftest.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) -I $(ROOT)/firmware/boot --raw=$@ $<
@@ -113,11 +116,13 @@ $(BUILD)/tb2mb.vvp: $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUIL
 	    $(TV80_CORE) $(SYS_RTL) $(SYS_SIM)
 
 hello: $(BUILD)/tb.vvp $(BUILD)/boot.hex
-	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +dma | tee hello.log
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +dma +timeout=40000 | tee hello.log
 	@grep -q "^TEST PASSED" $(BUILD)/hello.log
 
+# No +dma on the 2 MB build: the testbench's DMA area (0x380000 up) is
+# mirrored onto the console and the monitor's workspace (0x1FC000 up)
 hello2mb: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex
-	cd $(BUILD) && $(VVP) -n tb2mb.vvp +rom=boot.hex +hello +dma | tee hello2mb.log
+	cd $(BUILD) && $(VVP) -n tb2mb.vvp +rom=boot.hex +hello +timeout=40000 | tee hello2mb.log
 	@grep -q "^TEST PASSED" $(BUILD)/hello2mb.log
 
 systest: $(BUILD)/tb.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
@@ -146,71 +151,20 @@ speeds: $(BUILD)/tb.vvp $(BUILD)/speeds.hex
 # The boot ROM's failure display (firmware/boot/boot.asm): check 45 reported
 # as failed, shown as 5 white stripes; two frames must match
 $(BUILD)/bootfail.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DFAILTEST=0x45 --raw=$@ $<
+	$(SJASMPLUS) --nologo -I $(INC) -DFAILTEST=0x45 -DKEYWAIT=1 --raw=$@ $<
 
 failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootfail.hex +failshow=45 +timeout=70000 | tee failshow.log
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
-# The boot ROM's VBLANK colour cycle (ticket #16), a colour a frame
-$(BUILD)/bootvbl.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DCYCLE_FRAMES=1 --raw=$@ $<
-
-bootvbl: $(BUILD)/tb.vvp $(BUILD)/bootvbl.hex
-	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootvbl.hex +hello +bgcycle +timeout=70000 | tee bootvbl.log
-	@grep -q "^TEST PASSED" $(BUILD)/bootvbl.log
 # The video test (spec 4, ticket #13): vtest/vgen.py makes bands of L0
 # settings, a palette and random picture data; vtest/vtest.asm writes them,
 # band by band, timed from each frame's start; tb.v logs the writes and grabs
 # beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
 # Variant a is a fixed set of bands, the others random. The variants run in
 # parallel with make -j.
-VTESTS ?= a t b boot boottile bootcon bootscr
+VTESTS ?= a t b
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
-
-# The boot ROM's palette chart, on a 2 MB build as the KS2's: beam frame 2
-# is the first with the chart; the SRAM is dumped for the model. No +dma:
-# on a 2 MB build the testbench's DMA area (0x380000 up) is mirrored onto
-# the boot console, which the boot ROM sets up while the chart shows
-$(BUILD)/vtest_boot.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boot.hex vtest/vmodel.py
-	@d=$(BUILD)/vtest_boot; rm -f $@; mkdir -p $$d; \
-	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boot.hex +frame=2 +dumpram=ram.hex +timeout=70000 > sim.log); \
-	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
-	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 2 $$d/model.png && touch $@
-
-# The boot ROM's tile map demo (ticket #14; built with TILEDEMO), started
-# after one frame in place of 100: beam frame 4 is the second with the tile
-# map, scrolled by one pixel
-$(BUILD)/boottile.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DTILEDEMO -DTILE_FRAMES=1 --raw=$@ $<
-
-$(BUILD)/vtest_boottile.ok: $(BUILD)/tb2mb.vvp $(BUILD)/boottile.hex vtest/vmodel.py
-	@d=$(BUILD)/vtest_boottile; rm -f $@; mkdir -p $$d; \
-	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../boottile.hex +frame=4 +dumpram=ram.hex +dma +timeout=110000 > sim.log); \
-	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
-	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 4 $$d/model.png && touch $@
-
-# The boot console (ticket #15), shown after one frame in place of 100: beam
-# frame 4 is the second with the console; its map and font are at the top of
-# the 2 MB (no +dma, as vtest_boot). bootscr prints 40 more lines first, so
-# the console starts two frames later (frame 6 is checked) and its text has
-# scrolled by SCROLLY, round the map's 32 rows
-CON_LINES_bootcon := 0
-CON_LINES_bootscr := 40
-CON_FRAME_bootcon := 4
-CON_FRAME_bootscr := 6
-$(BUILD)/bootcon.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 --raw=$@ $<
-
-$(BUILD)/bootscr.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 -DCON_LINES=$(CON_LINES_bootscr) --raw=$@ $<
-
-$(BUILD)/vtest_bootcon.ok $(BUILD)/vtest_bootscr.ok: $(BUILD)/vtest_%.ok: $(BUILD)/tb2mb.vvp $(BUILD)/%.hex vtest/vmodel.py vtest/console_text.py
-	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
-	(cd $$d && $(VVP) -n ../tb2mb.vvp +rom=../$*.hex +frame=$(CON_FRAME_$*) +dumpram=ram.hex +timeout=150000 > sim.log); \
-	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
-	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex $(CON_FRAME_$*) $$d/model.png && \
-	$(PYTHON) vtest/console_text.py $$d/ram.hex $(ROOT)/firmware/boot/font.inc $(CON_LINES_$*) && touch $@
 
 $(BUILD)/vtest_%.ok: $(BUILD)/tb.vvp vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
 	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
@@ -319,9 +273,7 @@ clean:
 #                   source's rate to the clock, chaining, one-shot, reload,
 #                   the requests, the capture path, the watchdog
 #   make timertest  the timer test ROM on the machine (about 25 ms simulated)
-#   make boottmr    the boot ROM's timer effect, sped up: timer 0 dims and
-#                   brightens the screen every 2 ms (not part of make all)
-.PHONY: timers timertest boottmr
+.PHONY: timers timertest
 all: timers timertest
 
 $(BUILD)/tb_timers.vvp: timers/tb_timers.v $(RTL)/timers.v $(RTL)/regmap.vh | $(BUILD)
@@ -338,19 +290,11 @@ timertest: $(BUILD)/tb.vvp $(BUILD)/timertest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=timertest.hex +dma +timeout=40000 | tee timertest.log
 	@grep -q "^TEST PASSED" $(BUILD)/timertest.log
 
-# The boot ROM's timer 0 effect, sped up: dim and bright every 2 ms
-$(BUILD)/boottmr.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DTMR_HALF=4 --raw=$@ $<
-
-boottmr: $(BUILD)/tb.vvp $(BUILD)/boottmr.hex
-	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boottmr.hex +hello +bgdim +timeout=90000 | tee boottmr.log
-	@grep -q "^TEST PASSED" $(BUILD)/boottmr.log
-
 # ---- Input (ticket #19)
-#   make bootkeys   the boot console typed on (tb.v +keys): PS/2 keys through
-#                   the KEYB interrupt and a membrane key, echoed back over
-#                   the serial link (about 90 ms simulated, half an hour; not
-#                   part of make all)
+#   make bootkeys   the monitor typed at on the keyboards (tb.v +keys): PS/2
+#                   keys and a membrane key, echoed back over the serial link
+#                   as a command line (about 30 ms simulated, ten minutes;
+#                   not part of make all)
 #   make input      the input units on their own (sim/input/tb_input.v): the
 #                   PS/2 keyboard against a keyboard model (FIFO, flags,
 #                   sending, timeout), the PS/2 to port 0xFE mapper, the
@@ -367,11 +311,8 @@ input: $(BUILD)/tb_input.vvp
 	cd $(BUILD) && $(VVP) -n tb_input.vvp | tee input.log
 	@grep -q "^TEST PASSED" $(BUILD)/input.log
 
-$(BUILD)/bootkeys.bin: $(BOOT_SRC) | $(BUILD)
-	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 --raw=$@ $<
-
-bootkeys: $(BUILD)/tb.vvp $(BUILD)/bootkeys.hex
-	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootkeys.hex +hello +keys +timeout=150000 | tee bootkeys.log
+bootkeys: $(BUILD)/tb.vvp $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boot.hex +hello +keys +timeout=150000 | tee bootkeys.log
 	@grep -q "^TEST PASSED" $(BUILD)/bootkeys.log
 
 # ---- Port 0xFE writes (ticket #21)
@@ -389,3 +330,20 @@ $(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v 
 fe: $(BUILD)/tb_fe.vvp
 	cd $(BUILD) && $(VVP) -n tb_fe.vvp | tee fe.log
 	@grep -q "^TEST PASSED" $(BUILD)/fe.log
+
+# ---- The monitor (ticket #22): tb_mon.v types mon/check.py's session over
+# the serial link in Verilator; check.py compares what came back
+$(BUILD)/mon_rom.bin: $(BOOT_SRC) | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DKEYWAIT=1 --raw=$@ $<
+
+$(BUILD)/vl_mon/vmon: mon/tb_mon.v $(CURDIR)/mon/mon_main.cpp $(TV80_CORE) $(SYS_RTL) $(RTL)/regmap.vh | $(BUILD)
+	$(VERILATOR) --cc --exe --build -Wall -Wno-fatal $(VL_OPT) -DTV80_REFRESH -I$(RTL) \
+	    --x-assign fast --x-initial fast --top-module tb_mon \
+	    --Mdir $(BUILD)/vl_mon -o vmon mon/tb_mon.v $(CURDIR)/mon/mon_main.cpp \
+	    $(TV80_CORE) $(SYS_RTL) > $(BUILD)/vl_mon.log
+
+mon: $(BUILD)/vl_mon/vmon $(BUILD)/mon_rom.hex mon/check.py
+	$(PYTHON) mon/check.py make $(BUILD)
+	cd $(BUILD) && ./vl_mon/vmon +session=session.in > mon.out; tail -n 2 mon.out
+	$(PYTHON) mon/check.py check $(BUILD) | tee $(BUILD)/mon.result
+	@grep -q "^TEST PASSED" $(BUILD)/mon.result

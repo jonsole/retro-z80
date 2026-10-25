@@ -1,8 +1,8 @@
-; The boot console's port 0xFE demo (ticket #21), included by console.asm:
-; a Spectrum "tape loader" on the border and the beeper, then a clean beep.
-; conkey runs it for Tab (a PS/2 keyboard's Tab key, or Tab over the
-; serial link) and for EDIT on the membrane (CAPS SHIFT + 1, or the Next's
-; EDIT key).
+; The port 0xFE demo (ticket #21), in ROM page 1, included by boot.asm: a
+; Spectrum "tape loader" on the border and the beeper, then a clean beep.
+; The monitor runs it for Tab on an empty command line (a PS/2 keyboard's
+; Tab key, Tab over the serial link, or EDIT on the membrane: CAPS SHIFT +
+; 1, or the Next's EDIT key).
 ;
 ; Each edge of the "tape" is one OUT (0xFE),A that changes the border colour
 ; and the beeper bit together, as a Spectrum's loader does, so the border
@@ -20,12 +20,11 @@
 ;   Pause   about 0.17 s, black and quiet
 ;   Beep    0.4 s of 880 Hz with the border black
 ;
-; Then the beeper is left low, and the background colour of the moment
-; (showbg, boot.asm) is shown again. Interrupts are off throughout (about
-; 3.6 s), so the timing is exact: the delays are counted for the console's
-; 20 MHz (CPUSPEED 0x00), a T-state here being 50 ns, a Spectrum's 286 ns.
-; Interrupts left pending (VBLANK, timer 0, KEYB) are taken afterwards; the
-; PS/2 FIFO holds 16 bytes meanwhile.
+; Then the beeper is left low and the border black again (BGCOLOR).
+; Interrupts are off throughout (about 3.6 s; the monitor runs with them
+; off anyway), so the timing is exact: the delays are counted for the
+; monitor's 20 MHz (CPUSPEED 0x00), a T-state here being 50 ns, a
+; Spectrum's 286 ns. The PS/2 FIFO holds 16 bytes meanwhile.
 
 ; Delay counts (26 T-states each, less the edge's own ~100)
 TP_PILOT  equ   473                     ; 12389 T: 2168 Spectrum T-states
@@ -41,7 +40,7 @@ TP_RC     equ   0x02                    ; red, beeper low; xor 0x17: cyan, beepe
 TP_BY     equ   0x01                    ; blue, beeper low; xor 0x17: yellow, beeper high
 TP_FLIP   equ   0x17
 
-; A, B, C, D, E, HL and IX changed (conkey's callers reload what they need)
+; A, B, C, D, E, HL and IX changed
 tape:   di
         ld      c,TP_RC                 ; ---- pilot
         ld      hl,TP_NPIL
@@ -90,11 +89,10 @@ tape:   di
         ld      a,h
         or      l
         jr      nz,.bp
-        xor     a                       ; beeper low, then the background as it was
+        xor     a                       ; beeper low, then the border black
         out     (ULA_PORT),a
-        call    showbg
-        ei
-        ret
+        ld      hl,col_black
+        jp      setbg
 
 ; One edge: port 0xFE = C, C flipped for the next one, then DE x 26 T-states
 ; (A, C, DE changed)
