@@ -154,7 +154,7 @@ Letters not in the table (A, J, K, M, O, Q, W, Y, Z) are kept free. A command th
 
 ### 4.3 Breakpoints
 
-`G addr break` writes the machine's break instruction at break, then runs from addr. When the program reaches it, the monitor puts the old instruction back and says `Breakpoint at <break>`, with PC at break. A breakpoint in ROM, or at an address that cannot be written, gives `? address`. One breakpoint at a time. retro-z80's break instruction is `RST 30h` (one byte, `0xF7`); retro68k chooses its own (section 11).
+`G addr break` sets a breakpoint at break, then runs from addr. Each machine's spec says how (a break instruction written in, or a hardware breakpoint) and whether a breakpoint in ROM works; where it cannot, or the address cannot be written, `G` gives `? address`. When the program reaches it, the monitor takes the breakpoint away (putting back the old instruction if one was written) and says `Breakpoint at <break>`, with PC at break. One breakpoint at a time. retro-z80 uses a hardware breakpoint of its debug unit, so ROM works; retro68k writes its break instruction (`ILLEGAL`), so ROM gives `? address` (section 11).
 
 Code addresses (ENTRY, G, break): any on retro-z80; even on retro68k (`? alignment`; an odd ENTRY is refused with code 3).
 
@@ -486,7 +486,7 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 | Its spec | Spec 16, `docs/spec/boot-rom.md` | Its boot ROM spec (number and file named by retro68k) |
 | The ROM's own layout and start-up details | ROM pages, the boot sequence, background colours | The same |
 | How a program calls the ROM | RST entry points and `RST 28h` functions | retro68k's choice |
-| Break, breakpoint and trap | `RST 30h`; `RST 38h` (a fetch of `0xFF`) | retro68k's (exceptions, its break instruction) |
+| Break, breakpoint and trap | Break call `RST 30h`; `G` breakpoints by the debug unit (ROM works); trap `RST 38h` (a fetch of `0xFF`) | retro68k's (exceptions, its break instruction) |
 | Address ranges for each command and each target | Sections 8.1 and 9 of its spec | retro68k's |
 | Registers shown, and what IM and IFF mean | Section 8.3 of its spec | retro68k's |
 | What a program inherits | Section 6 of its spec | retro68k's |
@@ -506,7 +506,7 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 - **Sizes:** `.W` and `.L` give the machine's byte order; on the 68000 an odd word or long address gives `? alignment` and no address error; on the Z80 any address works.
 - **Addresses:** plain and `P` addresses reach the same memory where they should; forbidden ranges give `? address`.
 - **Registers:** `R` shows and sets every register of each machine; `G` starts with them.
-- **Breakpoints:** `G addr break` stops at break with the old instruction back; a breakpoint in ROM is refused.
+- **Breakpoints:** `G addr break` stops at break with the program's memory as it was; a breakpoint in ROM works on retro-z80 and is refused on retro68k.
 - **Upload:** a program, a resident image and a boot ROM image, each with ACTION 0 and 1; resends after CRC and frame errors; a lost reply; every refusal code; PING before and after HEADER; ABORT; a frame cut short (the 1 s drop); ICRC wrong in memory at END (code 6). In simulation against the FT232H model, and on the board.
 - **Boot file:** `BOOT.Z80` and `BOOT.68K` on one card, each machine starting its own; a bad header, a bad ICRC and a missing file go to the monitor with a message; a TARGET 1 boot file is not run at start-up.
 - **Start-up:** each start-up key; RESETWHY.UPLOAD reaches the loader; D at power-on leaves ROMLOCK clear across later resets, and D at a later reset changes nothing; on retro-z80, a long reset press is a plain reset.
