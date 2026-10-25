@@ -9,6 +9,7 @@ NFUNC   equ     0x11                    ; the highest RST 28h function
 
 ; ---- MMU pages (spec 2, section 9.3; spec 16, section 5)
 PG_ROM2 equ     0x3FE
+PG_ROM3 equ     0x3FF                   ; the NMI page (spec 16, section 8.6)
 PG_REG  equ     0x3F8                   ; the register page
 PG_CON  equ     0x0FE                   ; the console map and its state
 PG_WS   equ     0x0FF                   ; the font and the monitor's workspace
@@ -77,6 +78,8 @@ M_HL2   equ     0x6826
 M_I     equ     0x6828
 M_R     equ     0x6829
 M_TAKEN equ     0x682A                  ; 1: the screen is taken (M_VID holds the program's)
+M_NMI   equ     0x682B                  ; after an NMI: NMISTAT's BUTTON (0) and USB (1) as seen;
+                                        ; bit 7: through the NMI page, so G leaves by the save area
 M_SHOW  equ     0x682C                  ; 2: the address the message gives
 M_MMU   equ     0x6830                  ; 32: the program's MMU0_0 ... MMU7_1, then MMU0W_0 ... MMU7W_1
 M_D     equ     0x6850                  ; 4: where D carries on (low, middle, high, bit 0 physical)
@@ -116,6 +119,18 @@ T_VMAX  equ     64
 WENT    equ     0x6E00                  ; the entry frame, copied from the program's stack
 WMMUT   equ     0x6E20                  ; 32: the MMU registers as found at entry
 WPAL    equ     0x6E40                  ; 90: PALETTE0's console pairs as the program had them
+; The NMI save area, 0x0EA0-0x0EDF of page 0x0FF (spec 16, sections 5.3 and
+; 8.6): at 0x0Exx through window 0 at an NMI, at 0x6Exx through window 3.
+; Not in the state block's sum: M_MON changes as G leaves.
+M_MON   equ     0x6EA0                  ; MON_ON while the monitor itself runs: an NMI goes straight back
+MON_ON  equ     0xA5
+NMX_W3  equ     0x6EA6                  ; 2: for the exit: window 3's read page (MMU3_0, MMU3_1) ...
+NMX_W3W equ     0x6EA8                  ; 2: ... and write page
+NMX_HL  equ     0x6EAA                  ; 2: HL, BC and AF, as the entry pushed them through window 0
+NMX_BC  equ     0x6EAC
+NMX_AF  equ     0x6EAE
+NMX_SP  equ     0x6EB0                  ; 2: the program's SP (NMICAPSP - 2)
+NMX_CODE equ    0x6EB4                  ; the exit's bytes, up to 0x6EDF (monitor.asm, nmix)
 
 ; ---- Why the monitor was entered
 R_START equ     0
@@ -125,6 +140,7 @@ R_FBREAK equ    3                       ; RST 28h function BREAK
 R_TRAP  equ     4                       ; RST 38h
 R_NMI   equ     5
 R_BKPT  equ     6                       ; a breakpoint (found from R_BREAK)
+R_NMI3  equ     7                       ; an NMI through the NMI page (becomes R_NMI)
 
 ; ---- Colour pairs (spec 7, section 5.1): entries' high byte, PAL x 2
 PAIR0   equ     1 << 1                  ; light grey on black

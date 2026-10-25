@@ -112,6 +112,24 @@ SESSION = [
     # The trap: a byte 0xFF
     ("E 8400 FF", []),
     ("G 8400", ["Trap RST 38h at 8400"] + regs(pc="8400")),
+    # The NMI (ticket #27): a program that runs on is stopped by the button, or by BREAK
+    # after a G line ending in a space (tb_mon.v); the pushes never reach its stack, and
+    # G goes on. SP = 9000 in SRAM:
+    # LD SP,9000 / LD HL,0 / INC HL / JR 8806; then JP 0040 ends it
+    ("F 8FF0 10 AA", []),
+    ("E 8800 31 00 90 21 00 00 23 18 FD C3 40 00", []),
+    ("G 8800", [R(r"NMI \(button\) at 880[67]")] + regs(pc="880[67]", sp="9000")),
+    ("D 8FFE 2", [dump(0x8FFE, [0xAA, 0xAA])]),
+    ("G ", [R(r"NMI \(USB\) at 880[67]")] + regs(pc="880[67]", sp="9000")),
+    ("D 8FFE 2", [dump(0x8FFE, [0xAA, 0xAA])]),
+    ("G 8809", ["Program ended."] + regs(pc="0040")),
+    # ... with SP in ROM (LD SP,1000 / JR $): nothing written there, G goes on; then R SP
+    # and G addr through the capture
+    ("E 8900 31 00 10 18 FE", []),
+    ("G 8900", [R(r"NMI \(button\) at 8903")] + regs(pc="8903", sp="1000")),
+    ("G ", [R(r"NMI \(USB\) at 8903")] + regs(pc="8903", sp="1000")),
+    ("R SP 9000", []),
+    ("G 8809", ["Program ended."] + regs(pc="0040")),
     # The stack near window 4 (a ROM call borrows window 2), then in window 3 at a break (the
     # monitor's entry puts the workspace in window 5 first), and EXIT by a jump
     ("E 8600 31 00 90 3E 57 CF 31 00 70 F7 3E 56 CF C3 40 00", []),

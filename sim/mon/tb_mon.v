@@ -19,6 +19,12 @@
 //
 // Prints "SESSION DONE" and finishes once every line has been typed and the
 // machine is quiet after a prompt again, or "TEST FAILED: timeout".
+//
+// After a G line, a program that runs on quietly (4 ms with nothing sent,
+// and no prompt) is stopped with an NMI (ticket #27): the Multiface button,
+// or the BREAK control command if the G line ends in a space. (An NMI that
+// finds the monitor itself still busy goes straight back; another follows
+// 4 ms later.)
 `timescale 1ns / 1ps
 
 module tb_mon (input clk);
@@ -39,11 +45,14 @@ module tb_mon (input clk);
     wire        ft_d_oe, ft_rd_n, ft_wr_n, ft_siwu_n;
     wire [7:0]  ft_d_o;
     reg         ft_rxf_n = 1'b1, ft_txe_n = 1'b0;
+    reg         nmi_btn = 1'b0;                 // the Multiface button, pressed by the PC's side
+    integer     nmi_t = 0, nnmi = 0;
+    reg         go_line = 1'b0, go_brk = 1'b0;  // the last line typed was G; it ended in a space
     wire [7:0]  ft_d_i;
 
     retroz80 #(.ROM_INIT("mon_rom.hex"), .CHIPMB(CHIPMB)) dut (
         .clk(clk), .por(por),
-        .btn_reset_n(1'b1), .buttons(2'b00),
+        .btn_reset_n(1'b1), .buttons({1'b0, nmi_btn}),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
         .sram_oe_n_r(oe_r), .sram_oe_n_f(oe_f), .sram_we_n_r(we_r), .sram_we_n_f(we_f),
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq_i),
@@ -106,7 +115,10 @@ module tb_mon (input clk);
             if (c < 0) sess_end = 1'b1;
             else begin
                 nlines = nlines + 1;
+                go_line = (c == "G");
+                go_brk  = 1'b0;
                 while (c >= 0 && c != 10) begin
+                    if (c != 13) go_brk = (c == " ");
                     if (c != 13) begin q[qt[15:0]] = c[7:0]; qt = qt + 1; end
                     c = $fgetc(sess);
                 end
@@ -137,6 +149,23 @@ module tb_mon (input clk);
             quiet = 0;
             tx_hold <= 5;
         end else quiet = quiet + 1;
+        // A program running on quietly: an NMI, the button or BREAK in turn
+        if (nmi_t > 0) nmi_t = nmi_t - 1;
+        nmi_btn <= (nmi_t > 0);
+        if (quiet == QUIET && last != 8'h20 && qh == qt && !sess_end && go_line) begin
+            nnmi = nnmi + 1;
+            if (!go_brk) nmi_t = 100;
+            else begin
+                q[qt[15:0]] = 8'h00; q[qt[15:0] + 16'd1]  = 8'hFF; q[qt[15:0] + 16'd2]  = "R";
+                q[qt[15:0] + 16'd3]  = "6"; q[qt[15:0] + 16'd4]  = "8"; q[qt[15:0] + 16'd5]  = "K";
+                q[qt[15:0] + 16'd6]  = "-"; q[qt[15:0] + 16'd7]  = "C"; q[qt[15:0] + 16'd8]  = "T";
+                q[qt[15:0] + 16'd9]  = "L"; q[qt[15:0] + 16'd10] = 8'hFF; q[qt[15:0] + 16'd11] = 8'h00;
+                q[qt[15:0] + 16'd12] = 8'hA5; q[qt[15:0] + 16'd13] = 8'h5A;
+                q[qt[15:0] + 16'd14] = 8'h01; q[qt[15:0] + 16'd15] = 8'hFE;   // BREAK
+                qt = qt + 16;
+            end
+            quiet = 0;
+        end
         // The next line once a prompt has waited a while
         if (quiet == QUIET && last == 8'h20 && qh == qt) begin
             if (sess_end) begin

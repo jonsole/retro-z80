@@ -19,7 +19,9 @@
 //
 // The NMI (section 10): an enabled event (a press of the button, a BREAK
 // from the PC) sets its NMISTAT flag and the NMI request; nmi_n is low
-// while the request is set, until the bus interface's nmi_ack.
+// while the request is set, until the bus interface's nmi_ack, and is held
+// high while NMICTL.INNMI is 1 (an NMI handler is running), so an NMI
+// never nests: a request made meanwhile gives a new NMI right after RETN.
 `include "regmap.vh"
 
 module intc (
@@ -42,6 +44,7 @@ module intc (
     input  wire        nmi_button,     // debounced, 1 = pressed
     input  wire        nmi_usb,        // 1-clock pulse: BREAK from the PC
     input  wire        nmi_ack,        // the CPU has started its NMI response (1 clock)
+    input  wire        innmi,          // NMICTL.INNMI (intpages.v)
     output wire        nmi_n           // to the Z80
 );
     localparam integer SRC_SOFT = 18;
@@ -84,7 +87,7 @@ module intc (
             if (pending[n]) pick = n[4:0];
     end
 
-    assign nmi_n = !nmi_pend;
+    assign nmi_n = !(nmi_pend && !innmi);
 
     always @(posedge clk) begin
         btn_d <= nmi_button;

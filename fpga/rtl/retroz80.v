@@ -12,7 +12,10 @@
 // #19 adds the input units (spec 12): the PS/2 keyboard and its Spectrum key
 // mapper, the membrane keyboard and port 0xFE, the joysticks and Kempston.
 // Ticket #21 adds port 0xFE writes: the border (video.v) and the beeper,
-// out through the sigma-delta audio streams (audio.v).
+// out through the sigma-delta audio streams (audio.v). Ticket #27 wires the
+// NMI: the Multiface button and the BREAK control command through the
+// controller to the Z80, with the NMI set of the interrupt pages and the
+// stack capture (intpages.v; spec 2, sections 9.7-9.9).
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
@@ -120,6 +123,7 @@ module retroz80 #(
     wire        c_m1_n, c_mreq_n, c_iorq_n, c_rd_n, c_wr_n, c_rfsh_n, c_halt_n, c_busak_n;
     wire        c_iorq, c_no_read, c_write, c_intcycle_n;
     wire        int_n;                 // from the interrupt controller
+    wire        nmi_n;
 
     // A T-state every 5n clocks on slot edges 0 and 5, or every 28 clocks,
     // as CPUSPEED says (spec 1, section 3; spec 7, section 6.1)
@@ -129,7 +133,7 @@ module retroz80 #(
 
     z80_cpu cpu (
         .clk(clk), .cen(cen), .reset_n(cpu_rst_n),
-        .wait_n(1'b1), .int_n(int_n), .nmi_n(1'b1), .busrq_n(1'b1),
+        .wait_n(1'b1), .int_n(int_n), .nmi_n(nmi_n), .busrq_n(1'b1),
         .m1_n(c_m1_n), .mreq_n(c_mreq_n), .iorq_n(c_iorq_n), .rd_n(c_rd_n), .wr_n(c_wr_n),
         .rfsh_n(c_rfsh_n), .halt_n(c_halt_n), .busak_n(c_busak_n),
         .A(c_a), .di(c_di), .dout(c_dout),
@@ -151,6 +155,14 @@ module retroz80 #(
     wire [12:0] rb_addr;
     wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid, rd_int;
     wire [7:0]  rd_tmr;                // timers (#17), and their capture path
+    wire [7:0]  rd_ip;                 // the interrupt pages (#27)
+    wire        hit_ip;
+    wire        innmi, nmi_ack, nmi_ret, cap_sp_ld, cap_pc_ld, cap_pc_hi;
+    wire [15:0] cappc, cap_sp;
+    wire [7:0]  cap_d;
+    wire [2:0]  cp_win;
+    wire        cp_ld;
+    wire [9:0]  cp_rp, cp_wp, cp_cur_rp, cp_cur_wp;
     wire [7:0]  rd_kb, rd_key, rd_joy; // input (#19)
     wire        hit_kb, hit_key, hit_joy;
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
@@ -171,10 +183,12 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip),
         .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
+        .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
+        .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .nmi_pd(cap_d),
         .late(late)
     );
 
@@ -183,7 +197,22 @@ module retroz80 #(
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_mmu), .rb_hit(hit_mmu),
-        .win(mmu_win), .rpage(mmu_rpage), .wpage(mmu_wpage)
+        .win(mmu_win), .rpage(mmu_rpage), .wpage(mmu_wpage),
+        .cp_win(cp_win), .cp_ld(cp_ld), .cp_rp(cp_rp), .cp_wp(cp_wp),
+        .cp_cur_rp(cp_cur_rp), .cp_cur_wp(cp_cur_wp)
+    );
+
+    // ---------------------------------------------------------------- interrupt pages (spec 2, section 9.7)
+    // The NMI set and the stack capture (ticket #27); the maskable set later
+    intpages ip (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_ip), .rb_hit(hit_ip),
+        .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
+        .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .cap_d(cap_d),
+        .innmi(innmi), .cappc(cappc),
+        .cp_win(cp_win), .cp_ld(cp_ld), .cp_rp(cp_rp), .cp_wp(cp_wp),
+        .cp_cur_rp(cp_cur_rp), .cp_cur_wp(cp_cur_wp)
     );
 
     // ---------------------------------------------------------------- memory (spec 2)
@@ -260,10 +289,9 @@ module retroz80 #(
 
     // ---------------------------------------------------------------- interrupts (spec 8)
     // Sources so far: VBLANK (0), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
-    // inside the controller). The
-    // other lines are tied off until their units come; the NMI is not
-    // connected to the Z80 yet (it comes with the NMI paging, spec 1,
-    // section 8.2), so its inputs are tied off too.
+    // inside the controller). The other lines are tied off until their
+    // units come. The NMI: the Multiface button (debounced on the board)
+    // and the BREAK control command from the PC (spec 8, section 10).
     wire        irq_vid;
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
@@ -274,7 +302,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_int), .rb_hit(hit_int),
         .req(int_req), .int_n(int_n), .vreq(int_vreq), .vector(int_vec), .int_ack(int_ack),
-        .nmi_button(1'b0), .nmi_usb(1'b0), .nmi_ack(1'b0), .nmi_n()
+        .nmi_button(buttons[0]), .nmi_usb(cmd_break), .nmi_ack(nmi_ack), .innmi(innmi), .nmi_n(nmi_n)
     );
 
     // ---------------------------------------------------------------- video (spec 4)

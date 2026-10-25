@@ -408,9 +408,11 @@ cpal:   db      0x00, 0x00, 0x00,  0xD7, 0xD7, 0xD7     ; 0: light grey on black
         db      0xFF, 0xFF, 0x00,  0x00, 0x00, 0x00     ; 14: black on cyan
 
 ; ================================================================ entry from a program
-; From monent (boot.asm): the monitor's map and stack; the frame at WENT,
-; the MMU registers as found at WMMUT
-ment2:  ld      a,(WENT + 18)           ; the workspace's window had the program's pages
+; From monent (boot.asm), or the NMI page through nmiland: the monitor's
+; map and stack; the frame at WENT, the MMU registers as found at WMMUT
+ment2:  ld      a,MON_ON
+        ld      (M_MON),a               ; the monitor runs: an NMI now goes straight back
+        ld      a,(WENT + 18)           ; the workspace's window had the program's pages
         sub     MMU0_0
         ld      e,a
         ld      d,0
@@ -494,8 +496,16 @@ ment2:  ld      a,(WENT + 18)           ; the workspace's window had the program
         out     (c),a
         ld      hl,M_IM                 ; the program has run
         set     7,(hl)
+        xor     a
+        ld      (M_NMI),a
         ld      a,(WENT + 19)
-        ld      (M_WHY),a
+        cp      R_NMI
+        jr      z,.nmi
+        cp      R_NMI3
+        jr      nz,.why
+.nmi:   call    nmiwhy                  ; PC and SP from the capture
+        jr      .bp
+.why:   ld      (M_WHY),a
         ld      hl,(WENT + 16)          ; just above the frame
         cp      R_EXIT
         jr      nz,.rst
@@ -514,8 +524,6 @@ ment2:  ld      a,(WENT + 18)           ; the workspace's window had the program
         ld      a,1
         ld      (M_RUN),a
         ld      a,(M_WHY)
-        cp      R_NMI
-        jr      z,.bp
         dec     hl                      ; the RST's own address
         ld      (M_SHOW),hl
         cp      R_TRAP
@@ -560,6 +568,13 @@ ment2:  ld      a,(WENT + 18)           ; the workspace's window had the program
         ld      hl,s_trap
         cp      R_TRAP
         jr      z,.m2
+        ld      a,(M_NMI)               ; an NMI: which source
+        ld      hl,s_nmib
+        rrca
+        jr      c,.m2
+        ld      hl,s_nmiu
+        rrca
+        jr      c,.m2
         ld      hl,s_nmi
 .m2:    rst     18h
         ld      hl,(M_SHOW)
@@ -573,8 +588,40 @@ ment2:  ld      a,(WENT + 18)           ; the workspace's window had the program
 s_break: db     "Break at ", 0
 s_bkpt: db      "Breakpoint at ", 0
 s_trap: db      "Trap RST 38h at ", 0
+s_nmib: db      "NMI (button) at ", 0
+s_nmiu: db      "NMI (USB) at ", 0
 s_nmi:  db      "NMI at ", 0
 s_ended: db     "Program ended.", 0
+
+; After an NMI (A = R_NMI, or R_NMI3 through the NMI page): the source from
+; NMISTAT (then cleared), and the PC and SP from NMICAPPC and NMICAPSP
+; (spec 2, section 9.8), never from the program's stack
+nmiwhy: ld      e,0
+        cp      R_NMI
+        jr      z,.e
+        ld      e,0x80                  ; through the NMI page: G leaves by the save area
+.e:     ld      a,R_NMI
+        ld      (M_WHY),a
+        ld      bc,NMISTAT_P
+        in      a,(c)
+        out     (c),a                   ; W1C: the bits seen
+        and     NMISTAT_BUTTON_M | NMISTAT_USB_M
+        or      e
+        ld      (M_NMI),a
+        ld      bc,NMICAPPC0_P
+        in      l,(c)
+        inc     b
+        in      h,(c)
+        ld      (M_PC),hl
+        ld      (M_SHOW),hl
+        inc     b                       ; NMICAPSP0
+        in      l,(c)
+        inc     b
+        in      h,(c)
+        ld      (M_SP),hl
+        ld      a,1
+        ld      (M_RUN),a
+        ret
 
 ; The breakpoint's old byte back, if it is set
 bpclr:  ld      a,(M_BPON)
@@ -712,6 +759,8 @@ givescr:
 
 ; ================================================================ the command line
 mloop:  ld      sp,MSTACK
+        ld      a,MON_ON
+        ld      (M_MON),a               ; (also after start-up)
         ld      a,'>'
         rst     08h
         ld      a,' '
@@ -1929,7 +1978,10 @@ c_go:   call    pskip
         call    chkw
         call    curinc
         call    chkw
-.frame: ld      hl,(M_SP)               ; the frame below SP must be writable
+.frame: ld      a,(M_NMI)               ; through the NMI page: nothing on the program's stack
+        rla
+        jr      c,.nofr
+        ld      hl,(M_SP)               ; the frame below SP must be writable
         ld      de,-10
         add     hl,de
         call    setcpu
@@ -1939,7 +1991,7 @@ c_go:   call    pskip
         call    curinc
         pop     bc
         djnz    .fc
-        ld      a,(T_FLAG)              ; the breakpoint: RST 30h, read back
+.nofr:  ld      a,(T_FLAG)              ; the breakpoint: RST 30h, read back
         or      a
         jr      z,.wr
         ld      hl,(T_NUM)
@@ -1967,7 +2019,10 @@ c_go:   call    pskip
         call    curinc
         ld      a,high EXIT
         call    wrb
-.w1:    ld      hl,(M_SP)               ; L, H, E, D, C, B, F, A, PC low, PC high
+.w1:    ld      a,(M_NMI)
+        rla
+        jr      c,.go
+        ld      hl,(M_SP)               ; L, H, E, D, C, B, F, A, PC low, PC high
         ld      de,-10
         add     hl,de
         call    setcpu
@@ -1996,8 +2051,97 @@ c_go:   call    pskip
         ld      a,(M_SPEED)
         ld      bc,CPUSPEED_P
         out     (c),a
+        ld      a,(M_WHY)
+        cp      R_NMI
+        call    z,gonmi
         jp      g_final
 gframe: dw      M_HL, M_HL + 1, M_DE, M_DE + 1, M_BC, M_BC + 1, M_AF, M_AF + 1, M_PC, M_PC + 1, 0
+
+; G after an NMI (spec 16, sections 8.5 and 8.6): the PC into NMICAPPC, for
+; RETN. Through the NMI page also the program's window 0 into NMISAV0 and
+; NMISAV0W (RETN puts it back), and the exit's bytes and the registers they
+; restore into the save area, so nothing is written on the program's stack
+gonmi:  ld      hl,(M_PC)
+        ld      bc,NMICAPPC0_P
+        out     (c),l
+        inc     b
+        out     (c),h
+        ld      a,(M_NMI)
+        rla
+        ret     nc                      ; NMICTL.EN was 0: g_final's frame, then RETN
+        ld      hl,M_MMU
+        ld      bc,NMISAV0_0_P
+        call    .pg
+        ld      hl,M_MMU + 16
+        ld      b,NMISAV0W_0
+        call    .pg
+        ld      hl,(M_MMU + 6)
+        ld      (NMX_W3),hl
+        ld      hl,(M_MMU + 16 + 6)
+        ld      (NMX_W3W),hl
+        ld      hl,(M_HL)
+        ld      (NMX_HL),hl
+        ld      hl,(M_BC)
+        ld      (NMX_BC),hl
+        ld      hl,(M_AF)
+        ld      (NMX_AF),hl
+        ld      hl,(M_SP)
+        dec     hl
+        dec     hl
+        ld      (NMX_SP),hl             ; RETN steps SP up by 2, to M_SP
+        ld      hl,nmix
+        ld      de,NMX_CODE
+        ld      bc,NMIX_LEN
+        ldir
+        ld      a,(M_IFF)
+        or      a
+        ret     z
+        ld      a,0xFB                  ; EI just before the RETN
+        ld      (nmix.ei + 0x6000),a
+        ret
+.pg:    ld      a,(hl)
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,(hl)
+        out     (c),a                   ; byte 1 commits
+        ret
+
+; The exit's bytes (spec 16, section 8.6), copied to NMX_CODE: entered at
+; 0x6EB4 through window 3, they map the workspace into window 0 too and go
+; on at the same bytes through window 0, put window 3 back, take HL, BC and
+; AF from the save area and SP from NMX_SP, and RETN: its stack reads come
+; from NMICAPPC, then the hardware puts window 0 back from NMISAV0
+nmix:
+        DISP    NMX_CODE - 0x6000
+        ld      bc,MMU0_0_P
+        ld      a,low PG_WS
+        out     (c),a
+        inc     b
+        xor     a                       ; high PG_WS
+        out     (c),a                   ; window 0: the workspace, for reading and writing
+        jp      .w0
+.w0:    ld      sp,NMX_W3 - 0x6000
+        ld      b,MMU3_0
+        pop     hl
+        out     (c),l
+        inc     b
+        out     (c),h                   ; window 3: the program's read page, and write page ...
+        ld      b,MMU3W_0
+        pop     hl
+        out     (c),l
+        inc     b
+        out     (c),h                   ; ... and its own write page
+        pop     hl
+        pop     bc
+        pop     af
+        ld      sp,(NMX_SP - 0x6000)
+.ei:    nop                             ; EI if the program had interrupts on
+        retn
+        ENT
+NMIX_LEN equ    $ - nmix
+        ASSERT  high PG_WS == 0
+        ASSERT  NMX_CODE + NMIX_LEN <= 0x6EE0
 
 ; ---- R [name [value]]: registers
 c_regs: call    pskip

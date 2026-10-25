@@ -71,6 +71,7 @@ The split between pages 1–3 is the build's; only page 0's entry table (section
 | `0x0040` | EXIT | A jump here ends the program: `Program ended.` and the monitor. A program's first return address |
 | `0x0048` | ROMID | The identity block: ASCII `RZ80` (4 bytes), version major and minor (2 bytes), the highest `RST 28h` function code (1 byte), 0 (1 byte) |
 | `0x0050` | ROMDATE | The build date as ASCII `YYYY-MM-DD`, then a zero, padded with zeros to `0x005F` |
+| `0x0060` | – | `JP` to the monitor's common entry: the NMI page switches window 0 back to page 0 with the `OUT` just before this address in page 3, so its next fetch is here (section 8.6) |
 | `0x0066` | NMI | A jump to the monitor's NMI entry, for an NMI taken with NMICTL.EN = 0 while page 0 is in window 0 (spec 7, section 10.1) |
 | `0x0069`–`0x00FF` | – | The ROM's own code |
 
@@ -92,7 +93,7 @@ The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#21 with th
 | `font.inc`, `help.asm` | Page 2: the font at offset `0x4000`; the help text |
 | `rom.inc` | The constants: the console's state, the workspace's layout, the reasons for entering the monitor |
 
-Not built yet: the NMI page (the NMI is not wired to the Z80 yet, spec 1, section 8.2); `I` and `T` (ticket #23); `U`, `L`, `B`, `X` and functions `0x12`–`0x14` (tickets #24–#26). Those letters give `? not yet: a later ticket`.
+The NMI page (section 8.6) is built since ticket #27, with the NMI wired to the Z80. Not built yet: `I` and `T` (ticket #23); `U`, `L`, `B`, `X` and functions `0x12`–`0x14` (tickets #24–#26). Those letters give `? not yet: a later ticket`.
 
 ### 4.2 The full sequence
 
@@ -208,7 +209,7 @@ The **last line typed** (GETLINE's Up, the monitor's too) is kept in columns 96�
 | `0x0C00` | 256 | The SD card and FAT32: card type, partition, the current cluster and file |
 | `0x0D00` | 256 | The loader: the header being loaded, frames so far; and the **resident image record** (its header, its pages, a CRC of the record) |
 | `0x0E00` | 160 bytes | The entry frame and the MMU registers as the monitor found them (`0x0E00`–`0x0E3F`), the program's colour pairs while the monitor has the screen (`0x0E40`, 90 bytes); then the NMI save area (`0x0EA0`) |
-| `0x0EA0` | 64 | The **NMI save area** (section 8.6): the program's SP and the registers the monitor page saves before it maps anything, then the exit's few bytes |
+| `0x0EA0` | 64 | The **NMI save area** (section 8.6): at `0x0EA0` the flag that the monitor itself runs (`0xA5`); at `0x0EA6` window 3's read and write pages for the exit; at `0x0EAA` HL, BC and AF, at `0x0EB0` the program's SP, as the entry saves them before it maps anything; from `0x0EB4` the exit's bytes (43, to `0x0EDE`) |
 | `0x0EE0` | About 2.3 KB | Spare |
 | `0x1800` | 2 KB | The monitor's stack, from `0x2000` (`0x8000` in the monitor's map) down |
 
@@ -486,7 +487,7 @@ The NMI paging (spec 7, section 10.1; spec 1, section 8.2) puts ROM page 3 in wi
 2. Map the workspace page into window 3 (NMISAV3 holds the program's page there, so nothing need be saved first) and move SP to the same place through it (`0x6EAA`). Save the program's map (NMISAV0–7, NMISAV0W–7W), PC and SP (NMICAPPC, NMICAPSP) into the workspace, mapped as in section 5.2.
 3. Switch window 0 from page 3 to page 0 (the switch is at the same address in both pages, so the next instruction comes from page 0), and go on in the monitor's common entry (section 8.5).
 
-**The exit** (`G`) puts back everything but window 3, writes NMICAPPC if the PC was changed, and jumps to the exit's few bytes in the save area (`0x6EC0` through window 3). They map page `0x0FF` into window 0 for reading and writing, go on at the same bytes through window 0 (`0x0ECx`), put window 3 back, pop HL, BC and AF from the save area, reload SP from `0x0EB0` and do `RETN`. `RETN` takes its stack reads from NMICAPPC, then puts window 0 back from NMISAV0 and NMISAV0W. So neither the entry nor the exit touches the program's memory.
+**The exit** (`G`) puts back everything but window 3, writes NMICAPPC if the PC was changed, and jumps to the exit's few bytes in the save area (`0x6EB4` through window 3). They map page `0x0FF` into window 0 for reading and writing, go on at the same bytes through window 0 (`0x0ECx`), put window 3 back, pop HL, BC and AF from the save area, reload SP from `0x0EB0` and do `RETN`. `RETN` takes its stack reads from NMICAPPC, then puts window 0 back from NMISAV0 and NMISAV0W. So neither the entry nor the exit touches the program's memory.
 
 The NMI mode (NMICTL.INNMI) lasts until the monitor's `RETN`, which puts the program's window 0 back. If the monitor starts a **new** program after an NMI (`U`, `B`, `L` then `G`, `G addr` after a load), it first ends the NMI mode: it writes the address of a few bytes of code it has put in the workspace (window 3) to NMICAPPC and does `RETN`; that code maps ROM page 0 into window 0 again and carries on. So the new program can be broken into by the next NMI. It also puts the interrupt pages back to off (IPCTL, IPMASK and IPDEPTH 0) for the new program.
 
@@ -564,7 +565,7 @@ The ROM is built in this order, each step a ticket:
 
 | Step | Contents | Needs |
 |------|----------|-------|
-| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging (done or ticketed). Built (ticket #22) but for `T` (ticket #23) and the NMI page, which waits for the NMI to be wired to the Z80 |
+| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging. Built (ticket #22; the NMI page with ticket #27) but for `T` (ticket #23) |
 | 2 | The disassembler (`I`) | Step 1 |
 | 3 | The SD card and FAT32: `L`, `B`, the boot file, LOADFILE, READBLOCK, WRITEBLOCK | Spec 11's controller |
 | 4 | The loader (`U`, UPLOAD, all three targets) and `tools/rlink.py` | Step 1; the FT232H for the board |

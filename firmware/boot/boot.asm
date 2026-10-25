@@ -11,7 +11,9 @@
 ;   Page 1 (0x2000)  the monitor's commands, the rest of start-up, the
 ;                    self-test, the tape demo
 ;   Page 2 (0x4000)  the console font (offset 0x4000), the help text
-;   Page 3 (0x6000)  the NMI page: empty until the NMI paging is wired
+;   Page 3 (0x6000)  the NMI page (spec 16, section 8.6): the NMI's way into
+;                    the monitor, assembled at 0x0000, where it runs in
+;                    window 0 during an NMI
 ;
 ; The raw image is the ROM's 32 KB from offset 0; pages 0-2 are assembled at
 ; the addresses they have in the monitor's map (ROM page n in window n), so a
@@ -66,6 +68,9 @@ EXIT:   push    af                      ; EXIT: a program's first return address
 romid:  db      "RZ80", ROM_MAJOR, ROM_MINOR, NFUNC, 0
 romdate: db     "2026-10-25", 0         ; ROMDATE (the build's date, by hand)
         ds      0x60 - $, 0
+; The NMI page switches window 0 back to page 0 with the OUT just before
+; this address (page 3's nmiw0), so its next fetch comes from here
+nmiland: jp     ment2
         ds      0x66 - $, 0xFF
         jp      r_nmi                   ; NMI (with NMICTL.EN = 0)
 
@@ -171,7 +176,10 @@ r_trap: push    af
 .st:    pop     af
         jp      st_rst38
 
-; The NMI with NMICTL.EN = 0 (the NMI is not wired to the Z80 yet)
+; The NMI with NMICTL.EN = 0 (spec 16, section 8.6): window 0 is the
+; program's, so a few bytes go on its stack, as for a break. The PC is still
+; captured: ment2 takes PC and SP from NMICAPPC and NMICAPSP, and G's RETN
+; takes the PC from NMICAPPC
 r_nmi:  push    af
         ld      a,R_NMI
         jp      monent
@@ -267,6 +275,8 @@ monent: push    hl
 ; G's last steps (spec 16, section 8.5), from page 0 because windows 1-7 go
 ; back to the program's pages. The program's HL, DE, BC, AF and PC are
 ; already on its stack, below M_SP; everything else is in the workspace.
+; After an NMI through the NMI page nothing is on its stack: the last steps
+; are the exit's bytes in the save area (gonmi, monitor.asm).
 g_final:
         ld      hl,(M_AF2)
         push    hl
@@ -332,6 +342,15 @@ g_final:
         jr      .mmu
 .w3:    ld      a,(M_R)
         ld      r,a
+        ld      a,(M_NMI)               ; through the NMI page: out by the save area (gonmi)
+        rla
+        jr      nc,.w3s
+        xor     a
+        ld      (M_MON),a
+        ld      de,(M_DE)
+        jp      NMX_CODE
+.w3s:   xor     a
+        ld      (M_MON),a               ; the monitor no longer runs
         ld      a,(M_MMU + 6)           ; window 3 last: its four bytes, from the workspace in it
         ld      d,a
         ld      a,(M_MMU + 7)
@@ -357,10 +376,10 @@ g_final:
         pop     bc
         jr      nz,.ei
         pop     af
-        ret
-.ei:    pop     af
+        retn                            ; RETN always (spec 16, section 8.8): a RET with INNMI = 0;
+.ei:    pop     af                      ; after an NMI taken with NMICTL.EN = 0, the PC from NMICAPPC
         ei
-        ret
+        retn
 gwins:  db      1, 2, 4, 5, 6, 7, 0xFF
 
 ; ---------------------------------------------------------------- helpers
@@ -493,3 +512,90 @@ font:   include "font.inc"              ; offset 0x4000: the console font (spec 
         include "help.asm"
 page2_end:
         ASSERT  $ <= 0x6000
+        ds      0x6000 - $, 0xFF
+
+; ================================================================ page 3
+; The NMI page (spec 16, section 8.6). With NMICTL.EN and the NMI pages at
+; their reset values, an NMI reads window 0 from here (ROM page 3) and
+; writes it to the workspace page 0x0FF at the same offsets; the PC and SP
+; are in NMICAPPC and NMICAPSP, and nothing has been written on the
+; program's stack. Assembled at its address in window 0.
+        DISP    0x0000
+        ds      0x54 - $, 0xFF
+; Window 0 back to ROM page 0: the next fetch is page 0's nmiland
+nmiw0:  ld      bc,MMU0_0_P
+        ld      a,low PG_ROM0
+        out     (c),a
+        inc     b
+        ld      a,high PG_ROM0
+        out     (c),a
+        ASSERT  $ == nmiland
+        ds      0x66 - $, 0xFF
+; The NMI: SP, AF, BC and HL into the save area through window 0, then the
+; workspace into window 3 (NMISAV3 holds the program's page there)
+nmi3:   ld      (NMX_SP - 0x6000),sp
+        ld      sp,NMX_SP - 0x6000
+        push    af
+        push    bc
+        push    hl                      ; HL, BC, AF at 0x0EAA-0x0EAF
+        ld      bc,MMU3_0_P
+        ld      a,low PG_WS
+        out     (c),a
+        inc     b
+        ld      a,high PG_WS
+        out     (c),a
+        ld      a,(M_MON)
+        cp      MON_ON
+        jr      z,.mon
+        ld      sp,MSTACK               ; free while a program runs
+        ld      hl,WMMUT                ; the program's map: NMISAV0-7, NMISAV0W-7W
+        ld      bc,NMISAV0_0_P
+.sv:    in      a,(c)
+        ld      (hl),a
+        inc     hl
+        inc     b
+        jr      nz,.sv
+        ld      hl,(WMMUT + 16 + 6)     ; the entry frame, as monent makes it
+        ld      (WENT + 0),hl           ; +0, +2 window 3's pages
+        ld      hl,(WMMUT + 6)
+        ld      (WENT + 2),hl
+        ld      a,i                     ; P/V = IFF2: the program's IFF1
+        push    af
+        pop     hl
+        ld      (WENT + 4),hl
+        ld      (WENT + 6),de
+        ld      hl,(NMX_BC)
+        ld      (WENT + 8),hl
+        ld      hl,(NMX_HL)
+        ld      (WENT + 10),hl
+        ld      hl,(NMX_AF)
+        ld      (WENT + 12),hl
+        ld      a,MMU3_0
+        ld      (WENT + 18),a           ; +18 the workspace's window, +19 why
+        ld      a,R_NMI3
+        ld      (WENT + 19),a
+        ld      hl,.map                 ; the monitor's map, windows 1-4
+        ld      bc,MMU1_0_P
+.m:     ld      a,(hl)
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,b
+        cp      MMU4_1 + 1
+        jr      nz,.m
+        jp      nmiw0
+; The monitor itself was running (spec 16, section 8.8): NMISTAT cleared,
+; and straight back
+.mon:   ld      bc,NMISTAT_P
+        in      a,(c)
+        out     (c),a
+        ld      sp,NMX_HL
+        pop     hl
+        pop     bc
+        pop     af
+        ld      sp,(NMX_SP)
+        retn
+.map:   dw      PG_ROM1, PG_ROM2, PG_WS, PG_CON
+        ENT
+page3_end:
+        ASSERT  page3_end <= 0x8000

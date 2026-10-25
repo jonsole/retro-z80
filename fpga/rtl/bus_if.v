@@ -38,8 +38,24 @@
 // however late; any other read gets the unit's live byte. Both paths, ports
 // and the register page, share it. Ticket #17.
 //
-// Version for ticket #17: no register bus arbiter yet (the CPU is the only
-// master) and no NMI paging.
+// The NMI (spec 1, sections 8.2-8.4; ticket #27), from the core's cycles,
+// with tv80 unchanged:
+//   - the response: the only opcode fetch that repeats its T1 (tv80's
+//     automatic wait, with intcycle_n high). At E + 3 of the second T1,
+//     nmi_ack ends the controller's request and starts the switch in
+//     intpages.v (while INNMI is 0). Only the first T1 of an M-cycle starts
+//     a read, so the repeats ask for nothing;
+//   - the stack capture: after a response taken with INNMI = 0, the next
+//     two memory writes are the pushes. They make no request (no SRAM
+//     cycle, ROM write or register page strobe); the first one's address
+//     + 1 goes to NMICAPSP, and each byte to NMICAPPC, high byte first;
+//   - the return: an opcode watcher follows the bytes the core takes in its
+//     fetches (prefixes DD, FD, CB, ED; section 8.4) to find RETN (ED 45).
+//     With INNMI = 1, the next two memory reads make no request: NMICAPPC's
+//     low and then high byte are put at di. After the second, nmi_ret
+//     restores the pages and ends INNMI.
+//
+// No register bus arbiter yet (the CPU is the only master).
 `include "regmap.vh"
 
 module bus_if (
@@ -101,6 +117,17 @@ module bus_if (
     input  wire [7:0]  int_vec,        // the vector, from the clock after int_vreq
     output reg         int_ack,        // 1 clock: the acknowledge's M1 has ended
 
+    // The NMI (intc.v, intpages.v)
+    input  wire        innmi,          // NMICTL.INNMI
+    input  wire [15:0] cappc,          // NMICAPPC
+    output reg         nmi_ack,        // 1 clock: the NMI response's M1 seen
+    output reg         nmi_ret,        // 1 clock: RETN's second stack read, from the capture
+    output reg         cap_sp_ld,      // 1 clock: the first push; cap_sp = the program's SP
+    output reg  [15:0] cap_sp,
+    output reg         cap_pc_ld,      // 1 clock: a pushed byte at nmi_pd
+    output reg         cap_pc_hi,      // ... the first push's (PC bits 15-8)
+    output reg  [7:0]  nmi_pd,
+
     // Checks: the core took a byte before it was at di (never, if the
     // timing of spec 1, section 5 holds)
     output reg         late
@@ -156,6 +183,18 @@ module bus_if (
 
     assign int_vreq = at3 && first_t1 && is_ack;
 
+    // The NMI: the response, the captured pushes, the opcode watcher and
+    // RETN's stack reads from the capture
+    reg        m1_rep;                 // this M1 has repeated its T1
+    reg [1:0]  push_n;                 // pushes still to be captured
+    reg        cap_cyc;                // this M-cycle is a captured push
+    reg        pop_cyc;                // ... a stack read from the capture
+    reg [1:0]  pop_n;                  // RETN's stack reads still to come
+    reg [1:0]  ow;                     // the opcode watcher
+    localparam [1:0] OW_START = 2'd0, OW_XY = 2'd1, OW_CB = 2'd2, OW_ED = 2'd3;
+    wire nmi_resp = at3 && tstate[1] && was_t1 && is_fetch && !m1_rep;
+    wire pop      = at3 && first_t1 && is_read && pop_n != 2'd0;
+
     always @(posedge clk) begin
         rom_en <= 1'b0;
         rom_we <= 2'b00;
@@ -163,7 +202,17 @@ module bus_if (
         late   <= 1'b0;
         vreq_d <= int_vreq;
         int_ack <= 1'b0;
+        nmi_ack   <= 1'b0;
+        nmi_ret   <= 1'b0;
+        cap_sp_ld <= 1'b0;
+        cap_pc_ld <= 1'b0;
         if (rst) begin
+            m1_rep  <= 1'b0;
+            push_n  <= 2'd0;
+            cap_cyc <= 1'b0;
+            pop_cyc <= 1'b0;
+            pop_n   <= 2'd0;
+            ow      <= OW_START;
             cpu_req <= 1'b0;
             cpu_we  <= 1'b0;
             rd_wait <= 1'b0;
@@ -175,7 +224,51 @@ module bus_if (
             if (cpu_ack) cpu_req <= 1'b0;
 
             if (at3 && tstate[1]) apage <= page;
-            if (at3 && tstate[1] && (is_fetch || is_read)) begin
+
+            // The NMI response, and the two pushes after it
+            if (at3 && first_t1) begin
+                m1_rep  <= 1'b0;
+                cap_cyc <= is_write && push_n != 2'd0;
+                pop_cyc <= pop;
+                if (is_write && push_n == 2'd2) begin
+                    cap_sp_ld <= 1'b1;
+                    cap_sp    <= A + 16'd1;
+                end
+                if (is_ack) ow <= OW_START;
+            end
+            if (nmi_resp) begin
+                m1_rep  <= 1'b1;
+                nmi_ack <= 1'b1;
+                ow      <= OW_START;
+                if (!innmi) push_n <= 2'd2;
+            end
+            if (at3 && tstate[2] && is_write && cap_cyc) begin
+                cap_pc_ld <= 1'b1;
+                cap_pc_hi <= (push_n == 2'd2);
+                nmi_pd    <= dout;
+                push_n    <= push_n - 2'd1;
+            end
+            // RETN's stack reads, from the capture: no request
+            if (pop) begin
+                di    <= (pop_n == 2'd2) ? cappc[7:0] : cappc[15:8];
+                pop_n <= pop_n - 2'd1;
+                if (pop_n == 2'd1) nmi_ret <= 1'b1;
+            end
+            // The opcode watcher, as the core takes each fetched byte
+            if (cen && tstate[2] && is_fetch && !m1_rep) case (ow)
+                OW_CB: ow <= OW_START;
+                OW_ED: begin
+                    ow <= OW_START;
+                    if (di == 8'h45 && innmi) pop_n <= 2'd2;    // RETN
+                end
+                default:
+                    if (di == 8'hDD || di == 8'hFD) ow <= OW_XY;
+                    else if (di == 8'hCB)           ow <= (ow == OW_XY) ? OW_START : OW_CB;
+                    else if (di == 8'hED)           ow <= OW_ED;
+                    else                            ow <= OW_START;
+            endcase
+
+            if (at3 && first_t1 && (is_fetch || is_read) && !pop) begin
                 rd_hi <= A[0];
                 if (pg_sram) begin
                     cpu_req  <= 1'b1;
@@ -201,7 +294,7 @@ module bus_if (
                 int_ack <= 1'b1;
             end
 
-            if (at3 && tstate[2] && is_write) begin
+            if (at3 && tstate[2] && is_write && !cap_cyc) begin
                 if (ap_sram) begin
                     cpu_req   <= 1'b1;
                     cpu_we    <= 1'b1;
@@ -253,12 +346,15 @@ module bus_if (
     wire       p_low    = `RM_IS_LOWPORT(lo);           // 0x1F, 0x53, 0x5B, 0x62, 0xFE
     wire       p_sys    = (lo == 8'h00);
     wire       p_custom = (lo[7:2] == 6'b000100);       // 0x10-0x13
+    wire       p_ip     = (lo == 8'h01) && (hi[7:6] != 2'b00);  // page 0x01, registers 0x40-0xFF
     wire [12:0] io_addr = p_low    ? {5'd0, lo} :
                           p_sys    ? {5'd0, hi} :
+                          p_ip     ? {5'd1, hi} :
                                      {3'b100, lo[1:0], hi};
     wire       io_strobe = !iorq_n && m1_n && (!rd_n || !wr_n);
-    // A memory read or write (not a fetch) whose page is REGS
-    wire       rp_strobe = iorq_n && m1_n && (!rd_n || !wr_n) && ap_regs;
+    // A memory read or write (not a fetch) whose page is REGS; never a
+    // captured push or a stack read from the capture
+    wire       rp_strobe = iorq_n && m1_n && (!rd_n || !wr_n) && ap_regs && !cap_cyc && !pop_cyc;
 
     reg io_seen;                       // this I/O cycle has had its strobe
     always @(posedge clk) begin
@@ -283,7 +379,7 @@ module bus_if (
             rb_addr  <= io_addr;
             rb_hi    <= p_low ? hi : 8'h00;
             rb_wdata <= dout;
-            if (p_low || p_sys || p_custom) begin
+            if (p_low || p_sys || p_custom || p_ip) begin
                 rb_rd <= !rd_n;
                 rb_wr <= !wr_n;
             end else

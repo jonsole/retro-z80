@@ -17,6 +17,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **Ticket #22 (built, to be tried on the KS2):** the boot ROM is now the monitor of spec 16 and the shared monitor spec: the RST calls and `RST 28h` functions 0x00-0x11, start-up with the self-test at power-on only, the commands D E F C V S G R P H with sizes, P addresses and the side-effect rule, breakpoints, RST 30h and the trap. The old bring-up demos are gone but the tape loader (EDIT or Tab on an empty line). In simulation: `make -C sim mon` (a scripted session over serial, in Verilator). The KS2 README has a "try this" session.
 
+**Ticket #27 (built, to be tried on the KS2):** the NMI is wired (Multiface button, BREAK), with the NMI set of the interrupt pages (`fpga/rtl/intpages.v`: window 0 reads ROM page 3 and writes the workspace page; the pages in distributed RAM, copied one window a clock) and the stack capture (NMICAPPC, NMICAPSP; RETN pops from the capture). The boot ROM's NMI page enters the monitor without touching the program's memory (`NMI (button) at`, `NMI (USB) at`; `G` goes on through the save area). In simulation: `make -C sim nmitest`, and NMI stops in `make -C sim mon`. The maskable interrupt pages are still to come.
+
 ## 2. Where things are
 
 | File | What |

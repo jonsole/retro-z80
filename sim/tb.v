@@ -42,6 +42,10 @@
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
 //
+// A test ROM asks for an NMI by writing reserved port 0x0003 (no unit
+// answers it): 1 presses the Multiface button for 0.5 us, 2 sends the
+// BREAK control command over the FT232H.
+//
 // Every run also checks that the Z80 never waited (spec 1, section 5):
 //   - every CPU request to the scheduler is issued in the first CPU cycle
 //     (0 or 2) that comes while it stands, and none is ever turned away;
@@ -60,7 +64,16 @@
 //   - every interrupt acknowledge (spec 1, section 8.1, B11): exactly one
 //     vector request, in its first T1; the byte the core takes at the end
 //     of T2 is the controller's vector, VECBASE + 2 x INTID, at di at
-//     least 16 clocks before; and exactly one int_ack, after that.
+//     least 16 clocks before; and exactly one int_ack, after that;
+//   - the NMI (spec 1, section 8.6; ticket #27), worked out here from the
+//     core's cycles: the response (an M1 that repeats its T1) switches the
+//     model's MMU to the NMI pages (a copy of page 0x01's NMI registers,
+//     kept from the Z80's writes); its two pushes make no CPU request, ROM
+//     write or register strobe; an opcode watcher finds RETN, whose two
+//     stack reads make no request and must give the captured PC (or what
+//     the Z80 wrote to NMICAPPC); after the second, the model's MMU gets
+//     the saved pages back, so the fetch at the return address is checked
+//     through the program's map.
 // and that each T-state is as long as CPUSPEED says (spec 1, section 3;
 // spec 7, section 6.1). The summary gives the measured rate at each speed.
 `timescale 1ns/1ps
@@ -138,12 +151,14 @@ module tb #(
     reg  [5:0]  tb_joy1 = 6'd0, tb_joy2 = 6'd0;
     wire [5:0]  joy_pin_n = ~(joy_sel ? tb_joy2 : tb_joy1);
 
+    reg tb_nmibtn = 1'b0;                     // the Multiface button (port 0x0003 = 1)
+
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
 
     retroz80 #(.CHIPMB(CHIPMB)) dut (
         .clk(clk), .por(por),
-        .btn_reset_n(1'b1), .buttons(2'b00),
+        .btn_reset_n(1'b1), .buttons({1'b0, tb_nmibtn}),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
         .sram_oe_n_r(oe_r), .sram_oe_n_f(oe_f), .sram_we_n_r(we_r), .sram_we_n_f(we_f),
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq),
@@ -281,15 +296,31 @@ module tb #(
     reg  [9:0]  m_wp [0:7];
     reg  [7:0]  m_hr [0:7];
     reg  [7:0]  m_hw [0:7];
+    reg  [7:0]  m_fr, m_fw;                     // a held byte written since its commit
     integer     w;
+    // The NMI set (spec 2, section 9.8): NMIP, NMIPW, NMISAV, NMISAVW as
+    // m_ip[8a + n] (a = 0-3), their held bytes and flags, NMICTL.EN,
+    // NMIMASK, the mask and EN noted at the entry, INNMI and NMICAPPC
+    reg  [9:0]  m_ip [0:31];
+    reg  [7:0]  m_ih [0:31];
+    reg  [31:0] m_if;
+    reg         m_nen, m_noten, m_innmi;
+    reg  [7:0]  m_nmask, m_notmask;
+    reg  [15:0] m_cap;
+    integer     m_push, m_pop;                  // pushes to capture, RETN stack reads to come
     task mmu_reset;
         begin
             for (w = 0; w < 8; w = w + 1) begin
                 m_rp[w] = (w == 0) ? 10'h3FC : (w == 1) ? 10'h3FD : w - 2;
                 m_wp[w] = m_rp[w];
-                m_hr[w] = m_rp[w][7:0];
-                m_hw[w] = m_rp[w][7:0];
+                m_ip[w] = (w == 0) ? 10'h3FF : m_rp[w];
+                m_ip[8 + w]  = (w == 0) ? 10'h0FF : m_rp[w];
+                m_ip[16 + w] = m_rp[w];
+                m_ip[24 + w] = m_rp[w];
             end
+            m_fr = 0; m_fw = 0; m_if = 0;
+            m_nen = 1; m_nmask = 8'h01; m_innmi = 0; m_noten = 0; m_notmask = 0;
+            m_cap = 0; m_push = 0; m_pop = 0;
         end
     endtask
     initial mmu_reset;
@@ -298,15 +329,41 @@ module tb #(
         begin
             n = r[3:1];
             case ({r[4], r[0]})
-                2'b00: m_hr[n] = d;
-                2'b10: m_hw[n] = d;
+                2'b00: begin m_hr[n] = d; m_fr[n] = 1'b1; end
+                2'b10: begin m_hw[n] = d; m_fw[n] = 1'b1; end
                 2'b01: begin
-                    m_rp[n] = {d[1:0], m_hr[n]};
+                    m_rp[n] = {d[1:0], m_fr[n] ? m_hr[n] : m_rp[n][7:0]};
                     m_wp[n] = m_rp[n];
-                    m_hw[n] = m_hr[n];
+                    m_fr[n] = 1'b0;
+                    m_fw[n] = 1'b0;
                 end
-                2'b11: m_wp[n] = {d[1:0], m_hw[n]};
+                2'b11: begin
+                    m_wp[n] = {d[1:0], m_fw[n] ? m_hw[n] : m_wp[n][7:0]};
+                    m_fw[n] = 1'b0;
+                end
             endcase
+        end
+    endtask
+    // A write to register r (0x40-0xFF) of page 0x01
+    task ip_write(input [7:0] r, input [7:0] d);
+        reg [4:0] x;
+        begin
+            x = r[5:1];
+            if (r == 8'h48) m_nen = d[0];
+            else if (r == 8'h49) m_nmask = d;
+            else if (r == 8'h4C) m_cap[7:0] = d;
+            else if (r == 8'h4D) m_cap[15:8] = d;
+            else if (r[7:6] == 2'b11 && !r[0]) begin
+                m_ih[x] = d;
+                m_if[x] = 1'b1;
+            end else if (r[7:6] == 2'b11) begin
+                m_ip[x] = {d[1:0], m_if[x] ? m_ih[x] : m_ip[x][7:0]};
+                m_if[x] = 1'b0;
+                if (!x[3]) begin                        // a read page: its write page too
+                    m_ip[x + 8] = m_ip[x];
+                    m_if[x + 8] = 1'b0;
+                end
+            end
         end
     endtask
     // The physical byte address of an SRAM page; bit 21 ignored on a 2 MB build
@@ -315,6 +372,15 @@ module tb #(
     endfunction
 
     integer reads_rom = 0, reads_sram = 0, reads_regs = 0, reads_none = 0;
+    integer nmis = 0, nmi_pops = 0, nmi_errors = 0, push_win = 0, ow = 0;
+    reg     pop_win = 1'b0, req_d = 1'b0;
+    reg     t_last1 = 1'b0, t_rep = 1'b0;     // the last T-state was a T1; this M1 repeated its T1
+    task nmi_error(input [8*64-1:0] why);
+        begin
+            if (nmi_errors < 10) $display("%t NMI ERROR: %0s", $realtime, why);
+            nmi_errors = nmi_errors + 1;
+        end
+    endtask
     integer writes_sram = 0, writes_regs = 0, ios = 0, ntrace = 0, trace = 0;
     reg  [15:0] ad;
     reg  [7:0]  want;
@@ -331,13 +397,25 @@ module tb #(
     function [7:0] pick(input [15:0] w, input b);
         pick = b ? w[15:8] : w[7:0];
     endfunction
+    // The T-state each cen edge ends: an M1 with intcycle_n high that
+    // repeats its T1 is the NMI response (spec 1, section 8.2)
+    always @(posedge clk) if (dut.cen && dut.cpu_rst_n) begin
+        if (dut.cpu.tstate[1]) begin
+            if (!t_last1) t_rep = 1'b0;
+            else if (dut.cpu.mcycle[0] && dut.cpu.intcycle_n) t_rep = 1'b1;
+        end
+        t_last1 = dut.cpu.tstate[1];
+    end
     always @(posedge clk) if (dut.cen && dut.cpu_rst_n && dut.cpu.tstate[2] && dut.cpu.rfsh_n) begin
         ad = dut.cpu.A;
         if (dut.cpu.mcycle[0] ? dut.cpu.intcycle_n
                               : (!dut.cpu.iorq && !dut.cpu.no_read && !dut.cpu.write)) begin
             pg  = m_rp[ad[15:13]];
             chk = 1'b1;
-            if (!pg[9]) begin                                   // SRAM
+            if (!dut.cpu.mcycle[0] && m_pop > 0) begin          // RETN's stack read: the capture
+                want = (m_pop == 2) ? m_cap[7:0] : m_cap[15:8];
+                nmi_pops = nmi_pops + 1;
+            end else if (!pg[9]) begin                          // SRAM
                 phys = sram_byte(pg, ad[12:0]);
                 want = pick(sram.mem[phys[21:1]], phys[0]);
                 reads_sram = reads_sram + 1;
@@ -362,8 +440,72 @@ module tb #(
                              dut.cpu.mcycle[0] ? "fetch" : "read", ad, pg, dut.cpu.di, want);
                 wait_errors = wait_errors + 1;
             end
-        end
+            // The NMI: the response switches the model's map (after its own
+            // dummy fetch, which used the program's); RETN's second stack
+            // read puts the saved pages back
+            if (dut.cpu.mcycle[0] && t_rep) begin
+                nmis = nmis + 1;
+                ow = 0;
+                if (m_innmi) nmi_error("an NMI response while INNMI is 1");
+                else begin
+                    m_innmi = 1; m_noten = m_nen; m_notmask = m_nmask; m_push = 2;
+                    for (w = 0; w < 8; w = w + 1) begin
+                        m_ip[16 + w] = m_rp[w];
+                        m_ip[24 + w] = m_wp[w];
+                        if (m_nen && m_nmask[w]) begin
+                            m_rp[w] = m_ip[w];
+                            m_wp[w] = m_ip[8 + w];
+                        end
+                    end
+                end
+            end else if (dut.cpu.mcycle[0]) begin
+                // The opcode watcher (spec 1, section 8.4): 0 START, 1 XY, 2 CB, 3 ED
+                case (ow)
+                    2: ow = 0;
+                    3: begin
+                        ow = 0;
+                        if (dut.cpu.di == 8'h45 && m_innmi) begin m_pop = 2; pop_win = 1'b1; end
+                    end
+                    default:
+                        if (dut.cpu.di == 8'hDD || dut.cpu.di == 8'hFD) ow = 1;
+                        else if (dut.cpu.di == 8'hCB) ow = (ow == 1) ? 0 : 2;
+                        else if (dut.cpu.di == 8'hED) ow = 3;
+                        else ow = 0;
+                endcase
+            end else if (m_pop > 0) begin
+                m_pop = m_pop - 1;
+                if (m_pop == 0) begin
+                    pop_win = 1'b0;
+                    m_innmi = 0;
+                    if (m_noten)
+                        for (w = 0; w < 8; w = w + 1)
+                            if (m_notmask[w]) begin
+                                m_rp[w] = m_ip[16 + w];
+                                m_wp[w] = m_ip[24 + w];
+                            end
+                end
+            end
+        end else if (dut.cpu.mcycle[0] && !dut.cpu.intcycle_n)
+            ow = 0;                                             // an acknowledge
     end
+    // The capture makes no memory request, ROM write or register strobe
+    always @(posedge clk) begin
+        if (push_win > 0) begin
+            push_win = push_win - 1;
+            if (dut.cpu_req && dut.cpu_we) nmi_error("a push made a write request");
+            if (dut.rom_en && dut.rom_we != 2'b00) nmi_error("a push wrote the ROM");
+            if (dut.rb_wr) nmi_error("a push made a register strobe");
+        end
+        if (pop_win) begin
+            if (dut.cpu_req && !req_d) nmi_error("a RETN stack read made a request");
+            if (dut.rb_rd) nmi_error("a RETN stack read made a register strobe");
+        end
+        req_d = dut.cpu_req;
+    end
+    // NMIs asked for by the test ROM (port 0x0003)
+    event do_break;
+    always @(do_break) send_ctl(8'h01);
+    always @(posedge clk) if (!dut.cpu_rst_n) tb_nmibtn <= 1'b0;
     // ---------------------------------------------------------------- speed
     // (3) The T-state rate (spec 1, section 3; spec 7, section 6.1), worked
     //     out here from the CPUSPEED writes seen on the core's pins:
@@ -495,12 +637,22 @@ module tb #(
         if (!dut.cpu_rst_n) mmu_reset;
         else if (wr_q && !dut.cpu.wr_n) begin
             ad = dut.cpu.A;
-            if (!dut.cpu.mreq_n) begin
+            if (!dut.cpu.mreq_n && m_push > 0) begin           // an NMI push: captured
+                if (m_push == 2) m_cap[15:8] = dut.cpu.dout;
+                else             m_cap[7:0]  = dut.cpu.dout;
+                m_push = m_push - 1;
+                push_win = 30;
+                if (trace > ntrace) begin
+                    $display("%t  W %h = %h (captured)", $realtime, ad, dut.cpu.dout);
+                    ntrace = ntrace + 1;
+                end
+            end else if (!dut.cpu.mreq_n) begin
                 pg = m_wp[ad[15:13]];
                 if (!pg[9]) writes_sram = writes_sram + 1;
                 if (pg == 10'h3F8) begin
                     writes_regs = writes_regs + 1;
                     if (ad[12:5] == 8'h04) mmu_write(ad[7:0], dut.cpu.dout);   // 0x0080-0x009F
+                    if (ad[12:8] == 5'h01 && ad[7:6] != 2'b00) ip_write(ad[7:0], dut.cpu.dout);
                 end
                 if (trace > ntrace) begin
                     $display("%t  W %h = %h (page %h)", $realtime, ad, dut.cpu.dout, pg);
@@ -508,6 +660,18 @@ module tb #(
                 end
             end else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad[7:0] == 8'h00 && ad[15:13] == 3'b100)
                 mmu_write(ad[15:8], dut.cpu.dout);
+            else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad[7:0] == 8'h01 && ad[15:14] != 2'b00)
+                ip_write(ad[15:8], dut.cpu.dout);
+            else if (!dut.cpu.iorq_n && dut.cpu.m1_n && ad == 16'h0003) begin
+                if (dut.cpu.dout == 8'h01) begin
+                    $display("%t test ROM: the NMI button pressed", $realtime);
+                    tb_nmibtn <= 1'b1;
+                    tb_nmibtn <= #500 1'b0;
+                end else if (dut.cpu.dout == 8'h02) begin
+                    $display("%t test ROM: BREAK sent", $realtime);
+                    -> do_break;
+                end
+            end
         end
         wr_q <= dut.cpu.wr_n;
     end
@@ -709,6 +873,8 @@ module tb #(
                      sram.errors, ft.errors, ft.siwu_count);
             $display("---- interrupts: %0d acknowledges, %0d vector requests, %0d int_ack pulses, %0d errors",
                      acks, vreqs, int_acks, ack_errors);
+            $display("---- NMI: %0d responses, %0d stack reads from the capture, %0d errors",
+                     nmis, nmi_pops, nmi_errors);
             $display("---- speed: %0d errors; T1 at 3.57 MHz on slot edges %b (9-0)", speed_errors, spd_edges);
             $display("---- video: %0d frames, %0d timing errors, %0d lines changing colour; %0d blue and %0d green pixels; BGCOLOR %h",
                      vframes, vid_errors, mixed_lines, pix_blue, pix_green, dut.vid.bgcolor);
@@ -729,7 +895,7 @@ module tb #(
             for (s = 0; s < 9; s = s + 1) if (spd_hello[s] == 0) all_hello = 0;
             if (pass && wait_errors == 0 && cpu_refused == 0 && sram.errors == 0 && ft.errors == 0
                 && dma_errors == 0 && cpu_cycles > 0 && reads_sram > 0 && writes_sram > 0
-                && ack_errors == 0 && acks == vreqs && acks == int_acks
+                && ack_errors == 0 && acks == vreqs && acks == int_acks && nmi_errors == 0
                 && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF))
                 && vid_errors == 0 && mixed_lines == 0
                 && (!hello || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK))))
@@ -738,6 +904,8 @@ module tb #(
                 $display("TEST FAILED: the screen was not blue, then green, then black");
             else if (pass && (ack_errors != 0 || acks != vreqs || acks != int_acks))
                 $display("TEST FAILED: interrupt acknowledges");
+            else if (pass && nmi_errors != 0)
+                $display("TEST FAILED: the NMI");
             else if (pass && (vid_errors != 0 || mixed_lines != 0))
                 $display("TEST FAILED: video timing");
             else if (pass && speeds && !all_hello)
