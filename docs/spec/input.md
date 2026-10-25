@@ -105,7 +105,7 @@ The KEYB request (spec 8 gives its number) is on while any bit is set in both KB
 
 ### 4.1 The ports
 
-The KS3 has two 9-pin joystick ports. They share one set of FPGA input pins through a multiplexer, switched by the FPGA's `joysel` output (pin U14 in the KS3 pin list). The FPGA switches `joysel` on its own, waits for the lines to settle and samples each port in turn, so software sees both ports at once.
+The KS3 has two 9-pin joystick ports. They share one set of FPGA input pins through a multiplexer, switched by the FPGA's `joysel` output (pin U14 in the KS3 pin list). The FPGA switches `joysel` on its own, waits for the lines to settle and samples each port in turn, so software sees both ports at once. `joysel` = 0 selects the left port, joystick 1; 1 the right, joystick 2 (as the Next's own joystick code). Each port gets 5.12 µs before it is sampled. The Mega Drive select line (pin 7) is one FPGA output for both ports, so with MD1 or MD2 set both ports see the bursts.
 
 | Pin | Atari joystick | Mega Drive pad, select high | Mega Drive pad, select low |
 |-----|----------------|-----------------------------|----------------------------|
@@ -157,7 +157,7 @@ The KS3 membrane is a matrix of 8 rows and 7 columns (56 keys). Columns 0–4 ho
 
 ### 5.2 Scanning
 
-The FPGA scans the matrix all the time: it drives one row line low at a time and reads the 7 column lines (low = pressed), about every 64 µs per row (a full scan every 0.5 ms). A key's state changes only after two scans in a row agree (debounce, 0.5–1 ms). The CPU never drives the matrix; every read comes from the scanned state, so any CPU speed works. The membrane has no diodes, so, as on a Spectrum, three keys held at three corners of a rectangle can make the fourth corner look pressed (ghosting).
+The FPGA scans the matrix all the time: it drives one row line low at a time and reads the 7 column lines (low = pressed), about every 64 µs per row (a full scan every 0.5 ms). The rows are open drain, driven low or let go (pulled up), as the Next drives them, so two keys of one column never short two rows together; the columns are pulled up. A key's state changes only after two scans in a row agree (debounce, 0.5–1 ms). The CPU never drives the matrix; every read comes from the scanned state, so any CPU speed works. The membrane has no diodes, so, as on a Spectrum, three keys held at three corners of a rectangle can make the fourth corner look pressed (ghosting).
 
 ### 5.3 The key map
 
@@ -172,7 +172,18 @@ A program reads all 56 keys with `LD BC,0x1000` and seven `IN r,(C)` / `INC B` p
 
 ### 5.4 Extra Next keys
 
-The 16 extra keys are: EXTEND MODE, EDIT, CAPS LOCK, TRUE VIDEO, INV VIDEO, GRAPH, DELETE, BREAK, the four cursor keys, and `;` `"` `,` `.`. Their exact positions in columns 5–6 are taken from the Next's own keyboard code (open point K1). Software reads them in KEYMAP5 and KEYMAP6. With KEYCON.KXMAP they also show on port `0xFE` as Spectrum key pairs (section 8.2).
+The 16 extra keys are: EXTEND MODE, EDIT, CAPS LOCK, TRUE VIDEO, INV VIDEO, GRAPH, DELETE, BREAK, the four cursor keys, and `;` `"` `,` `.`. Their positions in columns 5–6 are the Next's (its `membrane.vhd`; open point K1):
+
+| Row | Column 6 (KEYMAP6) | Column 5 (KEYMAP5) |
+|-----|--------------------|--------------------|
+| 0 | Cursor up | EXTEND MODE |
+| 1 | GRAPH | CAPS LOCK |
+| 2 | INV VIDEO | TRUE VIDEO |
+| 3 | EDIT | BREAK |
+| 4 | `"` | `;` |
+| 5 | `.` | `,` |
+| 6 | Cursor right | DELETE |
+| 7 | Cursor down | Cursor left | Software reads them in KEYMAP5 and KEYMAP6. With KEYCON.KXMAP they also show on port `0xFE` as Spectrum key pairs (section 8.2).
 
 ## 6. Registers
 
@@ -209,7 +220,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 | Matrix scanner, debounce, 56-bit key map, port `0xFE` read logic, KXMAP | Estimate 100–150 LUTs |
 | Joystick multiplexer, Mega Drive burst sequencer | Estimate 50–80 LUTs |
 | Block RAM, DSP | None |
-| Pins | PS/2: `ps2_clk`, `ps2_data`. Membrane: 8 row outputs, 7 column inputs (`keyb_row_o[7:0]`, `keyb_col_i[6:0]`). Joysticks: `joysel` (U14), the shared direction and button inputs and the select output (open point J1) |
+| Pins | PS/2: `ps2_clk_io`, `ps2_data_io` (open collector, pulled up). Membrane: 8 open-drain row outputs, 7 pulled-up column inputs (`keyb_row_o[7:0]`, `keyb_col_i[6:0]`). Joysticks: `joysel_o` (U14), the shared inputs `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i` and the select output `joyp7_o`. Locations in section 10 (K2, J1) |
 | Request lines | KEYB (level) to spec 8 |
 
 ## 8. Spectrum extras
@@ -331,12 +342,12 @@ Port `0x1F` reads **joystick 1**: the same value as JOY1, at the same moment. Wr
 
 ## 10. Open points
 
-Pin facts checked in retro68k's KS3 files: the Multiface, DivMMC and reset buttons; `joysel_o` at U14; the SD pins. The rest below is not yet checked against the Next's `zxnext_top_issue5.vhd` and `zxnext_pins_issue5.xdc`.
+Pin facts checked in retro68k's KS3 files: the Multiface, DivMMC and reset buttons; `joysel_o` at U14; the SD pins. Issue #19 checked the keyboard, joystick and PS/2 pins against the Next's issue 4 and issue 5 files (K2, J1); they are to be tried on the KS2.
 
 | # | Item |
 |---|------|
-| K1 | Positions of the 16 extra keys in matrix columns 5–6, and the row/column numbering of `keyb_row_o` / `keyb_col_i`, from the Next's keyboard code (`membrane` module) |
-| K2 | Pin locations of `keyb_row_o[7:0]`, `keyb_col_i[6:0]`, `ps2_clk`, `ps2_data` (not in retro68k's pin file yet). Whether the row outputs must be open drain to avoid shorting two rows when two keys in one column are pressed |
+| K1 | Closed from the Next's `membrane.vhd` (section 5.4): `keyb_row_o[r]` is row r (A(8 + r)), `keyb_col_i[4:0]` the Spectrum columns in port `0xFE`'s bit order, `keyb_col_i[6:5]` the extra keys. To be confirmed key by key on the board. The Next also holds the shift keys an extra scan against software that reads composite keys naively; not done here |
+| K2 | Closed: the same pins on issue 4 (KS2) and issue 5 (KS3): rows J14, M16, M13, N16, K16, K15, K13, J15 (`keyb_row_o[0]`–`[7]`), LVTTL, DRIVE 4, pulled up, **open drain** (driven low or let go, as the Next does); columns R8, R7, T6, V7, U6, T18, R17 (`keyb_col_i[0]`–`[6]`), pulled up. PS/2 keyboard `ps2_clk_io`, `ps2_data_io`: K1, L4 on issue 4, N5, N6 on issue 5, LVCMOS33, pulled up, open collector (the Next's mouse pins `ps2_pin2_io`, `ps2_pin6_io` are not used) |
 | K3 | Scan and debounce times (64 µs per row, two agreeing scans) to be checked on the real membrane, which is slow to settle |
 | K4 | Closed: port `0xFE` writes set the border with bits 2–0 (spec 4) and the beeper with bit 4 (spec 7); MIC is ignored. Border writes act at once, so mid-line stripes work (spec 4, V7) |
 | K5 | Closed: PS/2 keys also show on port `0xFE` (branch 11), through the mapper of section 8.3, turned off with KEYCON.PS2MAP |
@@ -345,7 +356,7 @@ Pin facts checked in retro68k's KS3 files: the Multiface, DivMMC and reset butto
 | K8 | Closed: the membrane key map is KEYMAP0–6 at registers `0x10`–`0x16` (branch 11), one register per column. retro68k's other later-version ideas (decoded key events, a send queue that waits for `FA`) stay out, as in retro68k version 1 |
 | K9 | Closed: KEYROW0–7 are memory only, at register page offsets `0x0100`–`0x0107` (spec 2, section 10.1); registers `0x17`–`0x1E` of page `0x00` stay free |
 | K10 | The PS/2 map: whether more keys are wanted (for example `[` `]` as SYMBOL SHIFT + 8, 9, or the function keys as the Next maps them), and whether it should match the Next's own table exactly |
-| J1 | Joystick pin names and locations: the shared inputs (expected as `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i`) and the Mega Drive select output (`joyp7_o`), and whether select goes to both ports or only the selected one. If it goes to both, the two ports' bursts are run together |
-| J2 | `joysel` polarity (which level selects which port) and the settle time after switching it; which port is joystick 1 |
+| J1 | Closed: the same on issue 4 and issue 5: `joyp1_i` T13, `joyp2_i` R12, `joyp3_i` V16, `joyp4_i` U17, `joyp6_i` V15, `joyp9_i` V17 (LVTTL; the Next has no pull-ups on them, weak ones are added here), `joyp7_o` R13 and `joysel_o` U14 (LVTTL, DRIVE 4). `joyp7_o` is one line for both ports, so the two ports' bursts are run together |
+| J2 | `joysel` = 0 is the left port in the Next's code, so the left port is joystick 1. The settle time (5.12 µs here, 4.57 µs on the Next) and which port the front-panel view calls left are to be checked on the board |
 | J3 | Closed: six-button Mega Drive pads are read (branch 11), X, Y, Z and MODE in JOY1X and JOY2X at registers `0x6C`–`0x6D` (section 4.2). The burst timing (10 µs steps, every 2 ms) is to be checked with real pads |
 | J4 | Closed: port `0x1F` reads joystick 1 as a Kempston interface (section 8.5) |

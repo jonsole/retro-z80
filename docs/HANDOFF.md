@@ -21,6 +21,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 **Boot console (#15):** two seconds after the palette chart, L0 becomes the boot console of spec 7, section 5.1 (`firmware/boot/console.asm`): 80 × 30 text as a 1 bpp tile map at `0x1FC000`, the 8 × 8 font made from public-domain `font8x8` by `tools/mkfont.py` (`firmware/third_party/font8x8`) and copied to `0x1FE000`. It shows the machine, version, CPU speed and memory, the self-test result and "hello", a status line with the seconds since start, and echoes what comes in over the USB serial link. `vtest` variant `bootcon` checks the frame against the model and the text in the map (`sim/vtest/console_text.py`). The tile demo stays behind `-DTILEDEMO`.
 
+**Input (#19):** spec 12's units: the PS/2 keyboard (`ps2kb.v`, retro68k's narrowed) with the KEYB interrupt, the PS/2 to port `0xFE` mapper (`ps2map.v`), the membrane scanner with KEYMAP0–6, KEYCON, port `0xFE` and KEYROW0–7 (`keys.v`), and the joysticks with Mega Drive pads and the Kempston port (`joy.v`); pins from the Next's issue 4 file (keyboard rows open drain). The boot console types keys from the membrane and a PS/2 keyboard (`firmware/boot/keys.asm`) and shows the joysticks, port `0xFE` and the last PS/2 byte on its status line. `make -C sim input` checks the units against models; `make -C sim bootkeys` types on the console. Not yet tried on the board: `fpga/ks2/README.md` says what to try.
+
 ## 2. Where things are
 
 | File | What |

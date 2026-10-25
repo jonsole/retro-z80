@@ -18,10 +18,20 @@
 // Reset: power-on (both MMCMs locked) and the board's reset button. The
 // MULTIFACE and DIVMMC buttons go to SYSBTN.
 //
+// Input (issue #19, spec 12), pins as the Next's issue 4 files:
+//   PS/2 keyboard  ps2_clk_io, ps2_data_io: open collector, pulled up (the
+//                  Next's socket pins 1 and 5; its mouse pins are not used)
+//   membrane       keyb_row_o[7:0] open drain (low or let go, pulled up, as
+//                  the Next drives them, so two rows are never shorted
+//                  through two keys of one column); keyb_col_i[6:0] pulled up
+//   joysticks      joyp1_i-joyp4_i, joyp6_i, joyp9_i shared by both ports
+//                  through the multiplexer, joysel_o picking the port (0 the
+//                  left), joyp7_o the Mega Drive select for both
+//
 // Not used yet (held where the Next's top level leaves them, as in the test
-// pattern build): flash and SD cards deselected, audio and MIC low, keyboard
-// rows let go, expansion bus RAMCS pulled down. Other pins are weakly
-// pulled up (ks2.xdc).
+// pattern build): flash and SD cards deselected, audio and MIC low,
+// expansion bus RAMCS pulled down. Other pins are weakly pulled up
+// (ks2.xdc).
 module top_ks2 (
     input  wire        clock_50_i,
 
@@ -41,12 +51,18 @@ module top_ks2 (
     // Accelerator port: the FT232H
     inout  wire [12:0] accel_io,
 
+    // Input
+    inout  wire        ps2_clk_io, ps2_data_io,
+    output wire [7:0]  keyb_row_o,
+    input  wire [6:0]  keyb_col_i,
+    input  wire        joyp1_i, joyp2_i, joyp3_i, joyp4_i, joyp6_i, joyp9_i,
+    output wire        joyp7_o,
+    output wire        joysel_o,
+
     // Held at safe levels
     output wire        flash_cs_n_o,
     output wire        sd_cs0_n_o, sd_cs1_n_o,
     output wire        audioext_l_o, audioext_r_o, audioint_o, mic_port_o,
-    output wire        joysel_o,
-    output wire [7:0]  keyb_row_o,
     inout  wire        bus_ramcs_io
 );
     // ---------------------------------------------------------------- clocks and reset
@@ -91,6 +107,8 @@ module top_ks2 (
     wire        ft_d_oe, ft_rd_n, ft_wr_n, ft_siwu_n;
     wire [23:0] rgb;
     wire        hs, vs, de;
+    wire        ps2_clk_low, ps2_data_low;
+    wire [7:0]  row_low;
 
     retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2)) sys (
         .clk(clk100), .por(por),
@@ -101,6 +119,9 @@ module top_ks2 (
         .ft_rxf_n(accel_io[8]), .ft_txe_n(accel_io[9]), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de),
+        .ps2_clk_i(ps2_clk_io), .ps2_data_i(ps2_data_io), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
+        .keyb_row_low(row_low), .keyb_col_i(keyb_col_i),
+        .joy_pin_n({joyp9_i, joyp6_i, joyp4_i, joyp3_i, joyp2_i, joyp1_i}), .joy_sel(joysel_o), .joy_p7(joyp7_o),
         .dma_req(1'b0), .dma_we(1'b0), .dma_addr(21'd0), .dma_wdata(16'd0), .dma_be(2'b00),
         .dma_ack(), .dma_rvalid(), .dma_rdata(),
         .dbg_sc()
@@ -146,6 +167,13 @@ module top_ks2 (
     assign accel_io[11] = ft_wr_n;
     assign accel_io[12] = ft_siwu_n;
 
+    // ---------------------------------------------------------------- input: open-drain outputs
+    assign ps2_clk_io  = ps2_clk_low  ? 1'b0 : 1'bz;
+    assign ps2_data_io = ps2_data_low ? 1'b0 : 1'bz;
+    generate for (i = 0; i < 8; i = i + 1) begin : krow
+        assign keyb_row_o[i] = row_low[i] ? 1'b0 : 1'bz;
+    end endgenerate
+
     // ---------------------------------------------------------------- video out
     // Serialiser reset: held until both MMCMs lock, then released on clk_pix
     reg [2:0] prst = 3'b111;
@@ -179,7 +207,5 @@ module top_ks2 (
     assign audioext_r_o = 1'b0;
     assign audioint_o   = 1'b0;
     assign mic_port_o   = 1'b0;
-    assign joysel_o     = 1'b0;
-    assign keyb_row_o   = 8'bz;            // open-drain rows, none driven
     assign bus_ramcs_io = 1'bz;            // expansion bus: pulled down, as on the Next
 endmodule

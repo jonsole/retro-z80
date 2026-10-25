@@ -14,8 +14,10 @@
 ;            follows it at 0xA800
 ;   Colours  PALETTE0 pairs: entry 16(p + 1) the paper, 16(p + 1) + 1 the ink
 ;   Screen   rows 0-28 are text, row 29 the status line: "retro-z80", the
-;            seconds since the console started (timer 0) and the serial
-;            link's role. Text scrolls by SCROLLY, a map row (8 source
+;            joysticks (J1 through the Kempston port, J2: the letters U D L
+;            R 1 2 A S lit while pressed), port 0xFE with all rows (FE, in
+;            hex), the last PS/2 byte (KB) and the seconds since the console
+;            started (timer 0). Text scrolls by SCROLLY, a map row (8 source
 ;            lines) at a time, wrapping at 32 rows; the status line is drawn
 ;            again on the new bottom row each time
 ;
@@ -24,9 +26,10 @@
 ; shows it. convbl, called by the VBLANK handler every frame, switches L0
 ; from the palette chart to the console CON_FRAMES frames after the
 ; interrupts start (the palette writes need the chart gone). cputc prints a
-; character; conkey echoes a byte from the serial link on the screen and
-; back to the PC; constat redraws the status line and the cursor (the main
-; loop calls it when timer 0 has set CDIRTY).
+; character; conkey echoes a byte from the serial link, or a key typed on
+; the membrane or a PS/2 keyboard (keys.asm), on the screen and back to the
+; PC; constat redraws the status line and the cursor (the main loop calls it
+; when timer 0 or a change of the inputs has set CDIRTY).
 ;
 ; The cursor is an underscore that blinks with timer 0: shown while the
 ; background is bright, gone while it is dim.
@@ -92,6 +95,7 @@ conprep:
         ld      (CSECS + 1),a
         ld      (CSECS + 2),a
         ld      (CDIRTY),a
+        call    kbinit                  ; the keyboards' variables, for the status line
         ld      a,CON_FRAMES
         ld      (CWAIT),a
         ld      hl,' ' + (PAIR0 << 8)
@@ -350,7 +354,23 @@ cstatus:
         ld      d,a
         ld      e,0
         ld      c,80                    ; columns left
-        ld      hl,cstat1
+        ld      hl,cstat1               ; "... J1 ", joystick 1
+        call    .str
+        ld      a,(SJOY1)
+        call    .joy
+        ld      hl,cstat_j2             ; " J2 ", joystick 2
+        call    .str
+        ld      a,(SJOY2)
+        call    .joy
+        ld      hl,cstat_fe             ; "  FE ", port 0xFE
+        call    .str
+        ld      a,(SFE)
+        call    .hex
+        ld      hl,cstat_kb             ; "  KB ", the last PS/2 byte
+        call    .str
+        ld      a,(KLAST)
+        call    .hex
+        ld      hl,cstat_up             ; "  up ", the seconds
         call    .str
         ld      hl,CSECS + 2            ; the seconds, high digits first
         ld      b,3
@@ -370,8 +390,18 @@ cstatus:
         call    .chr
         jr      nz,.pad
         ret
+.hex:   push    af                      ; A as two hex digits
+        rrca
+        rrca
+        rrca
+        rrca
+        call    .dig
+        pop     af
 .dig:   and     0x0F
         add     a,'0'
+        cp      '9' + 1
+        jr      c,.chr
+        add     a,'A' - '9' - 1
 .chr:   ld      (de),a                  ; one entry; Z when the row is full
         inc     e
         ld      a,PAIR3
@@ -385,6 +415,19 @@ cstatus:
         call    .chr
         inc     hl
         jr      .str
+.joy:   ld      b,a                     ; joystick value A: a letter lit for each bit set
+        ld      hl,joybits
+.jl:    ld      a,(hl)
+        or      a
+        ret     z
+        inc     hl
+        and     b
+        ld      a,(hl)
+        inc     hl
+        jr      nz,.jc
+        ld      a,'.'
+.jc:    call    .chr
+        jr      .jl
 
 ; A byte from the serial link: printable codes (32-126, 128-255) are shown
 ; and sent back; CR is a new line (CR LF back); BS and DEL rub out the
@@ -513,8 +556,14 @@ cspeed: db      "20", 0, 0, 0                           ; CPUSPEED.DIV 0-7, 5 by
 cspeed_s: db    "3.57", 0                               ; CPUSPEED.SPECTRUM
 cmhz:   db      " MHz, ", 0
 csram:  db      " MB SRAM", 0
-cprompt: db     13, 10, "Characters typed on the USB serial link appear here.", 13, 10, 0
-cstat1: db      " retro-z80 boot console", "                      ", "up ", 0
+cprompt: db     13, 10, "Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.", 13, 10, 0
+cstat1: db      " retro-z80 boot console  J1 ", 0
+cstat_j2: db    " J2 ", 0
+cstat_fe: db    "  FE ", 0
+cstat_kb: db    "  KB ", 0
+cstat_up: db    "  up ", 0
 cstat2: db      " s", 0
+
+        include "keys.asm"
 
 font:   include "font.inc"

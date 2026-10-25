@@ -86,10 +86,10 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v)
-SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v tb.v
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v)
+SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
-BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm font.inc) $(INC)/hw.inc
+BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm keys.asm font.inc) $(INC)/hw.inc
 
 $(BUILD)/boot.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
@@ -345,3 +345,31 @@ $(BUILD)/boottmr.bin: $(BOOT_SRC) | $(BUILD)
 boottmr: $(BUILD)/tb.vvp $(BUILD)/boottmr.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=boottmr.hex +hello +bgdim +timeout=90000 | tee boottmr.log
 	@grep -q "^TEST PASSED" $(BUILD)/boottmr.log
+
+# ---- Input (ticket #19)
+#   make bootkeys   the boot console typed on (tb.v +keys): PS/2 keys through
+#                   the KEYB interrupt and a membrane key, echoed back over
+#                   the serial link (about 90 ms simulated, half an hour; not
+#                   part of make all)
+#   make input      the input units on their own (sim/input/tb_input.v): the
+#                   PS/2 keyboard against a keyboard model (FIFO, flags,
+#                   sending, timeout), the PS/2 to port 0xFE mapper, the
+#                   membrane scan, KEYMAP, KEYROW and port 0xFE rows, the
+#                   joysticks with Atari and Mega Drive pad models, Kempston
+.PHONY: input bootkeys
+all: input
+
+$(BUILD)/tb_input.vvp: input/tb_input.v ps2_model.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v ps2_model.v \
+	    $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v)
+
+input: $(BUILD)/tb_input.vvp
+	cd $(BUILD) && $(VVP) -n tb_input.vvp | tee input.log
+	@grep -q "^TEST PASSED" $(BUILD)/input.log
+
+$(BUILD)/bootkeys.bin: $(BOOT_SRC) | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DCON_FRAMES=1 --raw=$@ $<
+
+bootkeys: $(BUILD)/tb.vvp $(BUILD)/bootkeys.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootkeys.hex +hello +keys +timeout=150000 | tee bootkeys.log
+	@grep -q "^TEST PASSED" $(BUILD)/bootkeys.log

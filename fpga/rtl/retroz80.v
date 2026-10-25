@@ -8,7 +8,9 @@
 // scheduler; NLAYERS of them built). One DMA port stands in for the DMA users still
 // to come, so tests can load the memory while the Z80 runs. Ticket #16 adds
 // the interrupt controller, with VBLANK and SOFT as its sources so far.
-// Ticket #17 adds the timers and watchdog, and the CPU's capture.
+// Ticket #17 adds the timers and watchdog, and the CPU's capture. Ticket
+// #19 adds the input units (spec 12): the PS/2 keyboard and its Spectrum key
+// mapper, the membrane keyboard and port 0xFE, the joysticks and Kempston.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
@@ -40,6 +42,15 @@ module retroz80 #(
     input  wire        clk_pix5,       // 135 MHz, edges lined up with clk_pix's
     output wire [23:0] vid_rgb,        // RRGGBB
     output wire        vid_hsync, vid_vsync, vid_de,
+
+    // Input (spec 12): open-drain lines say when to pull low
+    input  wire        ps2_clk_i, ps2_data_i,
+    output wire        ps2_clk_low, ps2_data_low,
+    output wire [7:0]  keyb_row_low,   // membrane row r driven low
+    input  wire [6:0]  keyb_col_i,     // membrane columns, pulled up
+    input  wire [5:0]  joy_pin_n,      // joystick pins 9, 6, 4, 3, 2, 1 (bits 5-0)
+    output wire        joy_sel,        // joystick multiplexer: 0 port 1, 1 port 2
+    output wire        joy_p7,         // joystick pin 7, the Mega Drive select
 
     // DMA port (tests; later the DMA users)
     input  wire        dma_req, dma_we,
@@ -135,6 +146,8 @@ module retroz80 #(
     wire [12:0] rb_addr;
     wire [7:0]  rb_hi, rb_wdata, rd_sys, rd_ser, rd_mmu, rd_vid, rd_int;
     wire [7:0]  rd_tmr;                // timers (#17), and their capture path
+    wire [7:0]  rd_kb, rd_key, rd_joy; // input (#19)
+    wire        hit_kb, hit_key, hit_joy;
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
     wire [31:0] cd_tmr;
     wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
@@ -153,8 +166,8 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy),
         .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .late(late)
@@ -241,13 +254,15 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- interrupts (spec 8)
-    // Sources so far: VBLANK (0) and SOFT (18, inside the controller). The
+    // Sources so far: VBLANK (0), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
+    // inside the controller). The
     // other lines are tied off until their units come; the NMI is not
     // connected to the Z80 yet (it comes with the NMI paging, spec 1,
     // section 8.2), so its inputs are tied off too.
     wire        irq_vid;
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
-    wire [20:0] int_req = {6'd0, irq_tmr, 10'd0, irq_vid};
+    wire        irq_kb;                // KEYB: source 17
+    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 10'd0, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -279,5 +294,42 @@ module retroz80 #(
         .rb_rdata(rd_tmr), .rb_hit(hit_tmr), .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
         .irq(irq_tmr), .dma_start(), .wd_reset(wd_reset)
+    );
+
+    // ---------------------------------------------------------------- input (spec 12)
+    // The PS/2 keyboard, its mapper onto the Spectrum keys, the membrane
+    // and port 0xFE, the joysticks and Kempston port 0x1F
+    wire        ps2map_en, kb_rx_stb, kb_rx_on;
+    wire [7:0]  kb_rx_byte;
+    wire [39:0] ps2_keys;
+
+    ps2kb kb (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_kb), .rb_hit(hit_kb),
+        .ps2_clk_i(ps2_clk_i), .ps2_data_i(ps2_data_i),
+        .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
+        .map_en(ps2map_en), .rx_stb(kb_rx_stb), .rx_byte(kb_rx_byte), .rx_on(kb_rx_on),
+        .irq(irq_kb)
+    );
+
+    ps2map kmap (
+        .clk(clk), .clr(sys_rst || !kb_rx_on || !ps2map_en),
+        .stb(kb_rx_stb), .byte_in(kb_rx_byte), .keys(ps2_keys)
+    );
+
+    keys key (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_key), .rb_hit(hit_key),
+        .row_low(keyb_row_low), .col_i(keyb_col_i),
+        .ps2_keys(ps2_keys), .ps2map_en(ps2map_en)
+    );
+
+    joy joys (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_joy), .rb_hit(hit_joy),
+        .pin_n(joy_pin_n), .joysel(joy_sel), .sel_o(joy_p7)
     );
 endmodule

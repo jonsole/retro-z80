@@ -13,6 +13,12 @@
 //   +bgdim       with +hello, a boot ROM built with -DTMR_HALF=n (#17):
 //                after the first "hello", pass when BGCOLOR goes from green
 //                to dim green and back, 2 ms apart (timer 0's interrupt)
+//   +keys        with +hello (#19): after the first "hello", once the boot
+//                console has turned the PS/2 FIFO on, type "h" and "i" on
+//                the PS/2 keyboard model (through the KEYB interrupt), hold
+//                Z on the membrane model for 30 ms, then press Enter on
+//                the PS/2 keyboard; pass when the console echoes the line
+//                "hiz" back over the serial link
 //   (otherwise)  pass when a line "PASS" arrives, fail on a line "FAIL"
 //   +speeds      ... and take "hello" lines meanwhile; pass only if they
 //                came at every CPUSPEED setting and the T-states at
@@ -107,6 +113,28 @@ module tb #(
     wire [23:0] vrgb;
     wire        vhs, vvs, vde;
 
+    // ---------------------------------------------------------------- input (spec 12)
+    // A PS/2 keyboard (open-collector lines), the membrane (tb_keys: bit
+    // 7r + c held, row r, column c) and the two joystick ports through the
+    // multiplexer (tb_joy1, tb_joy2: pins 9, 6, 4, 3, 2, 1 pressed)
+    wire        ps2_clk_low, ps2_data_low, kbm_clk_low, kbm_data_low;
+    wire        ps2_clk  = !(ps2_clk_low || kbm_clk_low);
+    wire        ps2_data = !(ps2_data_low || kbm_data_low);
+    ps2_model kbm (.clk_line(ps2_clk), .data_line(ps2_data), .clk_low(kbm_clk_low), .data_low(kbm_data_low));
+    wire [7:0]  keyb_row_low;
+    reg  [55:0] tb_keys = 56'd0;
+    reg  [6:0]  keyb_col;
+    integer     kr, kc;
+    always @(*) begin
+        keyb_col = 7'h7F;
+        for (kr = 0; kr < 8; kr = kr + 1)
+            for (kc = 0; kc < 7; kc = kc + 1)
+                if (keyb_row_low[kr] && tb_keys[7 * kr + kc]) keyb_col[kc] = 1'b0;
+    end
+    wire        joy_sel;
+    reg  [5:0]  tb_joy1 = 6'd0, tb_joy2 = 6'd0;
+    wire [5:0]  joy_pin_n = ~(joy_sel ? tb_joy2 : tb_joy1);
+
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
 
@@ -121,8 +149,11 @@ module tb #(
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(dma_be), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(vrgb), .vid_hsync(vhs), .vid_vsync(vvs), .vid_de(vde),
+        .ps2_clk_i(ps2_clk), .ps2_data_i(ps2_data), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
+        .keyb_row_low(keyb_row_low), .keyb_col_i(keyb_col), .joy_pin_n(joy_pin_n), .joy_sel(joy_sel), .joy_p7(),
         .dbg_sc(sc)
     );
+
     // The boot ROM image, loaded into the design's block RAM and into a copy
     // here for the read checks
     reg [15:0] rom_ref [0:16383];
@@ -642,11 +673,13 @@ module tb #(
     end
     integer bgdim = 0;                          // +bgdim (#17)
     real    bgdim_at = 0.0;
-    integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0;
+    integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0, keys = 0;
+    event   type_keys;
     reg [23:0] bg_seen;
     initial begin
         bgcycle = $test$plusargs("bgcycle") || $test$plusargs("bgdim");
         hello = $test$plusargs("hello");
+        keys = $test$plusargs("keys");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
     function is_line(input integer at, input [8*24-1:0] s, input integer n);
@@ -742,10 +775,16 @@ module tb #(
                         $display("%t PC: waiting for the VBLANK colour cycle", $realtime);
                         bgwait  = 1;
                         bg_seen = dut.vid.bgcolor;
+                    end else if (nhello == 1 && keys) begin
+                        $display("%t PC: typing on the keyboards", $realtime);
+                        -> type_keys;
                     end else if (nhello == 1) begin
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
                     end else finish(1, "");
+                end else if (keys && is_line(ls, {"hiz", 8'h0D, 8'h0A}, 5)) begin
+                    $display("%t PC: the console echoed \"hiz\"", $realtime);
+                    finish(1, "");
                 end else if (failshow != 0 && is_line(ls, "selftest FAIL ", 14)) begin
                     $display("%t PC: the self-test failure, frame %0d", $realtime, vframes);
                     fail_frame = vframes;
@@ -762,6 +801,20 @@ module tb #(
             scan = scan + 1;
         end
     end
+    // +keys: PS/2 "h", "i", then Z on the membrane, then PS/2 Enter
+    always @(type_keys) begin
+        wait (dut.kb.en);
+        #1000000;
+        kbm.send(8'h33, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h33, 1'b0);
+        kbm.send(8'h43, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h43, 1'b0);
+        #5000000;
+        tb_keys[7 * 0 + 1] = 1'b1;
+        #30000000;
+        tb_keys[7 * 0 + 1] = 1'b0;
+        #5000000;
+        kbm.send(8'h5A, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h5A, 1'b0);
+    end
+
     initial begin
         for (k = 0; k < timeout_us && !done; k = k + 1) #1000;
         if (!done) finish(0, "timeout");

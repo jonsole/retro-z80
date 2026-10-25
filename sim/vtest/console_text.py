@@ -28,10 +28,11 @@ START = [
     ("selftest ok, 2 MB", 3),
     ("hello", 1),
     ("", 1),
-    ("Characters typed on the USB serial link appear here.", 1),
+    ("Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.", 1),
 ]
 CURSOR = ("_", 1)                               # shown while the background is bright
-STATUS = (" retro-z80 boot console                      up 000000 s", 4)
+# Nothing pressed: no joystick letters lit, port 0xFE reads 0xFF, no PS/2 byte yet
+STATUS = (" retro-z80 boot console  J1 ........ J2 ........  FE FF  KB 00  up 000000 s", 4)
 
 
 def main():

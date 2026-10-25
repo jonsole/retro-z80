@@ -18,8 +18,9 @@
 ;                brightness) for half a second: timer 0's interrupt works.
 ;                Two seconds after the chart appears, L0 becomes the boot
 ;                console (console.asm): the start-up text, then what is typed
-;                over the serial link, with the background colours as its
-;                border. Built with -DTILEDEMO, L0 becomes ticket #14's
+;                on the membrane, a PS/2 keyboard or the serial link, with
+;                the joysticks and port 0xFE on the status line and the
+;                background colours as its border. Built with -DTILEDEMO, L0 becomes ticket #14's
 ;                scrolling tile map instead (tiledemo.asm)
 ;   red, with white stripes: the self-test failed. The number of stripes
 ;                is the failing check's number less 0x40 (1 stripe = check
@@ -109,21 +110,29 @@ start:  ld      sp,0x0000               ; stack grows down from 0xFFFF (SRAM pag
     ENDIF
         call    vblon
         call    tmron                   ; timer 0: dim and bright (ticket #17)
+    IFNDEF TILEDEMO
+        call    kbon                    ; the PS/2 keyboard and KEYB (ticket #19)
+    ENDIF
     IFDEF TILEDEMO
 stop:   halt                            ; woken by each VBLANK
         jr      stop
     ELSE
 ; The console: woken by each interrupt, show what came in over the serial
-; link (spec 10: RXCOUNT, then SERDATA), and draw the status line again when
-; timer 0 asks
+; link (spec 10: RXCOUNT, then SERDATA), from the PS/2 keyboard (kbpoll)
+; and from the membrane (memscan), keep the joysticks and port 0xFE for the
+; status line (instat), and draw the status line again when timer 0 or a
+; change asks (keys.asm; ticket #19)
 stop:   halt
 .rx:    ld      bc,SERSTAT1_P
         in      a,(c)
         or      a
-        jr      z,.st
+        jr      z,.kb
         in      a,(SERDATA_PORT)
         call    conkey
         jr      .rx
+.kb:    call    kbpoll
+        call    memscan
+        call    instat
 .st:    ld      a,(CDIRTY)
         or      a
         jr      z,stop
@@ -508,7 +517,15 @@ ivt:    dw      vbl
         dw      spur
         edup
         dw      tmr0                    ; TIMER0 (ticket #17)
-        dup     23 - INT_TIMER0
+        dup     INT_KEYB - INT_TIMER0 - 1
+        dw      spur
+        edup
+    IFDEF TILEDEMO
+        dw      spur
+    ELSE
+        dw      kbint                   ; KEYB (ticket #19)
+    ENDIF
+        dup     23 - INT_KEYB
         dw      spur
         edup
 

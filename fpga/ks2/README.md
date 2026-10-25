@@ -2,7 +2,7 @@
 
 Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
-- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog). Two seconds after the chart appears, L0 becomes the boot console (issue #15): text on the screen, which echoes what comes in over the USB serial link. Built with `-DTILEDEMO` (by hand: assemble `boot.asm` with it in place of `build.sh`'s plain command), L0 becomes issue #14's scrolling tile map instead.
+- **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), and the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA. The boot ROM tests the memory and shows the result as the screen's colour, draws a palette chart in L0, then changes the background colour once a second from a VBLANK interrupt, and dims and brightens it every half second from a timer interrupt (issue #17: timers and watchdog). Two seconds after the chart appears, L0 becomes the boot console (issue #15): text on the screen, which echoes what is typed on the Spectrum keyboard, a PS/2 keyboard or the USB serial link, with the joysticks and port `0xFE` shown on its status line (issue #19: the input units of spec 12). Built with `-DTILEDEMO` (by hand: assemble `boot.asm` with it in place of `build.sh`'s plain command), L0 becomes issue #14's scrolling tile map instead.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
 
 ```
@@ -60,16 +60,28 @@ Z80 at 20 MHz, 2 MB SRAM                               light grey
 selftest ok, 2 MB                                      green
 hello                                                  light grey
 
-Characters typed on the USB serial link appear here.
+Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.
 _                                                      the cursor
 ...
- retro-z80 boot console                      up 000012 s      bottom row: black on light grey
+ retro-z80 boot console  J1 ........ J2 ........  FE FF  KB 00  up 000012 s     bottom row
 ```
+
+(The bottom row is black on light grey.)
 
 - **0.1** is SYSVER (major.minor), **20 MHz** is CPUSPEED's speed, **2 MB** SYSCFG.CHIPMB.
 - **The cursor** (an underscore) blinks: shown while the border is bright, gone while it is dim (timer 0).
-- **The status line** at the bottom counts the seconds since the console started, one a second (timer 0's interrupt). Seconds that count mean the Z80 is running, the interrupts work and the CPU's writes to the map show on the screen.
+- **The status line** at the bottom counts the seconds since the console started, one a second (timer 0's interrupt). Seconds that count mean the Z80 is running, the interrupts work and the CPU's writes to the map show on the screen. It also shows the inputs (issue #19, below): **J1** and **J2**, the two joysticks, **FE**, port `0xFE` read with every row, and **KB**, the last byte from the PS/2 keyboard, in hex.
 - **Typed characters**, once the FT232H module is fitted: a terminal on its serial port shows the boot ROM's two lines, and what is typed appears on the screen at the cursor and is sent back (Return gives a new line; Backspace rubs out). With no module nothing arrives, so the cursor stays where it is. When the text reaches the status line it scrolls up a row (SCROLLY), and the status line stays at the bottom.
+
+**The keyboards and joysticks** (issue #19, spec 12; `fpga/rtl/ps2kb.v`, `ps2map.v`, `keys.v`, `joy.v`; the boot ROM's side is `firmware/boot/keys.asm`). Things to try, in this order, once the console is up:
+
+1. **The membrane keyboard.** Type on the KS2's own keys: letters appear in lower case, digits as digits, ENTER gives a new line, SPACE a space. Hold **CAPS SHIFT** for capitals (CAPS SHIFT + 0 rubs out); hold **SYMBOL SHIFT** for the Spectrum's red symbols (`" P`, `: Z`, `? C`, `/ V`, `* B`, `, N`, `. M`, `= L`, `+ K`, `- J`, `^ H`, `! 1` to `_ 0`, `; O`, `£ X`, `< R`, `> T`, and `[ ] ~ | \ { }` on Y, U, A, S, D, F, G; Q, W, E and I give nothing). The extra keys DELETE (rubs out), `;` `"` `,` `.` type their characters; EDIT, BREAK, the cursor keys and the others type nothing, but show on **FE** (below). A key is typed when it goes down, once; there is no auto-repeat.
+2. **Port `0xFE`** (FE on the status line). It reads `FF` with nothing pressed. Each held key clears its column's bit, whatever its row: a key in column 0 (CAPS SHIFT, A, Q, 1, 0, P, ENTER, SPACE) gives `FE`, column 1 (Z, S, W, 2, 9, O, L, SYMBOL SHIFT) `FD`, column 2 (X D E 3 8 I K M) `FB`, column 3 (C F R 4 7 U J N) `F7`, column 4 (V G T 5 6 Y H B) `EF`. Two keys in different columns clear both bits (A and Z: `FC`). The extra keys show as their Spectrum pairs (KEYCON.KXMAP): EDIT is CAPS SHIFT + 1, so `FE`; cursor right is CAPS SHIFT + 8, `FA`; `.` is SYMBOL SHIFT + M, `F9`.
+3. **A PS/2 keyboard** in the KS2's PS/2 socket (a keyboard that speaks PS/2: an old one, or a USB keyboard that works through a passive adapter; plug it in with the board on or off). **KB** shows each byte it sends, in hex: press A and it shows `1C`, release it and it shows `1C` again after an `F0`; plugging a keyboard in while the board runs usually gives `AA` (its self-test). Typed keys appear on the screen with a UK layout: letters, digits, Shift for capitals and symbols, Caps Lock, Return, Backspace, the keypad (Num Lock on), keypad Enter, Delete. The keyboard's lights do not change (nothing is sent to it). The bytes come through the KEYB interrupt (spec 8, source 17), so text appearing means the interrupt works.
+4. **PS/2 keys on port `0xFE`** (KEYCON.PS2MAP, on after reset). While a PS/2 key is held, FE shows the Spectrum key it stands for: A gives `FE`, Z `FD`; the Shifts are CAPS SHIFT (`FE`), Ctrl and Alt SYMBOL SHIFT (`FD`); the cursor keys CAPS SHIFT + 5–8; Backspace CAPS SHIFT + 0. Keys typed on the PS/2 keyboard are not typed twice: the console reads the membrane through KEYMAP0–6, which show the membrane alone.
+5. **Joysticks.** **J1** is the left joystick port (read through the Kempston port `0x1F`), **J2** the right (JOY2); which is which is an open point (spec 12, J2): if the left port shows on J2, say so. With an Atari-style stick, each direction lights its letter: **U**p, **D**own, **L**eft, **R**ight, and fire lights **1** (a second fire button, on pin 9, lights **2**). The boot ROM leaves JOYCON at 0, so a Mega Drive pad reads as a stick: directions, B as 1 and C as 2; A and START (letters A and S) need JOYCON.MD1 or MD2, which the boot ROM does not set yet.
+
+What to report: any key that types the wrong character or none (the membrane's rows and columns, spec 12 open point K1), any FE value that differs from the list, a PS/2 keyboard that shows no KB bytes (the PS/2 pins, K2), and joystick letters that light for the wrong direction or the wrong port (J1, J2).
 
 Characters torn, shifted or doubled, wrong colours, a window in the wrong place or flicker point at the tile fetch at 1 bit per pixel (1-bit rows are one byte of a word, spec 4, section 5.2), the 128-entry map width or the 2× vertical scale. Text but no counting seconds means the main loop or timer 0 stopped.
 
@@ -128,8 +140,8 @@ HDMI carries plain DVI (no audio, no InfoFrames), which HDMI displays accept.
 | `build.tcl` | Vivado non-project flow: synthesis, place and route, reports, bitstream (the computer or the pattern) |
 | `program.tcl` | Load the bitstream over JTAG with Vivado's hardware manager |
 | `ks2.xdc` | Pins and configuration settings shared by both builds (from the Next's `zxnext_pins_issue4.xdc`), clocks |
-| `ks2_machine.xdc` | The computer's own: buttons, the accelerator header, false paths, the SRAM input flip-flops, tv80's multicycle paths |
-| `top_ks2.v` | The computer's top level: clocks, power-on reset, buttons, SRAM pads, FT232H, HDMI and VGA |
+| `ks2_machine.xdc` | The computer's own: buttons, the accelerator header, the PS/2 keyboard, membrane columns and joystick pins, false paths, the SRAM input flip-flops, tv80's multicycle paths |
+| `top_ks2.v` | The computer's top level: clocks, power-on reset, buttons, SRAM pads, FT232H, the open-drain PS/2 lines and keyboard rows, HDMI and VGA |
 | `top_ks2_pattern.v` | The test pattern's top level |
 
 The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), `hdmi_out.v` (TMDS encoders and serialisers, with `fpga/rtl/tmds_encoder.v`), `oddr.v`. They and the flow come from retro68k's KS3 build (`fpga/rtl/PROVENANCE.md`).
@@ -143,45 +155,49 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 - **HDMI.** retro68k's `hdmi_out.v` unchanged: 10:1 OSERDESE2 pairs (DDR at 135 MHz) into TMDS_33 pads, least significant bit first, pairs 0 blue, 1 green, 2 red, 3 clock, as the Next does. The computer sends 24-bit colour.
 - **VGA.** Three bits per colour straight from the pads' flip-flops (no DAC). The computer sends the top three bits of each colour; the test pattern makes RGB333 and widens it for HDMI.
 - **Configuration settings** follow the Next's: SPI ×4, 32-bit SPI addresses, 40 MHz configuration rate, no fallback, unused pins pulled up, and the bitstream compressed. The `.bin` is a raw flash image; nothing uses it yet.
-- **Unused parts** are held where the Next's top level leaves them: flash and both SD cards deselected; audio and MIC low; keyboard rows let go (pulled up); expansion bus RAMCS pulled down. Every other pin is weakly pulled up.
+- **Input** (issue #19; spec 12, open points K2 and J1), pins from the Next's issue 4 pin file: the PS/2 keyboard on `ps2_clk_io` K1 and `ps2_data_io` L4 (LVCMOS33, pulled up, open collector; the KS3 moves them to N5 and N6); the membrane rows `keyb_row_o[7:0]` (J14, M16, M13, N16, K16, K15, K13, J15) open drain as the Next drives them, low for the row being scanned and let go (pulled up) otherwise, so two keys in one column never short two rows; the columns `keyb_col_i[6:0]` (R8, R7, T6, V7, U6, T18, R17) pulled up; the joysticks' shared lines `joyp1_i`–`joyp4_i`, `joyp6_i`, `joyp9_i` (T13, R12, V16, U17, V15, V17, with weak pull-ups the Next does not have), `joysel_o` U14 (0 = the left port) and `joyp7_o` R13, the Mega Drive select for both ports. The KS3 (issue 5) has the same keyboard and joystick pins.
+- **Unused parts** are held where the Next's top level leaves them: flash and both SD cards deselected; audio and MIC low; expansion bus RAMCS pulled down. Every other pin is weakly pulled up.
 - **tv80 timing.** tv80 alone is far too slow for 100 MHz (its longest register-to-register path is about 18 ns here), but every register in it changes only on cen, at least 5 clocks apart, so those paths are 5-clock multicycle paths (`ks2_machine.xdc`; spec 1, section 3.3). The paths from the core into the bus interface stay single-cycle and still meet 100 MHz (+0.89 ns), so the 3-clock multicycle spec 1 allows for them is not needed yet.
 
 ## Results: the computer
 
-Vivado 2026.1, 24 October 2026, XC7A15T-1CSG324: the video layer L0 as a bitmap or a tile map and the palettes (issues #13 and #14), the interrupt controller (issue #16), the timers, TIME, the watchdog and the CPU's capture (issue #17). Earlier builds: issue #11's 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns; issue #13's 3,062 LUTs, 2,227 flip-flops and +0.585 ns. One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
+Vivado 2026.1, 25 October 2026, XC7A15T-1CSG324: the video layer L0 as a bitmap or a tile map and the palettes (issues #13 and #14), the interrupt controller (issue #16), the timers, TIME, the watchdog and the CPU's capture (issue #17), the keyboards and joysticks (issue #19). Earlier builds: issue #17's and #14's 4,136 LUTs, 3,136 flip-flops and +0.797 ns; issue #11's 1,949 LUTs, 1,190 flip-flops and +0.863 ns; issue #16's 2,080 LUTs, 1,261 flip-flops and +0.455 ns; issue #13's 3,062 LUTs, 2,227 flip-flops and +0.585 ns. One layer is built (`NLAYERS = 1`, in `retroz80.v`'s default): L1 and L2 would add a layer unit and a share of the fetcher each, roughly 300–400 LUTs a layer, which would still fit. DRC clean, no critical warnings. The build takes about 3 minutes.
 
-Issue #17 alone (on issue #13's build) came to 3,658 LUTs and 2,712 flip-flops: `timers.v` is about 460 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to about 540 LUTs with the capture. The tile mode (issue #14) adds about 470 LUTs and 430 flip-flops, nearly all in the layer fetcher (`bpldma.v`: 453 LUTs and 552 flip-flops before, 739 and 860 with it). The tables are the build with all of them.
+Issue #17 alone (on issue #13's build) came to 3,658 LUTs and 2,712 flip-flops: `timers.v` is about 460 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to about 540 LUTs with the capture. The tile mode (issue #14) adds about 470 LUTs and 430 flip-flops, nearly all in the layer fetcher (`bpldma.v`: 453 LUTs and 552 flip-flops before, 739 and 860 with it). The input units (issue #19) add about 530 LUTs and 570 flip-flops: `ps2kb.v` 163 LUTs and 123 flip-flops, `ps2map.v` 38 and 75, `keys.v` 139 and 259, `joy.v` 66 and 99 (spec 12 estimated 400–630 LUTs), and the bus interface grew by about 120 LUTs with the wider read-data OR. The tables are the build with all of them.
 
 | Resource | Used | Available | |
 |------|------|------|------|
-| LUTs | 4,136 | 10,400 | 39.8% |
-| Flip-flops | 3,136 | 20,800 | 15.1% |
+| LUTs | 4,663 | 10,400 | 44.8% |
+| Flip-flops | 3,709 | 20,800 | 17.8% |
 | Block RAM (36 Kb) | 11 (8 × 36 Kb boot ROM, 2 × 36 Kb palettes, 2 × 18 Kb serial FIFOs) | 25 | 44% |
 | DSP | 2 (the register page palettes' divide by 3) | 45 | 4% |
 | MMCMs | 2 | 5 | |
 | Global clock buffers | 6 | 32 | |
-| Bonded I/O | 93 | 210 | 44% |
+| Bonded I/O | 109 | 210 | 52% |
 
 | Part | LUTs | Flip-flops |
 |------|------|------|
 | tv80 (with the 32 LUT-RAM register file) | 1,163 | 239 |
-| Serial and its FIFOs | 261 | 195 |
-| Bus interface (the palette read from its register bus input, the CPU's capture) | 546 | 176 |
-| Video (beam, registers, palettes, priority, pixel pipeline, the tile map line) | 433 | 545 |
-| Layer fetch (`bpldma.v`, with the tile fetch) | 739 | 860 |
+| Serial and its FIFOs | 262 | 195 |
+| Bus interface (the palette read from its register bus input, the CPU's capture) | 668 | 182 |
+| Video (beam, registers, palettes, priority, pixel pipeline, the tile map line) | 435 | 545 |
+| Layer fetch (`bpldma.v`, with the tile fetch) | 765 | 872 |
 | Layer L0's pixel side (`layer_pix.v`) | 148 | 158 |
-| Timers, TIME, watchdog (`timers.v`) | 458 | 415 |
-| MMU | 153 | 297 |
-| Interrupt controller (synthesis folds the tied-off sources away) | 18 | 61 |
+| Timers, TIME, watchdog (`timers.v`) | 425 | 415 |
+| PS/2 keyboard (`ps2kb.v`) and its mapper (`ps2map.v`) | 201 | 198 |
+| Membrane and port `0xFE` (`keys.v`) | 139 | 259 |
+| Joysticks (`joy.v`) | 66 | 99 |
+| MMU | 151 | 297 |
+| Interrupt controller (synthesis folds the tied-off sources away) | 20 | 62 |
 | Everything else (scheduler, SRAM controller, system registers, reset, top level) | about 100 | about 180 |
 
 | Clock | Frequency | Worst setup slack | Worst hold slack |
 |------|------|------|------|
-| System (`c0`) | 100 MHz | +0.797 ns (the layer fetcher's pick of the next slot, `ngr` to `a_j`) | +0.045 ns |
-| Pixel (`p0`) | 27 MHz | +24.933 ns | +0.059 ns |
+| System (`c0`) | 100 MHz | +0.383 ns (tv80's instruction register to the bus interface's read data enable, `IR` to `di`) | +0.034 ns |
+| Pixel (`p0`) | 27 MHz | +25.039 ns | +0.043 ns |
 | Serialiser (`p1`) | 135 MHz | (only the OSERDESE2 clock pins; pulse width slack +5.252 ns) | |
 
-Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). Other tight 100 MHz paths: tv80's instruction register to the bus interface's address register (+0.89 ns, single-cycle); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.
+Timing is met everywhere (open question Q11: yes, with tv80's multicycle paths). The tightest path is now tv80's instruction register into the bus interface's read data register (single-cycle: the core's early cycle-type outputs decide whether `di` loads); it was +0.89 ns before issue #19 and is +0.38 ns with the input units' read data on the bus. If more units push it under 0, it can take the 3-clock multicycle spec 1 allows. Other tight 100 MHz paths: the layer fetcher's pick of the next slot (`ngr` to `a_j`, +0.80 ns before); the CPU's clock-enable divider into tv80's register enables (+3.4 ns). tv80's own paths need 17.9 ns of their 50 ns.
 
 ## Results: the test pattern
 
