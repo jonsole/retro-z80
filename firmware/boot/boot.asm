@@ -3,7 +3,8 @@
 ; upload protocol", docs/spec/monitor.md). Ticket #22: the RST calls and
 ; the monitor's commands D E F C V S G R P H; ticket #23: the disassembler
 ; (I) and the memory test (T); ticket #28: G's breakpoint on the debug unit
-; and the step N; the loader, SD card and BASIC come with later tickets.
+; and the step N; ticket #29: the loader (U, TARGET 0) and the debug stub;
+; the SD card and BASIC come with later tickets.
 ;
 ;   Page 0 (0x0000)  the entry table (spec 16, section 3.1), start-up, the
 ;                    console and keyboard core, the ROM calls, the monitor's
@@ -494,6 +495,8 @@ ivhand: push    af
         include "console.asm"
         include "keys.asm"
         include "calls.asm"
+        include "link.asm"              ; frames, CRC-32 and the loader (ticket #29)
+        include "stub.asm"              ; the debug stub (ticket #29)
 
 page0_end:
         ASSERT  $ <= 0x1FD0
@@ -514,6 +517,7 @@ page1_end:
 
 ; ================================================================ page 2
 font:   include "font.inc"              ; offset 0x4000: the console font (spec 16, section 5.3)
+        include "crctab.asm"            ; the CRC-32 table, 1 KB at 0x4800
         include "help.asm"
         include "disasm.asm"            ; the disassembler (ticket #23)
         include "mondis.asm"            ; I
@@ -594,14 +598,28 @@ nmi3:   ld      (NMX_SP - 0x6000),sp
         jr      nz,.m
         jp      nmiw0
 ; The monitor itself was running (spec 16, section 8.8): NMISTAT and
-; DBGSTAT cleared, and straight back
+; DBGSTAT cleared, and straight back. A breakpoint in code the monitor runs
+; (the unit is live after such a RETN, until the monitor next leaves) fed
+; the core a NOP for its first byte: NMICAPPC back by 1, so the instruction
+; runs after all (the resume M1 never matches)
 .mon:   ld      bc,NMISTAT_P
         in      a,(c)
         out     (c),a
         ld      bc,DBGSTAT_P
         in      a,(c)
         out     (c),a
-        ld      sp,NMX_HL
+        and     DBGSTAT_BP0_M | DBGSTAT_BP1_M | DBGSTAT_BP2_M | DBGSTAT_BP3_M
+        jr      z,.mr
+        ld      bc,NMICAPPC0_P
+        in      l,(c)
+        inc     b
+        in      h,(c)
+        dec     hl
+        dec     b
+        out     (c),l
+        inc     b
+        out     (c),h
+.mr:    ld      sp,NMX_HL
         pop     hl
         pop     bc
         pop     af

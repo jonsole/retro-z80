@@ -11,6 +11,11 @@
 #   make mon        the monitor (ticket #22) typed at over the serial link,
 #                   in Verilator: a scripted session of every command, the
 #                   RST calls, a breakpoint, a break and the trap (mon/)
+#   make link       a debug session through the bridge (tools/rz80bridge)
+#                   with the machine's USB link on a TCP socket, in
+#                   Verilator: launch, registers, memory, breakpoints, step,
+#                   a watchpoint, pause, attach and detach; the same session
+#                   against the bridge's stub model must agree (link/)
 #   make dis        the boot ROM's disassembler (ticket #23) on a table of
 #                   every opcode, in the ZEX testbench, against a reference
 #                   that sjasmplus checks (dis/; seconds)
@@ -65,8 +70,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc inttest nmitest dbg speeds failshow vtest boing lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc inttest nmitest dbg speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -104,7 +109,7 @@ SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v in
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
-                 selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc
+                 selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm link.asm stub.asm crctab.asm) $(INC)/hw.inc
 
 # The simulations' boot ROM looks for the start-up keys for 1 ms in place of
 # 250 (KEYWAIT), which Icarus would take over an hour to get through
@@ -414,3 +419,21 @@ mon: $(BUILD)/vl_mon/vmon $(BUILD)/mon_rom.hex mon/check.py
 	cd $(BUILD) && ./vl_mon/vmon +session=session.in > mon.out; tail -n 2 mon.out
 	$(PYTHON) mon/check.py check $(BUILD) | tee $(BUILD)/mon.result
 	@grep -q "^TEST PASSED" $(BUILD)/mon.result
+
+# ---- The link on a socket (ticket #29): tb_link.v with the FT232H's PC side
+# on a TCP socket (link/link_main.cpp); link/session.py drives a debug
+# session through the bridge (tools/rz80bridge) against it, and the same
+# session against the bridge's stub model, and compares them
+ifneq ($(filter MINGW% MSYS% CYGWIN%,$(shell uname -s)),)
+LINK_LIBS := -LDFLAGS -lws2_32
+endif
+
+$(BUILD)/vl_link/vlink: link/tb_link.v $(CURDIR)/link/link_main.cpp $(TV80_CORE) $(SYS_RTL) $(RTL)/regmap.vh | $(BUILD)
+	$(VERILATOR) --cc --exe --build -Wall -Wno-fatal $(VL_OPT) $(LINK_LIBS) -DTV80_REFRESH -I$(RTL) 	    --x-assign fast --x-initial fast --top-module tb_link 	    --Mdir $(BUILD)/vl_link -o vlink link/tb_link.v $(CURDIR)/link/link_main.cpp 	    $(TV80_CORE) $(SYS_RTL) > $(BUILD)/vl_link.log
+
+$(BUILD)/linkprog.bin: link/linkprog.asm | $(BUILD)
+	$(SJASMPLUS) --nologo --raw=$@ --sym=$(BUILD)/linkprog.sym $<
+
+link: $(BUILD)/vl_link/vlink $(BUILD)/mon_rom.hex $(BUILD)/linkprog.bin link/session.py link/simlink.py
+	$(PYTHON) link/session.py $(BUILD) | tee $(BUILD)/link.result
+	@grep -q "^TEST PASSED" $(BUILD)/link.result

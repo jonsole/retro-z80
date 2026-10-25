@@ -362,12 +362,15 @@ f_getline:
 ; The line editor for GETLINE and the monitor: HL = the buffer, B = its
 ; size, E = 1 if a Tab on an empty line ends it (the monitor's tape demo).
 ; Out: B = the length, E = what ended it: 13 Enter, 27 Esc (carry set), 9
-; Tab. Echoes on the console; Backspace rubs out; Up brings back the last
-; line (kept in the console page by Enter). C, D, E changed
+; Tab; KHELLO, at once, when a HELLO frame begins at the monitor's prompt
+; (keys.asm, hwatch). Echoes on the console; Backspace rubs out; Up brings
+; back the last line (kept in the console page by Enter). C, D, E changed
 gline:  ld      c,0                     ; the length so far
         dec     b                       ; room for the 0
         ld      d,e
 .key:   rst     10h
+        cp      KHELLO
+        jr      z,.hello
         cp      13
         jr      z,.enter
         cp      27
@@ -386,6 +389,7 @@ gline:  ld      c,0                     ; the length so far
         ld      a,c
         or      a
         jr      nz,.key
+.hello: ld      e,a
         ld      (hl),0
         ld      b,0
         or      a

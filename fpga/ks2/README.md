@@ -231,6 +231,15 @@ Program ended.
 
 A watchpoint set by hand: DBGWP0's address `9000` (ports `0x3002` and `0x3102`: register × 256 + page `0x02`), its mask left at `FFFF`, and DBGWP0_CTL = `05` (EN and WRITE). The program `LD A,5A`, `LD (9000),A`, `RET` stops after the write, with the access. `P 3402 0` turns it off again; `G` goes on to the end. Other things to try: `P 3402 3` (EN and READ) with `E 8700 3A 00 90 C9` (`LD A,(9000)`) stops on the read; `P 3202 0` (mask `FF00`, the low byte 0) watches the whole page `90xx`.
 
+**The loader and the debug stub** (issue #29) need the FT232H, so on the KS2 today there is only this to see:
+
+```
+> U
+Waiting for upload.  Esc for the monitor.
+```
+
+The border turns yellow while the loader waits (it has sent `LOAD Z80 1` to the link, which nobody reads). **BREAK** (CAPS SHIFT + SPACE) or Esc ends it: `Stopped.`, the border black again, and the prompt. Everything else (an upload, VS Code through the bridge) is tested in simulation until the module is fitted (`make -C sim link`). The monitor's prompt now also watches the link for the bridge's HELLO frame: with nothing on the link nothing changes.
+
 **The sprite demo** (issue #31): on an empty line, press **GRAPH** (CAPS SHIFT + 9, or the GRAPH key) or F1 on a PS/2 keyboard. The console goes and, after about half a second (while the balls are drawn), the screen shows:
 
 1. **The tile scroller** of issue #14 over the whole picture: blue, green, orange and purple F's (each the four ways round) and grey dots on a dark blue-grey background, scrolling one pixel right and down every frame, smoothly.
