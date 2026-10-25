@@ -1,7 +1,7 @@
 ; The monitor (the shared spec "Monitor and upload protocol", sections 2-4;
 ; spec 16, section 8), in ROM page 1, included by boot.asm: the rest of
 ; start-up, the monitor's entry from a program, the command line and the
-; commands D E F C V S G R P H.
+; commands D E F C V S G R P H (I and T are in page 2).
 ;
 ; It runs in the monitor's map (spec 16, section 5.2) with interrupts off:
 ; ROM pages 0-2 in windows 0-2, the workspace (page 0x0FF) in window 3 with
@@ -771,11 +771,13 @@ mloop:  ld      sp,MSTACK
 .go:    xor     a
         ld      (M_LAST),a
         ret                             ; to the command
-.empty: ld      a,(M_LAST)              ; Enter after D or S: carry on
+.empty: ld      a,(M_LAST)              ; Enter after D, S or I: carry on
         cp      'D'
         jp      z,c_dump.more
         cp      'S'
         jp      z,c_search.more
+        cp      'I'
+        jp      z,c_dis.more
         jp      mloop
 
 ctab:   db      'D'
@@ -801,9 +803,9 @@ ctab:   db      'D'
         db      '?'
         dw      c_help
         db      'I'
-        dw      e_notyet
+        dw      c_dis                   ; (mondis.asm, page 2)
         db      'T'
-        dw      e_notyet
+        dw      c_test                  ; (memtest.asm, page 2)
         db      'U'
         dw      e_notyet
         db      'L'

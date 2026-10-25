@@ -1,8 +1,9 @@
 ; retro-z80 boot ROM (spec 16): the RST entry points and ROM calls, the
 ; start-up, the boot console and the monitor (the shared spec "Monitor and
 ; upload protocol", docs/spec/monitor.md). Ticket #22: the RST calls and
-; the monitor's commands D E F C V S G R P H; the disassembler, memory
-; test, loader, SD card and BASIC come with later tickets.
+; the monitor's commands D E F C V S G R P H; ticket #23: the disassembler
+; (I) and the memory test (T); the loader, SD card and BASIC come with
+; later tickets.
 ;
 ;   Page 0 (0x0000)  the entry table (spec 16, section 3.1), start-up, the
 ;                    console and keyboard core, the ROM calls, the monitor's
@@ -10,7 +11,8 @@
 ;                    window 0 while a program runs
 ;   Page 1 (0x2000)  the monitor's commands, the rest of start-up, the
 ;                    self-test, the tape demo
-;   Page 2 (0x4000)  the console font (offset 0x4000), the help text
+;   Page 2 (0x4000)  the console font (offset 0x4000), the help text, the
+;                    disassembler and I, the memory test T
 ;   Page 3 (0x6000)  the NMI page: empty until the NMI paging is wired
 ;
 ; The raw image is the ROM's 32 KB from offset 0; pages 0-2 are assembled at
@@ -491,5 +493,8 @@ page1_end:
 ; ================================================================ page 2
 font:   include "font.inc"              ; offset 0x4000: the console font (spec 16, section 5.3)
         include "help.asm"
+        include "disasm.asm"            ; the disassembler (ticket #23)
+        include "mondis.asm"            ; I
+        include "memtest.asm"           ; T
 page2_end:
         ASSERT  $ <= 0x6000

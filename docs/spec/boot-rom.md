@@ -90,9 +90,10 @@ The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#21 with th
 | `monitor.asm` | Page 1: the rest of start-up, the monitor's entry, the command line and the commands |
 | `selftest.asm`, `tape.asm` | Page 1: the self-test; the tape loader demo |
 | `font.inc`, `help.asm` | Page 2: the font at offset `0x4000`; the help text |
+| `disasm.asm`, `mondis.asm`, `memtest.asm` | Page 2: the disassembler (section 8.4), `I`, and the memory test `T` (section 8.9) |
 | `rom.inc` | The constants: the console's state, the workspace's layout, the reasons for entering the monitor |
 
-Not built yet: the NMI page (the NMI is not wired to the Z80 yet, spec 1, section 8.2); `I` and `T` (ticket #23); `U`, `L`, `B`, `X` and functions `0x12`–`0x14` (tickets #24–#26). Those letters give `? not yet: a later ticket`.
+Not built yet: the NMI page (the NMI is not wired to the Z80 yet, spec 1, section 8.2); `U`, `L`, `B`, `X` and functions `0x12`–`0x14` (tickets #24–#26). Those letters give `? not yet: a later ticket`.
 
 ### 4.2 The full sequence
 
@@ -466,6 +467,15 @@ AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=12 IFF=0 IM=2?  Z P
 8015  ED 52        SBC  HL,DE
 ```
 
+- **A line:** the address (4 digits, or `P` and 6), two spaces, the instruction's bytes, each two hex digits and a space, padded to 4 bytes, one more space, then the instruction. The mnemonic is padded to 5 columns; a comment starts in column 15 of the instruction.
+- **Numbers:** bytes as 2 hex digits, words and jump targets as 4, `RST` as `28h`, a displacement signed: `(IX+05)`, `(IY-02)`. A relative jump shows its target, from the low 16 bits of the address (so `I` of a `P` address shows targets as the code sees them when it runs at that address's CPU offset).
+- **Undocumented forms,** in sjasmplus's names: `IXH`, `IXL`, `IYH`, `IYL`; `SLL`; `IN F,(C)`; `OUT (C),0`; the DD CB forms that also load a register, `RLC (IX+05),B`, `RES 0,(IY-02),A`; the other DD CB `BIT` codes as `BIT n,(IX+d)`; the duplicate ED codes as `NEG`, `RETN`, `IM 0`/`1`/`2`, and ED `63`/`6B` as `LD (nn),HL` / `LD HL,(nn)`.
+- **No instruction:** a DD or FD before another prefix, or before an instruction that uses no H, L or HL, is `DB   DD` on its own (the Z80 runs it as a 4 T-state no-op, then the next byte); an ED that is no instruction is `DB   ED,xx`, 2 bytes, as the Z80 runs it.
+- **After `RST 28h`** the next byte is `DB nn` with the function's name (section 7.3, `0x00`�`0x14`); a number above shows without a name. Only directly after an `RST 28h` that `I` showed: `I` from an address of its own starts afresh.
+- **Bytes not read:** a byte with read side effects (section 8.1) is never read: it shows as `--` and its instruction as `DB   --` (or `DB   xx`, the first byte, when a later byte is the one not read), one byte long.
+- `I` alone carries on where the last `I` stopped (from `0000` after start-up), and so does Enter on an empty line after `I`. `I` takes no size (`? size`).
+- The disassembler is `disasm.asm`, about 1.9 KB in page 2 (section 13, B6). It is checked against a table of every opcode (section 12).
+
 ### 8.5 Breaks and taking the screen
 
 When the monitor is entered while a program is running (a break, a breakpoint, a trap, an NMI):
@@ -517,6 +527,29 @@ The debug unit (spec 18) gives the monitor hardware breakpoints and a single ste
 - **The debug stub** is the monitor in **debug mode**. At the prompt the monitor watches the serial link for a HELLO frame (debug.md, section 4.4), and then: turns the console's serial side off for the program (CONMODE), does not take the screen at stops (section 8.5, step 4, is skipped while attached), answers the debug channel's commands (debug.md, section 5) with the monitor's own code for memory, registers and the MMU copy, and sends a STOP frame at each stop. Its frame buffers (4 KB in, 2 KB out) are in SRAM page `0x0FC`, mapped into window 5 while it works; its state (attached, the last SEQ and its STATUS, the last STOP) is in the workspace's spare space at `0x0EE0`. DETACH puts the console back and takes the screen as usual.
 - **Program ended, break, trap** while attached become STOP frames (EXIT, BREAK, TRAP) instead of the monitor's messages on the serial link; the screen shows nothing.
 
+### 8.9 Memory test
+
+`T addr count` tests count bytes from addr: a CPU address through the program's **write** pages, or a `P` address. `T` alone tests all the board's SRAM but the monitor's own pages: on a 2 MB board `P000000`�`P1FBFFF`, on a 4 MB board that and `P200000`�`P3FFFFF`. The memory's contents are lost; the program's too.
+
+- **What may be tested:** SRAM only. The console's and the workspace's pages (`0x0FE`, `0x0FF`, which hold the monitor's state and its stack), the ROM (even with ROMWE set), the register page, NONE and pages beyond the board give `? address`, and nothing is written: the whole range is checked first. `T` alone leaves those two pages out. Once BASIC can be resident (ticket #26), its pages `0x0F8`�`0x0FB` join them while it is.
+- **Passes:** four, each writing the whole range and then reading it all back: `55`, `AA`, then each byte's physical address bits 7�0 XOR 15�8 XOR 23�16 (two addresses one address line apart then hold bytes one bit apart, so a stuck or shorted address line shows), then that inverted.
+- **What it prints:**
+
+```
+> T 9000 1000
+Pass 1 2 3 4
+Errors: 0000
+> T
+Testing P000000-P1FBFFF
+Pass 1 2 3 4
+Errors: 0000
+```
+
+  Each pass's number shows as it starts. A bad byte prints `addr: wrote xx read yy` on a line of its own (the address as given: a CPU or a `P` address), for the first 16; then `Errors:` and the count of bad bytes, as `V` gives its differences (hex, at least 4 digits).
+- **Esc** (BREAK on the Spectrum keyboard) stops it at the end of the current 8 KB with `Stopped.`, then the `Errors:` line. The watchdog is kicked meanwhile.
+- **Time:** about 350 T-states a byte for the four passes: `T` alone on a 2 MB board takes about 40 s at 20 MHz.
+- `T` takes no size (`? size`).
+
 ## 9. The loader and image files on the Z80
 
 The loader and the boot file follow the shared spec (sections 5–7). retro-z80's limits:
@@ -564,8 +597,8 @@ The ROM is built in this order, each step a ticket:
 
 | Step | Contents | Needs |
 |------|----------|-------|
-| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging (done or ticketed). Built (ticket #22) but for `T` (ticket #23) and the NMI page, which waits for the NMI to be wired to the Z80 |
-| 2 | The disassembler (`I`) | Step 1 |
+| 1 | The entry table, the program map, the RST calls (PUTC to CONMODE, EXIT, BREAK, RESET), the start-up sequence and keys, the monitor with `D E F C V S G R P T H`, breakpoints, the trap, the NMI page | The console, keyboards and NMI paging (done or ticketed). Built (ticket #22; `T` with ticket #23) but for the NMI page, which waits for the NMI to be wired to the Z80 |
+| 2 | The disassembler (`I`) | Step 1. Built (ticket #23) |
 | 3 | The SD card and FAT32: `L`, `B`, the boot file, LOADFILE, READBLOCK, WRITEBLOCK | Spec 11's controller |
 | 4 | The loader (`U`, UPLOAD, all three targets) and `tools/rlink.py` | Step 1; the FT232H for the board |
 | 5 | The resident image and `X` | Steps 3–4; the BASIC tickets |
@@ -579,8 +612,8 @@ The ROM is built in this order, each step a ticket:
 - **Keys:** every code of section 7.4 from each source, including the serial escape sequences and a lone Esc; repeats.
 - **Printing:** every code of section 7.5; wrap at column 79; scrolling; PUTRAW; CONMODE turning each side off.
 - **Trap:** a jump into NONE, into the register page and to a byte `0xFF` each give `Trap RST 38h at` the right address; the self-test's check `0x4C` still passes at power-on.
-- **In simulation now** (ticket #22): `sim/mon/` types a session over the serial link in Verilator (`make -C sim mon`, about a minute): every command and size, `P` addresses, the side-effect bytes shown `--`, E stepping, Enter carrying on, the errors; a program typed in printing through `RST 08h`, `RST 18h` and `RST 28h`; IX, IY, BC, DE and HL' kept across a ROM call; a breakpoint, `RST 30h` and the trap, each followed by `G`; and the console's 30 rows read back from its map against what was sent. `make hello` checks the sign-on and the power-on-only self-test across a RESET; `make bootkeys` types on the PS/2 and membrane models.
-- **Monitor (Z80 parts):** plain and `P` addresses, including window 0 after an NMI and the register page; `P` reads and writes ports; `R` shows and sets every register, IFF and IM; `I` against a list of every opcode (checked against sjasmplus's own listing); breakpoints; a break, a trap and an NMI each followed by `G` that goes on with every register, the MMU, CPUSPEED and the screen as they were.
+- **In simulation now** (ticket #22): `sim/mon/` types a session over the serial link in Verilator (`make -C sim mon`, about a minute): every command and size, `P` addresses, the side-effect bytes shown `--`, E stepping, Enter carrying on, the errors; a program typed in printing through `RST 08h`, `RST 18h` and `RST 28h`; IX, IY, BC, DE and HL' kept across a ROM call; a breakpoint, `RST 30h` and the trap, each followed by `G`; and the console's 30 rows read back from its map against what was sent. `make hello` checks the sign-on and the power-on-only self-test across a RESET; `make bootkeys` types on the PS/2 and membrane models. Ticket #23 added `I` (the spec's example, Enter carrying on, DD CB, the ROM by CPU and `P` address) and `T` (ranges in a window and across a page edge by `P` address; the monitor's pages, the ROM and the register page refused) to the session; and `make -C sim dis` runs `disasm.asm` on a table of every opcode (1,828 entries: all 256 of each of the plain, CB, ED, DD, FD, DD CB and FD CB tables, displacement and jump limits, every RST 28h function number) on the bare core, against a Python reference (`sim/dis/disref.py`) whose text sjasmplus assembles back to the table's bytes.
+- **Monitor (Z80 parts):** plain and `P` addresses, including window 0 after an NMI and the register page; `P` reads and writes ports; `R` shows and sets every register, IFF and IM; `I` against a list of every opcode (checked against sjasmplus's own listing; in simulation now, below); breakpoints; a break, a trap and an NMI each followed by `G` that goes on with every register, the MMU, CPUSPEED and the screen as they were.
 - **NMI page:** the NMI path through page 3 into the common monitor and out by `RETN`, with the program's stack in window 0 and elsewhere; the PC and SP shown are NMICAPPC and NMICAPSP, also with SP pointing at ROM; the entry and the exit change no byte outside page `0x0FF` (a checksum of all other SRAM before and after); with NMICTL.EN = 0, page 0's `0x0066` reaches the same monitor, the PC shown is NMICAPPC and `G` returns to it; `G addr` after an NMI carries on at addr; a new program started after an NMI can be broken into again, and starts with the interrupt pages off; an NMI inside a program's maskable handler that uses the interrupt pages shows and restores the handler's map.
 - **Debug unit and stub** (section 8.8): `G addr break` in RAM and in ROM stops before the instruction with PC at break; `N` runs one instruction of each class and shows `Step at`; an NMI at the prompt goes back to the prompt with the stopped program unchanged; the monitor entered by `RST 30h` with breakpoints left on does not stop in its own code; the debug channel's tests of debug.md, section 11, with no byte outside pages `0x0FC`–`0x0FF` changed by a stop and a continue.
 - **Broken workspace:** a program that overwrites pages `0x0FE`–`0x0FF` and is then broken into gets a working monitor.
@@ -596,7 +629,7 @@ The ROM is built in this order, each step a ticket:
 | B3 | BASIC's memory map: pages `0x0F8`–`0x0FB` (32 KB) at `0x2000`–`0x9FFF`, leaving `0x8000`–`0xFFFF` with a 24 KB image. To confirm with the BASIC tickets (design plan, branch 13) |
 | B4 | The key codes 130–139 and 145–156 are those BBC BASIC's line editor is believed to expect (Dean Belfield's ports); check against the host layer before it is written |
 | B5 | Taking the screen at a break leaves sprites, L1, L2 and the DMA engine running; whether the monitor should also pause them (and which of their registers read back, spec 4) |
-| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the monitor 5.0 KB: the rest of start-up, the entry, the command line and the commands; the self-test 0.9 KB; the tape demo 0.1 KB); page 2 2.7 KB (the font 2 KB, the help 0.7 KB); page 3 empty. 11.6 KB of the 32 in all |
+| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the monitor 5.0 KB: the rest of start-up, the entry, the command line and the commands; the self-test 0.9 KB; the tape demo 0.1 KB); page 2 2.7 KB (the font 2 KB, the help 0.7 KB); page 3 empty. 11.6 KB of the 32 in all. After ticket #23: page 2 5.5 KB (adding the disassembler 1.8 KB, `I` 0.3 KB, `T` 0.7 KB and two help lines, 2.9 KB in all), 2.5 KB of page 2 left; 14.6 KB of the 32 in all, 17.4 KB left (page 0 5.1 KB, page 1 1.9 KB, page 2 2.5 KB, page 3 8 KB) |
 | B7 | SRAM page 0 under the ROM and pages `0x0FC`–`0x0FD` are free; the ROM may later want them (for example for CP/M 3, design plan branch 7) |
 | B8 | CP/M 3 (later) has its own BIOS in place of the RST calls; how it sits with the boot ROM is for its own spec |
 | B9 | The console's state in the map's hidden columns relies on SCROLLX staying 0 for the console and on the fetcher never reading columns 96–127; spec 4's tile mode to confirm |

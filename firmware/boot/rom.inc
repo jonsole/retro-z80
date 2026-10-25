@@ -57,7 +57,7 @@ M_RUN   equ     0x6805                  ; 1: a program was stopped part-way (G g
 M_IM    equ     0x6806                  ; the program's IM (bits 1-0); bit 6: set by R; bit 7: it has run ("?")
 M_IFF   equ     0x6807                  ; IFF1 as the program had it
 M_ENTRY equ     0x6808                  ; 2: where the program was last started
-M_LAST  equ     0x680A                  ; the command Enter carries on ('D', 'S' or 0)
+M_LAST  equ     0x680A                  ; the command Enter carries on ('D', 'S', 'I' or 0)
 M_BPON  equ     0x680B                  ; 1: a breakpoint is set
 M_BPADR equ     0x680C                  ; 2: its address
 M_BPOLD equ     0x680E                  ; its old byte
@@ -87,6 +87,8 @@ M_SLEN  equ     0x685F                  ; ... the pattern's length
 M_SPAT  equ     0x6860                  ; 32: ... the pattern
 M_VID   equ     0x6890                  ; 43: L0's 32 registers, PRIO, DMACON, BGCOLOR (3), COPCON, VIDCON,
                                         ; PALIDX (2), and the console's CONMODE and colour pair
+M_INEXT equ     0x68C0                  ; 4: where I carries on
+M_IRST  equ     0x68C4                  ; 1: I's last instruction was RST 28h (a function number next)
 WSTATE_END equ  0x6900
 
 LBUF    equ     0x6900                  ; the line being typed
@@ -112,6 +114,8 @@ T_DBUF  equ     0x69A0                  ; 16: a dump line's bytes
 T_DSE   equ     0x69B0                  ; 16: ... 1 where the byte was not read (side effects)
 T_VAL   equ     0x69C0                  ; 64: values to enter, fill or find
 T_VMAX  equ     64
+DISBUF  equ     T_VAL                   ; 48: I's line from the disassembler (in T_VAL)
+DISVAR  equ     T_VAL + 48              ; 12: the disassembler's variables
 ; 0x6A00-0x6DFF: kept for the SD card and the loader (later tickets)
 WENT    equ     0x6E00                  ; the entry frame, copied from the program's stack
 WMMUT   equ     0x6E20                  ; 32: the MMU registers as found at entry

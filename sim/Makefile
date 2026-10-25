@@ -11,6 +11,9 @@
 #   make mon        the monitor (ticket #22) typed at over the serial link,
 #                   in Verilator: a scripted session of every command, the
 #                   RST calls, a breakpoint, a break and the trap (mon/)
+#   make dis        the boot ROM's disassembler (ticket #23) on a table of
+#                   every opcode, in the ZEX testbench, against a reference
+#                   that sjasmplus checks (dis/; seconds)
 #   make systest    the system test ROM: system registers, I/O decode, SRAM
 #                   bytes, writable boot ROM, the self-test, soft reset
 #   make intc       the interrupt controller on its own (sim/intc/tb_intc.v)
@@ -51,8 +54,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon systest intc inttest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon systest intc inttest speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon dis systest intc inttest speeds zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -90,7 +93,7 @@ SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v d
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
-                 selftest.asm tape.asm help.asm font.inc) $(INC)/hw.inc
+                 selftest.asm tape.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc
 
 # The simulations' boot ROM looks for the start-up keys for 1 ms in place of
 # 250 (KEYWAIT), which Icarus would take over an hour to get through
@@ -204,6 +207,22 @@ zexhello: $(ZEX_DEPS) $(BUILD)/hello.com $(BUILD)/bad.com $(BUILD)/rtest.com
 	@grep -q "^TEST FAILED" $(BUILD)/zexbad.log
 	$(ZEX_RUN) +com=rtest.com +tests=5 +maxcycles=100000 | tee zexr.log
 	@grep -q "^TEST PASSED" $(BUILD)/zexr.log
+
+# The disassembler (ticket #23): disref.py makes a table of every opcode and
+# the text it must give; sjasmplus checks that text gives the table's bytes;
+# distest.com runs the ROM's disasm.asm on the table on the bare core
+$(BUILD)/distab.bin: dis/disref.py | $(BUILD)
+	$(PYTHON) dis/disref.py make $(BUILD)
+	$(SJASMPLUS) --nologo --raw=$(BUILD)/dis_sj.bin $(BUILD)/dis_sj.asm > $(BUILD)/dis_sj.log
+	$(PYTHON) dis/disref.py sj $(BUILD)
+
+$(BUILD)/distest.com: dis/distest.asm $(ROOT)/firmware/boot/disasm.asm $(BUILD)/distab.bin
+	$(SJASMPLUS) --nologo -I $(ROOT)/firmware/boot -I $(BUILD) --raw=$@ $<
+
+dis: $(ZEX_DEPS) $(BUILD)/distest.com
+	$(ZEX_RUN) +com=distest.com +tests=1 +maxcycles=100000000 > dis.out; tail -n 2 dis.out
+	$(PYTHON) dis/disref.py check $(BUILD) | tee $(BUILD)/dis.result
+	@grep -q "^TEST PASSED" $(BUILD)/dis.result
 
 # ZEXDOC and ZEXALL: each of the 67 tests runs as its own process (+only=K),
 # ZEX_JOBS at a time; then the results are collected into build/zexdoc.log
