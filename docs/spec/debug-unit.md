@@ -216,6 +216,8 @@ The KS2's XC7A15T has 10,400 LUTs; the bring-up build is about 2,000 (design pla
 
 ## 12. Open points
 
+Accepted as proposed on 25 October 2026. DU1 is done (the shared spec's section 4.3 now allows a hardware breakpoint). DU5 and DU6 are still to be checked: DU5 on the KS2, DU6 in simulation.
+
 | # | Item |
 |---|------|
 | DU1 | The shared monitor spec's section 4.3 describes `G addr break` with `RST 30h` written into memory, and refuses a breakpoint in ROM. With the debug unit, retro-z80's `G addr break` is a hardware breakpoint and works in ROM. monitor.md's wording should leave the method to each machine; to agree with retro68k |

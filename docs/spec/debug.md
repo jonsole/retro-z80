@@ -378,6 +378,8 @@ CHANNEL 3, VIDEO, and its TYPE `0x82` are **reserved** for screen capture: a lat
 
 ## 12. Open points
 
+Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), and the future items DB10 and DB11.
+
 | # | Item |
 |---|------|
 | DB1 | The transport (section 2) is offered to retro68k word for word. It keeps its own GDB stub, on CHANNEL 4. Until it adopts the section, this is retro-z80's proposal |
