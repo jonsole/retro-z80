@@ -29,6 +29,7 @@ START = [
     ("hello", 1),
     ("", 1),
     ("Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.", 1),
+    ("Tab or EDIT (CAPS SHIFT + 1) plays a tape loader on the border and the beeper.", 1),
 ]
 CURSOR = ("_", 1)                               # shown while the background is bright
 # Nothing pressed: no joystick letters lit, port 0xFE reads 0xFF, no PS/2 byte yet

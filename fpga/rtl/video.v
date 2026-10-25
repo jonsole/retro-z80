@@ -11,8 +11,9 @@
 // built (1-3): the registers of layers not built read 0xFF and PRIO naming
 // them shows nothing. Not yet: sprites, direct colour (VIDCON.DIRECT is
 // kept and read back), the attribute layer, LINECMP, the LINE and VIDERR
-// requests, BEAMPOS and FRAMECOUNT, port 0xFE. Ticket #16 added VIDINTEN
-// and the request line to the interrupt controller (VBLANK).
+// requests, BEAMPOS and FRAMECOUNT. Ticket #16 added VIDINTEN and the
+// request line to the interrupt controller (VBLANK); ticket #21 the border
+// from port 0xFE writes.
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
@@ -24,6 +25,9 @@
 //                    (spec 4, section 3.4; spec 8: VBLANK is source 0)
 //   PRIO      0x003  FRONT, MIDDLE, BACK; reset 0x24
 //   BGCOLOR   0x004  blue, green, red; the red byte commits (spec 3, rule 7)
+//   port 0xFE        (register 0x00FE) writes: bits 2-0 set BGCOLOR to a
+//                    Spectrum colour at 0xD7, shown at once, mid-line (spec
+//                    4, section 7.2); keys.v answers its reads
 //   PALIDX    0x009  entry (7-0), palette (9-8)
 //   PALDAT    0x00B  blue, green, red of the entry at PALIDX
 //   DMACON    0x00C  set/clear: DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN
@@ -46,7 +50,9 @@
 // layer_pix.v); the beam line is sampled on the system side until two
 // samples agree; the layer settings, PRIO and BGCOLOR are settings, copied
 // into the pixel domain once per line (a write that lands exactly on that
-// copy may take effect one line later); the palette is a two-clock RAM.
+// copy may take effect one line later); a port 0xFE border write crosses as
+// a toggle at 135 MHz, as "full", with its 3-bit colour beside it; the
+// palette is a two-clock RAM.
 `include "regmap.vh"
 
 module video #(
@@ -107,6 +113,10 @@ module video #(
     reg  [7:0]  vidinten;              // VIDINTEN; bit 3 always 0
     reg  [23:0] bgcolor;               // RRGGBB
     reg  [15:0] cab;                   // the CPU's colour assembly buffer: green, blue
+    // A port 0xFE write's colour, and its toggle to the pixel side (not
+    // reset: the pixel side follows the toggle, whatever it holds)
+    reg  [2:0]  fe_col = 3'd0;
+    reg         fe_t = 1'b0;
     reg  [6:1]  dmacon;                // DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN (1)
     reg  [9:0]  palidx;
     reg  [1:0]  pcnt;                  // PALDAT's byte: 0 blue, 1 green, 2 red
@@ -228,6 +238,11 @@ module video #(
                 `RM_BGCOLOR0: cab[7:0]  <= rb_wdata;
                 `RM_BGCOLOR1: cab[15:8] <= rb_wdata;
                 `RM_BGCOLOR2: bgcolor   <= {rb_wdata, cab};
+                `RM_ULA:      begin                     // port 0xFE: the border, at once (spec 4, 7.2)
+                    bgcolor <= spectrum({1'b0, rb_wdata[`RM_ULA_BORDER]});
+                    fe_col  <= rb_wdata[`RM_ULA_BORDER];
+                    fe_t    <= !fe_t;
+                end
                 `RM_PALIDX0:  begin palidx[7:0] <= rb_wdata;      pcnt <= 2'd0; end
                 `RM_PALIDX1:  begin palidx[9:8] <= rb_wdata[1:0]; pcnt <= 2'd0; end
                 `RM_PALDAT:   case (pcnt)
@@ -393,8 +408,21 @@ module video #(
     wire [10:0] bv = inhb ? ((vc >= VVIS - 1'b1) ? vc - (VVIS - 1'b1) : vc + BV0 + 1'b1)
                           : ((vc >= VVIS) ? vc - VVIS : vc + BV0);
 
+    // A port 0xFE write (spec 4, section 7.2): its toggle through two
+    // flip-flops at 135 MHz, as "full" (layer_pix.v), then the pixel side
+    // takes its colour at the next pixel, mid-line. fe_col changed with the
+    // toggle, so it has been steady for more than a 135 MHz period by then
+    (* ASYNC_REG = "TRUE" *) reg [1:0] fe_s = 2'b00;
+    always @(posedge clk_pix5) fe_s <= {fe_s[0], fe_t};
+    reg  fe_seen = 1'b0;
+    wire fe_ev = fe_s[1] != fe_seen;
+    wire [23:0] fe_rgb = spectrum({1'b0, fe_col});
+
     reg [5:0]  prio_l;                 // PRIO and BGCOLOR, taken at the start of each line's picture
     reg [23:0] bg_l;
+    // The background of the pixel going out now: the new border colour from
+    // the clock that sees the write
+    wire [23:0] bg_now = fe_ev ? fe_rgb : bg_l;
     always @(posedge clk_pix) begin
         if (!en_p) begin
             hc     <= 11'd0;
@@ -409,6 +437,8 @@ module video #(
                 prio_l <= prio;
             end
         end
+        fe_seen <= fe_s[1];
+        if (fe_ev) bg_l <= fe_rgb;     // a port 0xFE write: kept for the rest of the line
         p_vline <= bv;
         if (prst)
             p_vb_t <= 1'b0;
@@ -639,6 +669,6 @@ module video #(
         de    <= vis_d[2];
         hsync <= !hs_d[2];
         vsync <= !vs_d[2];
-        rgb   <= !vis_d[2] ? 24'd0 : !opaque3 ? bg_l : pal_q3;
+        rgb   <= !vis_d[2] ? 24'd0 : !opaque3 ? bg_now : pal_q3;
     end
 endmodule

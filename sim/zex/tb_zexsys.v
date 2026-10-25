@@ -83,6 +83,7 @@ module tb_zexsys (input clk);
         .clk_pix(1'b0), .clk_pix5(1'b0), .vid_rgb(), .vid_hsync(), .vid_vsync(), .vid_de(),
         .ps2_clk_i(1'b1), .ps2_data_i(1'b1), .ps2_clk_low(), .ps2_data_low(),
         .keyb_row_low(), .keyb_col_i(7'h7F), .joy_pin_n(6'h3F), .joy_sel(), .joy_p7(),
+        .audio_l(), .audio_r(), .audio_m(),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
         .dma_be(2'b11), .dma_ack(dma_ack), .dma_rvalid(dma_rvalid), .dma_rdata(dma_rdata),
         .dbg_sc(sc)

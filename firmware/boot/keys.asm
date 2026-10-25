@@ -267,7 +267,9 @@ joybits: db     0x08, 'U', 0x04, 'D', 0x02, 'L', 0x01, 'R'
 ; Keyboard tables (written by a short script from these layouts): the
 ; membrane by 8 x column + row, plain, with CAPS SHIFT and with SYMBOL
 ; SHIFT; then PS/2 set 2 codes 0x00-0x7F, UK layout, unshifted and shifted.
-; 0: no character. 0x9C is the font's pound sign, 0xAA its not sign
+; 0: no character. 0x9C is the font's pound sign, 0xAA its not sign. 0x09
+; (Tab) is EDIT, CAPS SHIFT + 1 or the Next's EDIT key (column 6, row 3),
+; which plays the port 0xFE demo (tape.asm)
 mtab:
         db      0, 'a', 'q', '1', '0', 'p', 0x0D, ' '   ; column 0, rows 0-7
         db      'z', 's', 'w', '2', '9', 'o', 'l', 0   ; column 1, rows 0-7
@@ -275,15 +277,15 @@ mtab:
         db      'c', 'f', 'r', '4', '7', 'u', 'j', 'n'   ; column 3, rows 0-7
         db      'v', 'g', 't', '5', '6', 'y', 'h', 'b'   ; column 4, rows 0-7
         db      0, 0, 0, 0, ';', ',', 0x08, 0   ; column 5, rows 0-7
-        db      0, 0, 0, 0, '"', '.', 0, 0   ; column 6, rows 0-7
+        db      0, 0, 0, 0x09, '"', '.', 0, 0   ; column 6, rows 0-7
 mtab_cs:
-        db      0, 'A', 'Q', 0, 0x08, 'P', 0x0D, 0   ; column 0, rows 0-7
+        db      0, 'A', 'Q', 0x09, 0x08, 'P', 0x0D, 0   ; column 0, rows 0-7
         db      'Z', 'S', 'W', 0, 0, 'O', 'L', 0   ; column 1, rows 0-7
         db      'X', 'D', 'E', 0, 0, 'I', 'K', 'M'   ; column 2, rows 0-7
         db      'C', 'F', 'R', 0, 0, 'U', 'J', 'N'   ; column 3, rows 0-7
         db      'V', 'G', 'T', 0, 0, 'Y', 'H', 'B'   ; column 4, rows 0-7
         db      0, 0, 0, 0, ';', ',', 0x08, 0   ; column 5, rows 0-7
-        db      0, 0, 0, 0, '"', '.', 0, 0   ; column 6, rows 0-7
+        db      0, 0, 0, 0x09, '"', '.', 0, 0   ; column 6, rows 0-7
 mtab_ss:
         db      0, '~', 0, '!', '_', '"', 0x0D, ' '   ; column 0, rows 0-7
         db      ':', '|', 0, '@', ')', ';', '=', 0   ; column 1, rows 0-7
@@ -291,7 +293,7 @@ mtab_ss:
         db      '?', '{', '<', '$', "'", ']', '-', ','   ; column 3, rows 0-7
         db      '/', '}', '>', '%', '&', '[', '^', '*'   ; column 4, rows 0-7
         db      0, 0, 0, 0, ';', ',', 0x08, 0   ; column 5, rows 0-7
-        db      0, 0, 0, 0, '"', '.', 0, 0   ; column 6, rows 0-7
+        db      0, 0, 0, 0x09, '"', '.', 0, 0   ; column 6, rows 0-7
 ps2tab:
         db      0, 0, 0, 0, 0, 0, 0, 0   ; 0x00-0x07
         db      0, 0, 0, 0, 0, 0x09, '`', 0   ; 0x08-0x0F

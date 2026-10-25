@@ -112,6 +112,7 @@ module tb #(
     wire [3:0]  sc;
     wire [23:0] vrgb;
     wire        vhs, vvs, vde;
+    wire        audio_l, audio_r, audio_m;  // the sigma-delta streams (spec 7, section 10.2)
 
     // ---------------------------------------------------------------- input (spec 12)
     // A PS/2 keyboard (open-collector lines), the membrane (tb_keys: bit
@@ -151,6 +152,7 @@ module tb #(
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(vrgb), .vid_hsync(vhs), .vid_vsync(vvs), .vid_de(vde),
         .ps2_clk_i(ps2_clk), .ps2_data_i(ps2_data), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
         .keyb_row_low(keyb_row_low), .keyb_col_i(keyb_col), .joy_pin_n(joy_pin_n), .joy_sel(joy_sel), .joy_p7(),
+        .audio_l(audio_l), .audio_r(audio_r), .audio_m(audio_m),
         .dbg_sc(sc)
     );
 

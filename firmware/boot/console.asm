@@ -28,7 +28,7 @@
 ; interrupts start (the palette writes need the chart gone). cputc prints a
 ; character; conkey echoes a byte from the serial link, or a key typed on
 ; the membrane or a PS/2 keyboard (keys.asm), on the screen and back to the
-; PC; constat redraws the status line and the cursor (the main loop calls it
+; PC, and plays the port 0xFE demo for Tab or EDIT (tape.asm; ticket #21); constat redraws the status line and the cursor (the main loop calls it
 ; when timer 0 or a change of the inputs has set CDIRTY).
 ;
 ; The cursor is an underscore that blinks with timer 0: shown while the
@@ -431,9 +431,12 @@ cstatus:
 
 ; A byte from the serial link: printable codes (32-126, 128-255) are shown
 ; and sent back; CR is a new line (CR LF back); BS and DEL rub out the
-; character before the cursor (BS, space, BS back); other codes are ignored
+; character before the cursor (BS, space, BS back); Tab plays the port 0xFE
+; demo (tape.asm: A, B, C, D, E, HL, IX changed); other codes are ignored
 ; (A, E changed)
-conkey: cp      13
+conkey: cp      9
+        jp      z,tape
+        cp      13
         jr      z,.cr
         cp      8
         jr      z,.bs
@@ -556,7 +559,8 @@ cspeed: db      "20", 0, 0, 0                           ; CPUSPEED.DIV 0-7, 5 by
 cspeed_s: db    "3.57", 0                               ; CPUSPEED.SPECTRUM
 cmhz:   db      " MHz, ", 0
 csram:  db      " MB SRAM", 0
-cprompt: db     13, 10, "Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.", 13, 10, 0
+cprompt: db     13, 10, "Type on the Spectrum keyboard, a PS/2 keyboard or the USB serial link.", 13, 10
+        db      "Tab or EDIT (CAPS SHIFT + 1) plays a tape loader on the border and the beeper.", 13, 10, 0
 cstat1: db      " retro-z80 boot console  J1 ", 0
 cstat_j2: db    " J2 ", 0
 cstat_fe: db    "  FE ", 0
@@ -565,5 +569,6 @@ cstat_up: db    "  up ", 0
 cstat2: db      " s", 0
 
         include "keys.asm"
+        include "tape.asm"
 
 font:   include "font.inc"

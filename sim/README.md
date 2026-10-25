@@ -18,6 +18,7 @@ make boottmr    # the boot ROM's timer 0 effect, sped up to 2 ms (not in make al
 make speeds     # the speed test ROM: "hello" at every CPUSPEED setting, T-state rates measured
 make failshow   # the boot ROM's failure screen: check 45 shown as 5 white stripes (about 4 minutes; not in make all)
 make -j3 vtest  # the video test: L0 bitmaps checked pixel by pixel against a Python model (minutes; not in make all)
+make fe         # port 0xFE writes on their own: mid-line border changes 7-60 ns after the write, BGCOLOR's rules, the beeper's sigma-delta streams (seconds)
 make lint       # Verilator lint of the RTL (fpga/lint.sh)
 make zexhello   # the ZEX testbench's own checks (seconds): a CP/M program that must pass,
                 # one that must fail, and the R register test

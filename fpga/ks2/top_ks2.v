@@ -28,8 +28,15 @@
 //                  through the multiplexer, joysel_o picking the port (0 the
 //                  left), joyp7_o the Mega Drive select for both
 //
+// Audio (issue #21, spec 7, section 10.2): the beeper's three sigma-delta
+// streams at 100 MHz, from the pads' flip-flops, on the Next's issue 4 pins:
+//   audioext_l_o, audioext_r_o  the audio jack (left, right; DRIVE 16)
+//   audioint_o                  the internal speaker (mono; DRIVE 8, slow)
+// The board's RC filters turn them into sound, as the Next's own (first
+// order, 28 MHz) DAC streams.
+//
 // Not used yet (held where the Next's top level leaves them, as in the test
-// pattern build): flash and SD cards deselected, audio and MIC low,
+// pattern build): flash and SD cards deselected, MIC low,
 // expansion bus RAMCS pulled down. Other pins are weakly pulled up
 // (ks2.xdc).
 module top_ks2 (
@@ -62,8 +69,12 @@ module top_ks2 (
     // Held at safe levels
     output wire        flash_cs_n_o,
     output wire        sd_cs0_n_o, sd_cs1_n_o,
-    output wire        audioext_l_o, audioext_r_o, audioint_o, mic_port_o,
-    inout  wire        bus_ramcs_io
+    output wire        mic_port_o,
+    inout  wire        bus_ramcs_io,
+
+    // Audio (spec 7, section 10.2): sigma-delta streams to the board's RC
+    // filters, the jack and the internal speaker
+    output wire        audioext_l_o, audioext_r_o, audioint_o
 );
     // ---------------------------------------------------------------- clocks and reset
     wire clk100, clk_pix, clk_pix5, locked;
@@ -109,6 +120,7 @@ module top_ks2 (
     wire        hs, vs, de;
     wire        ps2_clk_low, ps2_data_low;
     wire [7:0]  row_low;
+    wire        aud_l, aud_r, aud_m;
 
     retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2)) sys (
         .clk(clk100), .por(por),
@@ -122,6 +134,7 @@ module top_ks2 (
         .ps2_clk_i(ps2_clk_io), .ps2_data_i(ps2_data_io), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
         .keyb_row_low(row_low), .keyb_col_i(keyb_col_i),
         .joy_pin_n({joyp9_i, joyp6_i, joyp4_i, joyp3_i, joyp2_i, joyp1_i}), .joy_sel(joysel_o), .joy_p7(joyp7_o),
+        .audio_l(aud_l), .audio_r(aud_r), .audio_m(aud_m),
         .dma_req(1'b0), .dma_we(1'b0), .dma_addr(21'd0), .dma_wdata(16'd0), .dma_be(2'b00),
         .dma_ack(), .dma_rvalid(), .dma_rdata(),
         .dbg_sc()
@@ -199,13 +212,23 @@ module top_ks2 (
     assign hsync_o = vga_hs;
     assign vsync_o = vga_vs;
 
+    // ---------------------------------------------------------------- audio
+    // The three streams from the pads' flip-flops, as the Next registers its
+    // DAC outputs (zxnext_top_issue4.vhd), so every edge leaves on the clock
+    (* IOB = "TRUE" *) reg pad_aud_l = 1'b0, pad_aud_r = 1'b0, pad_aud_m = 1'b0;
+    always @(posedge clk100) begin
+        pad_aud_l <= aud_l;
+        pad_aud_r <= aud_r;
+        pad_aud_m <= aud_m;
+    end
+    assign audioext_l_o = pad_aud_l;
+    assign audioext_r_o = pad_aud_r;
+    assign audioint_o   = pad_aud_m;
+
     // ---------------------------------------------------------------- not used yet: safe levels
     assign flash_cs_n_o = 1'b1;            // configuration flash deselected
     assign sd_cs0_n_o   = 1'b1;
     assign sd_cs1_n_o   = 1'b1;
-    assign audioext_l_o = 1'b0;
-    assign audioext_r_o = 1'b0;
-    assign audioint_o   = 1'b0;
     assign mic_port_o   = 1'b0;
     assign bus_ramcs_io = 1'bz;            // expansion bus: pulled down, as on the Next
 endmodule

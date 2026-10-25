@@ -11,6 +11,8 @@
 // Ticket #17 adds the timers and watchdog, and the CPU's capture. Ticket
 // #19 adds the input units (spec 12): the PS/2 keyboard and its Spectrum key
 // mapper, the membrane keyboard and port 0xFE, the joysticks and Kempston.
+// Ticket #21 adds port 0xFE writes: the border (video.v) and the beeper,
+// out through the sigma-delta audio streams (audio.v).
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
@@ -51,6 +53,9 @@ module retroz80 #(
     input  wire [5:0]  joy_pin_n,      // joystick pins 9, 6, 4, 3, 2, 1 (bits 5-0)
     output wire        joy_sel,        // joystick multiplexer: 0 port 1, 1 port 2
     output wire        joy_p7,         // joystick pin 7, the Mega Drive select
+
+    // Audio (spec 7, section 10.2): sigma-delta streams, before the pads
+    output wire        audio_l, audio_r, audio_m,
 
     // DMA port (tests; later the DMA users)
     input  wire        dma_req, dma_we,
@@ -331,5 +336,14 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_joy), .rb_hit(hit_joy),
         .pin_n(joy_pin_n), .joysel(joy_sel), .sel_o(joy_p7)
+    );
+
+    // ---------------------------------------------------------------- audio (spec 7, section 10.2)
+    // The beeper (port 0xFE bit 4) at a quarter of full scale, through
+    // three sigma-delta modulators: left, right and mono
+    audio aud (
+        .clk(clk), .rst(sys_rst),
+        .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .dac_l(audio_l), .dac_r(audio_r), .dac_m(audio_m)
     );
 endmodule

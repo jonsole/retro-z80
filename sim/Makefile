@@ -86,10 +86,10 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v mmu.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
-BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm keys.asm font.inc) $(INC)/hw.inc
+BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm selftest.asm tiledemo.asm console.asm keys.asm tape.asm font.inc) $(INC)/hw.inc
 
 $(BUILD)/boot.bin: $(BOOT_SRC) | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
@@ -373,3 +373,19 @@ $(BUILD)/bootkeys.bin: $(BOOT_SRC) | $(BUILD)
 bootkeys: $(BUILD)/tb.vvp $(BUILD)/bootkeys.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootkeys.hex +hello +keys +timeout=150000 | tee bootkeys.log
 	@grep -q "^TEST PASSED" $(BUILD)/bootkeys.log
+
+# ---- Port 0xFE writes (ticket #21)
+#   make fe         the border and the beeper on their own (sim/fe/tb_fe.v):
+#                   mid-line border changes 7-60 ns after the write, BGCOLOR
+#                   read back and its line rule kept, the beeper's sigma-delta
+#                   streams at a quarter of full scale
+.PHONY: fe
+all: fe
+
+$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v audio.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v \
+	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v audio.v)
+
+fe: $(BUILD)/tb_fe.vvp
+	cd $(BUILD) && $(VVP) -n tb_fe.vvp | tee fe.log
+	@grep -q "^TEST PASSED" $(BUILD)/fe.log

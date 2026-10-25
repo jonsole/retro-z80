@@ -75,3 +75,8 @@ set_property IOB TRUE [get_cells -hier -filter {NAME =~ sys/mem/rdata_reg*}]
 set cpu_regs [get_cells -hier -filter {NAME =~ sys/cpu/* && IS_SEQUENTIAL}]
 set_multicycle_path -setup 5 -from $cpu_regs -to $cpu_regs
 set_multicycle_path -hold  4 -from $cpu_regs -to $cpu_regs
+
+# Audio (issue #21): the sigma-delta streams leave from the pads' flip-flops
+# (top_ks2.v); the board's RC filters do not care when within a clock
+set_property IOB TRUE [get_cells -hier -filter {NAME =~ pad_aud_*}]
+set_false_path -to [get_ports {audioext_l_o audioext_r_o audioint_o}]
