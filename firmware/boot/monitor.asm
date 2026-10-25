@@ -1401,14 +1401,22 @@ dline:  call    pcur
         cp      c
         jr      z,.pad
         jr      nc,.it
-.pad:   ld      a,(T_COL)               ; the characters start in column 49 + 1
-        cp      49
+.pad:   ld      a,(T_SIZE)              ; a full line's items: 49, 41 or 37 characters
+        ld      b,49
+        dec     a
+        jr      z,.p1
+        ld      b,41
+        dec     a
+        jr      z,.p1
+        ld      b,37
+.p1:    ld      a,(T_COL)               ; the characters start 2 after a full line's last item
+        cp      b
         jr      nc,.asc
         ld      a,' '
         rst     08h
         ld      hl,T_COL
         inc     (hl)
-        jr      .pad
+        jr      .p1
 .asc:   ld      a,' '
         rst     08h
         ld      a,(T_I)
@@ -2014,9 +2022,13 @@ c_regs: call    pskip
         djnz    .nm
         jp      e_syntax
 .ne:    ld      (hl),0
+        call    pskip
+        ld      c,0                     ; C = 0: no value, show the one register
+        jr      z,.nv
         call    pnumr
         call    pend
-        ld      hl,rnames
+        ld      c,1
+.nv:    ld      hl,rnames
 .look:  ld      a,(hl)
         or      a
         jp      z,e_syntax
@@ -2030,6 +2042,9 @@ c_regs: call    pskip
         inc     de
         djnz    .cmp
         pop     af                      ; found: HL = its place, kind
+        ld      a,c
+        or      a
+        jr      z,.show
         ld      e,(hl)
         inc     hl
         ld      d,(hl)
@@ -2073,6 +2088,52 @@ c_regs: call    pskip
         ld      de,7
         add     hl,de
         jr      .look
+; R name: "name=value", as the full display shows it; AF with the flags decoded
+.show:  ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      b,(hl)                  ; DE = its place, B = its kind
+        push    bc
+        push    de
+        ld      hl,T_VAL
+        rst     18h
+        ld      a,'='
+        rst     08h
+        pop     hl
+        pop     bc
+        ld      a,b
+        cp      2
+        jr      z,.sw
+        jr      nc,.sf
+        ld      a,(hl)                  ; a byte
+        rst     28h
+        db      6
+        jr      .se
+.sw:    ld      e,(hl)                  ; a word
+        inc     hl
+        ld      d,(hl)
+        ex      de,hl
+        rst     28h
+        db      7
+        ld      a,(T_VAL + 2)           ; AF (not AF'): the flags too
+        or      a
+        jr      nz,.se
+        ld      hl,(T_VAL)
+        ld      de,'F' * 256 + 'A'
+        sbc     hl,de                   ; carry is clear after OR
+        call    z,pflags
+        jr      .se
+.sf:    ld      a,(hl)                  ; IFF or IM: a digit, and IM's "?"
+        and     3
+        add     a,'0'
+        rst     08h
+        bit     7,(hl)
+        jr      z,.se
+        ld      a,'?'
+        rst     08h
+.se:    call    pnl
+        jp      mloop
 ; The names R takes: 4 characters (0 after), the place, the kind
 rnames: db      "AF", 0, 0
         dw      M_AF
@@ -2185,27 +2246,8 @@ showregs:
         jr      z,.f
         ld      a,'?'
         rst     08h
-.f:     ld      a,(M_AF)                ; the flags: S Z H P N C
-        ld      c,a
-        and     0xD7
-        jr      z,.e
-        ld      a,' '
-        rst     08h
-        ld      hl,flagn
-        ld      b,8
-.fl:    ld      a,(hl)
-        inc     hl
-        sla     c
-        jr      nc,.fn
-        or      a
-        jr      z,.fn
-        push    af
-        ld      a,' '
-        rst     08h
-        pop     af
-        rst     08h
-.fn:    djnz    .fl
-.e:     jp      pnl
+.f:     call    pflags
+        jp      pnl
 ; B registers, with a space between them
 .row:   call    .one
         dec     b
@@ -2235,6 +2277,29 @@ showregs:
 rshow:  db      "AF", 0, "BC", 0, "DE", 0, "HL", 0, "IX", 0, "IY", 0, "SP", 0, "PC", 0
         db      "AF'", 0, "BC'", 0, "DE'", 0, "HL'", 0
 flagn:  db      'S', 'Z', 0, 'H', 0, 'P', 'N', 'C'
+; The flags set in the program's F, each with a space before it, and one more space first
+; (nothing when none is set)
+pflags: ld      a,(M_AF)                ; S Z H P N C
+        ld      c,a
+        and     0xD7
+        ret     z
+        ld      a,' '
+        rst     08h
+        ld      hl,flagn
+        ld      b,8
+.fl:    ld      a,(hl)
+        inc     hl
+        sla     c
+        jr      nc,.fn
+        or      a
+        jr      z,.fn
+        push    af
+        ld      a,' '
+        rst     08h
+        pop     af
+        rst     08h
+.fn:    djnz    .fl
+        ret
 
 ; ---- P port [value]: ports (spec 16, section 8.2)
 c_port: ld      a,(T_SIZE)

@@ -20,8 +20,9 @@ R = re.compile
 
 def dump(addr, data, size=1, phys=False):
     """A D line as the shared spec gives it: the address, the items (2 x
-    size + 1 characters each, an extra space after 8 bytes) padded to 49,
-    a space, the characters. data: bytes, None for a side-effect byte."""
+    size + 1 characters each, an extra space after 8 bytes) padded to a
+    full line's width, a space, the characters (two spaces after a full
+    line's last item). data: bytes, None for a side-effect byte."""
     s = ("P%06X" % addr if phys else "%04X" % addr) + "  "
     items = ""
     for i in range(0, len(data), size):
@@ -33,7 +34,7 @@ def dump(addr, data, size=1, phys=False):
         items += " "
         if i + size == 8:
             items += " "
-    s += items.ljust(49) + " "
+    s += items.ljust(33 + 16 // size) + " "
     s += "".join("." if b is None or b < 32 or b > 126 else chr(b) for b in data)
     return s
 
@@ -86,8 +87,12 @@ SESSION = [
           extra2={"HL": "1111"})),
     # Setting registers
     ("R HL 4321", []),
+    ("R HL", ["HL=4321"]),
     ("R IM 1", []),
+    ("R IM", ["IM=1"]),
     ("R A 7", []),
+    ("R A", ["A=07"]),
+    ("R AF", [R(r"AF=07[0-9A-F]{2}( ( [SZHPNC])+)?")]),
     ("R", regs(extra1={"HL": "4321", "AF": "07[0-9A-F]{2}"}, extra2={"IM": "1"})),
     ("R IM 2", []),
     ("R QQ 1", ["? syntax"]),

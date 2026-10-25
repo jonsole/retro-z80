@@ -448,7 +448,8 @@ AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=12 IFF=0 IM=2?  Z P
 - **IFF** is IFF1 as the program had it: read from IFF2 with `LD A,I` (an NMI copies IFF1 into IFF2). `G` puts it back with `EI` or `DI` (after an NMI, `RETN` does).
 - **IM:** the Z80 cannot read its interrupt mode. The monitor never runs an `IM` instruction itself, so the program's mode survives a stop untouched. It shows the mode the program was started in (2), with `?` once the program has run. `R IM 0`, `1` or `2` makes `G` run that `IM` before it goes on.
 - **R** can be set, but counts on while the monitor runs out, so it is only roughly what was set.
-- Names for `R name value`: `AF BC DE HL IX IY SP PC AF' BC' DE' HL' I R IFF IM`, and `A F B C D E H L` for single bytes.
+- `R name` shows one register as the display above does: `R HL` gives `HL=1234`, `R IM` gives `IM=2?`, and `R AF` gives `AF=0044  Z P`, with the flags.
+- Names for `R name` and `R name value`: `AF BC DE HL IX IY SP PC AF' BC' DE' HL' I R IFF IM`, and `A F B C D E H L` for single bytes.
 
 ### 8.4 Disassembler
 
@@ -498,8 +499,8 @@ With NMICTL.EN = 0, page 0's `0x0066` saves a few bytes on the program's stack, 
 - **The breakpoint** is taken out of the program whenever the monitor is entered, whichever way; a breakpoint is for one `G`.
 - **`P` and the monitor's own registers.** The monitor changes the MMU and CPUSPEED for itself, so `P` on the MMU registers (`0x8000`–`0x9F00`) and CPUSPEED (`0x7700`) reads and writes the program's copy, which `G` puts back.
 - **Tab or EDIT on an empty command line** plays ticket #21's tape loader demo (`tape.asm`) on the border and the beeper. It is not a command letter, so the shared command table is unchanged.
-- **Output the shared spec does not spell out:** `V` lists each difference as `addr: xx  addr2: yy` on a line of its own, then `Differences: n` (hex); `S` lists the places 8 to a line, then `Enter for more.` after 16, or `Not found.`; Enter after `D` carries on with another `80` bytes, after `S` with the next 16 places.
-- **Commands not built yet** (`I T U L B X`, section 11) answer `? not yet: a later ticket`.
+- **What D, V and S print, and how far Enter carries on,** are in the shared spec (sections 2.3 and 4.1); this ROM follows them.
+- **Commands not built yet** (`I T U L B X`, section 11) answer `? not yet: a later ticket`: the shared spec's `? not yet` (section 2.3), with the reason after it.
 
 ## 9. The loader and image files on the Z80
 
