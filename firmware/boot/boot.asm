@@ -527,7 +527,8 @@ page2_end:
 ; their reset values, an NMI reads window 0 from here (ROM page 3) and
 ; writes it to the workspace page 0x0FF at the same offsets; the PC and SP
 ; are in NMICAPPC and NMICAPSP, and nothing has been written on the
-; program's stack. Assembled at its address in window 0.
+; program's stack. Assembled at its address in window 0. After it, the
+; sprite demo (sprdemo.asm), run with page 3 in window 2.
         DISP    0x0000
         ds      0x54 - $, 0xFF
 ; Window 0 back to ROM page 0: the next fetch is page 0's nmiland
@@ -607,6 +608,9 @@ nmi3:   ld      (NMX_SP - 0x6000),sp
         ld      sp,(NMX_SP)
         retn
 .map:   dw      PG_ROM1, PG_ROM2, PG_WS, PG_CON
+        ENT
+        DISP    $ - 0x2000              ; window 2
+        include "sprdemo.asm"           ; the sprite demo (ticket #31)
         ENT
 page3_end:
         ASSERT  page3_end <= 0x8000

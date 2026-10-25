@@ -818,6 +818,23 @@ givescr:
         ld      (CMAP + 0xC0 + CS_ATTR),a
         ret
 
+; The sprite demo (sprdemo.asm), in ROM page 3: page 3 into window 2 while
+; it runs, then page 2 back
+boing:  ld      bc,MMU2_0_P
+        ld      a,low PG_ROM3
+        out     (c),a
+        inc     b
+        ld      a,high PG_ROM3
+        out     (c),a
+        call    sprdemo
+        ld      bc,MMU2_0_P
+        ld      a,low PG_ROM2
+        out     (c),a
+        inc     b
+        ld      a,high PG_ROM2
+        out     (c),a
+        ret
+
 ; ================================================================ the command line
 mloop:  ld      sp,MSTACK
         ld      a,MON_ON
@@ -834,9 +851,14 @@ mloop:  ld      sp,MSTACK
         cp      27
         jr      z,mloop
         cp      9
-        jr      nz,.line
+        jr      nz,.f1
         call    pnl
         call    tape                    ; Tab or EDIT: the port 0xFE demo (ticket #21)
+        jr      mloop
+.f1:    cp      145
+        jr      nz,.line
+        call    pnl
+        call    boing                   ; F1 or GRAPH: the sprite demo (ticket #31)
         jr      mloop
 .line:  ld      ix,LBUF
         xor     a

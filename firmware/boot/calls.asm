@@ -377,13 +377,15 @@ gline:  ld      c,0                     ; the length so far
         cp      139
         jr      z,.up
         cp      9
+        jr      z,.tab
+        cp      145                     ; F1: as Tab
         jr      nz,.chr
-        bit     0,d
+.tab:   bit     0,d
         jr      z,.key
+        ld      e,a
         ld      a,c
         or      a
         jr      nz,.key
-        ld      e,9
         ld      (hl),0
         ld      b,0
         or      a

@@ -17,11 +17,14 @@
 // controller to the Z80, with the NMI set of the interrupt pages and the
 // stack capture (intpages.v; spec 2, sections 9.7-9.9). Ticket #28 adds
 // the debug unit (dbgunit.v; spec 18): single step, breakpoints and
-// watchpoints on the NMI, its registers on I/O page 0x02.
+// watchpoints on the NMI, its registers on I/O page 0x02. Ticket #31 adds
+// the sprites (in video.v; NSPRITES of them built) on the scheduler's
+// sprite channel, and the VIDERR interrupt source.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
-    parameter NLAYERS = 1              // video layers built, 1-3 (spec 4)
+    parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
+    parameter NSPRITES = 8             // sprites built, 1-8 (spec 5)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -171,7 +174,8 @@ module retroz80 #(
     wire [7:0]  rd_kb, rd_key, rd_joy; // input (#19)
     wire        hit_kb, hit_key, hit_joy;
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
-    wire [31:0] cd_tmr;
+    wire [31:0] cd_tmr, cd_vid;
+    wire        cap_vid;
     wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
     wire        late;
     wire        int_vreq, int_ack;
@@ -190,7 +194,7 @@ module retroz80 #(
         .rb_addr(rb_addr), .rb_hi(rb_hi), .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg),
         .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg),
-        .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
+        .rb_cdata(cd_tmr | cd_vid), .rb_cap(cap_tmr | cap_vid),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
         .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .nmi_pd(cap_d),
@@ -243,6 +247,9 @@ module retroz80 #(
     wire        bpl_req, bpl_urgent, bpl_ack, bpl_rvalid;
     wire [21:1] bpl_addr;
     wire [9:0]  bpl_deadline;
+    wire        spr_req, spr_urgent, spr_ack, spr_rvalid;
+    wire [21:1] spr_addr;
+    wire [9:0]  spr_deadline;
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
@@ -253,7 +260,8 @@ module retroz80 #(
         .cpu_be(cpu_be), .cpu_ack(cpu_ack), .cpu_rvalid(cpu_rvalid),
         .bpl_req(bpl_req), .bpl_addr(bpl_addr), .bpl_deadline(bpl_deadline), .bpl_urgent(bpl_urgent),
         .bpl_ack(bpl_ack), .bpl_rvalid(bpl_rvalid),
-        .spr_req(1'b0), .spr_addr(21'd0), .spr_deadline(10'd0), .spr_urgent(1'b0), .spr_ack(), .spr_rvalid(),
+        .spr_req(spr_req), .spr_addr(spr_addr), .spr_deadline(spr_deadline), .spr_urgent(spr_urgent),
+        .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
         .cop_req(1'b0), .cop_addr(21'd0), .cop_pri(2'd0), .cop_ack(), .cop_rvalid(),
         .blt_req(1'b0), .blt_we(1'b0), .blt_addr(21'd0), .blt_wdata(16'd0), .blt_be(2'b00),
@@ -307,14 +315,14 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- interrupts (spec 8)
-    // Sources so far: VBLANK (0), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
+    // Sources so far: VBLANK (0), VIDERR (3), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
     // inside the controller). The other lines are tied off until their
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
-    wire        irq_vid;
+    wire        irq_vid, irq_viderr;
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 10'd0, irq_vid};
+    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 7'd0, irq_viderr, 2'd0, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -325,13 +333,15 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- video (spec 4)
-    video #(.NL(NLAYERS)) vid (
+    video #(.NL(NLAYERS), .NS(NSPRITES)) vid (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_vid), .rb_hit(hit_vid),
-        .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid),
+        .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid),
+        .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_err(irq_viderr),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_deadline(bpl_deadline), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
+        .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
+        .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5),
         .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
     );

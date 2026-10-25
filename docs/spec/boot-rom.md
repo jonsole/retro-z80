@@ -52,7 +52,7 @@ Everything in the shared spec is the same on both machines.
 | 0 | `0x3FC` | `0x0000` | The entry table (section 3.1); start-up; the console driver; the keyboards and the serial link; the ROM calls; the monitor's core (line editor, command table, entry and exit); the IM 2 table at `0x1FD0` |
 | 1 | `0x3FD` | `0x2000` | The monitor's commands, the loader and CRC-32, the SD card and FAT32 reader, the self-test (`selftest.asm`) |
 | 2 | `0x3FE` | `0x4000` | The console font (the first 2 KB, offset `0x4000`), the CRC-32 table (1 KB), the disassembler and its tables, the help text |
-| 3 | `0x3FF` | `0x6000` | The NMI page: the NMI entry at `0x0066` (offset `0x6066`), which saves the program's state and switches window 0 back to page 0 (section 8.6). The rest is spare |
+| 3 | `0x3FF` | `0x6000` | The NMI page: the NMI entry at `0x0066` (offset `0x6066`), which saves the program's state and switches window 0 back to page 0 (section 8.6). Then the sprite demo (ticket #31), run with page 3 in window 2. The rest is spare |
 
 The split between pages 1–3 is the build's; only page 0's entry table (section 3.1), the IM 2 table and the font's offset are fixed for programs.
 
@@ -81,7 +81,7 @@ A boot ROM image uploaded with TARGET 1 and LOAD 0 must have `RZ80` at `0x0048`,
 
 ### 4.1 What the ROM does today
 
-The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#21 with the first step of section 11 (ticket #22) in place of its demos: the entry table, the RST calls and the `RST 28h` functions `0x00`–`0x11`, the full start-up sequence of section 4.2 (the self-test at power-on only), and the monitor with `D E F C V S G R P H`, breakpoints, the break and the trap. The palette chart, the colour cycle, the dimming and the console's status line (tests of the hardware, #13–#19) are gone; the tape loader demo of #21 stays, as Tab (or EDIT) on an empty command line.
+The boot ROM in `firmware/boot/` is the bring-up ROM of tickets #4–#21 with the first step of section 11 (ticket #22) in place of its demos: the entry table, the RST calls and the `RST 28h` functions `0x00`–`0x11`, the full start-up sequence of section 4.2 (the self-test at power-on only), and the monitor with `D E F C V S G R P H`, breakpoints, the break and the trap. The palette chart, the colour cycle, the dimming and the console's status line (tests of the hardware, #13–#19) are gone; the tape loader demo of #21 stays, as Tab (or EDIT) on an empty command line, and ticket #31's sprite demo is F1 (or GRAPH) on an empty command line.
 
 | File | Contents |
 |------|----------|
@@ -177,7 +177,7 @@ The monitor keeps a copy of the program's 16 page registers (MMU0–MMU7 and MMU
 | Pages | Physical | Size | Contents |
 |-------|----------|------|----------|
 | `0x0F8`–`0x0FB` | `0x1F0000`–`0x1F7FFF` | 32 KB | The resident image (BASIC), write page NONE while it runs (section 10). Free when there is none |
-| `0x0FC`–`0x0FD` | `0x1F8000`–`0x1FBFFF` | 16 KB | Kept for the ROM's later use. Page `0x0FC` holds the debug stub's frame buffers while VS Code is attached (section 8.8); otherwise free |
+| `0x0FC`–`0x0FD` | `0x1F8000`–`0x1FBFFF` | 16 KB | Kept for the ROM's later use. Page `0x0FC` holds the debug stub's frame buffers while VS Code is attached (section 8.8); both hold the sprite demo's tile map, images and variables while it runs (section 8.7); otherwise free |
 | `0x0FE` | `0x1FC000`–`0x1FDFFF` | 8 KB | The console map (spec 7, section 5.1), and the console's state in its hidden columns (below) |
 | `0x0FF` | `0x1FE000`–`0x1FFFFF` | 8 KB | The font (2 KB), then the monitor's workspace (6 KB) |
 
@@ -358,7 +358,7 @@ GETC, POLLC and GETLINE give one code per key, from either keyboard or the seria
 | 32–126 | Characters | The UK layout, Shift and Caps Lock (spec 12, section 3.3) | Plain, CAPS SHIFT (capitals) and SYMBOL SHIFT (the Spectrum's symbols) | As sent |
 | 130–135 | Home, End, Page Up, Page Down, Insert, Delete | The keys of those names | – | `ESC [ H`, `ESC [ F`, `ESC [ 5 ~`, `ESC [ 6 ~`, `ESC [ 2 ~`, `ESC [ 3 ~` (and `ESC [ 1 ~`, `ESC [ 4 ~` for Home and End) |
 | 136–139 | Left, Right, Down, Up | The cursor keys | CAPS SHIFT + 5, 8, 6, 7 | `ESC [ D`, `C`, `B`, `A` |
-| 145–156 | F1–F12 | F1–F12 | – | `ESC O P` … `ESC O S` (F1–F4), `ESC [ 15 ~` … `ESC [ 24 ~` (F5–F12) |
+| 145–156 | F1–F12 | F1–F12 | GRAPH (CAPS SHIFT + 9, or the Next's GRAPH key) gives F1; the others none | `ESC O P` … `ESC O S` (F1–F4), `ESC [ 15 ~` … `ESC [ 24 ~` (F5–F12) |
 
 These are the codes BBC BASIC's host layer expects for its line editor (section 10; open point B4). Keys with no code (Shift alone, Ctrl, Alt) give none. A key held down repeats as the PS/2 keyboard repeats it; on the Spectrum keyboard the ROM repeats it after 0.5 s, ten times a second.
 
@@ -514,6 +514,7 @@ With NMICTL.EN = 0 (a program's choice), page 0's `0x0066` saves a few bytes on 
 - **The breakpoint** is cleared whenever the monitor is entered, whichever way; a breakpoint is for one `G`. It is the debug unit's breakpoint 0, not a byte in the program (section 8.8).
 - **`P` and the monitor's own registers.** The monitor changes the MMU and CPUSPEED for itself, so `P` on the MMU registers (`0x8000`–`0x9F00`) and CPUSPEED (`0x7700`) reads and writes the program's copy, which `G` puts back.
 - **Tab or EDIT on an empty command line** plays ticket #21's tape loader demo (`tape.asm`) on the border and the beeper. It is not a command letter, so the shared command table is unchanged.
+- **F1 or GRAPH on an empty command line** runs ticket #31's sprite demo (`sprdemo.asm`, in ROM page 3, mapped into window 2 while it runs): eight Amiga "Boing" balls, red and white checkered spheres drawn into SRAM pages `0x0FC`–`0x0FD` by code at the start, that spin by palette cycling (SPRPALETTE) and bounce with gravity over ticket #14's tile scroller on L0, squashed or zoomed by SPRxSTEP, some in front of L0 and some behind it, the background (BGCOLOR) flashing when two touch (SPRCOLL). Its VBLANK handler (IM 2 through the demo's own table) writes every sprite's registers each frame, CTL last. BREAK (or Esc) ends it: the console is rebuilt on L0, the ROM's interrupt table and windows 5–7 are as they were. Like Tab, F1 is not a command letter.
 - **What D, V and S print, and how far Enter carries on,** are in the shared spec (sections 2.3 and 4.1); this ROM follows them.
 - **Commands not built yet** (`I T U L B X`, section 11) answer `? not yet: a later ticket`: the shared spec's `? not yet` (section 2.3), with the reason after it.
 
@@ -631,7 +632,7 @@ The ROM is built in this order, each step a ticket:
 | B3 | BASIC's memory map: pages `0x0F8`–`0x0FB` (32 KB) at `0x2000`–`0x9FFF`, leaving `0x8000`–`0xFFFF` with a 24 KB image. To confirm with the BASIC tickets (design plan, branch 13) |
 | B4 | The key codes 130–139 and 145–156 are those BBC BASIC's line editor is believed to expect (Dean Belfield's ports); check against the host layer before it is written |
 | B5 | Taking the screen at a break leaves sprites, L1, L2 and the DMA engine running; whether the monitor should also pause them (and which of their registers read back, spec 4) |
-| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the monitor 5.0 KB: the rest of start-up, the entry, the command line and the commands; the self-test 0.9 KB; the tape demo 0.1 KB); page 2 2.7 KB (the font 2 KB, the help 0.7 KB); page 3 empty. 11.6 KB of the 32 in all. After ticket #23: page 2 5.5 KB (adding the disassembler 1.8 KB, `I` 0.3 KB, `T` 0.7 KB and two help lines, 2.9 KB in all), 2.5 KB of page 2 left; 14.6 KB of the 32 in all, 17.4 KB left (page 0 5.1 KB, page 1 1.9 KB, page 2 2.5 KB, page 3 8 KB) |
+| B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the monitor 5.0 KB: the rest of start-up, the entry, the command line and the commands; the self-test 0.9 KB; the tape demo 0.1 KB); page 2 2.7 KB (the font 2 KB, the help 0.7 KB); page 3 empty. 11.6 KB of the 32 in all. After ticket #23: page 2 5.5 KB (adding the disassembler 1.8 KB, `I` 0.3 KB, `T` 0.7 KB and two help lines, 2.9 KB in all), 2.5 KB of page 2 left; 14.6 KB of the 32 in all, 17.4 KB left (page 0 5.1 KB, page 1 1.9 KB, page 2 2.5 KB, page 3 8 KB). After ticket #31 (and #27, #28): page 0 2.9 KB, page 1 6.6 KB, page 2 5.7 KB, page 3 3.0 KB (the NMI page 0.25 KB, the sprite demo 2.8 KB with its IM 2 table); 18.7 KB of the 32 in all, 13.3 KB left (page 0 5.1 KB, page 1 1.4 KB, page 2 2.3 KB, page 3 5.0 KB) |
 | B7 | SRAM page 0 under the ROM and pages `0x0FC`–`0x0FD` are free; the ROM may later want them (for example for CP/M 3, design plan branch 7) |
 | B8 | CP/M 3 (later) has its own BIOS in place of the RST calls; how it sits with the boot ROM is for its own spec |
 | B9 | The console's state in the map's hidden columns relies on SCROLLX staying 0 for the console and on the fetcher never reading columns 96–127; spec 4's tile mode to confirm |

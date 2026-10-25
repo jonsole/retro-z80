@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Reference model of the video (spec 4) for the layers built so far (L0, a
-chunky bitmap or a tile map; tickets #13 and #14): replays every write the testbench logged,
-renders a frame and compares it pixel by pixel with the frame the
-simulation sent.
+chunky bitmap or a tile map; tickets #13 and #14) and the sprites (spec 5;
+ticket #31): replays every write the testbench logged, renders a frame and
+compares it pixel by pixel with the frame the simulation sent.
 
     vmodel.py DIR RAM.hex FRAME [OUT.png]
 
 DIR holds vlog.txt (every write to the video unit: frame, beam line, beam
 pixel, beam running, bus address, data), frame.ppm (beam frame FRAME, as
-sent) and vend.txt (VIDSTAT at the end). RAM.hex is the SRAM's contents
+sent) and vend.txt (VIDSTAT and SPRCOLL at the end). RAM.hex is the SRAM's contents
 ($readmemh words; the picture data does not change during the test).
 
 The model is written from the spec, not from the RTL:
@@ -35,7 +35,24 @@ The model is written from the spec, not from the RTL:
     MAPPT + (row x width + column) x 2; tile t's row at PATPT + 8dt + d x
     row, YFLIP picking row 7 - y, XFLIP pixel 7 - x; PAL added to PALOFS
     (mod 16) below 8 bits; MAPW and MAPH 3 as 128
-Exits 1 on any difference, an ambiguous write, or OVERRUN.
+  - sprites (spec 5, sections 3 and 4): every register write acts from the
+    next line (the test keeps them away from the line's end and start); a
+    CTL write starts a sprite, the vertical blank (beam line 0) stops them
+    all; at the start of each line a running sprite whose window covers it
+    shows, its image line moved on by YSTEP (k lines of wf words, not on
+    its first line or after a PT write); screen pixel i of the window shows
+    source pixel floor(i x XSTEP / 2048); the image is bytes at rising
+    addresses, the first pixel in the high bits; value 0 transparent; a
+    sprite started with its DMA off (SPRDMA) shows nothing; pixels before
+    beam pixel 144 or line 49 are not shown
+  - priority (spec 4, 4.8): from the back, BGCOLOR, DEPTH 3 sprites, PRIO's
+    BACK, DEPTH 2, MIDDLE, DEPTH 1, FRONT, PRI tile pixels, DEPTH 0; among
+    sprites of a DEPTH the lower number in front; sprites take SPRPALETTE,
+    or PALETTE0 with VIDCON.SHAREPAL
+  - collisions (spec 5, 3.6): over the frame's picture, sprite with sprite
+    and sprite with an opaque L0 pixel, whatever the depth; SPRCOLL at the
+    end is the frame's (the test starts sprites only in the frame checked)
+Exits 1 on any difference, an ambiguous write, OVERRUN or SPRUNDER.
 """
 import sys
 
@@ -94,6 +111,7 @@ def main():
     line_fx = []                       # (frame, line, register offset, value): line settings, in order
     pic_fx = []                        # (frame, line, "prio" / "bg", value)
     live = []                          # (frame, line, offset, value, write line): pointer and stride
+    spr_ev = []                        # (frame, line, offset, value): sprite registers, SPRDMA, from that line
     for n, row in enumerate(open(d + "/vlog.txt")):
         f, bv, bh, on, a, v = row.split()
         f, bv, bh, on, a, v = int(f), int(bv), int(bh), int(on), int(a, 16), int(v, 16)
@@ -133,6 +151,10 @@ def main():
                 cab[o - 0x004] = v
             else:
                 pic_fx.append(at + ("bg", (v << 16) | (cab[1] << 8) | cab[0]))
+        elif 0x010 <= o <= 0x08F or o in (0x120, 0x121):   # sprites, SPRDMA: from the next line
+            if bh <= 20 or bh >= 815:
+                errors.append("write %d (%03x) at beam pixel %d: too close to the line's end or start" % (n, o, bh))
+            spr_ev.append(nxt + (o, v))
         elif o == 0x000:                            # VIDCON: at once
             if f >= 0:
                 errors.append("a VIDCON write while the beam runs")
@@ -165,6 +187,83 @@ def main():
     tox = lambda v: 0 if v < X0 else W if v > HTOT else v - X0
     toy = lambda v: 0 if v < Y0 else H if v > VTOT else v - Y0
     fetched = {}                                     # (frame, line): the layer fetched on it
+    share = (vidcon >> 5) & 1
+    # The sprites: their registers as written (16 bytes each), and each one's state
+    SR = [[0] * 16 for _ in range(8)]
+    lst = [0] * 8
+    run, pend, fed, yf = [False] * 8, [False] * 8, [False] * 8, [0] * 8
+    sprdma, sprdma_w = 0xFF, 0
+    si = 0
+    spr_ev.sort(key=lambda e: (e[0], e[1]))
+    lim = lambda st: 0x800 if st == 0 else max(0x80, min(0x8000, st))
+    coll = 0
+    nspr = 0                                         # sprite pixels shown
+
+    def sprites_line(f, L):
+        """The sprites' events from line L of frame f, the vertical blank, and
+        each running sprite on line L: its pixels as {x: [(n, idx, depth)]}"""
+        nonlocal si, sprdma, sprdma_w
+        while si < len(spr_ev) and spr_ev[si][:2] <= (f, L):
+            o, v = spr_ev[si][2:]
+            si += 1
+            if o == 0x120:
+                sprdma_w = v
+            elif o == 0x121:
+                sprdma = (sprdma | sprdma_w) if v & 0x80 else (sprdma & ~sprdma_w & 0xFF)
+            else:
+                n, k = (o - 0x010) >> 4, (o - 0x010) & 15
+                SR[n][k] = v
+                if k <= 2:                          # PT: the next image line starts here
+                    sh = 8 * k
+                    lst[n] = (lst[n] & ~(0xFF << sh)) | ((v & (0xFE, 0xFF, 0x3F)[k]) << sh)
+                    pend[n] = False
+                if k == 11:                         # CTL: starts it
+                    run[n], pend[n], yf[n] = True, False, 0
+                    fed[n] = bool((sprdma >> n) & 1 and dmacon & 0x44 == 0x44)
+        if L == 0:
+            for n in range(8):
+                run[n] = False                      # the vertical blank stops every sprite
+        line = {}
+        for n in range(8):
+            if not run[n]:
+                continue
+            if fed[n] and not ((sprdma >> n) & 1 and dmacon & 0x44 == 0x44):
+                raise Fail(["sprite %d's DMA turned off while it runs (line %d): not modelled" % (n, L)])
+            r = SR[n]
+            hs = r[3] | ((r[4] & 7) << 8)
+            he = r[5] | ((r[6] & 7) << 8)
+            vs = r[7] | ((r[8] & 7) << 8)
+            ve = min(r[9] | ((r[10] & 7) << 8), 625)
+            b = r[11] & 3
+            lb = (2 if b == 3 else b) + 1
+            bpp = 1 << lb
+            depth, spal = (r[11] >> 2) & 3, r[11] >> 4
+            xst = lim(r[12] | (r[13] << 8))
+            yst = lim(r[14] | (r[15] << 8))
+            hs_c = min(hs, 864)
+            xe = max(min(he, 864), hs_c)
+            srcf = -(-(he - hs) * xst // 2048) if he > hs else 0
+            srcs = -(-(xe - hs_c) * xst // 2048)
+            wf = (srcf * bpp + 15) // 16
+            wv = min((srcs * bpp + 15) // 16, wf) if srcs else 0
+            if wv == 0 or not (vs <= L < ve):
+                continue
+            if pend[n]:
+                sm = yf[n] + (yst & 0x7FF)
+                yf[n] = sm & 0x7FF
+                lst[n] = (lst[n] + ((yst >> 11) + (sm >> 11)) * 2 * wf) & 0x3FFFFF
+            else:
+                yf[n] = 0
+            pend[n] = True
+            if f != G or L < Y0 or not fed[n]:
+                continue
+            for x in range(max(hs_c, X0), xe):
+                i = ((x - hs_c) * xst) >> 11
+                bo = i * bpp
+                v = (byte(lst[n] + (bo >> 3)) >> (8 - bpp - (bo & 7))) & ((1 << bpp) - 1)
+                if v:
+                    line.setdefault(x - X0, []).append((n, v if bpp == 8 else (spal << 4) | v, depth))
+        return line
 
     def take(f, L):
         """The effects that act from line L of frame f."""
@@ -197,6 +296,7 @@ def main():
     for f in range(0, G + 1):
         for L in range(VTOT):
             take(f, L)
+            sline = sprites_line(f, L)
             if f == 0 and L < 50:
                 continue                             # the beam starts at beam line 49, with no setup
             # The line's settings
@@ -236,7 +336,8 @@ def main():
                 shown = 0 in ((prio >> 4) & 3, (prio >> 2) & 3, prio & 3) and not vidcon & 4
                 for x in range(W):
                     col = bg
-                    if act and shown and xs_c <= x < xe_c and mode:
+                    lop, lidx, lpri = False, 0, False
+                    if act and xs_c <= x < xe_c and mode:
                         ty = (syt + srcn) % (8 * mh)
                         xm = (sxt + ((x - xs_c) >> hs)) % (8 * mw)
                         ea = mappt + ((ty >> 3) * mw + (xm >> 3)) * 2
@@ -247,16 +348,34 @@ def main():
                         b8 = byte(patpt + t * 8 * bpp + row * bpp + (bo >> 3))
                         v = (b8 >> (8 - bpp - (bo & 7))) & ((1 << bpp) - 1)
                         if not (transp and v == 0):
-                            col = pal[v if bpp == 8 else ((palofs + tpal) % 16) * 16 + v]
-                            nlay += 1
-                    elif act and shown and xs_c <= x < xe_c:
+                            lop, lidx, lpri = True, v if bpp == 8 else ((palofs + tpal) % 16) * 16 + v, bool(e >> 15)
+                    elif act and xs_c <= x < xe_c:
                         bo = (sx + ((x - xs_c) >> hs)) * bpp
                         a = wadd(ptr, 2 * (bo >> 4))
                         wv = (byte(a) << 8) | byte(a + 1)
                         v = (wv >> (16 - bpp - (bo & 15))) & ((1 << bpp) - 1)
                         if not (transp and v == 0):
-                            col = pal[v if bpp == 8 else palofs * 16 + v]
-                            nlay += 1
+                            lop, lidx = True, v if bpp == 8 else palofs * 16 + v
+                    here = sline.get(x, [])
+                    if len(here) > 1:
+                        for sn, _, _ in here:
+                            coll |= 1 << sn
+                    if lop:
+                        for sn, _, _ in here:
+                            coll |= 1 << (8 + sn)
+                    # back to front (spec 4, 4.8): DEPTH 3, BACK, DEPTH 2, MIDDLE, DEPTH 1, FRONT, PRI, DEPTH 0
+                    if not vidcon & 4:
+                        win = None
+                        for pl in (3, 2, 1, 0):
+                            for sn, sidx, sdep in reversed(here):
+                                if sdep == pl:
+                                    col, win = pal[(0 if share else 3) * 256 + sidx], "S"
+                            if pl > 0 and lop and ((prio >> (2 * (pl - 1))) & 3) == 0:
+                                col, win = pal[lidx], "L"
+                            if pl == 1 and lop and lpri and shown:
+                                col, win = pal[lidx], "L"
+                        nlay += win == "L"
+                        nspr += win == "S"
                     img[y * W + x] = col
             if act and not mode and groups > 0:
                 sval = stride - 0x10000 if stride & 0x8000 else stride
@@ -274,8 +393,14 @@ def main():
                     print("vmodel: pixel (%d, %d) is %06x, expected %06x" % (i % W, i // W, got[i], img[i]))
                 diffs += 1
     vend = dict(l.split() for l in open(d + "/vend.txt"))
-    if (int(vend["vidstat"]) >> 4) & 7:
-        print("vmodel: OVERRUN set: VIDSTAT %02x" % int(vend["vidstat"]))
+    if (int(vend["vidstat"]) >> 4) & 15:
+        print("vmodel: OVERRUN or SPRUNDER set: VIDSTAT %02x" % int(vend["vidstat"]))
+        diffs += 1
+    if spr_ev and int(vend.get("sprcoll", 0)) != coll:
+        print("vmodel: SPRCOLL is %08x, expected %08x" % (int(vend.get("sprcoll", 0)), coll))
+        diffs += 1
+    if spr_ev and nspr == 0:
+        print("vmodel: no sprite shows in the frame")
         diffs += 1
     if len(sys.argv) > 4:
         try:
@@ -288,7 +413,8 @@ def main():
     if nlay == 0:
         print("vmodel: L0 shows nothing in the frame")
         diffs += 1
-    print("vmodel: %d differences in %d x %d, beam frame %d; %d pixels from L0" % (diffs, W, H, G, nlay))
+    print("vmodel: %d differences in %d x %d, beam frame %d; %d pixels from L0, %d with sprites; SPRCOLL %08x"
+          % (diffs, W, H, G, nlay, nspr, coll))
     sys.exit(1 if diffs else 0)
 
 

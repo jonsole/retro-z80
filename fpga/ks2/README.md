@@ -82,8 +82,9 @@ The monitor (the shared spec `docs/spec/monitor.md`, sections 2–4; spec 16, se
 | Esc: drop the line, or stop `E`'s stepping | CAPS SHIFT + SPACE (BREAK), or the BREAK key |
 | The last line again | CAPS SHIFT + 7, or the cursor up key |
 | The tape loader demo (an empty line) | CAPS SHIFT + 1 (EDIT), or the EDIT key |
+| The sprite demo (an empty line) | CAPS SHIFT + 9 (GRAPH), or the GRAPH key |
 
-A key held for half a second repeats, ten times a second. A PS/2 keyboard types as on a PC (UK layout): Backspace, Esc, the cursor up key and Tab do the same.
+A key held for half a second repeats, ten times a second. A PS/2 keyboard types as on a PC (UK layout): Backspace, Esc, the cursor up key and Tab do the same, and F1 is GRAPH.
 
 Type these lines in turn (what you type follows `> `; the rest is what the monitor prints; the `R=` value and the bytes after `P7F0020` change from run to run):
 
@@ -230,6 +231,16 @@ Program ended.
 
 A watchpoint set by hand: DBGWP0's address `9000` (ports `0x3002` and `0x3102`: register × 256 + page `0x02`), its mask left at `FFFF`, and DBGWP0_CTL = `05` (EN and WRITE). The program `LD A,5A`, `LD (9000),A`, `RET` stops after the write, with the access. `P 3402 0` turns it off again; `G` goes on to the end. Other things to try: `P 3402 3` (EN and READ) with `E 8700 3A 00 90 C9` (`LD A,(9000)`) stops on the read; `P 3202 0` (mask `FF00`, the low byte 0) watches the whole page `90xx`.
 
+**The sprite demo** (issue #31): on an empty line, press **GRAPH** (CAPS SHIFT + 9, or the GRAPH key) or F1 on a PS/2 keyboard. The console goes and, after about half a second (while the balls are drawn), the screen shows:
+
+1. **The tile scroller** of issue #14 over the whole picture: blue, green, orange and purple F's (each the four ways round) and grey dots on a dark blue-grey background, scrolling one pixel right and down every frame, smoothly.
+2. **Eight Amiga "Boing" balls**, red and white checkered spheres, bouncing with gravity, each at its own height and speed, off the floor (the bottom of the picture) and the sides: one large shaded ball (8 bits a pixel, lit from the top left) shown twice its size, another 8-bit one, four 4-bit ones (two sizes) and two 2-bit ones (red, white and pink, smaller). **They spin** as the Amiga's did, by palette cycling: the checkers seem to roll across each ball, each 4-bit and 2-bit ball at its own rate and some the other way; nothing is redrawn.
+3. **Squash and zoom**: a ball that lands goes wider and lower for a few frames (SPRxSTEP); one ball (the third 4-bit one) keeps growing and shrinking.
+4. **Depth**: half the balls pass in front of the F's, half behind them (the F's cover them; the background shows through between the F's).
+5. **Collisions**: when two balls start to touch, the background **flashes light blue** for four frames.
+
+The balls move smoothly, 50 frames a second; none should flicker or vanish part way down (a sprite whose data came late would vanish until the next frame and set VIDSTAT.SPRUNDER). **BREAK** (CAPS SHIFT + SPACE) or Esc ends it: the console comes back as it was, with a new prompt.
+
 **The tape loader demo** (issue #21): on an empty line, press **EDIT** (CAPS SHIFT + 1, or the EDIT key) or Tab on a PS/2 keyboard. Plug headphones or an amplifier into the KS2's audio jack (the internal speaker, if fitted, plays the same in mono). For about 3.6 seconds the boot ROM plays a Spectrum loading a tape, writing port `0xFE` for every edge (border and beeper together):
 
 1. **Pilot, 1.5 s.** The border fills with **red and cyan stripes**, each about 19 picture lines tall, rolling slowly up or down, and the jack plays a steady **807 Hz tone** (the Spectrum's pilot, 2,168 T-states a half wave).
@@ -320,6 +331,8 @@ Issue #22 changed only the boot ROM (the monitor; the RTL is as issue #21 left i
 Issue #27 (the NMI, the NMI set of the interrupt pages and the stack capture): 5,487 LUTs (52.8%, 172 of them distributed RAM) and 3,792 flip-flops, timing met (+0.473 ns setup, +0.052 ns hold). `intpages.v` is 344 LUTs (48 as RAM) and 108 flip-flops; the MMU grew to 172 LUTs with its copy port and held-byte flags, and the bus interface to 815 LUTs with the response, capture and RETN watcher (spec 2, section 13 estimated 190–330 LUTs for both sets; spec 1, section 12, 40–80 for the bus interface's part).
 
 Issue #28 (the debug unit, spec 18): 5,774 LUTs (55.5%, 175 of them distributed RAM) and 4,042 flip-flops, timing met (+0.735 ns setup, +0.020 ns hold). `dbgunit.v` is 98 LUTs and 243 flip-flops; the bus interface grew from 815 to 923 LUTs with the breakpoint and watchpoint compares, the `NOP` at di and page `0x02`; the whole build grew by 287 LUTs and 250 flip-flops (spec 18 estimated 300–400 LUTs and 260–280 flip-flops). The breakpoint compare to the `NOP` flag has +1.6 ns to spare (open point DU5).
+
+Issue #31 (the sprites, spec 5, eight of them, `NSPRITES = 8`, and SPRPALETTE): 8,417 LUTs (80.9%, 533 of them distributed RAM) and 5,895 flip-flops, timing met (+0.198 ns setup, +0.061 ns hold). The video unit is 3,821 LUTs: `sprites.v` (registers, sizes, fetcher, deadlines, the eight 32-word FIFOs in distributed RAM) 1,563 LUTs and 1,009 flip-flops, the eight `sprite_pix.v` units 77–104 LUTs each (740 in all), and the mixing by DEPTH, the collisions and the crossings the rest. The build grew by 2,643 LUTs and 1,853 flip-flops (spec 5, section 8 estimated about 3,000 LUTs). Eight sprites fit, so the KS2 builds all eight; 1,983 LUTs are left. The boot ROM uses 18.7 KB of its 32 KB.
 
 Issue #17 alone (on issue #13's build) came to 3,658 LUTs and 2,712 flip-flops: `timers.v` is about 460 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to about 540 LUTs with the capture. The tile mode (issue #14) adds about 470 LUTs and 430 flip-flops, nearly all in the layer fetcher (`bpldma.v`: 453 LUTs and 552 flip-flops before, 739 and 860 with it). The input units (issue #19) add about 530 LUTs and 570 flip-flops: `ps2kb.v` 163 LUTs and 123 flip-flops, `ps2map.v` 38 and 75, `keys.v` 139 and 259, `joy.v` 66 and 99 (spec 12 estimated 400–630 LUTs), and the bus interface grew by about 120 LUTs with the wider read-data OR. Port `0xFE` writes (issue #21) add about 150 LUTs and 55 flip-flops: `audio.v` is 76 LUTs and 47 flip-flops (synthesis shares the three modulators, whose inputs are the same while the beeper is the only source; spec 7 estimated about 280 LUTs for three), the rest the border's decode, crossing and colour in `video.v`. The tables are the build with all of them.
 

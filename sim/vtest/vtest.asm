@@ -1,4 +1,4 @@
-; Video test ROM (spec 4; ticket #13): the frame is cut into bands, each
+; Video test ROM (spec 4; tickets #13, #14 and #31): the frame is cut into bands, each
 ; showing L0 with other settings (depth, scale, window, fine scroll,
 ; stride, wrap, TRANSP, PALOFS) over random picture data that vgen.py put
 ; in the SRAM. vgen.py writes the bands as straight-line code (vbands.inc),
@@ -13,6 +13,11 @@
 ; page, then 32 entries through PALDAT from PALETTE0's entry 240 on, so the
 ; index steps on into PALETTE1, and SPRPALETTE's first entries through the
 ; register page (the model checks L0 uses PALETTE0 only).
+;
+; The sprite screens (ticket #31; vgen.py s, h and q) use the same frame
+; code: vbands.inc writes L0 and every sprite's registers in the vertical
+; blank (CTL last), then changes sprites, L0 and PRIO at set lines while
+; they are drawn; setup writes the rest of SPRPALETTE.
 ;
 ; Assemble: sjasmplus -I firmware/include -I <dir of vbands.inc> --raw=vtest.bin vtest.asm
 
@@ -59,6 +64,7 @@ W3      equ     0x6000                  ; window 3: the register page
         ld      de,W3+REGS_SPRPALETTE
         ld      bc,16*3
         ldir
+        call    setup                   ; the variant's own (vbands.inc): the sprite screens' SPRPALETTE
 
         ; ---- the rest: background, fetch on, beam on
         ld      hl,bgtab
@@ -74,10 +80,10 @@ W3      equ     0x6000                  ; window 3: the register page
         ld      a,(hl)
         out     (c),a
         ld      bc,DMACON_P
-        ld      a,DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M
+        ld      a,DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M | DMACON_SPREN_M
         out     (c),a
         ld      bc,VIDCON_P
-        ld      a,VIDCON_EN_M
+        ld      a,VIDCON_VAL            ; vbands.inc: EN, and SHAREPAL for one sprite screen
         out     (c),a
 
         ld      hl,0x8000               ; dly's SRAM byte: window 4, SRAM page 2

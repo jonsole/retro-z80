@@ -9,20 +9,24 @@
 // PAL, XFLIP, YFLIP, PRI), fetched just in time by bpldma.v through the
 // scheduler (dmac.v), shown by layer_pix.v. NL sets how many layers are
 // built (1-3): the registers of layers not built read 0xFF and PRIO naming
-// them shows nothing. Not yet: sprites, direct colour (VIDCON.DIRECT is
-// kept and read back), the attribute layer, LINECMP, the LINE and VIDERR
-// requests, BEAMPOS and FRAMECOUNT. Ticket #16 added VIDINTEN and the
-// request line to the interrupt controller (VBLANK); ticket #21 the border
-// from port 0xFE writes.
+// them shows nothing. Not yet: direct colour (VIDCON.DIRECT is kept and
+// read back), the attribute layer, LINECMP, the LINE request, BEAMPOS and
+// FRAMECOUNT. Ticket #16 added VIDINTEN and the request line to the
+// interrupt controller (VBLANK); ticket #21 the border from port 0xFE
+// writes. Ticket #31 added the sprites (spec 5; sprites.v, sprite_pix.v; NS
+// of them built), their place among the layers by DEPTH, SPRPALETTE and
+// the collisions, VIDSTAT.SPRUNDER and the VIDERR request.
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
 //                    DIRECT (4) kept; SHAREPAL (5) all layers on PALETTE0
-//   VIDSTAT   0x001  VBLANK (0), OVERRUN0-2 (4-6): sticky, write 1 to clear;
-//                    INVBLANK (3), live
+//   VIDSTAT   0x001  VBLANK (0), OVERRUN0-2 (4-6), SPRUNDER (7): sticky,
+//                    write 1 to clear; INVBLANK (3), live
 //   VIDINTEN  0x002  enables for VIDSTAT's flags, bits 0-2 and 4-7 (bit 3
-//                    reads 0); irq is on while VBLANK and its enable are
-//                    (spec 4, section 3.4; spec 8: VBLANK is source 0)
+//                    reads 0); irq is on while VBLANK and its enable are,
+//                    irq_err while OVERRUN0-2 or SPRUNDER and its enable
+//                    are (spec 4, section 3.4; spec 8: VBLANK is source 0,
+//                    VIDERR source 3)
 //   PRIO      0x003  FRONT, MIDDLE, BACK; reset 0x24
 //   BGCOLOR   0x004  blue, green, red; the red byte commits (spec 3, rule 7)
 //   port 0xFE        (register 0x00FE) writes: bits 2-0 set BGCOLOR to a
@@ -31,6 +35,7 @@
 //   PALIDX    0x009  entry (7-0), palette (9-8)
 //   PALDAT    0x00B  blue, green, red of the entry at PALIDX
 //   DMACON    0x00C  set/clear: DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN
+//   sprites   0x010 + n x 0x10, SPRDMA 0x120, SPRCOLL 0x124: in sprites.v
 //   layers    0x090 + n x 0x20: CTRL0-CTRL3, WINX, WINY, SCROLLX, SCROLLY
 //                    here; BPLSTRIDE, BPL0PT, MAPPT and PATPT in bpldma.v
 //   VIDSIZE   0x0F6  720 x 576, read only
@@ -47,8 +52,9 @@
 //   clk_pix5 135 MHz: the fast synchroniser of "full" (layer_pix.v)
 // Crossings as retro68k: events are toggles through two flip-flops; the
 // data registers cross under the full/taken handshake (bpldma.v,
-// layer_pix.v); the beam line is sampled on the system side until two
-// samples agree; the layer settings, PRIO and BGCOLOR are settings, copied
+// layer_pix.v); the beam (line and pixel) is sampled on the system side
+// until two samples agree; the sprites' FIFOs cross with Gray-coded
+// pointers and their flushes with a toggle handshake (sprites.v); the layer settings, PRIO and BGCOLOR are settings, copied
 // into the pixel domain once per line (a write that lands exactly on that
 // copy may take effect one line later); a port 0xFE border write crosses as
 // a toggle at 135 MHz, as "full", with its 3-bit colour beside it; the
@@ -56,7 +62,8 @@
 `include "regmap.vh"
 
 module video #(
-    parameter NL = 1                   // layers built (1-3)
+    parameter NL = 1,                  // layers built (1-3)
+    parameter NS = 8                   // sprites built (1-8)
 ) (
     input  wire        clk,            // 100 MHz
     input  wire        rst,
@@ -67,10 +74,13 @@ module video #(
     input  wire [7:0]  rb_wdata,
     output wire [7:0]  rb_rdata,
     output wire        rb_hit,         // with rb_rdata: this unit answered
+    output wire [31:0] rb_cdata,       // with rb_rdata: SPRxPT whole, for the CPU's capture
+    output wire        rb_cap,
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
     output wire        line_tick,      // 1 clock (100 MHz) at the start of each beam line (timers, #17)
     output wire        irq,            // to the interrupt controller: source VBLANK (0)
+    output wire        irq_err,        // ... and source VIDERR (3)
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -80,6 +90,14 @@ module video #(
     input  wire        disp_ack,
     input  wire        disp_rvalid,
     input  wire [15:0] disp_rdata,
+
+    // The scheduler's sprite channel (the same read data)
+    output wire        spr_req,
+    output wire        spr_urgent,
+    output wire [9:0]  spr_deadline,
+    output wire [21:1] spr_addr,
+    input  wire        spr_ack,
+    input  wire        spr_rvalid,
 
     input  wire        clk_pix,        // 27 MHz
     input  wire        clk_pix5,       // 135 MHz, edges lined up with clk_pix's
@@ -109,6 +127,7 @@ module video #(
     reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
     reg         vs_vblank;             // VIDSTAT.VBLANK
     reg  [2:0]  vs_over;               // VIDSTAT.OVERRUN0-2
+    reg         vs_sprunder;           // VIDSTAT.SPRUNDER
     reg  [5:0]  prio;
     reg  [7:0]  vidinten;              // VIDINTEN; bit 3 always 0
     reg  [23:0] bgcolor;               // RRGGBB
@@ -136,13 +155,14 @@ module video #(
     wire        sel_lay = (rb_addr[12:8] == 5'h10) && (rb_addr[7:0] >= 8'h90) && ({1'b0, ll[7:5]} < NL)
                           && (lo <= 5'h0F);
 
-    // From the pixel domain: the beam line, sampled until two samples agree
-    reg  [10:0] p_vline;
-    reg  [10:0] bs1, bs2, s_vline;
+    // From the pixel domain: the beam line and pixel, sampled until two samples agree
+    reg  [10:0] p_vline, p_hpix;
+    reg  [21:0] bs1, bs2;
+    reg  [10:0] s_vline, s_hpix;
     always @(posedge clk) begin
-        bs1 <= p_vline;
+        bs1 <= {p_vline, p_hpix};
         bs2 <= bs1;
-        if (bs1 == bs2) s_vline <= bs2;
+        if (bs1 == bs2) {s_vline, s_hpix} <= bs2;
     end
     wire invblank = (s_vline < BV0);
 
@@ -160,7 +180,15 @@ module video #(
     (* ASYNC_REG = "TRUE" *) reg [2:0] ov_s1, ov_s2;
     reg  [2:0] ov_s3;
 
-    assign irq = vs_vblank && vidinten[`RM_VIDINTEN_VBLANK];
+    assign irq     = vs_vblank && vidinten[`RM_VIDINTEN_VBLANK];
+    assign irq_err = |({vs_sprunder, vs_over} & vidinten[7:4]);
+    wire [7:0] p_un;                // the sprites' underrun toggles (pixel side)
+    (* ASYNC_REG = "TRUE" *) reg [1:0] un_s;
+    reg        un_s3;
+    always @(posedge clk) begin
+        un_s  <= {un_s[0], ^p_un};
+        un_s3 <= un_s[1];
+    end
     always @(posedge clk) begin
         ov_s1 <= ov_t;
         ov_s2 <= ov_s1;
@@ -211,6 +239,7 @@ module video #(
             vidcon    <= 6'd0;
             vs_vblank <= 1'b0;
             vs_over   <= 3'd0;
+            vs_sprunder <= 1'b0;
             prio      <= 6'b10_01_00;      // L0 in front, then L1, then L2
             vidinten  <= 8'd0;
             bgcolor   <= 24'd0;
@@ -227,11 +256,13 @@ module video #(
         end else begin
             if (frame_tick) vs_vblank <= 1'b1;
             for (i = 0; i < 3; i = i + 1) if (ov_ev[i]) vs_over[i] <= 1'b1;
+            if (un_s3 != un_s[1]) vs_sprunder <= 1'b1;
             if (rb_wr) case (rb_addr)
                 `RM_VIDCON:   vidcon <= {rb_wdata[5:4], 1'b0, rb_wdata[2], 1'b0, rb_wdata[0]};
                 `RM_VIDSTAT:  begin
                     if (rb_wdata[`RM_VIDSTAT_VBLANK]) vs_vblank <= 1'b0;
                     vs_over <= vs_over & ~rb_wdata[6:4];
+                    if (rb_wdata[`RM_VIDSTAT_SPRUNDER]) vs_sprunder <= 1'b0;
                 end
                 `RM_VIDINTEN: vidinten <= rb_wdata & 8'hF7;
                 `RM_PRIO:     prio <= rb_wdata[5:0];
@@ -307,7 +338,7 @@ module video #(
         reg_hit <= rb_rd && (sel_glob || sel_lay);
         if (rb_rd) case (rb_addr)
             `RM_VIDCON:   reg_q <= {2'd0, vidcon};
-            `RM_VIDSTAT:  reg_q <= {1'b0, vs_over, invblank, 2'd0, vs_vblank};
+            `RM_VIDSTAT:  reg_q <= {vs_sprunder, vs_over, invblank, 2'd0, vs_vblank};
             `RM_VIDINTEN: reg_q <= vidinten;
             `RM_PRIO:     reg_q <= {2'd0, prio};
             `RM_BGCOLOR0: reg_q <= bgcolor[7:0];
@@ -379,10 +410,10 @@ module video #(
     wire [7:0] pal_byte = !pal_hit ? 8'd0 :
                           (pr_b == 2'd0) ? pal_qa[7:0] : (pr_b == 2'd1) ? pal_qa[15:8] : pal_qa[23:16];
 
-    wire [7:0] dma_q;
-    wire       dma_hit;
-    assign rb_rdata = reg_q | dma_q | pal_byte;
-    assign rb_hit   = reg_hit | dma_hit | pal_hit;
+    wire [7:0] dma_q, spr_q;
+    wire       dma_hit, spr_hit;
+    assign rb_rdata = reg_q | dma_q | spr_q | pal_byte;
+    assign rb_hit   = reg_hit | dma_hit | spr_hit | pal_hit;
 
     // ================================================================ pixel domain
     reg [1:0] rst_p;
@@ -440,6 +471,7 @@ module video #(
         fe_seen <= fe_s[1];
         if (fe_ev) bg_l <= fe_rgb;     // a port 0xFE write: kept for the rest of the line
         p_vline <= bv;
+        p_hpix  <= bh;
         if (prst)
             p_vb_t <= 1'b0;
         else if (en_p && bh == 11'd0 && bv == 11'd0)   // the frame starts: (0, 0)
@@ -592,6 +624,80 @@ module video #(
         .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
 
+    // ---- sprites (spec 5): the fetcher and FIFOs (100 MHz), and a unit per sprite
+    wire [79:0] sp_hs, sp_xe;
+    wire [7:0]  sp_act;
+    wire [15:0] sp_lb, sp_depth;
+    wire [127:0] sp_xstep;
+    wire [7:0]  sp_dma;
+    wire [31:0] sp_pal;
+    wire [39:0] sp_ra;
+    wire [127:0] sp_rd;
+    wire [47:0] sp_wpg, sp_rpg;
+    wire [7:0]  sp_fl, sp_fla;
+    reg  [31:0] coll_acc, coll_line;
+    reg         coll_t;
+    sprites #(.NS(NS)) spr (
+        .clk(clk), .rst(rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(spr_q), .rb_hit(spr_hit), .rb_cdata(rb_cdata), .rb_cap(rb_cap),
+        .dma_on(vidcon[0] && dmacon[6] && dmacon[2]), .vblank(frame_tick), .beam_v(s_vline), .beam_h(s_hpix),
+        .mem_req(spr_req), .mem_addr(spr_addr), .mem_deadline(spr_deadline), .mem_urgent(spr_urgent),
+        .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
+        .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
+        .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),
+        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp_g(sp_rpg), .flush_t(sp_fl), .flush_ack_t(sp_fla),
+        .coll_line(coll_line), .coll_t(coll_t)
+    );
+
+    // A sprite's line is a beam line: from the start of its horizontal blank
+    // (beam pixel 0); its settings are taken at beam pixel 12, after the
+    // sprite side's line-start pass (so HSTART must be 16 or more)
+    reg  [7:0]  c_sact, c_sdma;
+    reg  [9:0]  c_shs [0:7], c_sxe [0:7];
+    reg  [1:0]  c_slb [0:7], c_sdep [0:7];
+    reg  [15:0] c_sxs [0:7];
+    reg  [3:0]  c_spal [0:7];
+    always @(posedge clk_pix) if (hc == HVIS + 11'd12 || !en_p) begin : sset
+        integer n;
+        for (n = 0; n < 8; n = n + 1) begin
+            c_sact[n]  <= en_p && sp_act[n];
+            c_shs[n]   <= sp_hs[10*n +: 10];
+            c_sxe[n]   <= sp_xe[10*n +: 10];
+            c_slb[n]   <= sp_lb[2*n +: 2];
+            c_sxs[n]   <= sp_xstep[16*n +: 16];
+            c_sdep[n]  <= sp_depth[2*n +: 2];
+            c_spal[n]  <= sp_pal[4*n +: 4];
+            c_sdma[n]  <= sp_dma[n];
+        end
+    end
+
+    wire [9:0]  st_now = bh[9:0];
+    wire [7:0]  s_op;                  // stage 1: each sprite's pixel
+    wire [7:0]  s_idx [0:7];
+    genvar sg;
+    generate for (sg = 0; sg < 8; sg = sg + 1) begin : sprs
+        if (sg < NS) begin : on
+        wire [5:0] rpb;
+        assign sp_ra[5*sg +: 5] = rpb[4:0];
+        sprite_pix u (
+            .clk_pix(clk_pix), .en(en_p), .t(st_now),
+            .act(c_sact[sg]), .hs(c_shs[sg]), .xe(c_sxe[sg]), .lb(c_slb[sg]),
+            .xstep(c_sxs[sg]), .pal(c_spal[sg]), .dma(c_sdma[sg]),
+            .head(sp_rd[16*sg +: 16]), .rp(rpb), .rp_g(sp_rpg[6*sg +: 6]), .wp_g(sp_wpg[6*sg +: 6]),
+            .flush_t(sp_fl[sg]), .flush_ack_t(sp_fla[sg]),
+            .opaque(s_op[sg]), .idx(s_idx[sg]), .underrun_t(p_un[sg])
+        );
+        end else begin : off               // not built: never started, never shown
+            assign sp_ra[5*sg +: 5]  = 5'd0;
+            assign sp_rpg[6*sg +: 6] = 6'd0;
+            assign sp_fla[sg]        = sp_fl[sg];
+            assign s_op[sg]          = 1'b0;
+            assign s_idx[sg]         = 8'd0;
+            assign p_un[sg]          = 1'b0;
+        end
+    end endgenerate
+
     // ---- layer units: their output is stage 1
     wire [3:0]  bl_op;                 // padded to 4: PRIO value 3 names no layer
     wire [3:0]  bl_pri;
@@ -634,30 +740,60 @@ module video #(
     reg        opaque2, opaque3;
     reg [23:0] pal_q3;
 
+    // Collisions (spec 5, section 3.6): gathered over a line, handed to the
+    // 100 MHz side at the start of the next (beam pixel 8)
+    always @(posedge clk_pix) begin : collide
+        integer n, k;
+        reg [3:0] c;
+        reg [31:0] h;
+        c = 4'd0;
+        for (n = 0; n < 8; n = n + 1) c = c + {3'd0, s_op[n]};
+        h = 32'd0;
+        if (c > 4'd1) h[7:0] = s_op;
+        for (k = 0; k < 3; k = k + 1) if (bl_op[k]) h[8*(k+1) +: 8] = s_op;
+        if (!vis_d[0]) h = 32'd0;                // on the picture only
+        if (!en_p) begin
+            coll_acc <= 32'd0;
+            coll_t   <= 1'b0;
+        end else if (hc == HVIS + 11'd8) begin
+            coll_line <= coll_acc | h;
+            coll_acc  <= 32'd0;
+            coll_t    <= ~coll_t;
+        end else
+            coll_acc <= coll_acc | h;
+    end
+
     always @(posedge clk_pix) begin
         vis_d <= en_p ? {vis_d[1:0], vis0} : 3'd0;     // the beam stopped: the picture ends at once
         hs_d  <= {hs_d[1:0], hs0};
         vs_d  <= {vs_d[1:0], vs0};
-        // 2: the front-most opaque layer (section 4.8): PRIO's FRONT, then
-        // MIDDLE, then BACK; 3 (or a layer not built) names no layer. Tile
-        // pixels with PRI go in front of all of them, among themselves in
-        // PRIO's order. Its palette goes with its index; with
-        // VIDCON.SHAREPAL, PALETTE0 for all.
+        // 2: the front-most opaque layer or sprite (section 4.8; spec 5,
+        // 3.5). From the back: sprites of DEPTH 3, PRIO's BACK, DEPTH 2,
+        // MIDDLE, DEPTH 1, FRONT, tile pixels with PRI (among themselves in
+        // PRIO's order), DEPTH 0. PRIO value 3 (or a layer not built) names
+        // no layer. Among sprites of a DEPTH the lower number is in front.
+        // The winner's palette goes with its index: the layer's own, or
+        // SPRPALETTE (3); with VIDCON.SHAREPAL, PALETTE0 for all.
         begin : pix
-            integer p;
+            integer p, n, q;
             reg       any;
             reg [7:0] fix;
             reg [1:0] l, fpal;
             any  = 1'b0;
             fix  = 8'd0;
             fpal = 2'd0;
-            for (p = 2; p >= 0; p = p - 1) begin
-                l = prio_l[2*p +: 2];
-                if (bl_op[l]) begin any = 1'b1; fix = bl_idx[8*l +: 8]; fpal = l; end
-            end
-            for (p = 2; p >= 0; p = p - 1) begin
-                l = prio_l[2*p +: 2];
-                if (bl_op[l] && bl_pri[l]) begin fix = bl_idx[8*l +: 8]; fpal = l; end
+            for (p = 3; p >= 0; p = p - 1) begin
+                for (n = 7; n >= 0; n = n - 1)
+                    if (s_op[n] && c_sdep[n] == p[1:0]) begin any = 1'b1; fix = s_idx[n]; fpal = 2'd3; end
+                if (p > 0) begin
+                    l = prio_l[2*(p-1) +: 2];
+                    if (bl_op[l]) begin any = 1'b1; fix = bl_idx[8*l +: 8]; fpal = l; end
+                end
+                if (p == 1)
+                    for (q = 2; q >= 0; q = q - 1) begin
+                        l = prio_l[2*q +: 2];
+                        if (bl_op[l] && bl_pri[l]) begin any = 1'b1; fix = bl_idx[8*l +: 8]; fpal = l; end
+                    end
             end
             opaque2 <= any;
             pidx2   <= {vidcon[5] ? 2'd0 : fpal, fix};

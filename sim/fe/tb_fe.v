@@ -88,10 +88,12 @@ module tb_fe;
     video #(.NL(1)) vid (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_vid), .rb_hit(hit_vid),
-        .frame_tick(), .line_tick(), .irq(),
+        .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(), .rb_cap(),
+        .frame_tick(), .line_tick(), .irq(), .irq_err(),
         .disp_req(), .disp_urgent(), .disp_deadline(), .disp_addr(),
         .disp_ack(1'b0), .disp_rvalid(1'b0), .disp_rdata(16'd0),
+        .spr_req(), .spr_urgent(), .spr_deadline(), .spr_addr(),
+        .spr_ack(1'b0), .spr_rvalid(1'b0),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5),
         .rgb(rgb), .hsync(hs), .vsync(vs), .de(de)
     );

@@ -31,9 +31,13 @@
 #   make failshow   the boot ROM built to report check 45 as failed: the
 #                   screen shows it as 5 white stripes on red (60 ms of
 #                   simulated time, a few minutes; not part of make all)
-#   make vtest      the video test: L0 bitmaps in bands of different settings,
-#                   checked pixel by pixel against a Python model (about 5
-#                   minutes for each variant; not part of make all)
+#   make vtest      the video test: L0 bitmaps and tile maps in bands of
+#                   different settings (VTESTS=a t b), and the sprite screens
+#                   (VTESTS=q s h), checked pixel by pixel against a Python
+#                   model, in Verilator (about a minute a variant; not part
+#                   of make all; CI runs s and h)
+#   make boing      the sprite demo started from the monitor (F1), a frame
+#                   of it grabbed (build/boing/boing.png; ten minutes)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -61,7 +65,7 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing lint zexhello zexdoc zexall zexsyshello zexsys clean
 all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds zexhello zexsyshello
 
 $(BUILD):
@@ -96,11 +100,11 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
-                 selftest.asm tape.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc
+                 selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc
 
 # The simulations' boot ROM looks for the start-up keys for 1 ms in place of
 # 250 (KEYWAIT), which Icarus would take over an hour to get through
@@ -184,23 +188,43 @@ failshow: $(BUILD)/tb.vvp $(BUILD)/bootfail.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=bootfail.hex +failshow=45 +timeout=70000 | tee failshow.log
 	@grep -q "^TEST PASSED" $(BUILD)/failshow.log
 
+# The system testbench in Verilator (--timing, so tb.v's delays and pixel
+# clocks run as in Icarus), for the long video runs: about 20 times faster
+# than Icarus (ticket #31)
+VL_TB := $(BUILD)/vl_tb/vtb
+$(VL_TB): $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
+	$(VERILATOR) --binary --timing -Wall -Wno-fatal $(VL_OPT) -DTV80_REFRESH -I$(RTL) --top-module tb \
+	    --Mdir $(BUILD)/vl_tb -o vtb $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) > $(BUILD)/vl_tb.log
+
 # The video test (spec 4, ticket #13): vtest/vgen.py makes bands of L0
 # settings, a palette and random picture data; vtest/vtest.asm writes them,
 # band by band, timed from each frame's start; tb.v logs the writes and grabs
 # beam frame 1; vtest/vmodel.py replays the writes and checks every pixel.
-# Variant a is a fixed set of bands, the others random. The variants run in
-# parallel with make -j.
+# Variant a is a fixed set of bands, t tile maps, the others random. The
+# sprite screens (ticket #31): s retro68k's spr screen, h the same with
+# VIDCON.SHAREPAL, q a quick one (four sprites, set in the vertical blank
+# only: the one to run locally). In the Verilator testbench, about a minute
+# each (CI runs s and h); the variants run in parallel with make -j.
 VTESTS ?= a t b
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
 
-$(BUILD)/vtest_%.ok: $(BUILD)/tb.vvp vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
+$(BUILD)/vtest_%.ok: $(VL_TB) vtest/vtest.asm vtest/vgen.py vtest/vmodel.py $(INC)/hw.inc
 	@d=$(BUILD)/vtest_$*; rm -f $@; mkdir -p $$d; \
 	$(PYTHON) vtest/vgen.py $* $$d && \
 	$(SJASMPLUS) --nologo -I $(INC) -I $$d --raw=$$d/vtest.bin vtest/vtest.asm && \
 	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/vtest.bin $$d/vtest.hex && \
-	(cd $$d && $(VVP) -n ../tb.vvp +rom=vtest.hex +ram=ram.hex +frame=1 +dma +timeout=60000 > sim.log); \
+	(cd $$d && ../vl_tb/vtb +rom=vtest.hex +ram=ram.hex +frame=1 +dma +timeout=60000 > sim.log); \
 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 25 $$d/sim.log; exit 1; }; \
 	$(PYTHON) vtest/vmodel.py $$d $$d/ram.hex 1 $$d/model.png && touch $@
+
+# The sprite demo (ticket #31) from the monitor: F1 on the PS/2 keyboard,
+# then a frame of it grabbed into build/boing/frame.ppm and boing.png. Ten
+# minutes or so; not part of make all
+boing: $(VL_TB) $(BUILD)/boot.hex
+	@d=$(BUILD)/boing; mkdir -p $$d; cp $(BUILD)/boot.hex $$d/; \
+	(cd $$d && ../vl_tb/vtb +rom=boot.hex +hello +boing +timeout=900000 > sim.log); \
+	tail -n 20 $$d/sim.log; grep -q "^TEST PASSED" $$d/sim.log && \
+	$(PYTHON) vtest/ppm2png.py $$d/frame.ppm $$d/boing.png
 
 lint:
 	sh $(ROOT)/fpga/lint.sh
@@ -366,9 +390,9 @@ bootkeys: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 .PHONY: fe
 all: fe
 
-$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v audio.v regmap.vh) | $(BUILD)
+$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v regmap.vh) | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v \
-	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v audio.v)
+	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v)
 
 fe: $(BUILD)/tb_fe.vvp
 	cd $(BUILD) && $(VVP) -n tb_fe.vvp | tee fe.log

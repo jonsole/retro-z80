@@ -843,11 +843,12 @@ module tb #(
     // Beam frames, counted at the beam's (0, 0) as the video unit counts them
     integer vfr = 0;
     always @(posedge clk_pix) if (dut.vid.en_p && dut.vid.bh == 11'd0 && dut.vid.bv == 11'd0) vfr = vfr + 1;
-    // Every write to the video unit (custom page 0x10, the register page
-    // palettes), with the beam position at the time: "frame line pixel on\n    // address data" (on: the beam was running)
+    // Every write to the video unit (custom page 0x10, SPRDMA and SPRCOLL,
+    // the register page palettes), with the beam position at the time: "frame line pixel on\n    // address data" (on: the beam was running)
     integer vlog = 0, grab = -1;
     initial if ($value$plusargs("frame=%d", grab)) vlog = $fopen("vlog.txt", "w");
-    always @(posedge clk) if (vlog != 0 && dut.rb_wr && (dut.rb_addr[12:8] == 5'h10 || dut.rb_addr >= 13'h1400))
+    always @(posedge clk) if (vlog != 0 && dut.rb_wr && (dut.rb_addr[12:8] == 5'h10 || dut.rb_addr >= 13'h1400 ||
+                                                     (dut.rb_addr >= 13'h1120 && dut.rb_addr <= 13'h1127)))
         $fwrite(vlog, "%0d %0d %0d %0d %h %h\n", vfr, dut.vid.bv, dut.vid.bh, dut.vid.en_p, dut.rb_addr, dut.rb_wdata);
     // Frame grab: the picture of beam frame G, in the order it is sent. The
     // output lags the beam by the pipeline, so frames are counted here at
@@ -857,7 +858,7 @@ module tb #(
     integer     fbn = 0, ofr = 0;
     reg         ovs_d = 1'b1;
     always @(posedge clk_pix) begin
-        if (ovs_d && !vvs) ofr = ofr + 1;
+        if (ovs_d && !vvs && dut.vid.en_p) ofr = ofr + 1;   // (not at time 0: Verilator starts vsync at 0)
         ovs_d = vvs;
     end
     always @(posedge clk_pix) if (grab >= 0 && ofr == grab && vde) begin
@@ -876,9 +877,10 @@ module tb #(
                 $fwrite(f, "\n");
             end
             $fclose(f);
-            $fclose(vlog);
+            if (vlog != 0) $fclose(vlog);
             f = $fopen("vend.txt", "w");
-            $fwrite(f, "pixels %0d\nvidstat %0d\n", fbn, {dut.vid.vs_over, 3'd0, dut.vid.vs_vblank});
+            $fwrite(f, "pixels %0d\nvidstat %0d\nsprcoll %0d\n", fbn,
+                    {dut.vid.vs_sprunder, dut.vid.vs_over, 3'd0, dut.vid.vs_vblank}, dut.vid.spr.coll);
             $fclose(f);
             if ($value$plusargs("dumpram=%s", dumpfile)) $writememh(dumpfile, sram.mem, 0, 21'hFFFFF);
             $display("---- frame.ppm: beam frame %0d, %0d pixels", grab, fbn);
@@ -897,6 +899,9 @@ module tb #(
     real    bgdim_at = 0.0;
     integer timeout_us = 2000, bgcycle = 0, bgwait = 0, bgsteps = 0, keys = 0;
     event   type_keys;
+    integer boing = 0;                          // +boing (#31)
+    event   type_f1, type_esc;
+    initial boing = $test$plusargs("boing");
     reg [23:0] bg_seen;
     initial begin
         bgcycle = $test$plusargs("bgcycle") || $test$plusargs("bgdim");
@@ -953,9 +958,9 @@ module tb #(
                 && ack_errors == 0 && acks == vreqs && acks == int_acks && nmi_errors == 0
                 && speed_errors == 0 && (!speeds || (all_hello && spd_edges == 10'h3FF))
                 && vid_errors == 0 && mixed_lines == 0
-                && (!hello || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK))))
+                && (!hello || boing || (pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK))))
                 $display("TEST PASSED");
-            else if (pass && hello && !(pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK)))
+            else if (pass && hello && !boing && !(pix_blue > 0 && pix_green > 0 && (bgcycle || dut.vid.bgcolor == C_BLACK)))
                 $display("TEST FAILED: the screen was not blue, then green, then black");
             else if (pass && (ack_errors != 0 || acks != vreqs || acks != int_acks))
                 $display("TEST FAILED: interrupt acknowledges");
@@ -972,9 +977,14 @@ module tb #(
             $finish;
         end
     endtask
-    always @(posedge clk) if (!done && grab >= 0 && ofr > grab) begin
+    reg grabbed = 1'b0;
+    always @(posedge clk) if (!done && !grabbed && grab >= 0 && ofr > grab) begin
         write_frame;
-        finish(fbn == 720*576, "the frame grabbed is not 720 x 576");
+        grabbed = 1'b1;
+        if (!boing || fbn != 720*576)
+            finish(fbn == 720*576, "the frame grabbed is not 720 x 576");
+        else
+            -> type_esc;
     end
     always @(posedge clk) if (!done) begin
         // Lines from the computer: "selftest ok, N MB" and "hello", or
@@ -1011,6 +1021,9 @@ module tb #(
                     end else if (nhello == 1 && keys) begin
                         $display("%t PC: typing on the keyboards", $realtime);
                         -> type_keys;
+                    end else if (nhello == 1 && boing) begin
+                        $display("%t PC: F1 on the PS/2 keyboard: the sprite demo", $realtime);
+                        -> type_f1;
                     end else if (nhello == 1) begin
                         $display("%t PC: sending the RESET control command", $realtime);
                         send_ctl(8'h02);
@@ -1024,7 +1037,7 @@ module tb #(
                 end else if (hello && is_line(ls, "selftest FAIL", 13)) finish(0, "the boot ROM self-test failed");
                 else if (!hello && is_line(ls, {"PASS", 8'h0D, 8'h0A}, 6)) finish(1, "");
                 else if (!hello && is_line(ls, "FAIL", 4)) finish(0, "the test ROM failed");
-                else if (grab >= 0 && !is_line(ls, "selftest FAIL", 13))
+                else if ((grab >= 0 || boing) && !is_line(ls, "selftest FAIL", 13))
                     ;                                   // a video test: the frame is what counts
                 else begin
                     $display("%t PC: unexpected line", $realtime);
@@ -1033,6 +1046,29 @@ module tb #(
             end
             scan = scan + 1;
         end
+    end
+    // +boing (#31): F1 on the PS/2 keyboard starts the sprite demo; the
+    // frame three frames after its sprites' fetch is turned on is grabbed
+    // (frame.ppm); then Esc ends the demo, and the run ends when the
+    // sprites' fetch is off and L0 is the console again (CTRL0 0x21)
+    always @(type_f1) begin
+        wait (dut.kb.en);
+        #100000;
+        kbm.send(8'h05, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h05, 1'b0);
+    end
+    reg under_seen = 1'b0;
+    always @(posedge clk) if (dut.vid.vs_sprunder) under_seen <= 1'b1;
+    always @(type_esc) begin
+        $display("%t PC: Esc on the PS/2 keyboard: the demo ends", $realtime);
+        kbm.send(8'h76, 1'b0); kbm.send(8'hF0, 1'b0); kbm.send(8'h76, 1'b0);
+    end
+    always @(posedge clk) if (!done && boing && grabbed && !dut.vid.dmacon[2] && dut.vid.l_ctrl0[0] == 8'h21) begin
+        $display("%t PC: back to the console; %0s", $realtime, under_seen ? "a sprite underran (SPRUNDER)" : "no sprite underran");
+        finish(1, "");
+    end
+    always @(posedge clk) if (boing && grab < 0 && dut.vid.dmacon[2]) begin
+        grab = ofr + 3;
+        $display("%t PC: the sprites' fetch is on; grabbing output frame %0d", $realtime, grab);
     end
     // +keys: PS/2 "h", "i", then Z on the membrane, then PS/2 Enter
     always @(type_keys) begin

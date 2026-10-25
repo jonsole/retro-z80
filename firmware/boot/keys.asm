@@ -372,7 +372,7 @@ mscan:  push    iy
 ; unshifted and shifted. 0: no key. 0x9C is the font's pound sign, 0xAA its
 ; not sign. Key codes (spec 16, section 7.4): 8 Backspace, 9 Tab (EDIT),
 ; 13 Enter, 27 Esc (BREAK), 130-135 Home End PgUp PgDn Ins Del, 136-139
-; Left Right Down Up, 145-156 F1-F12. Columns 5 and 6 are the Next's extra
+; Left Right Down Up, 145-156 F1-F12 (GRAPH gives F1). Columns 5 and 6 are the Next's extra
 ; keys (spec 12, section 5.4): EXTEND, CAPS LOCK, TRUE VIDEO, BREAK, ;  ,
 ; DELETE, left; up, GRAPH, INV VIDEO, EDIT, "  .  right, down
 mtab:
@@ -382,15 +382,15 @@ mtab:
         db      'c', 'f', 'r', '4', '7', 'u', 'j', 'n'  ; column 3
         db      'v', 'g', 't', '5', '6', 'y', 'h', 'b'  ; column 4
         db      0, 0, 0, 27, ';', ',', 8, 136           ; column 5
-        db      139, 0, 0, 9, '"', '.', 137, 138        ; column 6
+        db      139, 145, 0, 9, '"', '.', 137, 138      ; column 6: GRAPH is F1
 mtab_cs:
         db      0, 'A', 'Q', 9, 8, 'P', 13, 27          ; column 0: EDIT, DELETE, BREAK
-        db      'Z', 'S', 'W', 0, 0, 'O', 'L', 0
+        db      'Z', 'S', 'W', 0, 145, 'O', 'L', 0      ; 9: GRAPH (F1)
         db      'X', 'D', 'E', 0, 137, 'I', 'K', 'M'    ; 8: right
         db      'C', 'F', 'R', 0, 139, 'U', 'J', 'N'    ; 7: up
         db      'V', 'G', 'T', 136, 138, 'Y', 'H', 'B'  ; 5: left, 6: down
         db      0, 0, 0, 27, ';', ',', 8, 136
-        db      139, 0, 0, 9, '"', '.', 137, 138
+        db      139, 145, 0, 9, '"', '.', 137, 138
 mtab_ss:
         db      0, '~', 0, '!', '_', '"', 13, ' '
         db      ':', '|', 0, '@', ')', ';', '=', 0
