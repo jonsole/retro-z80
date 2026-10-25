@@ -528,30 +528,6 @@
 #define I2CSTAT_ARBLOST_B            0x2u
 #define I2CSTAT_ARBLOST_W            0x1u
 #define I2CSTAT_ARBLOST_M            0x4u
-#define NMICTL                       0x7Cu       /* RW, spec 7/11.3 */
-#define NMICTL_N                     0x1u
-#define NMICTL_P                     0x7C00u
-#define NMICTL_EN_B                  0x0u
-#define NMICTL_EN_W                  0x1u
-#define NMICTL_EN_M                  0x1u
-#define NMICTL_INNMI_B               0x1u
-#define NMICTL_INNMI_W               0x1u
-#define NMICTL_INNMI_M               0x2u
-#define NMISAV0                      0x7Du       /* R, spec 7/11.3 */
-#define NMISAV0_N                    0x1u
-#define NMISAV0_P                    0x7D00u
-#define NMISAVW0                     0x7Eu       /* R, spec 7/11.3 */
-#define NMISAVW0_N                   0x1u
-#define NMISAVW0_P                   0x7E00u
-#define NMISAVHI                     0x7Fu       /* R, spec 7/11.3 */
-#define NMISAVHI_N                   0x1u
-#define NMISAVHI_P                   0x7F00u
-#define NMISAVHI_READ_B              0x0u
-#define NMISAVHI_READ_W              0x2u
-#define NMISAVHI_READ_M              0x3u
-#define NMISAVHI_WRITE_B             0x4u
-#define NMISAVHI_WRITE_W             0x2u
-#define NMISAVHI_WRITE_M             0x30u
 #define ULA                          0xFEu       /* RW, spec 12/8 */
 #define ULA_N                        0x1u
 #define ULA_P                        0xFE00u
@@ -903,6 +879,589 @@
 #define MMU7W_0_P                    0x9E00u
 #define MMU7W_1                      0x9Fu
 #define MMU7W_1_P                    0x9F00u
+
+/* ---- INTPAGES: Interrupt pages, I/O page 0x01: port = register << 8 | 0x01; registers 0x00-0x3F reserved */
+#define INTPAGES_SIZE                0x100u
+#define IPCTL                        0x40u       /* RW, spec 2/9.8 */
+#define IPCTL_N                      0x1u
+#define IPCTL_P                      0x4001u
+#define IPCTL_EN_B                   0x0u
+#define IPCTL_EN_W                   0x1u
+#define IPCTL_EN_M                   0x1u
+#define IPCTL_CAPTURE_B              0x2u
+#define IPCTL_CAPTURE_W              0x1u
+#define IPCTL_CAPTURE_M              0x4u
+#define IPMASK                       0x41u       /* RW, spec 2/9.8 */
+#define IPMASK_N                     0x1u
+#define IPMASK_P                     0x4101u
+#define IPMASK_WIN_B                 0x0u
+#define IPMASK_WIN_W                 0x8u
+#define IPMASK_WIN_M                 0xFFu
+#define IPDEPTH                      0x42u       /* RW, spec 2/9.8 */
+#define IPDEPTH_N                    0x1u
+#define IPDEPTH_P                    0x4201u
+#define IPDEPTH_DEPTH_B              0x0u
+#define IPDEPTH_DEPTH_W              0x8u
+#define IPDEPTH_DEPTH_M              0xFFu
+#define IPRESTORE                    0x43u       /* S, spec 2/9.8 */
+#define IPRESTORE_N                  0x1u
+#define IPRESTORE_P                  0x4301u
+#define IPRESTORE_RET_B              0x0u
+#define IPRESTORE_RET_W              0x1u
+#define IPRESTORE_RET_M              0x1u
+#define IPRESTORE_NOW_B              0x1u
+#define IPRESTORE_NOW_W              0x1u
+#define IPRESTORE_NOW_M              0x2u
+#define IPCAPPC                      0x44u       /* RW, spec 2/9.8 */
+#define IPCAPPC_N                    0x2u
+#define IPCAPPC_P                    0x4401u
+#define IPCAPPC0                     0x44u
+#define IPCAPPC0_P                   0x4401u
+#define IPCAPPC1                     0x45u
+#define IPCAPPC1_P                   0x4501u
+#define IPCAPSP                      0x46u       /* R, spec 2/9.8 */
+#define IPCAPSP_N                    0x2u
+#define IPCAPSP_P                    0x4601u
+#define IPCAPSP0                     0x46u
+#define IPCAPSP0_P                   0x4601u
+#define IPCAPSP1                     0x47u
+#define IPCAPSP1_P                   0x4701u
+#define NMICTL                       0x48u       /* RW, spec 2/9.8 */
+#define NMICTL_N                     0x1u
+#define NMICTL_P                     0x4801u
+#define NMICTL_EN_B                  0x0u
+#define NMICTL_EN_W                  0x1u
+#define NMICTL_EN_M                  0x1u
+#define NMICTL_INNMI_B               0x1u
+#define NMICTL_INNMI_W               0x1u
+#define NMICTL_INNMI_M               0x2u
+#define NMICTL_CAPTURE_B             0x2u
+#define NMICTL_CAPTURE_W             0x1u
+#define NMICTL_CAPTURE_M             0x4u
+#define NMIMASK                      0x49u       /* RW, spec 2/9.8 */
+#define NMIMASK_N                    0x1u
+#define NMIMASK_P                    0x4901u
+#define NMIMASK_WIN_B                0x0u
+#define NMIMASK_WIN_W                0x8u
+#define NMIMASK_WIN_M                0xFFu
+#define NMICAPPC                     0x4Cu       /* RW, spec 2/9.8 */
+#define NMICAPPC_N                   0x2u
+#define NMICAPPC_P                   0x4C01u
+#define NMICAPPC0                    0x4Cu
+#define NMICAPPC0_P                  0x4C01u
+#define NMICAPPC1                    0x4Du
+#define NMICAPPC1_P                  0x4D01u
+#define NMICAPSP                     0x4Eu       /* R, spec 2/9.8 */
+#define NMICAPSP_N                   0x2u
+#define NMICAPSP_P                   0x4E01u
+#define NMICAPSP0                    0x4Eu
+#define NMICAPSP0_P                  0x4E01u
+#define NMICAPSP1                    0x4Fu
+#define NMICAPSP1_P                  0x4F01u
+
+/* ---- IP0..IP7: 8 x 0x2 bytes, spec 2/9.8 */
+#define IP_NUM                       0x8u
+#define IP_SPAN                      0x2u
+#define IP_PAGE_B                    0x0u
+#define IP_PAGE_W                    0xAu
+#define IP_PAGE_M                    0x3FFu
+#define IP0                          0x80u       /* RW,MMU, spec 2/9.8 */
+#define IP0_N                        0x2u
+#define IP0_P                        0x8001u
+#define IP0_0                        0x80u
+#define IP0_0_P                      0x8001u
+#define IP0_1                        0x81u
+#define IP0_1_P                      0x8101u
+#define IP1                          0x82u       /* RW,MMU, spec 2/9.8 */
+#define IP1_N                        0x2u
+#define IP1_P                        0x8201u
+#define IP1_0                        0x82u
+#define IP1_0_P                      0x8201u
+#define IP1_1                        0x83u
+#define IP1_1_P                      0x8301u
+#define IP2                          0x84u       /* RW,MMU, spec 2/9.8 */
+#define IP2_N                        0x2u
+#define IP2_P                        0x8401u
+#define IP2_0                        0x84u
+#define IP2_0_P                      0x8401u
+#define IP2_1                        0x85u
+#define IP2_1_P                      0x8501u
+#define IP3                          0x86u       /* RW,MMU, spec 2/9.8 */
+#define IP3_N                        0x2u
+#define IP3_P                        0x8601u
+#define IP3_0                        0x86u
+#define IP3_0_P                      0x8601u
+#define IP3_1                        0x87u
+#define IP3_1_P                      0x8701u
+#define IP4                          0x88u       /* RW,MMU, spec 2/9.8 */
+#define IP4_N                        0x2u
+#define IP4_P                        0x8801u
+#define IP4_0                        0x88u
+#define IP4_0_P                      0x8801u
+#define IP4_1                        0x89u
+#define IP4_1_P                      0x8901u
+#define IP5                          0x8Au       /* RW,MMU, spec 2/9.8 */
+#define IP5_N                        0x2u
+#define IP5_P                        0x8A01u
+#define IP5_0                        0x8Au
+#define IP5_0_P                      0x8A01u
+#define IP5_1                        0x8Bu
+#define IP5_1_P                      0x8B01u
+#define IP6                          0x8Cu       /* RW,MMU, spec 2/9.8 */
+#define IP6_N                        0x2u
+#define IP6_P                        0x8C01u
+#define IP6_0                        0x8Cu
+#define IP6_0_P                      0x8C01u
+#define IP6_1                        0x8Du
+#define IP6_1_P                      0x8D01u
+#define IP7                          0x8Eu       /* RW,MMU, spec 2/9.8 */
+#define IP7_N                        0x2u
+#define IP7_P                        0x8E01u
+#define IP7_0                        0x8Eu
+#define IP7_0_P                      0x8E01u
+#define IP7_1                        0x8Fu
+#define IP7_1_P                      0x8F01u
+
+/* ---- IP0W..IP7W: 8 x 0x2 bytes, spec 2/9.8 */
+#define IPW_NUM                      0x8u
+#define IPW_SPAN                     0x2u
+#define IPW_PAGE_B                   0x0u
+#define IPW_PAGE_W                   0xAu
+#define IPW_PAGE_M                   0x3FFu
+#define IP0W                         0x90u       /* RW,MMU, spec 2/9.8 */
+#define IP0W_N                       0x2u
+#define IP0W_P                       0x9001u
+#define IP0W_0                       0x90u
+#define IP0W_0_P                     0x9001u
+#define IP0W_1                       0x91u
+#define IP0W_1_P                     0x9101u
+#define IP1W                         0x92u       /* RW,MMU, spec 2/9.8 */
+#define IP1W_N                       0x2u
+#define IP1W_P                       0x9201u
+#define IP1W_0                       0x92u
+#define IP1W_0_P                     0x9201u
+#define IP1W_1                       0x93u
+#define IP1W_1_P                     0x9301u
+#define IP2W                         0x94u       /* RW,MMU, spec 2/9.8 */
+#define IP2W_N                       0x2u
+#define IP2W_P                       0x9401u
+#define IP2W_0                       0x94u
+#define IP2W_0_P                     0x9401u
+#define IP2W_1                       0x95u
+#define IP2W_1_P                     0x9501u
+#define IP3W                         0x96u       /* RW,MMU, spec 2/9.8 */
+#define IP3W_N                       0x2u
+#define IP3W_P                       0x9601u
+#define IP3W_0                       0x96u
+#define IP3W_0_P                     0x9601u
+#define IP3W_1                       0x97u
+#define IP3W_1_P                     0x9701u
+#define IP4W                         0x98u       /* RW,MMU, spec 2/9.8 */
+#define IP4W_N                       0x2u
+#define IP4W_P                       0x9801u
+#define IP4W_0                       0x98u
+#define IP4W_0_P                     0x9801u
+#define IP4W_1                       0x99u
+#define IP4W_1_P                     0x9901u
+#define IP5W                         0x9Au       /* RW,MMU, spec 2/9.8 */
+#define IP5W_N                       0x2u
+#define IP5W_P                       0x9A01u
+#define IP5W_0                       0x9Au
+#define IP5W_0_P                     0x9A01u
+#define IP5W_1                       0x9Bu
+#define IP5W_1_P                     0x9B01u
+#define IP6W                         0x9Cu       /* RW,MMU, spec 2/9.8 */
+#define IP6W_N                       0x2u
+#define IP6W_P                       0x9C01u
+#define IP6W_0                       0x9Cu
+#define IP6W_0_P                     0x9C01u
+#define IP6W_1                       0x9Du
+#define IP6W_1_P                     0x9D01u
+#define IP7W                         0x9Eu       /* RW,MMU, spec 2/9.8 */
+#define IP7W_N                       0x2u
+#define IP7W_P                       0x9E01u
+#define IP7W_0                       0x9Eu
+#define IP7W_0_P                     0x9E01u
+#define IP7W_1                       0x9Fu
+#define IP7W_1_P                     0x9F01u
+
+/* ---- IPSAV0..IPSAV7: 8 x 0x2 bytes, spec 2/9.8 */
+#define IPSAV_NUM                    0x8u
+#define IPSAV_SPAN                   0x2u
+#define IPSAV_PAGE_B                 0x0u
+#define IPSAV_PAGE_W                 0xAu
+#define IPSAV_PAGE_M                 0x3FFu
+#define IPSAV0                       0xA0u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV0_N                     0x2u
+#define IPSAV0_P                     0xA001u
+#define IPSAV0_0                     0xA0u
+#define IPSAV0_0_P                   0xA001u
+#define IPSAV0_1                     0xA1u
+#define IPSAV0_1_P                   0xA101u
+#define IPSAV1                       0xA2u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV1_N                     0x2u
+#define IPSAV1_P                     0xA201u
+#define IPSAV1_0                     0xA2u
+#define IPSAV1_0_P                   0xA201u
+#define IPSAV1_1                     0xA3u
+#define IPSAV1_1_P                   0xA301u
+#define IPSAV2                       0xA4u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV2_N                     0x2u
+#define IPSAV2_P                     0xA401u
+#define IPSAV2_0                     0xA4u
+#define IPSAV2_0_P                   0xA401u
+#define IPSAV2_1                     0xA5u
+#define IPSAV2_1_P                   0xA501u
+#define IPSAV3                       0xA6u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV3_N                     0x2u
+#define IPSAV3_P                     0xA601u
+#define IPSAV3_0                     0xA6u
+#define IPSAV3_0_P                   0xA601u
+#define IPSAV3_1                     0xA7u
+#define IPSAV3_1_P                   0xA701u
+#define IPSAV4                       0xA8u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV4_N                     0x2u
+#define IPSAV4_P                     0xA801u
+#define IPSAV4_0                     0xA8u
+#define IPSAV4_0_P                   0xA801u
+#define IPSAV4_1                     0xA9u
+#define IPSAV4_1_P                   0xA901u
+#define IPSAV5                       0xAAu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV5_N                     0x2u
+#define IPSAV5_P                     0xAA01u
+#define IPSAV5_0                     0xAAu
+#define IPSAV5_0_P                   0xAA01u
+#define IPSAV5_1                     0xABu
+#define IPSAV5_1_P                   0xAB01u
+#define IPSAV6                       0xACu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV6_N                     0x2u
+#define IPSAV6_P                     0xAC01u
+#define IPSAV6_0                     0xACu
+#define IPSAV6_0_P                   0xAC01u
+#define IPSAV6_1                     0xADu
+#define IPSAV6_1_P                   0xAD01u
+#define IPSAV7                       0xAEu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV7_N                     0x2u
+#define IPSAV7_P                     0xAE01u
+#define IPSAV7_0                     0xAEu
+#define IPSAV7_0_P                   0xAE01u
+#define IPSAV7_1                     0xAFu
+#define IPSAV7_1_P                   0xAF01u
+
+/* ---- IPSAV0W..IPSAV7W: 8 x 0x2 bytes, spec 2/9.8 */
+#define IPSAVW_NUM                   0x8u
+#define IPSAVW_SPAN                  0x2u
+#define IPSAVW_PAGE_B                0x0u
+#define IPSAVW_PAGE_W                0xAu
+#define IPSAVW_PAGE_M                0x3FFu
+#define IPSAV0W                      0xB0u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV0W_N                    0x2u
+#define IPSAV0W_P                    0xB001u
+#define IPSAV0W_0                    0xB0u
+#define IPSAV0W_0_P                  0xB001u
+#define IPSAV0W_1                    0xB1u
+#define IPSAV0W_1_P                  0xB101u
+#define IPSAV1W                      0xB2u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV1W_N                    0x2u
+#define IPSAV1W_P                    0xB201u
+#define IPSAV1W_0                    0xB2u
+#define IPSAV1W_0_P                  0xB201u
+#define IPSAV1W_1                    0xB3u
+#define IPSAV1W_1_P                  0xB301u
+#define IPSAV2W                      0xB4u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV2W_N                    0x2u
+#define IPSAV2W_P                    0xB401u
+#define IPSAV2W_0                    0xB4u
+#define IPSAV2W_0_P                  0xB401u
+#define IPSAV2W_1                    0xB5u
+#define IPSAV2W_1_P                  0xB501u
+#define IPSAV3W                      0xB6u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV3W_N                    0x2u
+#define IPSAV3W_P                    0xB601u
+#define IPSAV3W_0                    0xB6u
+#define IPSAV3W_0_P                  0xB601u
+#define IPSAV3W_1                    0xB7u
+#define IPSAV3W_1_P                  0xB701u
+#define IPSAV4W                      0xB8u       /* RW,MMU, spec 2/9.8 */
+#define IPSAV4W_N                    0x2u
+#define IPSAV4W_P                    0xB801u
+#define IPSAV4W_0                    0xB8u
+#define IPSAV4W_0_P                  0xB801u
+#define IPSAV4W_1                    0xB9u
+#define IPSAV4W_1_P                  0xB901u
+#define IPSAV5W                      0xBAu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV5W_N                    0x2u
+#define IPSAV5W_P                    0xBA01u
+#define IPSAV5W_0                    0xBAu
+#define IPSAV5W_0_P                  0xBA01u
+#define IPSAV5W_1                    0xBBu
+#define IPSAV5W_1_P                  0xBB01u
+#define IPSAV6W                      0xBCu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV6W_N                    0x2u
+#define IPSAV6W_P                    0xBC01u
+#define IPSAV6W_0                    0xBCu
+#define IPSAV6W_0_P                  0xBC01u
+#define IPSAV6W_1                    0xBDu
+#define IPSAV6W_1_P                  0xBD01u
+#define IPSAV7W                      0xBEu       /* RW,MMU, spec 2/9.8 */
+#define IPSAV7W_N                    0x2u
+#define IPSAV7W_P                    0xBE01u
+#define IPSAV7W_0                    0xBEu
+#define IPSAV7W_0_P                  0xBE01u
+#define IPSAV7W_1                    0xBFu
+#define IPSAV7W_1_P                  0xBF01u
+
+/* ---- NMIP0..NMIP7: 8 x 0x2 bytes, spec 2/9.8 */
+#define NMIP_NUM                     0x8u
+#define NMIP_SPAN                    0x2u
+#define NMIP_PAGE_B                  0x0u
+#define NMIP_PAGE_W                  0xAu
+#define NMIP_PAGE_M                  0x3FFu
+#define NMIP0                        0xC0u       /* RW,MMU, spec 2/9.8 */
+#define NMIP0_N                      0x2u
+#define NMIP0_P                      0xC001u
+#define NMIP0_0                      0xC0u
+#define NMIP0_0_P                    0xC001u
+#define NMIP0_1                      0xC1u
+#define NMIP0_1_P                    0xC101u
+#define NMIP1                        0xC2u       /* RW,MMU, spec 2/9.8 */
+#define NMIP1_N                      0x2u
+#define NMIP1_P                      0xC201u
+#define NMIP1_0                      0xC2u
+#define NMIP1_0_P                    0xC201u
+#define NMIP1_1                      0xC3u
+#define NMIP1_1_P                    0xC301u
+#define NMIP2                        0xC4u       /* RW,MMU, spec 2/9.8 */
+#define NMIP2_N                      0x2u
+#define NMIP2_P                      0xC401u
+#define NMIP2_0                      0xC4u
+#define NMIP2_0_P                    0xC401u
+#define NMIP2_1                      0xC5u
+#define NMIP2_1_P                    0xC501u
+#define NMIP3                        0xC6u       /* RW,MMU, spec 2/9.8 */
+#define NMIP3_N                      0x2u
+#define NMIP3_P                      0xC601u
+#define NMIP3_0                      0xC6u
+#define NMIP3_0_P                    0xC601u
+#define NMIP3_1                      0xC7u
+#define NMIP3_1_P                    0xC701u
+#define NMIP4                        0xC8u       /* RW,MMU, spec 2/9.8 */
+#define NMIP4_N                      0x2u
+#define NMIP4_P                      0xC801u
+#define NMIP4_0                      0xC8u
+#define NMIP4_0_P                    0xC801u
+#define NMIP4_1                      0xC9u
+#define NMIP4_1_P                    0xC901u
+#define NMIP5                        0xCAu       /* RW,MMU, spec 2/9.8 */
+#define NMIP5_N                      0x2u
+#define NMIP5_P                      0xCA01u
+#define NMIP5_0                      0xCAu
+#define NMIP5_0_P                    0xCA01u
+#define NMIP5_1                      0xCBu
+#define NMIP5_1_P                    0xCB01u
+#define NMIP6                        0xCCu       /* RW,MMU, spec 2/9.8 */
+#define NMIP6_N                      0x2u
+#define NMIP6_P                      0xCC01u
+#define NMIP6_0                      0xCCu
+#define NMIP6_0_P                    0xCC01u
+#define NMIP6_1                      0xCDu
+#define NMIP6_1_P                    0xCD01u
+#define NMIP7                        0xCEu       /* RW,MMU, spec 2/9.8 */
+#define NMIP7_N                      0x2u
+#define NMIP7_P                      0xCE01u
+#define NMIP7_0                      0xCEu
+#define NMIP7_0_P                    0xCE01u
+#define NMIP7_1                      0xCFu
+#define NMIP7_1_P                    0xCF01u
+
+/* ---- NMIP0W..NMIP7W: 8 x 0x2 bytes, spec 2/9.8 */
+#define NMIPW_NUM                    0x8u
+#define NMIPW_SPAN                   0x2u
+#define NMIPW_PAGE_B                 0x0u
+#define NMIPW_PAGE_W                 0xAu
+#define NMIPW_PAGE_M                 0x3FFu
+#define NMIP0W                       0xD0u       /* RW,MMU, spec 2/9.8 */
+#define NMIP0W_N                     0x2u
+#define NMIP0W_P                     0xD001u
+#define NMIP0W_0                     0xD0u
+#define NMIP0W_0_P                   0xD001u
+#define NMIP0W_1                     0xD1u
+#define NMIP0W_1_P                   0xD101u
+#define NMIP1W                       0xD2u       /* RW,MMU, spec 2/9.8 */
+#define NMIP1W_N                     0x2u
+#define NMIP1W_P                     0xD201u
+#define NMIP1W_0                     0xD2u
+#define NMIP1W_0_P                   0xD201u
+#define NMIP1W_1                     0xD3u
+#define NMIP1W_1_P                   0xD301u
+#define NMIP2W                       0xD4u       /* RW,MMU, spec 2/9.8 */
+#define NMIP2W_N                     0x2u
+#define NMIP2W_P                     0xD401u
+#define NMIP2W_0                     0xD4u
+#define NMIP2W_0_P                   0xD401u
+#define NMIP2W_1                     0xD5u
+#define NMIP2W_1_P                   0xD501u
+#define NMIP3W                       0xD6u       /* RW,MMU, spec 2/9.8 */
+#define NMIP3W_N                     0x2u
+#define NMIP3W_P                     0xD601u
+#define NMIP3W_0                     0xD6u
+#define NMIP3W_0_P                   0xD601u
+#define NMIP3W_1                     0xD7u
+#define NMIP3W_1_P                   0xD701u
+#define NMIP4W                       0xD8u       /* RW,MMU, spec 2/9.8 */
+#define NMIP4W_N                     0x2u
+#define NMIP4W_P                     0xD801u
+#define NMIP4W_0                     0xD8u
+#define NMIP4W_0_P                   0xD801u
+#define NMIP4W_1                     0xD9u
+#define NMIP4W_1_P                   0xD901u
+#define NMIP5W                       0xDAu       /* RW,MMU, spec 2/9.8 */
+#define NMIP5W_N                     0x2u
+#define NMIP5W_P                     0xDA01u
+#define NMIP5W_0                     0xDAu
+#define NMIP5W_0_P                   0xDA01u
+#define NMIP5W_1                     0xDBu
+#define NMIP5W_1_P                   0xDB01u
+#define NMIP6W                       0xDCu       /* RW,MMU, spec 2/9.8 */
+#define NMIP6W_N                     0x2u
+#define NMIP6W_P                     0xDC01u
+#define NMIP6W_0                     0xDCu
+#define NMIP6W_0_P                   0xDC01u
+#define NMIP6W_1                     0xDDu
+#define NMIP6W_1_P                   0xDD01u
+#define NMIP7W                       0xDEu       /* RW,MMU, spec 2/9.8 */
+#define NMIP7W_N                     0x2u
+#define NMIP7W_P                     0xDE01u
+#define NMIP7W_0                     0xDEu
+#define NMIP7W_0_P                   0xDE01u
+#define NMIP7W_1                     0xDFu
+#define NMIP7W_1_P                   0xDF01u
+
+/* ---- NMISAV0..NMISAV7: 8 x 0x2 bytes, spec 2/9.8 */
+#define NMISAV_NUM                   0x8u
+#define NMISAV_SPAN                  0x2u
+#define NMISAV_PAGE_B                0x0u
+#define NMISAV_PAGE_W                0xAu
+#define NMISAV_PAGE_M                0x3FFu
+#define NMISAV0                      0xE0u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV0_N                    0x2u
+#define NMISAV0_P                    0xE001u
+#define NMISAV0_0                    0xE0u
+#define NMISAV0_0_P                  0xE001u
+#define NMISAV0_1                    0xE1u
+#define NMISAV0_1_P                  0xE101u
+#define NMISAV1                      0xE2u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV1_N                    0x2u
+#define NMISAV1_P                    0xE201u
+#define NMISAV1_0                    0xE2u
+#define NMISAV1_0_P                  0xE201u
+#define NMISAV1_1                    0xE3u
+#define NMISAV1_1_P                  0xE301u
+#define NMISAV2                      0xE4u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV2_N                    0x2u
+#define NMISAV2_P                    0xE401u
+#define NMISAV2_0                    0xE4u
+#define NMISAV2_0_P                  0xE401u
+#define NMISAV2_1                    0xE5u
+#define NMISAV2_1_P                  0xE501u
+#define NMISAV3                      0xE6u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV3_N                    0x2u
+#define NMISAV3_P                    0xE601u
+#define NMISAV3_0                    0xE6u
+#define NMISAV3_0_P                  0xE601u
+#define NMISAV3_1                    0xE7u
+#define NMISAV3_1_P                  0xE701u
+#define NMISAV4                      0xE8u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV4_N                    0x2u
+#define NMISAV4_P                    0xE801u
+#define NMISAV4_0                    0xE8u
+#define NMISAV4_0_P                  0xE801u
+#define NMISAV4_1                    0xE9u
+#define NMISAV4_1_P                  0xE901u
+#define NMISAV5                      0xEAu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV5_N                    0x2u
+#define NMISAV5_P                    0xEA01u
+#define NMISAV5_0                    0xEAu
+#define NMISAV5_0_P                  0xEA01u
+#define NMISAV5_1                    0xEBu
+#define NMISAV5_1_P                  0xEB01u
+#define NMISAV6                      0xECu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV6_N                    0x2u
+#define NMISAV6_P                    0xEC01u
+#define NMISAV6_0                    0xECu
+#define NMISAV6_0_P                  0xEC01u
+#define NMISAV6_1                    0xEDu
+#define NMISAV6_1_P                  0xED01u
+#define NMISAV7                      0xEEu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV7_N                    0x2u
+#define NMISAV7_P                    0xEE01u
+#define NMISAV7_0                    0xEEu
+#define NMISAV7_0_P                  0xEE01u
+#define NMISAV7_1                    0xEFu
+#define NMISAV7_1_P                  0xEF01u
+
+/* ---- NMISAV0W..NMISAV7W: 8 x 0x2 bytes, spec 2/9.8 */
+#define NMISAVW_NUM                  0x8u
+#define NMISAVW_SPAN                 0x2u
+#define NMISAVW_PAGE_B               0x0u
+#define NMISAVW_PAGE_W               0xAu
+#define NMISAVW_PAGE_M               0x3FFu
+#define NMISAV0W                     0xF0u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV0W_N                   0x2u
+#define NMISAV0W_P                   0xF001u
+#define NMISAV0W_0                   0xF0u
+#define NMISAV0W_0_P                 0xF001u
+#define NMISAV0W_1                   0xF1u
+#define NMISAV0W_1_P                 0xF101u
+#define NMISAV1W                     0xF2u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV1W_N                   0x2u
+#define NMISAV1W_P                   0xF201u
+#define NMISAV1W_0                   0xF2u
+#define NMISAV1W_0_P                 0xF201u
+#define NMISAV1W_1                   0xF3u
+#define NMISAV1W_1_P                 0xF301u
+#define NMISAV2W                     0xF4u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV2W_N                   0x2u
+#define NMISAV2W_P                   0xF401u
+#define NMISAV2W_0                   0xF4u
+#define NMISAV2W_0_P                 0xF401u
+#define NMISAV2W_1                   0xF5u
+#define NMISAV2W_1_P                 0xF501u
+#define NMISAV3W                     0xF6u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV3W_N                   0x2u
+#define NMISAV3W_P                   0xF601u
+#define NMISAV3W_0                   0xF6u
+#define NMISAV3W_0_P                 0xF601u
+#define NMISAV3W_1                   0xF7u
+#define NMISAV3W_1_P                 0xF701u
+#define NMISAV4W                     0xF8u       /* RW,MMU, spec 2/9.8 */
+#define NMISAV4W_N                   0x2u
+#define NMISAV4W_P                   0xF801u
+#define NMISAV4W_0                   0xF8u
+#define NMISAV4W_0_P                 0xF801u
+#define NMISAV4W_1                   0xF9u
+#define NMISAV4W_1_P                 0xF901u
+#define NMISAV5W                     0xFAu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV5W_N                   0x2u
+#define NMISAV5W_P                   0xFA01u
+#define NMISAV5W_0                   0xFAu
+#define NMISAV5W_0_P                 0xFA01u
+#define NMISAV5W_1                   0xFBu
+#define NMISAV5W_1_P                 0xFB01u
+#define NMISAV6W                     0xFCu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV6W_N                   0x2u
+#define NMISAV6W_P                   0xFC01u
+#define NMISAV6W_0                   0xFCu
+#define NMISAV6W_0_P                 0xFC01u
+#define NMISAV6W_1                   0xFDu
+#define NMISAV6W_1_P                 0xFD01u
+#define NMISAV7W                     0xFEu       /* RW,MMU, spec 2/9.8 */
+#define NMISAV7W_N                   0x2u
+#define NMISAV7W_P                   0xFE01u
+#define NMISAV7W_0                   0xFEu
+#define NMISAV7W_0_P                 0xFE01u
+#define NMISAV7W_1                   0xFFu
+#define NMISAV7W_1_P                 0xFF01u
 
 /* ---- CUSTOM: Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8) */
 #define CUSTOM_SIZE                  0x400u
@@ -2762,6 +3321,8 @@
 
 /* ---- Named numbers */
 #define SYSPAGE                      0x0u        /* The system page */
+#define IPPAGE                       0x1u        /* The interrupt pages' I/O page */
+#define REGS_IPPAGE                  0x100u      /* Register page: I/O page 0x01 (REGS_IPPAGE + register) */
 #define CUSTPAGE                     0x10u       /* The custom block's first page */
 #define REGS_PALETTE                 0x1400u     /* Register page: PALETTE0 */
 #define REGS_PAL_SPAN                0x300u      /* Register page: bytes from one palette to the next */

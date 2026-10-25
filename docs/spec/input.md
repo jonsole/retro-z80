@@ -253,7 +253,7 @@ Port `0xFE` ignores the high byte for its decode and uses it instead to pick the
 - Reading port `0xFE` changes nothing, so it can be read any number of times.
 - **Without a row select:** the page form, register `0xFE` of page `0x00` (port `0xFE00`, register page offset `0x00FE`), has no row select and reads all rows at once.
 - **KEYROW0–7** give each row alone, in port `0xFE`'s format (row r = the row selected by A(8 + r) = 0), including the extra keys and PS/2 keys as port `0xFE` shows them. They are for memory reads, where there is no A15–A8 to pick rows. They are read only.
-- **Memory only:** KEYROW0–7 are at register page offsets `0x0100`–`0x0107` (spec 2, section 10.1), outside every I/O page (I/O page `0x01` is reserved and reads `0xFF`). Through I/O, port `0xFE` with A15–A8 gives the same rows. Registers `0x17`–`0x1E` of page `0x00` stay free.
+- **Memory only:** KEYROW0–7 are at register page offsets `0x0100`–`0x0107` (spec 2, section 10.1), outside every I/O page (registers `0x00`–`0x3F` of I/O page `0x01` are reserved and read `0xFF`; its registers `0x40`–`0xFF` are the interrupt pages, spec 2, section 9.8). Through I/O, port `0xFE` with A15–A8 gives the same rows. Registers `0x17`–`0x1E` of page `0x00` stay free.
 
 ### 8.2 Extra keys on port 0xFE (KXMAP)
 

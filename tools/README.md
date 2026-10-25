@@ -57,7 +57,7 @@ ACCESS is `R`, `W`, `RW`, `W1C`, `RW1C` (mixed), `SC` (set/clear) or `S` (strobe
 | `area PALETTE0` in block `REGS` | `REGS_PALETTE0`, `REGS_PALETTE0_SIZE` | `` `RM_REGS_PALETTE0 `` |
 | `port SERDATA 0x53 0x53` | `SERDATA_PORT` = `0x53` | `` `RM_SERDATA_PORT ``, and `` `RM_IS_LOWPORT(lo) `` |
 | `const INT_TIMER0 11` | `INT_TIMER0` = 11, `INTB_TIMER0` = 4 (bit), `INTR_TIMER0` = 1 (byte: `INTENA0 + INTR_TIMER0`) | `` `RM_INT_TIMER0 `` |
-| – | `hw.h` only: `CPORT(off)`, the port of a computed custom offset | Decodes: `` `RM_IS_CAP(a) ``, `` `RM_CAP_N(a) ``, `` `RM_IS_COLR(a) ``, `` `RM_IS_COLR_RED(a) ``, `` `RM_IS_MMU(a) ``, `` `RM_IS_MMU_COMMIT(a) ``, `` `RM_IS_SC(a) `` |
+| – | `hw.h` only: `CPORT(off)`, the port of a computed custom offset | Decodes: `` `RM_IS_CAP(a) ``, `` `RM_CAP_N(a) ``, `` `RM_IS_COLR(a) ``, `` `RM_IS_COLR_RED(a) ``, `` `RM_IS_MMU(a) ``, `` `RM_IS_MMU_COMMIT(a) ``, `` `RM_IS_IPG(a) ``, `` `RM_IS_IPG_COMMIT(a) `` (the interrupt pages, page `0x01`), `` `RM_IS_SC(a) `` |
 
 sjasmplus has no function-like defines (spec 3, open point R1), so `hw.inc` has no `CPORT`: write a computed custom port out, `((off & 0xFF) << 8) | 0x10 | (off >> 8)`.
 

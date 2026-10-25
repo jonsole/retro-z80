@@ -12,6 +12,7 @@
 //   `RM_IS_CAP(a), `RM_CAP_N(a)   the low byte of a capturing register, and its width (rule 4)
 //   `RM_IS_COLR(a), `RM_IS_COLR_RED(a)   a colour register's bytes, and its committing red byte (rule 7)
 //   `RM_IS_MMU(a), `RM_IS_MMU_COMMIT(a)  an MMU page register's bytes, and its committing byte 1
+//   `RM_IS_IPG(a), `RM_IS_IPG_COMMIT(a)  the same for the interrupt pages (page 0x01)
 //   `RM_IS_SC(a)    a set/clear register's bytes (rule 12)
 //   `RM_IS_LOWPORT(lo)   a low-byte-only port
 
@@ -246,18 +247,6 @@
 `define RM_I2CSTAT_BUSY                   0
 `define RM_I2CSTAT_NACK                   1
 `define RM_I2CSTAT_ARBLOST                2
-`define RM_NMICTL                         13'h007C
-`define RM_NMICTL_BYTES                   1
-`define RM_NMICTL_EN                      0
-`define RM_NMICTL_INNMI                   1
-`define RM_NMISAV0                        13'h007D
-`define RM_NMISAV0_BYTES                  1
-`define RM_NMISAVW0                       13'h007E
-`define RM_NMISAVW0_BYTES                 1
-`define RM_NMISAVHI                       13'h007F
-`define RM_NMISAVHI_BYTES                 1
-`define RM_NMISAVHI_READ                  1:0
-`define RM_NMISAVHI_WRITE                 5:4
 `define RM_ULA                            13'h00FE
 `define RM_ULA_BYTES                      1
 `define RM_ULA_BORDER                     2:0
@@ -333,6 +322,88 @@
 `define RM_MMUW_NUM                       8
 `define RM_MMUW_BYTES                     2
 `define RM_MMUW_PAGE                      9:0
+
+// ---- INTPAGES: Interrupt pages, I/O page 0x01: port = register << 8 | 0x01; registers 0x00-0x3F reserved
+`define RM_INTPAGES_BASE                  13'h0100
+`define RM_INTPAGES_SIZE                  14'h0100
+`define RM_IPCTL                          13'h0140
+`define RM_IPCTL_BYTES                    1
+`define RM_IPCTL_EN                       0
+`define RM_IPCTL_CAPTURE                  2
+`define RM_IPMASK                         13'h0141
+`define RM_IPMASK_BYTES                   1
+`define RM_IPMASK_WIN                     7:0
+`define RM_IPDEPTH                        13'h0142
+`define RM_IPDEPTH_BYTES                  1
+`define RM_IPDEPTH_DEPTH                  7:0
+`define RM_IPRESTORE                      13'h0143
+`define RM_IPRESTORE_BYTES                1
+`define RM_IPRESTORE_RET                  0
+`define RM_IPRESTORE_NOW                  1
+`define RM_IPCAPPC                        13'h0144
+`define RM_IPCAPPC_BYTES                  2
+`define RM_IPCAPPC0                       13'h0144
+`define RM_IPCAPPC1                       13'h0145
+`define RM_IPCAPSP                        13'h0146
+`define RM_IPCAPSP_BYTES                  2
+`define RM_IPCAPSP0                       13'h0146
+`define RM_IPCAPSP1                       13'h0147
+`define RM_NMICTL                         13'h0148
+`define RM_NMICTL_BYTES                   1
+`define RM_NMICTL_EN                      0
+`define RM_NMICTL_INNMI                   1
+`define RM_NMICTL_CAPTURE                 2
+`define RM_NMIMASK                        13'h0149
+`define RM_NMIMASK_BYTES                  1
+`define RM_NMIMASK_WIN                    7:0
+`define RM_NMICAPPC                       13'h014C
+`define RM_NMICAPPC_BYTES                 2
+`define RM_NMICAPPC0                      13'h014C
+`define RM_NMICAPPC1                      13'h014D
+`define RM_NMICAPSP                       13'h014E
+`define RM_NMICAPSP_BYTES                 2
+`define RM_NMICAPSP0                      13'h014E
+`define RM_NMICAPSP1                      13'h014F
+`define RM_IP_BASE                        13'h0180
+`define RM_IP_SPAN                        8'h02
+`define RM_IP_NUM                         8
+`define RM_IP_BYTES                       2
+`define RM_IP_PAGE                        9:0
+`define RM_IPW_BASE                       13'h0190
+`define RM_IPW_SPAN                       8'h02
+`define RM_IPW_NUM                        8
+`define RM_IPW_BYTES                      2
+`define RM_IPW_PAGE                       9:0
+`define RM_IPSAV_BASE                     13'h01A0
+`define RM_IPSAV_SPAN                     8'h02
+`define RM_IPSAV_NUM                      8
+`define RM_IPSAV_BYTES                    2
+`define RM_IPSAV_PAGE                     9:0
+`define RM_IPSAVW_BASE                    13'h01B0
+`define RM_IPSAVW_SPAN                    8'h02
+`define RM_IPSAVW_NUM                     8
+`define RM_IPSAVW_BYTES                   2
+`define RM_IPSAVW_PAGE                    9:0
+`define RM_NMIP_BASE                      13'h01C0
+`define RM_NMIP_SPAN                      8'h02
+`define RM_NMIP_NUM                       8
+`define RM_NMIP_BYTES                     2
+`define RM_NMIP_PAGE                      9:0
+`define RM_NMIPW_BASE                     13'h01D0
+`define RM_NMIPW_SPAN                     8'h02
+`define RM_NMIPW_NUM                      8
+`define RM_NMIPW_BYTES                    2
+`define RM_NMIPW_PAGE                     9:0
+`define RM_NMISAV_BASE                    13'h01E0
+`define RM_NMISAV_SPAN                    8'h02
+`define RM_NMISAV_NUM                     8
+`define RM_NMISAV_BYTES                   2
+`define RM_NMISAV_PAGE                    9:0
+`define RM_NMISAVW_BASE                   13'h01F0
+`define RM_NMISAVW_SPAN                   8'h02
+`define RM_NMISAVW_NUM                    8
+`define RM_NMISAVW_BYTES                  2
+`define RM_NMISAVW_PAGE                   9:0
 
 // ---- CUSTOM: Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8)
 `define RM_CUSTOM_BASE                    13'h1000
@@ -722,6 +793,8 @@
 `define RM_IS_COLR_RED(a)                 (((a) == 13'h1006))
 `define RM_IS_MMU(a)                      (((a) >= 13'h0080 && (a) <= 13'h009F))
 `define RM_IS_MMU_COMMIT(a)               (((a) == 13'h0081) || ((a) == 13'h0083) || ((a) == 13'h0085) || ((a) == 13'h0087) || ((a) == 13'h0089) || ((a) == 13'h008B) || ((a) == 13'h008D) || ((a) == 13'h008F) || ((a) == 13'h0091) || ((a) == 13'h0093) || ((a) == 13'h0095) || ((a) == 13'h0097) || ((a) == 13'h0099) || ((a) == 13'h009B) || ((a) == 13'h009D) || ((a) == 13'h009F))
+`define RM_IS_IPG(a)                      (((a) >= 13'h0180 && (a) <= 13'h01FF))
+`define RM_IS_IPG_COMMIT(a)               (((a) == 13'h0181) || ((a) == 13'h0183) || ((a) == 13'h0185) || ((a) == 13'h0187) || ((a) == 13'h0189) || ((a) == 13'h018B) || ((a) == 13'h018D) || ((a) == 13'h018F) || ((a) == 13'h0191) || ((a) == 13'h0193) || ((a) == 13'h0195) || ((a) == 13'h0197) || ((a) == 13'h0199) || ((a) == 13'h019B) || ((a) == 13'h019D) || ((a) == 13'h019F) || ((a) == 13'h01A1) || ((a) == 13'h01A3) || ((a) == 13'h01A5) || ((a) == 13'h01A7) || ((a) == 13'h01A9) || ((a) == 13'h01AB) || ((a) == 13'h01AD) || ((a) == 13'h01AF) || ((a) == 13'h01B1) || ((a) == 13'h01B3) || ((a) == 13'h01B5) || ((a) == 13'h01B7) || ((a) == 13'h01B9) || ((a) == 13'h01BB) || ((a) == 13'h01BD) || ((a) == 13'h01BF) || ((a) == 13'h01C1) || ((a) == 13'h01C3) || ((a) == 13'h01C5) || ((a) == 13'h01C7) || ((a) == 13'h01C9) || ((a) == 13'h01CB) || ((a) == 13'h01CD) || ((a) == 13'h01CF) || ((a) == 13'h01D1) || ((a) == 13'h01D3) || ((a) == 13'h01D5) || ((a) == 13'h01D7) || ((a) == 13'h01D9) || ((a) == 13'h01DB) || ((a) == 13'h01DD) || ((a) == 13'h01DF) || ((a) == 13'h01E1) || ((a) == 13'h01E3) || ((a) == 13'h01E5) || ((a) == 13'h01E7) || ((a) == 13'h01E9) || ((a) == 13'h01EB) || ((a) == 13'h01ED) || ((a) == 13'h01EF) || ((a) == 13'h01F1) || ((a) == 13'h01F3) || ((a) == 13'h01F5) || ((a) == 13'h01F7) || ((a) == 13'h01F9) || ((a) == 13'h01FB) || ((a) == 13'h01FD) || ((a) == 13'h01FF))
 `define RM_IS_SC(a)                       (((a) >= 13'h0001 && (a) <= 13'h0003) || ((a) == 13'h100C) || ((a) >= 13'h1120 && (a) <= 13'h1121))
 `define RM_IS_LOWPORT(lo)                 (((lo) == 8'h1F) || ((lo) == 8'h53) || ((lo) == 8'h5B) || ((lo) == 8'h62) || ((lo) == 8'hFE))
 
@@ -734,6 +807,8 @@
 
 // ---- Named numbers
 `define RM_SYSPAGE                        32'h00000000
+`define RM_IPPAGE                         32'h00000001
+`define RM_REGS_IPPAGE                    32'h00000100
 `define RM_CUSTPAGE                       32'h00000010
 `define RM_REGS_PALETTE                   32'h00001400
 `define RM_REGS_PAL_SPAN                  32'h00000300

@@ -491,12 +491,16 @@ class SpecReg:
     rel_name: bool = False  # name is a group register's name (CTRL, PT), not a full name
 
 
+CHECKED = ("SYSTEM", "INTPAGES", "CUSTOM")  # the blocks spec 3's tables list
+
+
 def spec_registers(md_text):
-    """Every register row of spec 3's tables in sections 4 and 5, expanded to absolute offsets."""
+    """Every register row of spec 3's tables in sections 4 and 5, expanded to absolute offsets.
+    Section 4's subsection on page `0x01` is the INTPAGES block; the rest of section 4 the system page."""
     rows_out = []  # [block, offset, name, width, access, where, rel, bases]
     for (h2, h3), header, rows, text in md_tables(md_text):
         if h2.startswith("## 4"):
-            blk = "SYSTEM"
+            blk = "INTPAGES" if "page `0x01`" in h3 else "SYSTEM"
         elif h2.startswith("## 5"):
             blk = "CUSTOM"
         else:
@@ -584,7 +588,7 @@ def check_spec(rm, md_text):
 
     ours = {}
     for f in flat_registers(rm):
-        if f.block.name in ("SYSTEM", "CUSTOM"):
+        if f.block.name in CHECKED:
             ours[(f.block.name, f.offset)] = f
     theirs = {}
     for s in spec:
@@ -649,6 +653,12 @@ def check_spec_regpage(rm, md_text):
         ours[(rl.offset, rl.offset + rl.count * rl.width - 1)] = rl.name
     for r in regs.regs:
         ours[(r.offset, r.offset + r.width - 1)] = r.name
+    # an I/O block other than the system page and the custom block shows as the span of its registers
+    for b in rm.blocks:
+        if b.io and b.name not in ("SYSTEM", "CUSTOM"):
+            addrs = [b.bus(f.offset + i) for f in flat_registers(rm) if f.block is b for i in range(f.width)]
+            if addrs:
+                ours[(min(addrs), max(addrs))] = b.name
     spec = {}
     for (h2, h3), header, rows, text in md_tables(md_text):
         if not (h2.startswith("## 6") and header[:3] == ["Offset", "I/O page", "Contents"]):
@@ -927,6 +937,7 @@ def gen_verilog(rm):
            "//   `RM_IS_CAP(a), `RM_CAP_N(a)   the low byte of a capturing register, and its width (rule 4)",
            "//   `RM_IS_COLR(a), `RM_IS_COLR_RED(a)   a colour register's bytes, and its committing red byte (rule 7)",
            "//   `RM_IS_MMU(a), `RM_IS_MMU_COMMIT(a)  an MMU page register's bytes, and its committing byte 1",
+           "//   `RM_IS_IPG(a), `RM_IS_IPG_COMMIT(a)  the same for the interrupt pages (page 0x01)",
            "//   `RM_IS_SC(a)    a set/clear register's bytes (rule 12)",
            "//   `RM_IS_LOWPORT(lo)   a low-byte-only port",
            "",
@@ -988,7 +999,8 @@ def gen_verilog(rm):
     flat = [f for f in flat_registers(rm) if f.block.io]
     cap = [f for f in flat if "CAP" in f.flags]
     colr = [f for f in flat if "COLR" in f.flags]
-    mmu = [f for f in flat if "MMU" in f.flags]
+    mmu = [f for f in flat if "MMU" in f.flags and f.block.page == 0x00]
+    ipg = [f for f in flat if "MMU" in f.flags and f.block.page != 0x00]
     sc = [f for f in flat if f.access == "SC"]
 
     def all_bytes(fs):
@@ -1004,6 +1016,8 @@ def gen_verilog(rm):
     d("IS_COLR_RED(a)", decode([f.block.bus(f.offset + f.width - 1) for f in colr]))
     d("IS_MMU(a)", decode(all_bytes(mmu)))
     d("IS_MMU_COMMIT(a)", decode([f.block.bus(f.offset + 1) for f in mmu]))
+    d("IS_IPG(a)", decode(all_bytes(ipg)))
+    d("IS_IPG_COMMIT(a)", decode([f.block.bus(f.offset + 1) for f in ipg]))
     d("IS_SC(a)", decode(all_bytes(sc)))
     d("IS_LOWPORT(lo)", decode([p.lowbyte for p in rm.ports], "lo", 8))
 
@@ -1062,7 +1076,7 @@ def run(def_file, spec_file, out_root, verify):
         for rel in stale:
             print(f"out of date: {rel.as_posix()} (run python3 tools/regmap.py)", file=sys.stderr)
         return 1
-    n = len([f for f in flat_registers(rm) if f.block.name in ("SYSTEM", "CUSTOM")])
+    n = len([f for f in flat_registers(rm) if f.block.name in CHECKED])
     print(f"regmap OK: {n} registers checked against {spec_file.name}")
     return 0
 

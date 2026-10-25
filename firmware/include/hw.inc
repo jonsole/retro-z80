@@ -534,30 +534,6 @@ I2CSTAT_NACK_M               equ 0x2
 I2CSTAT_ARBLOST_B            equ 0x2
 I2CSTAT_ARBLOST_W            equ 0x1
 I2CSTAT_ARBLOST_M            equ 0x4
-NMICTL                       equ 0x7C          ; RW, spec 7/11.3
-NMICTL_N                     equ 0x1
-NMICTL_P                     equ 0x7C00
-NMICTL_EN_B                  equ 0x0
-NMICTL_EN_W                  equ 0x1
-NMICTL_EN_M                  equ 0x1
-NMICTL_INNMI_B               equ 0x1
-NMICTL_INNMI_W               equ 0x1
-NMICTL_INNMI_M               equ 0x2
-NMISAV0                      equ 0x7D          ; R, spec 7/11.3
-NMISAV0_N                    equ 0x1
-NMISAV0_P                    equ 0x7D00
-NMISAVW0                     equ 0x7E          ; R, spec 7/11.3
-NMISAVW0_N                   equ 0x1
-NMISAVW0_P                   equ 0x7E00
-NMISAVHI                     equ 0x7F          ; R, spec 7/11.3
-NMISAVHI_N                   equ 0x1
-NMISAVHI_P                   equ 0x7F00
-NMISAVHI_READ_B              equ 0x0
-NMISAVHI_READ_W              equ 0x2
-NMISAVHI_READ_M              equ 0x3
-NMISAVHI_WRITE_B             equ 0x4
-NMISAVHI_WRITE_W             equ 0x2
-NMISAVHI_WRITE_M             equ 0x30
 ULA                          equ 0xFE          ; RW, spec 12/8
 ULA_N                        equ 0x1
 ULA_P                        equ 0xFE00
@@ -909,6 +885,589 @@ MMU7W_0                      equ 0x9E
 MMU7W_0_P                    equ 0x9E00
 MMU7W_1                      equ 0x9F
 MMU7W_1_P                    equ 0x9F00
+
+; ---- INTPAGES: Interrupt pages, I/O page 0x01: port = register << 8 | 0x01; registers 0x00-0x3F reserved
+INTPAGES_SIZE                equ 0x100
+IPCTL                        equ 0x40          ; RW, spec 2/9.8
+IPCTL_N                      equ 0x1
+IPCTL_P                      equ 0x4001
+IPCTL_EN_B                   equ 0x0
+IPCTL_EN_W                   equ 0x1
+IPCTL_EN_M                   equ 0x1
+IPCTL_CAPTURE_B              equ 0x2
+IPCTL_CAPTURE_W              equ 0x1
+IPCTL_CAPTURE_M              equ 0x4
+IPMASK                       equ 0x41          ; RW, spec 2/9.8
+IPMASK_N                     equ 0x1
+IPMASK_P                     equ 0x4101
+IPMASK_WIN_B                 equ 0x0
+IPMASK_WIN_W                 equ 0x8
+IPMASK_WIN_M                 equ 0xFF
+IPDEPTH                      equ 0x42          ; RW, spec 2/9.8
+IPDEPTH_N                    equ 0x1
+IPDEPTH_P                    equ 0x4201
+IPDEPTH_DEPTH_B              equ 0x0
+IPDEPTH_DEPTH_W              equ 0x8
+IPDEPTH_DEPTH_M              equ 0xFF
+IPRESTORE                    equ 0x43          ; S, spec 2/9.8
+IPRESTORE_N                  equ 0x1
+IPRESTORE_P                  equ 0x4301
+IPRESTORE_RET_B              equ 0x0
+IPRESTORE_RET_W              equ 0x1
+IPRESTORE_RET_M              equ 0x1
+IPRESTORE_NOW_B              equ 0x1
+IPRESTORE_NOW_W              equ 0x1
+IPRESTORE_NOW_M              equ 0x2
+IPCAPPC                      equ 0x44          ; RW, spec 2/9.8
+IPCAPPC_N                    equ 0x2
+IPCAPPC_P                    equ 0x4401
+IPCAPPC0                     equ 0x44
+IPCAPPC0_P                   equ 0x4401
+IPCAPPC1                     equ 0x45
+IPCAPPC1_P                   equ 0x4501
+IPCAPSP                      equ 0x46          ; R, spec 2/9.8
+IPCAPSP_N                    equ 0x2
+IPCAPSP_P                    equ 0x4601
+IPCAPSP0                     equ 0x46
+IPCAPSP0_P                   equ 0x4601
+IPCAPSP1                     equ 0x47
+IPCAPSP1_P                   equ 0x4701
+NMICTL                       equ 0x48          ; RW, spec 2/9.8
+NMICTL_N                     equ 0x1
+NMICTL_P                     equ 0x4801
+NMICTL_EN_B                  equ 0x0
+NMICTL_EN_W                  equ 0x1
+NMICTL_EN_M                  equ 0x1
+NMICTL_INNMI_B               equ 0x1
+NMICTL_INNMI_W               equ 0x1
+NMICTL_INNMI_M               equ 0x2
+NMICTL_CAPTURE_B             equ 0x2
+NMICTL_CAPTURE_W             equ 0x1
+NMICTL_CAPTURE_M             equ 0x4
+NMIMASK                      equ 0x49          ; RW, spec 2/9.8
+NMIMASK_N                    equ 0x1
+NMIMASK_P                    equ 0x4901
+NMIMASK_WIN_B                equ 0x0
+NMIMASK_WIN_W                equ 0x8
+NMIMASK_WIN_M                equ 0xFF
+NMICAPPC                     equ 0x4C          ; RW, spec 2/9.8
+NMICAPPC_N                   equ 0x2
+NMICAPPC_P                   equ 0x4C01
+NMICAPPC0                    equ 0x4C
+NMICAPPC0_P                  equ 0x4C01
+NMICAPPC1                    equ 0x4D
+NMICAPPC1_P                  equ 0x4D01
+NMICAPSP                     equ 0x4E          ; R, spec 2/9.8
+NMICAPSP_N                   equ 0x2
+NMICAPSP_P                   equ 0x4E01
+NMICAPSP0                    equ 0x4E
+NMICAPSP0_P                  equ 0x4E01
+NMICAPSP1                    equ 0x4F
+NMICAPSP1_P                  equ 0x4F01
+
+; ---- IP0..IP7: 8 x 0x2 bytes, spec 2/9.8
+IP_NUM                       equ 0x8
+IP_SPAN                      equ 0x2
+IP_PAGE_B                    equ 0x0
+IP_PAGE_W                    equ 0xA
+IP_PAGE_M                    equ 0x3FF
+IP0                          equ 0x80          ; RW,MMU, spec 2/9.8
+IP0_N                        equ 0x2
+IP0_P                        equ 0x8001
+IP0_0                        equ 0x80
+IP0_0_P                      equ 0x8001
+IP0_1                        equ 0x81
+IP0_1_P                      equ 0x8101
+IP1                          equ 0x82          ; RW,MMU, spec 2/9.8
+IP1_N                        equ 0x2
+IP1_P                        equ 0x8201
+IP1_0                        equ 0x82
+IP1_0_P                      equ 0x8201
+IP1_1                        equ 0x83
+IP1_1_P                      equ 0x8301
+IP2                          equ 0x84          ; RW,MMU, spec 2/9.8
+IP2_N                        equ 0x2
+IP2_P                        equ 0x8401
+IP2_0                        equ 0x84
+IP2_0_P                      equ 0x8401
+IP2_1                        equ 0x85
+IP2_1_P                      equ 0x8501
+IP3                          equ 0x86          ; RW,MMU, spec 2/9.8
+IP3_N                        equ 0x2
+IP3_P                        equ 0x8601
+IP3_0                        equ 0x86
+IP3_0_P                      equ 0x8601
+IP3_1                        equ 0x87
+IP3_1_P                      equ 0x8701
+IP4                          equ 0x88          ; RW,MMU, spec 2/9.8
+IP4_N                        equ 0x2
+IP4_P                        equ 0x8801
+IP4_0                        equ 0x88
+IP4_0_P                      equ 0x8801
+IP4_1                        equ 0x89
+IP4_1_P                      equ 0x8901
+IP5                          equ 0x8A          ; RW,MMU, spec 2/9.8
+IP5_N                        equ 0x2
+IP5_P                        equ 0x8A01
+IP5_0                        equ 0x8A
+IP5_0_P                      equ 0x8A01
+IP5_1                        equ 0x8B
+IP5_1_P                      equ 0x8B01
+IP6                          equ 0x8C          ; RW,MMU, spec 2/9.8
+IP6_N                        equ 0x2
+IP6_P                        equ 0x8C01
+IP6_0                        equ 0x8C
+IP6_0_P                      equ 0x8C01
+IP6_1                        equ 0x8D
+IP6_1_P                      equ 0x8D01
+IP7                          equ 0x8E          ; RW,MMU, spec 2/9.8
+IP7_N                        equ 0x2
+IP7_P                        equ 0x8E01
+IP7_0                        equ 0x8E
+IP7_0_P                      equ 0x8E01
+IP7_1                        equ 0x8F
+IP7_1_P                      equ 0x8F01
+
+; ---- IP0W..IP7W: 8 x 0x2 bytes, spec 2/9.8
+IPW_NUM                      equ 0x8
+IPW_SPAN                     equ 0x2
+IPW_PAGE_B                   equ 0x0
+IPW_PAGE_W                   equ 0xA
+IPW_PAGE_M                   equ 0x3FF
+IP0W                         equ 0x90          ; RW,MMU, spec 2/9.8
+IP0W_N                       equ 0x2
+IP0W_P                       equ 0x9001
+IP0W_0                       equ 0x90
+IP0W_0_P                     equ 0x9001
+IP0W_1                       equ 0x91
+IP0W_1_P                     equ 0x9101
+IP1W                         equ 0x92          ; RW,MMU, spec 2/9.8
+IP1W_N                       equ 0x2
+IP1W_P                       equ 0x9201
+IP1W_0                       equ 0x92
+IP1W_0_P                     equ 0x9201
+IP1W_1                       equ 0x93
+IP1W_1_P                     equ 0x9301
+IP2W                         equ 0x94          ; RW,MMU, spec 2/9.8
+IP2W_N                       equ 0x2
+IP2W_P                       equ 0x9401
+IP2W_0                       equ 0x94
+IP2W_0_P                     equ 0x9401
+IP2W_1                       equ 0x95
+IP2W_1_P                     equ 0x9501
+IP3W                         equ 0x96          ; RW,MMU, spec 2/9.8
+IP3W_N                       equ 0x2
+IP3W_P                       equ 0x9601
+IP3W_0                       equ 0x96
+IP3W_0_P                     equ 0x9601
+IP3W_1                       equ 0x97
+IP3W_1_P                     equ 0x9701
+IP4W                         equ 0x98          ; RW,MMU, spec 2/9.8
+IP4W_N                       equ 0x2
+IP4W_P                       equ 0x9801
+IP4W_0                       equ 0x98
+IP4W_0_P                     equ 0x9801
+IP4W_1                       equ 0x99
+IP4W_1_P                     equ 0x9901
+IP5W                         equ 0x9A          ; RW,MMU, spec 2/9.8
+IP5W_N                       equ 0x2
+IP5W_P                       equ 0x9A01
+IP5W_0                       equ 0x9A
+IP5W_0_P                     equ 0x9A01
+IP5W_1                       equ 0x9B
+IP5W_1_P                     equ 0x9B01
+IP6W                         equ 0x9C          ; RW,MMU, spec 2/9.8
+IP6W_N                       equ 0x2
+IP6W_P                       equ 0x9C01
+IP6W_0                       equ 0x9C
+IP6W_0_P                     equ 0x9C01
+IP6W_1                       equ 0x9D
+IP6W_1_P                     equ 0x9D01
+IP7W                         equ 0x9E          ; RW,MMU, spec 2/9.8
+IP7W_N                       equ 0x2
+IP7W_P                       equ 0x9E01
+IP7W_0                       equ 0x9E
+IP7W_0_P                     equ 0x9E01
+IP7W_1                       equ 0x9F
+IP7W_1_P                     equ 0x9F01
+
+; ---- IPSAV0..IPSAV7: 8 x 0x2 bytes, spec 2/9.8
+IPSAV_NUM                    equ 0x8
+IPSAV_SPAN                   equ 0x2
+IPSAV_PAGE_B                 equ 0x0
+IPSAV_PAGE_W                 equ 0xA
+IPSAV_PAGE_M                 equ 0x3FF
+IPSAV0                       equ 0xA0          ; RW,MMU, spec 2/9.8
+IPSAV0_N                     equ 0x2
+IPSAV0_P                     equ 0xA001
+IPSAV0_0                     equ 0xA0
+IPSAV0_0_P                   equ 0xA001
+IPSAV0_1                     equ 0xA1
+IPSAV0_1_P                   equ 0xA101
+IPSAV1                       equ 0xA2          ; RW,MMU, spec 2/9.8
+IPSAV1_N                     equ 0x2
+IPSAV1_P                     equ 0xA201
+IPSAV1_0                     equ 0xA2
+IPSAV1_0_P                   equ 0xA201
+IPSAV1_1                     equ 0xA3
+IPSAV1_1_P                   equ 0xA301
+IPSAV2                       equ 0xA4          ; RW,MMU, spec 2/9.8
+IPSAV2_N                     equ 0x2
+IPSAV2_P                     equ 0xA401
+IPSAV2_0                     equ 0xA4
+IPSAV2_0_P                   equ 0xA401
+IPSAV2_1                     equ 0xA5
+IPSAV2_1_P                   equ 0xA501
+IPSAV3                       equ 0xA6          ; RW,MMU, spec 2/9.8
+IPSAV3_N                     equ 0x2
+IPSAV3_P                     equ 0xA601
+IPSAV3_0                     equ 0xA6
+IPSAV3_0_P                   equ 0xA601
+IPSAV3_1                     equ 0xA7
+IPSAV3_1_P                   equ 0xA701
+IPSAV4                       equ 0xA8          ; RW,MMU, spec 2/9.8
+IPSAV4_N                     equ 0x2
+IPSAV4_P                     equ 0xA801
+IPSAV4_0                     equ 0xA8
+IPSAV4_0_P                   equ 0xA801
+IPSAV4_1                     equ 0xA9
+IPSAV4_1_P                   equ 0xA901
+IPSAV5                       equ 0xAA          ; RW,MMU, spec 2/9.8
+IPSAV5_N                     equ 0x2
+IPSAV5_P                     equ 0xAA01
+IPSAV5_0                     equ 0xAA
+IPSAV5_0_P                   equ 0xAA01
+IPSAV5_1                     equ 0xAB
+IPSAV5_1_P                   equ 0xAB01
+IPSAV6                       equ 0xAC          ; RW,MMU, spec 2/9.8
+IPSAV6_N                     equ 0x2
+IPSAV6_P                     equ 0xAC01
+IPSAV6_0                     equ 0xAC
+IPSAV6_0_P                   equ 0xAC01
+IPSAV6_1                     equ 0xAD
+IPSAV6_1_P                   equ 0xAD01
+IPSAV7                       equ 0xAE          ; RW,MMU, spec 2/9.8
+IPSAV7_N                     equ 0x2
+IPSAV7_P                     equ 0xAE01
+IPSAV7_0                     equ 0xAE
+IPSAV7_0_P                   equ 0xAE01
+IPSAV7_1                     equ 0xAF
+IPSAV7_1_P                   equ 0xAF01
+
+; ---- IPSAV0W..IPSAV7W: 8 x 0x2 bytes, spec 2/9.8
+IPSAVW_NUM                   equ 0x8
+IPSAVW_SPAN                  equ 0x2
+IPSAVW_PAGE_B                equ 0x0
+IPSAVW_PAGE_W                equ 0xA
+IPSAVW_PAGE_M                equ 0x3FF
+IPSAV0W                      equ 0xB0          ; RW,MMU, spec 2/9.8
+IPSAV0W_N                    equ 0x2
+IPSAV0W_P                    equ 0xB001
+IPSAV0W_0                    equ 0xB0
+IPSAV0W_0_P                  equ 0xB001
+IPSAV0W_1                    equ 0xB1
+IPSAV0W_1_P                  equ 0xB101
+IPSAV1W                      equ 0xB2          ; RW,MMU, spec 2/9.8
+IPSAV1W_N                    equ 0x2
+IPSAV1W_P                    equ 0xB201
+IPSAV1W_0                    equ 0xB2
+IPSAV1W_0_P                  equ 0xB201
+IPSAV1W_1                    equ 0xB3
+IPSAV1W_1_P                  equ 0xB301
+IPSAV2W                      equ 0xB4          ; RW,MMU, spec 2/9.8
+IPSAV2W_N                    equ 0x2
+IPSAV2W_P                    equ 0xB401
+IPSAV2W_0                    equ 0xB4
+IPSAV2W_0_P                  equ 0xB401
+IPSAV2W_1                    equ 0xB5
+IPSAV2W_1_P                  equ 0xB501
+IPSAV3W                      equ 0xB6          ; RW,MMU, spec 2/9.8
+IPSAV3W_N                    equ 0x2
+IPSAV3W_P                    equ 0xB601
+IPSAV3W_0                    equ 0xB6
+IPSAV3W_0_P                  equ 0xB601
+IPSAV3W_1                    equ 0xB7
+IPSAV3W_1_P                  equ 0xB701
+IPSAV4W                      equ 0xB8          ; RW,MMU, spec 2/9.8
+IPSAV4W_N                    equ 0x2
+IPSAV4W_P                    equ 0xB801
+IPSAV4W_0                    equ 0xB8
+IPSAV4W_0_P                  equ 0xB801
+IPSAV4W_1                    equ 0xB9
+IPSAV4W_1_P                  equ 0xB901
+IPSAV5W                      equ 0xBA          ; RW,MMU, spec 2/9.8
+IPSAV5W_N                    equ 0x2
+IPSAV5W_P                    equ 0xBA01
+IPSAV5W_0                    equ 0xBA
+IPSAV5W_0_P                  equ 0xBA01
+IPSAV5W_1                    equ 0xBB
+IPSAV5W_1_P                  equ 0xBB01
+IPSAV6W                      equ 0xBC          ; RW,MMU, spec 2/9.8
+IPSAV6W_N                    equ 0x2
+IPSAV6W_P                    equ 0xBC01
+IPSAV6W_0                    equ 0xBC
+IPSAV6W_0_P                  equ 0xBC01
+IPSAV6W_1                    equ 0xBD
+IPSAV6W_1_P                  equ 0xBD01
+IPSAV7W                      equ 0xBE          ; RW,MMU, spec 2/9.8
+IPSAV7W_N                    equ 0x2
+IPSAV7W_P                    equ 0xBE01
+IPSAV7W_0                    equ 0xBE
+IPSAV7W_0_P                  equ 0xBE01
+IPSAV7W_1                    equ 0xBF
+IPSAV7W_1_P                  equ 0xBF01
+
+; ---- NMIP0..NMIP7: 8 x 0x2 bytes, spec 2/9.8
+NMIP_NUM                     equ 0x8
+NMIP_SPAN                    equ 0x2
+NMIP_PAGE_B                  equ 0x0
+NMIP_PAGE_W                  equ 0xA
+NMIP_PAGE_M                  equ 0x3FF
+NMIP0                        equ 0xC0          ; RW,MMU, spec 2/9.8
+NMIP0_N                      equ 0x2
+NMIP0_P                      equ 0xC001
+NMIP0_0                      equ 0xC0
+NMIP0_0_P                    equ 0xC001
+NMIP0_1                      equ 0xC1
+NMIP0_1_P                    equ 0xC101
+NMIP1                        equ 0xC2          ; RW,MMU, spec 2/9.8
+NMIP1_N                      equ 0x2
+NMIP1_P                      equ 0xC201
+NMIP1_0                      equ 0xC2
+NMIP1_0_P                    equ 0xC201
+NMIP1_1                      equ 0xC3
+NMIP1_1_P                    equ 0xC301
+NMIP2                        equ 0xC4          ; RW,MMU, spec 2/9.8
+NMIP2_N                      equ 0x2
+NMIP2_P                      equ 0xC401
+NMIP2_0                      equ 0xC4
+NMIP2_0_P                    equ 0xC401
+NMIP2_1                      equ 0xC5
+NMIP2_1_P                    equ 0xC501
+NMIP3                        equ 0xC6          ; RW,MMU, spec 2/9.8
+NMIP3_N                      equ 0x2
+NMIP3_P                      equ 0xC601
+NMIP3_0                      equ 0xC6
+NMIP3_0_P                    equ 0xC601
+NMIP3_1                      equ 0xC7
+NMIP3_1_P                    equ 0xC701
+NMIP4                        equ 0xC8          ; RW,MMU, spec 2/9.8
+NMIP4_N                      equ 0x2
+NMIP4_P                      equ 0xC801
+NMIP4_0                      equ 0xC8
+NMIP4_0_P                    equ 0xC801
+NMIP4_1                      equ 0xC9
+NMIP4_1_P                    equ 0xC901
+NMIP5                        equ 0xCA          ; RW,MMU, spec 2/9.8
+NMIP5_N                      equ 0x2
+NMIP5_P                      equ 0xCA01
+NMIP5_0                      equ 0xCA
+NMIP5_0_P                    equ 0xCA01
+NMIP5_1                      equ 0xCB
+NMIP5_1_P                    equ 0xCB01
+NMIP6                        equ 0xCC          ; RW,MMU, spec 2/9.8
+NMIP6_N                      equ 0x2
+NMIP6_P                      equ 0xCC01
+NMIP6_0                      equ 0xCC
+NMIP6_0_P                    equ 0xCC01
+NMIP6_1                      equ 0xCD
+NMIP6_1_P                    equ 0xCD01
+NMIP7                        equ 0xCE          ; RW,MMU, spec 2/9.8
+NMIP7_N                      equ 0x2
+NMIP7_P                      equ 0xCE01
+NMIP7_0                      equ 0xCE
+NMIP7_0_P                    equ 0xCE01
+NMIP7_1                      equ 0xCF
+NMIP7_1_P                    equ 0xCF01
+
+; ---- NMIP0W..NMIP7W: 8 x 0x2 bytes, spec 2/9.8
+NMIPW_NUM                    equ 0x8
+NMIPW_SPAN                   equ 0x2
+NMIPW_PAGE_B                 equ 0x0
+NMIPW_PAGE_W                 equ 0xA
+NMIPW_PAGE_M                 equ 0x3FF
+NMIP0W                       equ 0xD0          ; RW,MMU, spec 2/9.8
+NMIP0W_N                     equ 0x2
+NMIP0W_P                     equ 0xD001
+NMIP0W_0                     equ 0xD0
+NMIP0W_0_P                   equ 0xD001
+NMIP0W_1                     equ 0xD1
+NMIP0W_1_P                   equ 0xD101
+NMIP1W                       equ 0xD2          ; RW,MMU, spec 2/9.8
+NMIP1W_N                     equ 0x2
+NMIP1W_P                     equ 0xD201
+NMIP1W_0                     equ 0xD2
+NMIP1W_0_P                   equ 0xD201
+NMIP1W_1                     equ 0xD3
+NMIP1W_1_P                   equ 0xD301
+NMIP2W                       equ 0xD4          ; RW,MMU, spec 2/9.8
+NMIP2W_N                     equ 0x2
+NMIP2W_P                     equ 0xD401
+NMIP2W_0                     equ 0xD4
+NMIP2W_0_P                   equ 0xD401
+NMIP2W_1                     equ 0xD5
+NMIP2W_1_P                   equ 0xD501
+NMIP3W                       equ 0xD6          ; RW,MMU, spec 2/9.8
+NMIP3W_N                     equ 0x2
+NMIP3W_P                     equ 0xD601
+NMIP3W_0                     equ 0xD6
+NMIP3W_0_P                   equ 0xD601
+NMIP3W_1                     equ 0xD7
+NMIP3W_1_P                   equ 0xD701
+NMIP4W                       equ 0xD8          ; RW,MMU, spec 2/9.8
+NMIP4W_N                     equ 0x2
+NMIP4W_P                     equ 0xD801
+NMIP4W_0                     equ 0xD8
+NMIP4W_0_P                   equ 0xD801
+NMIP4W_1                     equ 0xD9
+NMIP4W_1_P                   equ 0xD901
+NMIP5W                       equ 0xDA          ; RW,MMU, spec 2/9.8
+NMIP5W_N                     equ 0x2
+NMIP5W_P                     equ 0xDA01
+NMIP5W_0                     equ 0xDA
+NMIP5W_0_P                   equ 0xDA01
+NMIP5W_1                     equ 0xDB
+NMIP5W_1_P                   equ 0xDB01
+NMIP6W                       equ 0xDC          ; RW,MMU, spec 2/9.8
+NMIP6W_N                     equ 0x2
+NMIP6W_P                     equ 0xDC01
+NMIP6W_0                     equ 0xDC
+NMIP6W_0_P                   equ 0xDC01
+NMIP6W_1                     equ 0xDD
+NMIP6W_1_P                   equ 0xDD01
+NMIP7W                       equ 0xDE          ; RW,MMU, spec 2/9.8
+NMIP7W_N                     equ 0x2
+NMIP7W_P                     equ 0xDE01
+NMIP7W_0                     equ 0xDE
+NMIP7W_0_P                   equ 0xDE01
+NMIP7W_1                     equ 0xDF
+NMIP7W_1_P                   equ 0xDF01
+
+; ---- NMISAV0..NMISAV7: 8 x 0x2 bytes, spec 2/9.8
+NMISAV_NUM                   equ 0x8
+NMISAV_SPAN                  equ 0x2
+NMISAV_PAGE_B                equ 0x0
+NMISAV_PAGE_W                equ 0xA
+NMISAV_PAGE_M                equ 0x3FF
+NMISAV0                      equ 0xE0          ; RW,MMU, spec 2/9.8
+NMISAV0_N                    equ 0x2
+NMISAV0_P                    equ 0xE001
+NMISAV0_0                    equ 0xE0
+NMISAV0_0_P                  equ 0xE001
+NMISAV0_1                    equ 0xE1
+NMISAV0_1_P                  equ 0xE101
+NMISAV1                      equ 0xE2          ; RW,MMU, spec 2/9.8
+NMISAV1_N                    equ 0x2
+NMISAV1_P                    equ 0xE201
+NMISAV1_0                    equ 0xE2
+NMISAV1_0_P                  equ 0xE201
+NMISAV1_1                    equ 0xE3
+NMISAV1_1_P                  equ 0xE301
+NMISAV2                      equ 0xE4          ; RW,MMU, spec 2/9.8
+NMISAV2_N                    equ 0x2
+NMISAV2_P                    equ 0xE401
+NMISAV2_0                    equ 0xE4
+NMISAV2_0_P                  equ 0xE401
+NMISAV2_1                    equ 0xE5
+NMISAV2_1_P                  equ 0xE501
+NMISAV3                      equ 0xE6          ; RW,MMU, spec 2/9.8
+NMISAV3_N                    equ 0x2
+NMISAV3_P                    equ 0xE601
+NMISAV3_0                    equ 0xE6
+NMISAV3_0_P                  equ 0xE601
+NMISAV3_1                    equ 0xE7
+NMISAV3_1_P                  equ 0xE701
+NMISAV4                      equ 0xE8          ; RW,MMU, spec 2/9.8
+NMISAV4_N                    equ 0x2
+NMISAV4_P                    equ 0xE801
+NMISAV4_0                    equ 0xE8
+NMISAV4_0_P                  equ 0xE801
+NMISAV4_1                    equ 0xE9
+NMISAV4_1_P                  equ 0xE901
+NMISAV5                      equ 0xEA          ; RW,MMU, spec 2/9.8
+NMISAV5_N                    equ 0x2
+NMISAV5_P                    equ 0xEA01
+NMISAV5_0                    equ 0xEA
+NMISAV5_0_P                  equ 0xEA01
+NMISAV5_1                    equ 0xEB
+NMISAV5_1_P                  equ 0xEB01
+NMISAV6                      equ 0xEC          ; RW,MMU, spec 2/9.8
+NMISAV6_N                    equ 0x2
+NMISAV6_P                    equ 0xEC01
+NMISAV6_0                    equ 0xEC
+NMISAV6_0_P                  equ 0xEC01
+NMISAV6_1                    equ 0xED
+NMISAV6_1_P                  equ 0xED01
+NMISAV7                      equ 0xEE          ; RW,MMU, spec 2/9.8
+NMISAV7_N                    equ 0x2
+NMISAV7_P                    equ 0xEE01
+NMISAV7_0                    equ 0xEE
+NMISAV7_0_P                  equ 0xEE01
+NMISAV7_1                    equ 0xEF
+NMISAV7_1_P                  equ 0xEF01
+
+; ---- NMISAV0W..NMISAV7W: 8 x 0x2 bytes, spec 2/9.8
+NMISAVW_NUM                  equ 0x8
+NMISAVW_SPAN                 equ 0x2
+NMISAVW_PAGE_B               equ 0x0
+NMISAVW_PAGE_W               equ 0xA
+NMISAVW_PAGE_M               equ 0x3FF
+NMISAV0W                     equ 0xF0          ; RW,MMU, spec 2/9.8
+NMISAV0W_N                   equ 0x2
+NMISAV0W_P                   equ 0xF001
+NMISAV0W_0                   equ 0xF0
+NMISAV0W_0_P                 equ 0xF001
+NMISAV0W_1                   equ 0xF1
+NMISAV0W_1_P                 equ 0xF101
+NMISAV1W                     equ 0xF2          ; RW,MMU, spec 2/9.8
+NMISAV1W_N                   equ 0x2
+NMISAV1W_P                   equ 0xF201
+NMISAV1W_0                   equ 0xF2
+NMISAV1W_0_P                 equ 0xF201
+NMISAV1W_1                   equ 0xF3
+NMISAV1W_1_P                 equ 0xF301
+NMISAV2W                     equ 0xF4          ; RW,MMU, spec 2/9.8
+NMISAV2W_N                   equ 0x2
+NMISAV2W_P                   equ 0xF401
+NMISAV2W_0                   equ 0xF4
+NMISAV2W_0_P                 equ 0xF401
+NMISAV2W_1                   equ 0xF5
+NMISAV2W_1_P                 equ 0xF501
+NMISAV3W                     equ 0xF6          ; RW,MMU, spec 2/9.8
+NMISAV3W_N                   equ 0x2
+NMISAV3W_P                   equ 0xF601
+NMISAV3W_0                   equ 0xF6
+NMISAV3W_0_P                 equ 0xF601
+NMISAV3W_1                   equ 0xF7
+NMISAV3W_1_P                 equ 0xF701
+NMISAV4W                     equ 0xF8          ; RW,MMU, spec 2/9.8
+NMISAV4W_N                   equ 0x2
+NMISAV4W_P                   equ 0xF801
+NMISAV4W_0                   equ 0xF8
+NMISAV4W_0_P                 equ 0xF801
+NMISAV4W_1                   equ 0xF9
+NMISAV4W_1_P                 equ 0xF901
+NMISAV5W                     equ 0xFA          ; RW,MMU, spec 2/9.8
+NMISAV5W_N                   equ 0x2
+NMISAV5W_P                   equ 0xFA01
+NMISAV5W_0                   equ 0xFA
+NMISAV5W_0_P                 equ 0xFA01
+NMISAV5W_1                   equ 0xFB
+NMISAV5W_1_P                 equ 0xFB01
+NMISAV6W                     equ 0xFC          ; RW,MMU, spec 2/9.8
+NMISAV6W_N                   equ 0x2
+NMISAV6W_P                   equ 0xFC01
+NMISAV6W_0                   equ 0xFC
+NMISAV6W_0_P                 equ 0xFC01
+NMISAV6W_1                   equ 0xFD
+NMISAV6W_1_P                 equ 0xFD01
+NMISAV7W                     equ 0xFE          ; RW,MMU, spec 2/9.8
+NMISAV7W_N                   equ 0x2
+NMISAV7W_P                   equ 0xFE01
+NMISAV7W_0                   equ 0xFE
+NMISAV7W_0_P                 equ 0xFE01
+NMISAV7W_1                   equ 0xFF
+NMISAV7W_1_P                 equ 0xFF01
 
 ; ---- CUSTOM: Custom block: port = (offset & 0xFF) << 8 | 0x10 + (offset >> 8)
 CUSTOM_SIZE                  equ 0x400
@@ -2768,6 +3327,8 @@ ULA_PORT                     equ 0xFE
 
 ; ---- Named numbers
 SYSPAGE                      equ 0x0           ; The system page
+IPPAGE                       equ 0x1           ; The interrupt pages' I/O page
+REGS_IPPAGE                  equ 0x100         ; Register page: I/O page 0x01 (REGS_IPPAGE + register)
 CUSTPAGE                     equ 0x10          ; The custom block's first page
 REGS_PALETTE                 equ 0x1400        ; Register page: PALETTE0
 REGS_PAL_SPAN                equ 0x300         ; Register page: bytes from one palette to the next

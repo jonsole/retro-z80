@@ -38,7 +38,7 @@ The design plan's branch 16 sets the frame: the boot ROM **stays in window 0** (
 | Disassembler optional | In the ROM | Design plan branch 16 |
 | A 1000 Hz timer tick set up at start-up (its spec 7) | No tick: the ROM polls, and a program starts with the timers off | The ROM needs no interrupts, so a program owns all of them |
 | – | A resident image (BASIC) in write-protected SRAM | Design plan branch 13 |
-| – | The NMI monitor page (a Spectrum extra) hands over to the monitor | Spec 7, section 10.1 |
+| – | The NMI monitor page (a Spectrum extra) hands over to the monitor; the NMI's PC and SP come from the stack capture, not the stack | Spec 7, section 10.1; the interrupt pages are a retro-z80 extra (spec 2, section 9.7) |
 | – | `P` addresses: the MMU's page space | The Z80 sees only 64 KB at a time |
 | – | The `P` (ports) command | Z80 I/O space |
 
@@ -215,7 +215,8 @@ The shared spec gives the shape (its section 10); this is retro-z80's content. I
 | SP | `0xFFFE`; the word at `0xFFFE` is `0x0040`, the ROM's EXIT, so a `RET` ends the program |
 | Other registers | AF, BC, DE, HL, IX, IY and AF', BC', DE', HL' all 0 (or as `R` set them) |
 | Interrupts | IM 2, IFF1 = IFF2 = 0 (DI). I = `0x1F`, VECBASE = `0xD0`: the ROM's table at `0x1FD0` (section 6.1). INTENA all clear, INTCON.MASTER clear, every unit's flags cleared |
-| NMI | NMICTL.EN = 1 and NMICON with both sources allowed: the Multiface button and BREAK from the PC reach the monitor |
+| NMI | NMICTL = `0x05` (EN, CAPTURE) and the NMI pages at their reset values (spec 2, section 9.8), and NMICON with both sources allowed: the Multiface button and BREAK from the PC reach the monitor |
+| Interrupt pages | Off: IPCTL, IPMASK and IPDEPTH 0 |
 | Speed | CPUSPEED 0: 20 MHz |
 | MMU | The program map (section 5.1) |
 | Boot ROM | ROMWE clear; ROMLOCK set, unless D was held at power-on |
@@ -233,7 +234,8 @@ The shared spec gives the shape (its section 10); this is retro-z80's content. I
 - **The ROM's table** is 24 entries at `0x1FD0`–`0x1FFF` in page 0 (spec 8, section 5). Every entry points at one handler that reads INTID, turns that source off in INTENA (a clear write), and returns with `EI` and `RETI`. A source turned on by mistake is thus switched off at its first interrupt instead of hanging the program in a loop of level-sensitive requests.
 - **A program that uses interrupts** builds its own table in its SRAM, sets I and VECBASE to it, and then turns its sources on (unit enables, INTENA, INTCON.MASTER). The ROM never changes I, VECBASE or the controller while a program runs.
 - **The ROM calls work with interrupts on.** They hold them off for at most about 150 µs at 20 MHz while they have a window borrowed (section 7.6), and give back the interrupt state they found.
-- **IM 1** is not served while the ROM is in window 0: `0x0038` is the trap (section 7.7). A program that wants IM 1 maps its own SRAM page into window 0, with its own code at `0x0038` and `0x0066`, and then makes no ROM calls (as the playfields guide says for ported Spectrum games).
+- **IM 1** is not served while the ROM is in window 0: `0x0038` is the trap (section 7.7). A program that wants IM 1 maps its own SRAM page into window 0, with its own code at `0x0038` and `0x0066`, and then makes no ROM calls (as the playfields guide says for ported Spectrum games). Or it uses the interrupt pages (spec 2, section 9.7): with window 0 in IPMASK and its own page as IP0, the fetch at `0x0038` comes from its page while the ROM stays in window 0 for the rest of the program; its handlers then make no ROM calls.
+- **Interrupt pages:** a program that makes ROM calls from its handlers leaves window 0 out of IPMASK. Its IM 2 table may then sit in a switched window (in the interrupt page) or in an unswitched one. The ROM's own table at `0x1FD0` is in window 0 and is read as usual.
 
 ### 6.2 Getting back to the monitor
 
@@ -389,7 +391,7 @@ The shared spec gives the commands. Here are the Z80's parts.
 
 | Address | Reaches | Allowed |
 |---------|---------|---------|
-| `0000`–`1FFF` | Window 0 as the program had it: ROM page 0 normally; after an NMI, the page the program had in window 0 (NMISAV0, NMISAVW0, NMISAVHI) | Reading. Writing only if the program's write page there is SRAM |
+| `0000`–`1FFF` | Window 0 as the program had it: ROM page 0 normally; after an NMI, the page the program had in window 0 (NMISAV0, NMISAV0W) | Reading. Writing only if the program's write page there is SRAM |
 | `2000`–`FFFF` | Windows 1–7 through the program's page registers | Reading and writing |
 | `P000000`–`P3FFFFF` | SRAM, page × `0x2000` + offset; on a 2 MB board (SYSCFG.CHIPMB = 2) only up to `P1FFFFF` | Reading and writing. Pages `0x0FE`–`0x0FF` (and `0x0F8`–`0x0FB` while BASIC is resident) can be read and written, with care |
 | `P7F0000`–`P7F1FFF` | The register page (spec 2, section 10) | Reading and writing; some reads have side effects (below) |
@@ -454,25 +456,25 @@ AF'=0000 BC'=0000 DE'=0000 HL'=0000 I=1F R=12 IFF=0 IM=2?  Z P
 
 When the monitor is entered while a program is running (a break, a breakpoint, a trap, an NMI):
 
-1. It saves the registers (a few bytes on the program's stack first, then into the workspace), the 16 page registers (window 0's from NMISAV0, NMISAVW0 and NMISAVHI after an NMI), CPUSPEED, and the interrupt state.
+1. It saves the registers (a few bytes on the program's stack first, then into the workspace), the 16 page registers (after an NMI, from NMISAV0–7 and NMISAV0W–7W, the program's map at the NMI), CPUSPEED, and the interrupt state, IPDEPTH included. After an NMI the program's PC and SP are NMICAPPC and NMICAPSP (spec 2, section 9.8), not words on its stack.
 2. It moves to its own map (section 5.2) and its stack in the workspace, sets CPUSPEED 0, and keeps interrupts off.
 3. If the console's state or the workspace is broken, it sets them up again (section 5.3).
 4. It **takes the screen**: it saves L0's 32 registers, PRIO, DMACON, BGCOLOR, COPCON and PALETTE0 entries 16–79, stops the copper (so a copper list does not rewrite L0), puts L0 back as the console in front of the other layers, and the border black. Sprites, L1, L2 and the DMA engine are left as they are (open point B5).
 5. It kicks a running watchdog while it waits (WDKICK; a locked watchdog cannot be stopped).
 
-`G` puts all of it back, in reverse, and goes on: with `RET` after a break, a breakpoint or a trap; with `RETN` after an NMI, so the hardware puts window 0 back (spec 7, section 10.1). A copper list starts again from COP1LC at the next frame.
+`G` puts all of it back, in reverse, and goes on: with `RET` after a break, a breakpoint or a trap; with `RETN` after an NMI, so the hardware puts window 0 and the PC back (spec 7, section 10.1). After an NMI, `G addr` or a changed PC is written to NMICAPPC, a changed window to NMISAVn, and SP is set to NMICAPSP − 2 before the `RETN`. A copper list starts again from COP1LC at the next frame.
 
 ### 8.6 The NMI monitor page
 
 The NMI paging (spec 7, section 10.1; spec 1, section 8.2) puts ROM page 3 in window 0 for the NMI, read only. There is **one monitor**, in pages 0–2; page 3 holds only the way in:
 
-1. At `0x0066` in page 3: save AF and BC on the program's stack, and read NMISTAT for the source.
-2. Save the program's windows 1–7 and its window 0 (from NMISAV0, NMISAVW0, NMISAVHI) into the workspace, mapped as in section 5.2.
+1. At `0x0066` in page 3: save AF and BC on the program's stack (below the captured return address, which is not there), and read NMISTAT for the source.
+2. Save the program's map (NMISAV0–7, NMISAV0W–7W), PC and SP (NMICAPPC, NMICAPSP) into the workspace, mapped as in section 5.2.
 3. Switch window 0 from page 3 to page 0 (the switch is at the same address in both pages, so the next instruction comes from page 0), and go on in the monitor's common entry (section 8.5).
 
-The NMI mode (NMICTL.INNMI) lasts until the monitor's `RETN`, which puts the program's window 0 back. If the monitor starts a **new** program after an NMI (`U`, `B`, `L` then `G`, `G addr` after a load), it first ends the NMI mode: a `RETN` to a few bytes of code it has put in the workspace (window 3), which map ROM page 0 into window 0 again and carry on. So the new program can be broken into by the next NMI.
+The NMI mode (NMICTL.INNMI) lasts until the monitor's `RETN`, which puts the program's window 0 back. If the monitor starts a **new** program after an NMI (`U`, `B`, `L` then `G`, `G addr` after a load), it first ends the NMI mode: it writes the address of a few bytes of code it has put in the workspace (window 3) to NMICAPPC and does `RETN`; that code maps ROM page 0 into window 0 again and carries on. So the new program can be broken into by the next NMI. It also puts the interrupt pages back to off (IPCTL, IPMASK and IPDEPTH 0) for the new program.
 
-With NMICTL.EN = 0, page 0's `0x0066` jumps to the same common entry; the program's window 0 is then whatever it was, and the monitor ends with `RETN` too.
+With NMICTL.EN = 0, page 0's `0x0066` jumps to the same common entry; the program's window 0 is then whatever it was, and the monitor ends with `RETN` too. With NMICTL.CAPTURE = 0 (a program's choice) the PC is on the program's stack, as on a plain Z80, and the monitor reads it from there.
 
 ## 9. The loader and image files on the Z80
 
@@ -537,7 +539,7 @@ The ROM is built in this order, each step a ticket:
 - **Printing:** every code of section 7.5; wrap at column 79; scrolling; PUTRAW; CONMODE turning each side off.
 - **Trap:** a jump into NONE, into the register page and to a byte `0xFF` each give `Trap RST 38h at` the right address; the self-test's check `0x4C` still passes at power-on.
 - **Monitor (Z80 parts):** plain and `P` addresses, including window 0 after an NMI and the register page; `P` reads and writes ports; `R` shows and sets every register, IFF and IM; `I` against a list of every opcode (checked against sjasmplus's own listing); breakpoints; a break, a trap and an NMI each followed by `G` that goes on with every register, the MMU, CPUSPEED and the screen as they were.
-- **NMI page:** the NMI path through page 3 into the common monitor and out by `RETN`, with the program's stack in window 0 and elsewhere; a new program started after an NMI can be broken into again.
+- **NMI page:** the NMI path through page 3 into the common monitor and out by `RETN`, with the program's stack in window 0 and elsewhere; the PC and SP shown are NMICAPPC and NMICAPSP, also with SP pointing at ROM; `G addr` after an NMI carries on at addr; a new program started after an NMI can be broken into again, and starts with the interrupt pages off; an NMI inside a program's maskable handler that uses the interrupt pages shows and restores the handler's map.
 - **Broken workspace:** a program that overwrites pages `0x0FE`–`0x0FF` and is then broken into gets a working monitor.
 - **Loader:** the shared spec's upload tests, with every range of section 9 accepted or refused; a boot ROM image written and running after the reset; in simulation with the FT232H model.
 - **BASIC:** a resident image loaded, protected (writes to its windows change nothing), kept across a button reset without an SD read, loaded again when its ICRC check fails.
@@ -558,3 +560,5 @@ The ROM is built in this order, each step a ticket:
 | B10 | Video, sprite and copper state: section 6 lists what the ROM sets; anything not listed is as reset left it. Check the list against each unit's spec when the ROM is written |
 | B11 | Closed (the user confirmed): the program map of section 5.1. Windows 1–7 = SRAM pages 1–7, so a CPU address is its own physical address in RAM; SP = `0xFFFE` holding the return-to-monitor address (`0x0040`), so a `RET` ends the program |
 | B12 | Closed (the user confirmed): ROMLOCK is decided at power-on only (RESETWHY.POWER): with D held it stays clear; otherwise the ROM sets it (section 4.5; shared spec, section 9) |
+| B13 | Should the monitor or the ROM use the maskable interrupt pages itself (for example to serve its own interrupts from a ROM page without the program mapping anything)? Version 1: no; the ROM leaves them off and to programs (design plan, branch 17) |
+| B14 | The NMI entry still saves AF and BC on the program's stack, so a bad SP loses them (the return address itself is captured). With NMIP0W set to the workspace page instead of NONE, the entry could save SP and switch stacks with writes to window 0 while it reads the monitor page, and touch no program memory at all. To decide |
