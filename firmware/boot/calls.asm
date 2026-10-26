@@ -389,6 +389,7 @@ gline:  ld      c,0                     ; the length so far
         ld      a,c
         or      a
         jr      nz,.key
+        ld      a,e                     ; the key (Tab or F1) ends the empty line
 .hello: ld      e,a
         ld      (hl),0
         ld      b,0
