@@ -433,7 +433,7 @@ loader: ld      sp,MSTACK
         call    setbg
         call    bol
         call    pmsg
-        db      "Waiting for upload.  Esc for the monitor.", 13, 10, 0
+        db      "Waiting for upload.  BREAK for the monitor.", 13, 10, 0
         xor     a
         ld      (L_OK),a
         ld      (L_SEQV),a

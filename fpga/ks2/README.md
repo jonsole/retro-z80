@@ -235,7 +235,7 @@ A watchpoint set by hand: DBGWP0's address `9000` (ports `0x3002` and `0x3102`: 
 
 ```
 > U
-Waiting for upload.  Esc for the monitor.
+Waiting for upload.  BREAK for the monitor.
 ```
 
 The border turns yellow while the loader waits (it has sent `LOAD Z80 1` to the link, which nobody reads). **BREAK** (CAPS SHIFT + SPACE) or Esc ends it: `Stopped.`, the border black again, and the prompt. Everything else (an upload, VS Code through the bridge) is tested in simulation until the module is fitted (`make -C sim link`). The monitor's prompt now also watches the link for the bridge's HELLO frame: with nothing on the link nothing changes.
