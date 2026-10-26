@@ -42,6 +42,8 @@
 #                   reserved encoding and register, and the timing of WAITs
 #                   and of its memory channel, against a model (cop/; in
 #                   Verilator, about a minute)
+#   make coppal     the CPU's and the copper's PALDAT writes interleaved:
+#                   both colours whole (coppal/; seconds)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -69,8 +71,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing cop lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds cop zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing cop coppal lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds cop coppal zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -239,6 +241,14 @@ $(BUILD)/vl_cop/vcop: cop/tb_cop.v $(COP_RTL) $(RTL)/regmap.vh | $(BUILD)
 
 cop: $(BUILD)/vl_cop/vcop cop/coptest.asm cop/copcheck.py $(INC)/hw.inc $(INC)/copper.inc
 	@d=$(BUILD)/cop; mkdir -p $$d; 	(cd $$d && $(SJASMPLUS) --nologo -I ../../$(INC) ../../cop/coptest.asm) && 	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/coptest.bin $$d/coptest.hex && 	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/cop_hi.bin $$d/cop_hi.hex && 	(cd $$d && ../vl_cop/vcop > sim.log); tail -n 5 $$d/sim.log; 	grep -q "^TEST PASSED" $$d/sim.log && 	$(PYTHON) cop/copcheck.py $$d/coptest.bin $$d/cop_hi.bin $$d/cop.log
+
+# The CPU's and the copper's palette writes interleaved (ticket #32)
+$(BUILD)/coppal.bin: coppal/coppal.asm $(INC)/hw.inc $(INC)/copper.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+coppal: $(BUILD)/tb.vvp $(BUILD)/coppal.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=coppal.hex +timeout=2000 | tee coppal.log
+	@grep -q "^TEST PASSED" $(BUILD)/coppal.log
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

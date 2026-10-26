@@ -26,7 +26,7 @@ COPX, COPY, COPFLAGS, COPSP = 0x10E, 0x10F, 0x110, 0x111
 COPJMP1, COPJMP2, COPINT, COPR0 = 0x107, 0x108, 0x109, 0x118
 
 TESTS = ["move", "wait", "never1", "never2", "skip", "jump", "call", "callov", "retun",
-         "movr", "alu", "skipc", "copint", "jmp2", "res", "nores", "stk", "nostk",
+         "movr", "alu", "skipc", "copint", "jmp2", "res", "nores", "cut", "stk", "nostk",
          "rate1", "rate0"] + ["bad%d" % i for i in range(19)]
 
 
@@ -312,6 +312,17 @@ def main():
                     err(n, "COP2LC changed without RESUME")
             if len(cnt) < 600:
                 err(n, "list 2 counted only %d lines" % len(cnt))
+        elif name == "cut":
+            bad = [x for x in ws if x[0] in (M + 2, M + 3)]
+            cnt = [d for (o, d) in ws if o == M + 1]
+            if bad:
+                err(n, "a skipped instruction ran after RESUME: %s" % fmt(bad))
+            if cnt != [(i + 1) & 0xFF for i in range(len(cnt))]:
+                err(n, "list 2 did not carry on across the restarts: %s" % cnt[:8])
+            if len(t["f"]) < 5:
+                err(n, "only %d frame restarts" % len(t["f"]))
+            if len(cnt) < 100:
+                err(n, "list 2 ran only %d times" % len(cnt))
         elif name in ("stk", "nostk"):
             want = 3 if name == "stk" else 1
             if t["s"]["sp"] != want:

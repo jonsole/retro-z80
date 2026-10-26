@@ -23,7 +23,10 @@
 // code. 0x00-0xEF MOVE; 0xF0 WAIT, 0xF1 SKIP, 0xF2 JUMP, 0xF3 STOP, 0xF4-0xF8
 // MOVR, 0xF9 ALU, 0xFA SKIPC, 0xFB CALL and RET, 0xFC MOVEF; 0xFD-0xFF and
 // any bit shown as 0 that is set are reserved: they stop the copper with
-// COPSTAT.ERR. A skipped instruction is fetched whole and dropped.
+// COPSTAT.ERR. SKIP and SKIPC decide only once the first word of the next
+// instruction is in the buffer (a SKIP fetches a third word for it), so the
+// length of what they skip is known: a skip is a jump past it, at once, and
+// RESUME can never save a place inside it.
 //
 // Registers (custom block, spec 6, section 6):
 //   COPCON   0x100   EN (0), IRQEN (1), RESUME (2), STKKEEP (3), PRI (5-4)
@@ -42,7 +45,8 @@
 // place of one 32-bit instruction; 10-bit beam positions (end of list: a
 // WAIT for line 1023); byte registers; the copper goes first on the register
 // bus (no cw_go); no nasty mode (PRI 2 and 3 act as 1, in dmac.v). A SKIP
-// drops the next instruction as it comes, whatever its length, in place of
+// that skips jumps past the next instruction, whose length it reads from
+// that instruction's first word (one more word in the buffer), in place of
 // refetching two words on.
 `include "regmap.vh"
 
@@ -116,10 +120,10 @@ module copper (
     reg  [21:1] npc;                   // next instruction to run (the word at b0)
     reg  [21:1] xpc;                   // the instruction running
     reg         in2;                   // in list 2 (RESUME)
-    reg         skip;                  // drop the next instruction
 
-    // Fetch: a buffer of two words, and at most one word on its way
-    reg  [15:0] b0, b1;
+    // Fetch: a buffer of two words (three behind a SKIP), and at most one
+    // word on its way
+    reg  [15:0] b0, b1, b2;
     reg  [1:0]  bn;
     reg  [21:1] fpc;                   // next word to fetch
     reg         outst;                 // a word is on its way (acked, data not back)
@@ -137,11 +141,18 @@ module copper (
     wire [7:0]  lo   = b0[7:0];
     wire        ext  = (code[7:4] == 4'hF);
     // Two-word instructions: WAIT, SKIP, JUMP, MOVEF, ALU with a value, CALL
-    wire        two  = ext && (code[3:0] == 4'h0 || code[3:0] == 4'h1 || code[3:0] == 4'h2 ||
-                               code[3:0] == 4'hC || (code[3:0] == 4'h9 && lo[3:0] == 4'd10) ||
-                               (code[3:0] == 4'hB && !lo[7]));
-    wire        have = two ? (bn == 2'd2) : (bn != 2'd0);
-    wire [21:1] npc_n = npc + (two ? 21'd2 : 21'd1);   // the instruction after this one
+    function is_two(input [15:0] w);
+        is_two = (w[15:12] == 4'hF) && (w[11:8] == 4'h0 || w[11:8] == 4'h1 || w[11:8] == 4'h2 ||
+                 w[11:8] == 4'hC || (w[11:8] == 4'h9 && w[3:0] == 4'd10) ||
+                 (w[11:8] == 4'hB && !w[7]));
+    endfunction
+    wire        two    = is_two(b0);
+    wire        i_skip = (code == 8'hF1);              // SKIP: needs a third word
+    wire        i_skc  = (code == 8'hFA);              // SKIPC: needs a second
+    wire        have   = i_skip ? (bn == 2'd3) : (two || i_skc) ? (bn >= 2'd2) : (bn != 2'd0);
+    wire [21:1] npc_n  = npc + (two ? 21'd2 : 21'd1);  // the instruction after this one
+    // ... and the one after that, for a SKIP or SKIPC that skips
+    wire [21:1] npc_s  = npc_n + (is_two(i_skip ? b2 : b1) ? 21'd2 : 21'd1);
 
     // WAIT and SKIP positions: line and pixel, 10 bits each
     wire [10:0] i_line = {1'b0, lo[3:2], b1[15:8]};
@@ -213,7 +224,6 @@ module copper (
             xs <= X_OFF;
             npc <= 21'd0; xpc <= 21'd0;
             in2 <= 1'b0;
-            skip <= 1'b0;
             bn <= 2'd0;
             fpc <= 21'd0;
             mem_req <= 1'b0;
@@ -226,9 +236,7 @@ module copper (
                     used = two ? 2'd2 : 2'd1;
                     xpc  <= npc;
                     npc  <= npc_n;
-                    if (skip) begin
-                        skip <= 1'b0;              // a skipped instruction: dropped whole
-                    end else if (!ext) begin
+                    if (!ext) begin
                         do_write({2'b00, code}, lo);                       // MOVE
                     end else if (bad) begin
                         st_err <= 1'b1;
@@ -244,7 +252,9 @@ module copper (
                                 xs      <= X_WAIT;
                             end
                         end
-                        4'h1: if (i_p ? t_preach : t_reach) skip <= 1'b1;   // SKIP
+                        4'h1: if (i_p ? t_preach : t_reach) begin           // SKIP: past the next
+                            flush = 1'b1; f_to = npc_s;
+                        end
                         4'h2: begin flush = 1'b1; f_to = {lo[5:0], b1[15:1]}; end   // JUMP
                         4'h3: stop;                                         // STOP
                         4'h4: do_write({2'b00, rx}, lo);                    // MOVR (X) = value
@@ -263,7 +273,9 @@ module copper (
                             a_val <= b1[7:0];
                             xs    <= X_ALU;
                         end
-                        4'hA: if (cond(lo[3:0], rf)) skip <= 1'b1;          // SKIPC
+                        4'hA: if (cond(lo[3:0], rf)) begin                  // SKIPC
+                            flush = 1'b1; f_to = npc_s;
+                        end
                         4'hB: if (lo[7]) begin                              // RET
                             if (sp == 4'd0) begin st_err <= 1'b1; stop; end
                             else begin
@@ -330,25 +342,27 @@ module copper (
                 restart(lc2);
             end
             if (vblank && en) begin
-                // RESUME: list 2's place. A WAIT still waiting, an ALU not
-                // done or an instruction still to be skipped is run again
+                // RESUME: list 2's place. A WAIT still waiting or an ALU not
+                // done is run again; after a skip, npc is already past it
                 if (copcon[2] && in2)
-                    lc2 <= (xs == X_WAIT || xs == X_ALU || skip) ? xpc : npc;
+                    lc2 <= (xs == X_WAIT || xs == X_ALU) ? xpc : npc;
                 in2 <= 1'b0;
                 if (!copcon[3]) sp <= 4'd0;
                 restart(lc1);
             end
-            if (!en) begin
-                xs <= X_OFF;
+            if (!en) begin                 // off: stopped, as by STOP (not in list 2)
+                xs  <= X_OFF;
+                in2 <= 1'b0;
                 if (xs != X_OFF) flush = 1'b1;
             end
 
             // ---- fetch: the buffer, less the words used, plus a word arriving
             begin : fetch
-                reg [15:0] n0, n1;
+                reg [15:0] n0, n1, n2;
                 reg [1:0]  nn;
-                n0 = (used == 2'd1) ? b1 : b0;
-                n1 = b1;
+                n0 = (used == 2'd1) ? b1 : (used == 2'd2) ? b2 : b0;
+                n1 = (used == 2'd1) ? b2 : b1;
+                n2 = b2;
                 nn = bn - used;
                 if (mem_ack) begin
                     mem_req <= 1'b0;
@@ -358,23 +372,23 @@ module copper (
                     outst <= 1'b0;
                     if (stale) stale <= 1'b0;
                     else if (!flush) begin
-                        if (nn == 2'd0) n0 = mem_rdata; else n1 = mem_rdata;
+                        if (nn == 2'd0) n0 = mem_rdata; else if (nn == 2'd1) n1 = mem_rdata; else n2 = mem_rdata;
                         nn = nn + 2'd1;
                     end
                 end
                 b0 <= n0;
                 b1 <= n1;
+                b2 <= n2;
                 bn <= nn;
             end
             if (flush) begin
                 bn   <= 2'd0;
-                skip <= 1'b0;
                 fpc  <= f_to;
                 npc  <= f_to;
                 // A word asked for or on its way is dropped when it comes
                 if (mem_req || mem_ack || (outst && !mem_rvalid)) stale <= 1'b1;
             end else if (!mem_req && !outst && !mem_ack && !mem_rvalid && !stale
-                         && xs != X_OFF && bn != 2'd2) begin
+                         && xs != X_OFF && (bn < 2'd2 || (bn == 2'd2 && i_skip))) begin
                 mem_req  <= 1'b1;
                 mem_addr <= fpc;
                 fpc      <= fpc + 1'b1;

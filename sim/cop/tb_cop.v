@@ -34,11 +34,13 @@ module tb_cop;
     // ---------------------------------------------------------------- beam
     reg  [10:0] bv = 11'd0, bh = 11'd0;
     reg  [7:0]  acc = 8'd0;
-    reg         vbl = 1'b0;
+    reg         vbl_b = 1'b0;
+    reg         cut_vbl = 1'b0;        // F_CUT: a frame restart forced just after a skip
+    wire        vbl = vbl_b || cut_vbl;
     reg         jump_beam = 1'b0;      // put the beam just before the frame restart
     reg         jump_mid = 1'b0;       // ... or at line 300, far from it
     always @(posedge clk) begin
-        vbl <= 1'b0;
+        vbl_b <= 1'b0;
         if (jump_beam) begin
             bv <= 11'd624; bh <= 11'd858; acc <= 8'd0;
         end else if (jump_mid) begin
@@ -47,7 +49,7 @@ module tb_cop;
             acc <= acc + 8'd27 - 8'd100;
             if (bh == 11'd863) begin
                 bh <= 11'd0;
-                if (bv == 11'd624) begin bv <= 11'd0; vbl <= 1'b1; end
+                if (bv == 11'd624) begin bv <= 11'd0; vbl_b <= 1'b1; end
                 else bv <= bv + 1'b1;
             end else bh <= bh + 1'b1;
         end else acc <= acc + 8'd27;
@@ -209,6 +211,19 @@ module tb_cop;
     reg        stopped;
     always @(posedge clk) busy <= tb_busy && bv >= 11'd100 && bv < 11'd400;
     reg tb_busy = 1'b0;
+    // F_CUT: three frame restarts, each in the clock after a SKIP or SKIPC
+    // runs (whether it skips or not), at least 3000 clocks apart
+    reg     tb_cut = 1'b0;
+    integer cuts = 0, last_cut = 0;
+    always @(posedge clk) begin
+        cut_vbl <= 1'b0;
+        if (tb_cut && cuts < 3 && clocks - last_cut > 3000 && dut.xs == 3'd1 && dut.have && !dut.hold
+            && (dut.i_skip || dut.i_skc)) begin
+            cut_vbl  <= 1'b1;
+            cuts     = cuts + 1;
+            last_cut = clocks;
+        end
+    end
 
     initial begin
         log = $fopen("cop.log", "w");
@@ -283,6 +298,9 @@ module tb_cop;
             wr(`RM_COP1LC0, la[7:0]);  wr(`RM_COP1LC1, la[15:8]);  wr(`RM_COP1LC2, {2'd0, la[21:16]});
             wr(`RM_COP2LC0, l2a[7:0]); wr(`RM_COP2LC1, l2a[15:8]); wr(`RM_COP2LC2, {2'd0, l2a[21:16]});
             tb_busy = fl[5];
+            tb_cut  = fl[6];
+            cuts    = 0;
+            last_cut = clocks;
             wr(`RM_COPCON, {2'd0, fl[1] ? 2'd1 : 2'd0, fl[3], fl[2], fl[4], 1'b1});
             $fwrite(log, "T %0d\n", n);
             if (fl[0]) begin
@@ -314,6 +332,7 @@ module tb_cop;
             // Stopped: no frame restart until its state is read
             if (nf == 0) dma_on = 0;
             tb_busy = 0;
+            tb_cut  = 0;
             if (nf != 0) begin                        // stop it where it is, a little into the frame
                 repeat (2000) @(posedge clk);
                 wr(`RM_COPCON, 8'h00);

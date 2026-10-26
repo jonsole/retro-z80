@@ -47,7 +47,8 @@
 // register page) go into the CPU's colour assembly buffer; the red byte
 // writes the colour whole. Each master has its own buffer: the CPU's (cab)
 // and the copper's (ccab, for its writes, rb_cop); the DMA engine gets one
-// when it comes. PALIDX and PALDAT's byte counter are shared.
+// when it comes. PALIDX and PALDAT's byte counter are kept per master too, as
+// retro68k keeps its palette's held half per writer: the CPU reads its own.
 //
 // Two clock domains, asynchronous to each other (spec 4, section 3.1):
 //   clk      100 MHz: registers, the layer fetch, palette writes
@@ -150,6 +151,12 @@ module video #(
     reg  [6:1]  dmacon;                // DMAEN (6), BPLEN (5), COPEN, BLTEN, SPREN, AUDEN (1)
     reg  [9:0]  palidx;
     reg  [1:0]  pcnt;                  // PALDAT's byte: 0 blue, 1 green, 2 red
+    // The copper's own PALIDX and PALDAT byte (ticket #32, spec 6 C14): what
+    // it writes never moves the CPU's entry or byte, nor the CPU's its
+    reg  [9:0]  palidx_c;
+    reg  [1:0]  pcnt_c;
+    wire [9:0]  wpidx = rb_cop ? palidx_c : palidx;   // the write on the bus
+    wire [1:0]  wpcnt = rb_cop ? pcnt_c : pcnt;
 
     // Layers: CTRL0-CTRL3, window, SCROLLX (pointer and stride in bpldma.v)
     reg  [7:0]  l_ctrl0 [0:2];      // EN (0), BPP (3-2), TRANSP (4), MODE (5), HSCALE (7-6)
@@ -262,6 +269,8 @@ module video #(
             dmacon    <= 6'd0;
             palidx    <= 10'd0;
             pcnt      <= 2'd0;
+            palidx_c  <= 10'd0;
+            pcnt_c    <= 2'd0;
             ppw       <= 1'b0;
             for (i = 0; i < 3; i = i + 1) begin
                 l_ctrl0[i] <= 8'd0;  l_ctrl1[i] <= 8'd0;  l_ctrl2[i] <= 8'd0;  l_ctrl3[i] <= 8'd0;
@@ -289,23 +298,21 @@ module video #(
                     fe_col  <= rb_wdata[`RM_ULA_BORDER];
                     fe_t    <= !fe_t;
                 end
-                `RM_PALIDX0:  begin palidx[7:0] <= rb_wdata;      pcnt <= 2'd0; end
-                `RM_PALIDX1:  begin palidx[9:8] <= rb_wdata[1:0]; pcnt <= 2'd0; end
-                `RM_PALDAT:   case (pcnt)
-                    2'd0:    begin
-                        if (rb_cop) ccab[7:0] <= rb_wdata; else cab[7:0] <= rb_wdata;
-                        pcnt <= 2'd1;
-                    end
-                    2'd1:    begin
-                        if (rb_cop) ccab[15:8] <= rb_wdata; else cab[15:8] <= rb_wdata;
-                        pcnt <= 2'd2;
-                    end
+                `RM_PALIDX0:  if (rb_cop) begin palidx_c[7:0] <= rb_wdata;      pcnt_c <= 2'd0; end
+                              else        begin palidx[7:0]   <= rb_wdata;      pcnt   <= 2'd0; end
+                `RM_PALIDX1:  if (rb_cop) begin palidx_c[9:8] <= rb_wdata[1:0]; pcnt_c <= 2'd0; end
+                              else        begin palidx[9:8]   <= rb_wdata[1:0]; pcnt   <= 2'd0; end
+                `RM_PALDAT:   case (wpcnt)
+                    2'd0:    if (rb_cop) begin ccab[7:0]  <= rb_wdata; pcnt_c <= 2'd1; end
+                             else        begin cab[7:0]   <= rb_wdata; pcnt   <= 2'd1; end
+                    2'd1:    if (rb_cop) begin ccab[15:8] <= rb_wdata; pcnt_c <= 2'd2; end
+                             else        begin cab[15:8]  <= rb_wdata; pcnt   <= 2'd2; end
                     default: begin
                         pw_en  <= 1'b1;
-                        pw_a   <= palidx;
+                        pw_a   <= wpidx;
                         pw_d   <= {rb_wdata, wcab};
-                        palidx <= palidx + 1'b1;
-                        pcnt   <= 2'd0;
+                        if (rb_cop) begin palidx_c <= palidx_c + 1'b1; pcnt_c <= 2'd0; end
+                        else        begin palidx   <= palidx + 1'b1;   pcnt   <= 2'd0; end
                     end
                 endcase
                 `RM_DMACON:   if (rb_wdata[7]) dmacon <= dmacon |  rb_wdata[6:1];

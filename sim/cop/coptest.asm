@@ -8,7 +8,8 @@
 ;   +3  flags: F_BEAM start at the frame restart (else COPJMP1 at once),
 ;       F_PRI1 COPCON.PRI 1, F_RES RESUME, F_STK STKKEEP, F_IRQ IRQEN,
 ;       F_BUSY the testbench's CPU and layer channels take every cycle they
-;       own on lines 100-399
+;       own on lines 100-399, F_CUT the testbench forces three frame restarts,
+;       each in the clock after a SKIP or SKIPC runs
 ;   +4  COP2LC (3 bytes)
 ;   +7  frames: 0 runs until the copper stops; n runs n frame restarts on
 ; ended by an entry with flags 0xFF. copcheck.py names the tests in the same
@@ -23,6 +24,7 @@ F_RES   equ     0x04
 F_STK   equ     0x08
 F_IRQ   equ     0x10
 F_BUSY  equ     0x20
+F_CUT   equ     0x40
 
 M       equ     0x0E0                   ; marker registers 0x0E0-0x0E7 (nothing there)
 HI      equ     0x2F0000                ; cop_hi.bin
@@ -50,6 +52,7 @@ table:  TEST    t_move,   F_PRI1, 0, 0
         TEST    t_jmp2,   0, t_jmp2b, 0
         TEST    t_res,    F_BEAM | F_RES, t_resb, 3
         TEST    t_res,    F_BEAM, t_resb, 3
+        TEST    t_res,    F_BEAM | F_RES | F_CUT, t_cutb, 6
         TEST    t_stk,    F_BEAM | F_STK, 0, 2
         TEST    t_stk,    F_BEAM, 0, 2
         TEST    t_rate,   F_BEAM | F_PRI1 | F_BUSY, 0, 0
@@ -325,6 +328,18 @@ t_resb: CLDI    CX, 0
 .l:     CADDI   CX, 1
         CMOVR   M + 1, CX
         CWAITP  0
+        CJUMP   .l
+
+; RESUME just after a skip: list 2 must carry on past the skipped
+; instruction, never run it
+t_cutb: CLDI    CX, 0
+.l:     CADDI   CX, 1
+        CMOVR   M + 1, CX
+        CLDI    CF, 1                   ; Z
+        CSKIPEQ                         ; skips ...
+        CMOVEF  M + 2, 0x99             ; ... a two-word instruction
+        CSKIP   0, 0                    ; passed: skips ...
+        CMOVE   M + 3, 0x98             ; ... a one-word one
         CJUMP   .l
 
 ; STKKEEP: one CALL a frame

@@ -18,7 +18,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | Beam position | The display beam, as retro68k (spec 4); 10-bit line and pixel, pixel exact |
 | Memory | Its own channel in the scheduler (spec 2): cycle 4 and the free pool, as retro68k's copper. COPCON.PRI 1 makes cycle 4 its own |
 | Rate at PRI 1 | One word every slot (100 ns, 2.7 beam pixels): one MOVE per slot, 320 per line, on screens within the display budget (section 5.3) |
-| Prefetch | Two words, read while the copper waits: the first write after a WAIT lands on the WAIT's pixel, a second prefetched MOVE within a pixel after it |
+| Prefetch | Two words, read while the copper waits: the first write after a WAIT lands on the WAIT's pixel, a second prefetched MOVE within a pixel after it. A SKIP or SKIPC also reads the first word of the instruction after it before it decides (section 5.4) |
 | Interrupt | A MOVE to COPINT raises the copper's interrupt (source COPPER, spec 8) |
 | Registers | Custom offsets `0x100`–`0x11F` (section 6); the copper writes them with MOVEF |
 
@@ -39,7 +39,8 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | Memory cycles | Cycle 4 and the free pool; audio has cycle 2 | Cycle 4 and the free pool; cycle 4 is also where audio (reserved) goes, since cycle 2 is the CPU's | Z80: the CPU has cycles 0 and 2 (spec 2) |
 | Rate at PRI 1 | One instruction (two words) every 200 ns | One word every 100 ns: one MOVE every slot | One-word MOVE |
 | COPCON.PRI | 0 normal, 1 high, 2 nasty (may take the CPU's cycle 0) | 0 normal, 1 high; 2 and 3 reserved, taken as 1 | The CPU never waits (spec 2) |
-| Prefetch | One instruction (two words) | Two words: a two-word instruction, or two MOVEs | The same buffer, used for 16-bit words |
+| Prefetch | One instruction (two words) | Two words: a two-word instruction, or two MOVEs; three behind a SKIP | The same buffer, used for 16-bit words. A SKIP must know how long the instruction it skips is |
+| SKIP that skips | Skips one instruction (always two words) | A jump past the next instruction, whose length is read from its first word before the SKIP decides; RESUME saves the place past it | Instructions of one or two words. retro68k fetches the skipped instruction and drops it; here its first word is fetched and its second, if any, is not (open point C13) |
 | JUMP, CALL penalty | The prefetched instruction is thrown away | None while the copper is fetch-bound: it runs them as soon as their last word arrives, then fetches the target (section 5.2) | One-word instructions keep the buffer busy |
 | Register bus | A CPU access already on the bus goes first; the copper may wait a clock | The copper goes first; the CPU's strobe moves one clock (spec 1) | The Z80's I/O cycle has room, and the copper's writes then always land on their pixel |
 | Addresses | COPxLC, COPPC, JUMP and CALL: bits 22–2, long-word aligned | 22-bit physical SRAM byte addresses, even (bit 0 = 0), 3 bytes | Word instructions; memory (spec 2): chipset units address the SRAM without the MMU |
@@ -283,7 +284,7 @@ The copper has a prefetch buffer of **two words**. While it waits, it reads the 
 - Each write after those needs its own fetch: one slot apart (2.7 pixels) at PRI 1.
 - To change a colour exactly at a pixel, write its blue and green before the WAIT (they wait in the copper's colour assembly buffer) and its red after it. Other registers have no latch: a 2-byte value written by the two prefetched MOVEs changes within a pixel, but a wider one changes over a slot or more.
 
-A SKIP that skips throws away the prefetched words of the instruction it skips; JUMP, CALL and RET throw away anything prefetched past them (section 5.2).
+A SKIP or SKIPC decides only once the first word of the next instruction is in the buffer (a SKIP holds a third word for it), so it knows how long that instruction is. A skip is then a jump past it: its words are thrown away, and the copper fetches from the instruction after it. JUMP, CALL and RET throw away anything prefetched past them (section 5.2).
 
 ### 5.5 Register bus
 
@@ -341,7 +342,7 @@ Source **COPPER** (2) in the interrupt controller (spec 8) is COPSTAT.IRQ with C
 
 As in retro68k, the copper can run a long **background** list, such as a queue of DMA engine jobs (spec 14), that carries on across frames while list 1 still restarts at every frame. With COPCON.RESUME set:
 
-- The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 1023, or a reserved instruction), and the frame restart clear it. JUMP, CALL, RET and the SKIPs leave it as it is.
+- The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 1023, or a reserved instruction), turning the copper off (COPCON.EN, DMACON.COPEN or DMAEN clear) and the frame restart clear it. JUMP, CALL, RET and the SKIPs leave it as it is.
 - At the frame restart, if the flag is set, the hardware writes the **resume address** to COP2LC before it reloads from COP1LC. The resume address is the instruction not yet finished: a WAIT still waiting (it runs again, whole), or the next instruction to run.
 - **Nothing else is saved**, as in retro68k. Bytes already written stay written, and list 2 carries on with the next instruction. The colour assembly buffer is not saved: if list 2 is cut off between a colour's blue or green and its red, list 1 may use the buffer meanwhile, so a background list should not write colours (open point C10).
 - List 1 ends with `CMOVEF COPJMP2,0` (two words), and list 2 carries on where it was cut off.
@@ -617,5 +618,5 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 | C10 | RESUME saves only the place (branch 11), as retro68k. With no latch, a cut-off register keeps the bytes already written and list 2 carries on with the next one. The colour buffer is not saved, so a background list that writes colours can mix with list 1's. Proposed: a background list writes no colours |
 | C11 | COPCON.PRI 2 (nasty) is reserved and taken as 1, since the CPU never gives up a cycle it uses. A nasty mode here could only take the CPU's spare cycles, which PRI 1 already gets first. Proposed: as written |
 | C12 | Copper register layout at `0x100`–`0x11F` (COPCON, COP1LC, COP2LC, the strobes, COPPC, COPSTAT, COPX, COPY, COPFLAGS, COPSP at `0x100`–`0x111`; COPR0–7 at `0x118`–`0x11F`) is this spec's choice. Closed: spec 3 lists it (section 5) |
-| C13 | RESUME and a SKIP or SKIPC that has skipped, cut off before the instruction it skips has come: the hardware saves the SKIP as the resume address, so it runs again in the new frame (a SKIPC with the same flags gives the same result; a beam SKIP looks at the new frame's beam). Section 6.5 says "the next instruction to run". Background lists use no beam SKIPs (section 6.5). Proposed: accept, and say so in section 6.5 |
-| C14 | One colour assembly buffer per master (the CPU's and the copper's, ticket #32), but PALIDX and PALDAT's byte counter are shared: a copper PALDAT write between the CPU's blue and red moves the CPU's entry and byte on. Section 5.5's rule (one master owns each register) covers it. Proposed: as built; spec 4 to say the byte counter is shared |
+| C13 | Closed (with retro68k): RESUME never runs a SKIP again, since it could look at a later frame's beam and decide otherwise. A SKIP or SKIPC that skips commits the place past the skipped instruction at once: it reads that instruction's first word before it decides (section 5.4), so its length is known, and a skip is a jump past it. A frame restart just after the decision resumes past the skipped instruction (`make -C sim cop`, test "cut"). Turning the copper off also clears the in-list-2 flag (section 6.5), so a list 2 stopped that way leaves no stale place for the next restart to save over COP2LC |
+| C14 | Closed (with retro68k, which keeps its palette's held half per writer): each master (CPU, copper, DMA engine) has its own PALIDX, PALDAT byte counter and colour assembly buffer, so the CPU's and the copper's palette writes can interleave in any order and both colours come out whole (`make -C sim coppal`). The CPU reads its own PALIDX (spec 4, section 6.5) |
