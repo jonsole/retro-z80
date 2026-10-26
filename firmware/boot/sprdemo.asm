@@ -22,18 +22,27 @@
 ;            behind it (DEPTH 1): the F's pass over them
 ;   Bounce   a ball that lands is squashed (wider and lower, SPRxSTEP) for
 ;            7 frames; sprite 4 zooms in and out all the time instead
-;   Flash    a collision between balls (SPRCOLL0, new this frame) flashes
-;            the background (BGCOLOR, the border) for 4 frames
+;   Bars     the background (BGCOLOR) in 48 bands of 12 lines, a rainbow
+;            rolling up the screen, changed by the copper at the start of
+;            each band (a WAIT and three MOVEs)
+;   Flash    a collision between balls (SPRCOLL0, new this frame) turns
+;            every band light blue for 4 frames
 ;
-; No copper yet: the VBLANK interrupt (IM 2, the demo's own table) writes
-; every sprite's registers each frame, CTL last, through the register page,
-; with the spinning palette entries and the scroll; the main loop moves the
-; balls for the next frame and polls the keys.
+; The copper (spec 6; ticket #32) writes every register that changes each
+; frame: in the vertical blank every sprite's registers (STEP, then PT, H,
+; V and CTL last), the scroll and the spinning palette entries (PALIDX and
+; PALDAT), then the bands down the picture. Its list is built from a
+; template (cltpl) in two buffers: each frame the main loop moves the balls,
+; works out the palette and the bands, writes their bytes into the MOVEs of
+; the buffer the copper is not using, and points COP1LC at it (only its
+; middle byte changes, so the copper never sees a mixed address); the
+; copper takes it at the next frame restart. The VBLANK interrupt (IM 2,
+; the demo's own table) only counts frames.
 ;
 ; SRAM: pages 0x0FC and 0x0FD (spec 16, section 5.3: kept for the ROM) in
 ; windows 6 and 7, given back on the way out; the register page in window
-; 5. On the way out the console is rebuilt (conl0) and the ROM's interrupt
-; table set again.
+; 5. On the way out the copper is stopped, the console rebuilt (conl0) and
+; the ROM's interrupt table set again.
 
 BD_MAP  equ     0xC000                  ; window 6: SRAM page 0x0FC (0x1F8000): the tile map
 BD_PAT  equ     0xD000                  ; 0x1F9000: the tile patterns
@@ -43,6 +52,12 @@ BD_SHAD equ     0xD500                  ; 128: the sprites' 16 registers each, f
 BD_BALL equ     0xD580                  ; 8 x 16: the balls
 BD_VAR  equ     0xD600                  ; variables
 BD_IMG  equ     0xE000                  ; window 7: SRAM page 0x0FD (0x1FA000): the images
+BD_PALS equ     0xF100                  ; 768: SPRPALETTE's entries 0-255 for the next frame
+BD_BAND equ     0xF400                  ; 144: the bands' colours (blue, green, red)
+LIST_A  equ     0xD800                  ; the copper's two lists, 2 KB each:
+LIST_B  equ     0xF800                  ; ... physical 0x1F9800 and 0x1FB800
+LIST_A_P equ    0x1F9800
+LIST_B_P equ    0x1FB800
 BD_REGS equ     0xA000                  ; window 5: the register page
 BD_SPAL equ     BD_REGS + REGS_SPRPALETTE
 
@@ -80,6 +95,8 @@ BV_NPK   equ    BD_VAR + 41             ; ... pixels still to come in it
 BV_F     equ    BD_VAR + 42             ; the longitude step, 0-63
 BV_DST   equ    BD_VAR + 44             ; 2: where the next byte goes
 BV_PTR   equ    BD_VAR + 46             ; 2: the shadow register being written
+BV_BACK  equ    BD_VAR + 48             ; the list being built: 0 LIST_A, 1 LIST_B
+NBANDS   equ    48                      ; the bands: 48 of 12 lines from line 49
 
 GRAV    equ     6                       ; gravity: 6/16 pixel per frame per frame
 FLASHN  equ     4                       ; frames of flash
@@ -130,7 +147,18 @@ sprdemo:
         call    bdraw
         pop     hl
         jr      .img
-.imgd:  call    bdinit                  ; the balls, and the first frame's registers
+.imgd:  ld      hl,cltpl                ; the copper's two lists, from the template
+        ld      de,LIST_A
+        ld      bc,cltpl_end - cltpl
+        ldir
+        ld      hl,cltpl
+        ld      de,LIST_B
+        ld      bc,cltpl_end - cltpl
+        ldir
+        xor     a
+        ld      (BV_BACK),a
+        call    bdinit                  ; the balls, and the first frame's registers ...
+        call    bdframe                 ; ... in the first list
         ; ---- L0: the tile scroller
         ld      bc,L0_CTRL0_P
         xor     a
@@ -170,8 +198,11 @@ sprdemo:
         out     (c),a
         ld      hl,bdback
         call    setbg
-        ld      bc,DMACON_P             ; the sprites' fetch on
-        ld      a,DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M | DMACON_SPREN_M
+        ld      bc,COPCON_P             ; the copper on, from the next frame
+        ld      a,COPCON_EN_M
+        out     (c),a
+        ld      bc,DMACON_P             ; the sprites' fetch and the copper on
+        ld      a,DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M | DMACON_SPREN_M | DMACON_COPEN_M
         out     (c),a
         ; ---- VBLANK on IM 2, through the demo's table
         ld      a,high bdivt
@@ -198,13 +229,20 @@ sprdemo:
         cp      (hl)
         jr      z,.loop
         ld      (hl),a
-        call    bdmove
+        call    bdmove                  ; the balls for the next frame ...
+        call    bdframe                 ; ... and the copper's list for it
         rst     20h                     ; POLLC
         jr      z,.loop
         cp      27                      ; BREAK or Esc
         jr      nz,.loop
         ; ---- back to the monitor
         di
+        ld      bc,COPCON_P             ; the copper off
+        xor     a
+        out     (c),a
+        ld      bc,DMACON_P
+        ld      a,DMACON_COPEN_M
+        out     (c),a
         ld      bc,INTENA0_P + (INTR_VBLANK << 8)
         ld      a,1 << INTB_VBLANK
         out     (c),a
@@ -259,16 +297,110 @@ imgs:   db      48, 0
         db      0
 
 ; ================================================================ VBLANK
+; Only counts the frames: the copper writes the registers
 bdvbl:  push    af
         push    bc
-        push    de
-        push    hl
         ld      bc,VIDSTAT_P
         ld      a,VIDSTAT_VBLANK_M
         out     (c),a                   ; the request ends
-        ; ---- the 8 bpp balls' entries 128-255 at ball 0's phase t: per
-        ; shade, latitude 0 from strip entry t, latitude 1 from t + 8
-        ld      a,(BD_BALL + 8)
+        ld      a,(BV_FRAME)
+        inc     a
+        ld      (BV_FRAME),a
+        pop     bc
+        pop     af
+        ei
+        reti
+
+; ================================================================ the copper's list
+; The next frame's list, in the buffer the copper is not using: the
+; spinning palette, the collision flash and the bands worked out, every
+; changing byte written into its MOVE, then COP1LC pointed at it
+bdframe:
+        call    bdpal
+        call    bdcoll
+        call    bdbands
+        ld      hl,(BV_SCRL)            ; the scroll: one source pixel right and down
+        inc     hl
+        ld      (BV_SCRL),hl
+        ; ---- the bytes into the MOVEs: each job copies n bytes to every
+        ; second byte (a MOVE's data is its word's low byte). C' holds the
+        ; list's high byte offset: 0 for LIST_A
+        ld      a,(BV_BACK)
+        or      a
+        jr      z,.ba
+        ld      a,high (LIST_B - LIST_A)
+.ba:    exx
+        ld      c,a
+        exx
+        ld      iy,cljobs
+.job:   ld      l,(iy+0)
+        ld      h,(iy+1)
+        ld      a,h
+        or      l
+        jr      z,.bands
+        ld      e,(iy+2)
+        ld      a,(iy+3)
+        exx
+        add     a,c
+        exx
+        ld      d,a
+        ld      b,(iy+4)
+.cp:    ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        inc     de
+        djnz    .cp
+        ld      bc,5
+        add     iy,bc
+        jr      .job
+.bands: ld      hl,BD_BAND              ; each band: a WAIT, then BGCOLOR's three bytes
+        ld      de,LIST_A + (cl_bands - cltpl) + 4
+        exx
+        ld      a,c
+        exx
+        add     a,d
+        ld      d,a
+        ld      c,NBANDS
+.bd:    ld      b,3
+.b3:    ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        inc     de
+        djnz    .b3
+        inc     de                      ; over the next band's WAIT
+        inc     de
+        inc     de
+        inc     de
+        dec     c
+        jr      nz,.bd
+        ; ---- the copper takes it at the next frame restart. The lists
+        ; differ only in COP1LC's middle byte, written last
+        ld      a,(BV_BACK)
+        or      a
+        ld      e,(LIST_A_P >> 8) & 0xFF
+        jr      z,.lc
+        ld      e,(LIST_B_P >> 8) & 0xFF
+.lc:    ld      bc,COP1LC0_P
+        ld      a,LIST_A_P & 0xFF
+        out     (c),a
+        ld      b,low COP1LC2
+        ld      a,LIST_A_P >> 16
+        out     (c),a
+        ld      b,low COP1LC1
+        out     (c),e
+        ld      a,(BV_BACK)
+        xor     1
+        ld      (BV_BACK),a
+        ret
+        ASSERT  (LIST_A_P & 0xFF00FF) == (LIST_B_P & 0xFF00FF)
+        ASSERT  LIST_B - LIST_A == LIST_B_P - LIST_A_P && low (LIST_B - LIST_A) == 0
+
+; The spinning palette entries into BD_PALS (SPRPALETTE's layout). The 8
+; bpp balls' entries 128-255 at ball 0's phase t: per shade, latitude 0 from
+; strip entry t, latitude 1 from t + 8
+bdpal:  ld      a,(BD_BALL + 8)
         ld      l,a
         ld      h,0
         ld      e,l
@@ -277,7 +409,7 @@ bdvbl:  push    af
         add     hl,de
         ld      de,BD_STR8
         add     hl,de
-        ld      de,BD_SPAL + 3 * 128
+        ld      de,BD_PALS + 3 * 128
         ld      a,4
 .s8:    push    hl
         ld      bc,48
@@ -315,7 +447,7 @@ bdvbl:  push    af
         ld      l,e
         add     hl,hl
         add     hl,de
-        ld      de,BD_SPAL
+        ld      de,BD_PALS
         add     hl,de
         ex      (sp),hl                 ; the entry's address; HL = phase's address
         ld      a,(hl)
@@ -354,75 +486,183 @@ bdvbl:  push    af
         pop     af
         dec     a
         jr      nz,.sb
-        ; ---- every sprite's registers: STEP, then PT, H, V and CTL, last
-        ld      hl,BD_SHAD
-        ld      de,BD_REGS + REGS_CUSTOM + SPR0
-        ld      a,8
-.spr:   push    hl
-        push    de
-        ld      bc,12
-        add     hl,bc
-        ex      de,hl
-        add     hl,bc
-        ex      de,hl
-        ldi
-        ldi
-        ldi
-        ldi
-        pop     de
-        pop     hl
-        ld      bc,12
-        ldir
-        ld      bc,4
-        add     hl,bc
-        ex      de,hl
-        add     hl,bc
-        ex      de,hl
-        dec     a
-        jr      nz,.spr
-        ; ---- the scroll: one source pixel right and down
-        ld      hl,(BV_SCRL)
-        inc     hl
-        ld      (BV_SCRL),hl
-        ld      bc,L0_SCROLLX0_P
-        out     (c),l
-        inc     b
-        out     (c),h
-        inc     b
-        out     (c),l
-        inc     b
-        out     (c),h
-        ; ---- a new collision between balls flashes the background
-        ld      bc,SPRCOLL0_P
+        ret
+
+; A new collision between balls (SPRCOLL0, gathered since the last frame)
+; starts the flash
+bdcoll: ld      bc,SPRCOLL0_P
         in      a,(c)
         out     (c),a                   ; cleared
         ld      hl,BV_PREV
         ld      b,(hl)
         ld      (hl),a
         or      a
-        jr      z,.nf
+        ret     z
         inc     b
         dec     b
-        jr      nz,.nf                  ; already touching
+        ret     nz                      ; already touching
         ld      a,FLASHN
         ld      (BV_FLASH),a
-.nf:    ld      hl,BV_FLASH
+        ret
+
+; The bands' colours into BD_BAND: the rainbow, moving on a band every
+; second frame, or all light blue while the flash lasts
+bdbands:
+        ld      de,BD_BAND
+        ld      hl,BV_FLASH
         ld      a,(hl)
         or      a
-        jr      z,.bg
+        jr      z,.rb
         dec     (hl)
-        ld      hl,bdfl
-        jr      .bg1
-.bg:    ld      hl,bdback
-.bg1:   call    setbg
-        ld      hl,BV_FRAME
-        inc     (hl)
-        pop     hl
+        ld      c,NBANDS
+.fl:    ld      hl,bdfl
+        ld      b,3
+.f3:    ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        djnz    .f3
+        dec     c
+        jr      nz,.fl
+        ret
+.rb:    ld      a,(BV_FRAME)            ; the first band's rainbow entry
+        rra
+        and     63
+        ld      c,NBANDS
+.b:     push    af
+        push    bc
+        ld      l,a
+        ld      h,0
+        push    de
+        ld      e,l
+        ld      d,h
+        add     hl,hl
+        add     hl,de
+        ld      de,bdrain
+        add     hl,de
         pop     de
+        ldi
+        ldi
+        ldi
         pop     bc
         pop     af
-        ei
-        reti
+        inc     a
+        and     63
+        dec     c
+        jr      nz,.b
+        ret
+
+; The rainbow: 64 colours (blue, green, red), three triangle waves a third
+; of a turn apart, kept dark so that the balls stand out
+bdrain:
+ri = 0
+        DUP     64
+tr = ((ri) & 63) - 32
+        IF      tr < 0
+tr = -tr
+        ENDIF
+tg = ((ri + 21) & 63) - 32
+        IF      tg < 0
+tg = -tg
+        ENDIF
+tb = ((ri + 43) & 63) - 32
+        IF      tb < 0
+tb = -tb
+        ENDIF
+        db      0x10 + tb * 3, 0x10 + tg * 3, 0x10 + tr * 3
+ri = ri + 1
+        EDUP
+
+; The jobs: where the changing bytes come from (2), their first MOVE's data
+; byte in LIST_A (2), and how many (1); 0 ends
+cljobs:
+cn = 0
+        DUP     8
+        dw      BD_SHAD + 16 * cn + 12, LIST_A + (cl_spr - cltpl) + 32 * cn
+        db      4                       ; STEP
+        dw      BD_SHAD + 16 * cn, LIST_A + (cl_spr - cltpl) + 32 * cn + 8
+        db      12                      ; PT, H, V, CTL
+cn = cn + 1
+        EDUP
+        dw      BV_SCRL, LIST_A + (cl_scr - cltpl)
+        db      2                       ; SCROLLX
+        dw      BV_SCRL, LIST_A + (cl_scr - cltpl) + 4
+        db      2                       ; SCROLLY
+        dw      BD_PALS + 3 * 128, LIST_A + (cl_p8 - cltpl) + 4
+        db      192                     ; entries 128-255
+        dw      BD_PALS + 3 * 192, LIST_A + (cl_p8 - cltpl) + 4 + 384
+        db      192
+cn = 1
+        DUP     4
+        dw      BD_PALS + 3 * (16 * cn + 1), LIST_A + (cl_p4 - cltpl) + 76 * (cn - 1) + 4
+        db      36                      ; a 4 bpp ball's entries 1-12
+cn = cn + 1
+        EDUP
+        DUP     2
+        dw      BD_PALS + 3 * (16 * cn + 1), LIST_A + (cl_p2 - cltpl) + 22 * (cn - 5) + 4
+        db      9                       ; a 2 bpp ball's entries 1-3
+cn = cn + 1
+        EDUP
+        dw      0
+
+; The template, copied into LIST_A and LIST_B at the start; the data bytes
+; shown as 0 are written each frame
+cltpl:
+cl_spr:                                 ; each sprite: STEP, then PT, H, V and CTL
+cn = 0
+        DUP     8
+cj = 12
+        DUP     4
+        CMOVE   SPR0 + 16 * cn + cj, 0
+cj = cj + 1
+        EDUP
+cj = 0
+        DUP     12
+        CMOVE   SPR0 + 16 * cn + cj, 0
+cj = cj + 1
+        EDUP
+cn = cn + 1
+        EDUP
+cl_scr: CMOVE   L0_SCROLLX0, 0
+        CMOVE   L0_SCROLLX1, 0
+        CMOVE   L0_SCROLLY0, 0
+        CMOVE   L0_SCROLLY1, 0
+cl_p8:  CMOVE   PALIDX0, 128            ; SPRPALETTE's entries 128-255
+        CMOVE   PALIDX1, 3
+        DUP     384
+        CMOVE   PALDAT, 0
+        EDUP
+cl_p4:                                  ; blocks 1-4: entries 1-12
+cn = 1
+        DUP     4
+        CMOVE   PALIDX0, 16 * cn + 1
+        CMOVE   PALIDX1, 3
+        DUP     36
+        CMOVE   PALDAT, 0
+        EDUP
+cn = cn + 1
+        EDUP
+cl_p2:                                  ; blocks 5-6: entries 1-3
+        DUP     2
+        CMOVE   PALIDX0, 16 * cn + 1
+        CMOVE   PALIDX1, 3
+        DUP     9
+        CMOVE   PALDAT, 0
+        EDUP
+cn = cn + 1
+        EDUP
+cl_bands:                               ; each band: from the blank of its first line
+cn = 0
+        DUP     NBANDS
+        CWAIT   49 + 12 * cn, 0
+        CMOVE   BGCOLOR0, 0
+        CMOVE   BGCOLOR1, 0
+        CMOVE   BGCOLOR2, 0
+cn = cn + 1
+        EDUP
+        CSTOP
+cltpl_end:
+        ASSERT  cltpl_end - cltpl <= 0x800
 
 ; Any other source: the ROM's handler turns it off
 bdspur: jp      ivhand

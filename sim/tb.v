@@ -546,7 +546,7 @@ module tb #(
             push_win = push_win - 1;
             if (dut.cpu_req && dut.cpu_we) nmi_error("a push made a write request");
             if (dut.rom_en && dut.rom_we != 2'b00) nmi_error("a push wrote the ROM");
-            if (dut.rb_wr) nmi_error("a push made a register strobe");
+            if (dut.c_rb_wr) nmi_error("a push made a register strobe");
         end
         if (pop_win) begin
             if (dut.cpu_req && !req_d) nmi_error("a RETN stack read made a request");

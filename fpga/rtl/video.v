@@ -15,7 +15,9 @@
 // interrupt controller (VBLANK); ticket #21 the border from port 0xFE
 // writes. Ticket #31 added the sprites (spec 5; sprites.v, sprite_pix.v; NS
 // of them built), their place among the layers by DEPTH, SPRPALETTE and
-// the collisions, VIDSTAT.SPRUNDER and the VIDERR request.
+// the collisions, VIDSTAT.SPRUNDER and the VIDERR request. Ticket #32 added
+// the copper's side (spec 6): the beam and the frame start for it, its own
+// colour assembly buffer (rb_cop marks its writes) and DMACON.COPEN.
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
@@ -43,8 +45,9 @@
 //
 // Blue and green bytes of a colour (BGCOLOR, PALDAT, the palettes in the
 // register page) go into the CPU's colour assembly buffer; the red byte
-// writes the colour whole. The CPU is the only register bus master so far;
-// the copper and the DMA engine get their own buffers when they come.
+// writes the colour whole. Each master has its own buffer: the CPU's (cab)
+// and the copper's (ccab, for its writes, rb_cop); the DMA engine gets one
+// when it comes. PALIDX and PALDAT's byte counter are shared.
 //
 // Two clock domains, asynchronous to each other (spec 4, section 3.1):
 //   clk      100 MHz: registers, the layer fetch, palette writes
@@ -76,11 +79,17 @@ module video #(
     output wire        rb_hit,         // with rb_rdata: this unit answered
     output wire [31:0] rb_cdata,       // with rb_rdata: SPRxPT whole, for the CPU's capture
     output wire        rb_cap,
+    input  wire        rb_cop,         // the write on the bus is the copper's (its colour buffer)
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
     output wire        line_tick,      // 1 clock (100 MHz) at the start of each beam line (timers, #17)
     output wire        irq,            // to the interrupt controller: source VBLANK (0)
     output wire        irq_err,        // ... and source VIDERR (3)
+
+    // For the copper (spec 6): the beam as the memory side sees it, and DMACON
+    output wire [10:0] beam_v,
+    output wire [10:0] beam_h,
+    output wire        cop_on,         // DMACON.DMAEN and COPEN
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -132,6 +141,8 @@ module video #(
     reg  [7:0]  vidinten;              // VIDINTEN; bit 3 always 0
     reg  [23:0] bgcolor;               // RRGGBB
     reg  [15:0] cab;                   // the CPU's colour assembly buffer: green, blue
+    reg  [15:0] ccab;                  // ... and the copper's
+    wire [15:0] wcab = rb_cop ? ccab : cab;   // the buffer of the write on the bus
     // A port 0xFE write's colour, and its toggle to the pixel side (not
     // reset: the pixel side follows the toggle, whatever it holds)
     reg  [2:0]  fe_col = 3'd0;
@@ -165,6 +176,8 @@ module video #(
         if (bs1 == bs2) {s_vline, s_hpix} <= bs2;
     end
     wire invblank = (s_vline < BV0);
+    assign beam_v = s_vline;
+    assign beam_h = s_hpix;
 
     reg        p_vb_t;                 // toggles at the start of each frame
     reg  [2:0] vb_s;
@@ -200,6 +213,7 @@ module video #(
     // section 4.1): unlike retro68k's, a layer cannot be fed by the CPU
     // (open point V5), so with its fetch off it is off, with no OVERRUN
     wire fetch_en = vidcon[0] && dmacon[6] && dmacon[5];
+    assign cop_on = dmacon[6] && dmacon[4];
 
     wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) &&
                     (rb_addr != `RM_LINECMP0) && (rb_addr != `RM_LINECMP1) ||
@@ -244,6 +258,7 @@ module video #(
             vidinten  <= 8'd0;
             bgcolor   <= 24'd0;
             cab       <= 16'd0;
+            ccab      <= 16'd0;
             dmacon    <= 6'd0;
             palidx    <= 10'd0;
             pcnt      <= 2'd0;
@@ -266,9 +281,9 @@ module video #(
                 end
                 `RM_VIDINTEN: vidinten <= rb_wdata & 8'hF7;
                 `RM_PRIO:     prio <= rb_wdata[5:0];
-                `RM_BGCOLOR0: cab[7:0]  <= rb_wdata;
-                `RM_BGCOLOR1: cab[15:8] <= rb_wdata;
-                `RM_BGCOLOR2: bgcolor   <= {rb_wdata, cab};
+                `RM_BGCOLOR0: if (rb_cop) ccab[7:0]  <= rb_wdata; else cab[7:0]  <= rb_wdata;
+                `RM_BGCOLOR1: if (rb_cop) ccab[15:8] <= rb_wdata; else cab[15:8] <= rb_wdata;
+                `RM_BGCOLOR2: bgcolor   <= {rb_wdata, wcab};
                 `RM_ULA:      begin                     // port 0xFE: the border, at once (spec 4, 7.2)
                     bgcolor <= spectrum({1'b0, rb_wdata[`RM_ULA_BORDER]});
                     fe_col  <= rb_wdata[`RM_ULA_BORDER];
@@ -277,12 +292,18 @@ module video #(
                 `RM_PALIDX0:  begin palidx[7:0] <= rb_wdata;      pcnt <= 2'd0; end
                 `RM_PALIDX1:  begin palidx[9:8] <= rb_wdata[1:0]; pcnt <= 2'd0; end
                 `RM_PALDAT:   case (pcnt)
-                    2'd0:    begin cab[7:0]  <= rb_wdata; pcnt <= 2'd1; end
-                    2'd1:    begin cab[15:8] <= rb_wdata; pcnt <= 2'd2; end
+                    2'd0:    begin
+                        if (rb_cop) ccab[7:0] <= rb_wdata; else cab[7:0] <= rb_wdata;
+                        pcnt <= 2'd1;
+                    end
+                    2'd1:    begin
+                        if (rb_cop) ccab[15:8] <= rb_wdata; else cab[15:8] <= rb_wdata;
+                        pcnt <= 2'd2;
+                    end
                     default: begin
                         pw_en  <= 1'b1;
                         pw_a   <= palidx;
-                        pw_d   <= {rb_wdata, cab};
+                        pw_d   <= {rb_wdata, wcab};
                         palidx <= palidx + 1'b1;
                         pcnt   <= 2'd0;
                     end

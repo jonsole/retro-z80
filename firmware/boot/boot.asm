@@ -35,6 +35,7 @@
 
         DEVICE  NOSLOT64K
         include "hw.inc"
+        include "copper.inc"            ; the copper's macros (the sprite demo's list)
         include "rom.inc"
 
     IFNDEF KEYWAIT

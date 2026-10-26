@@ -62,7 +62,11 @@
 // at di: the core runs a NOP, and takes the NMI after it (section 5.2).
 // I/O page 0x02 is its register page (register bus 0x200-0x2FF).
 //
-// No register bus arbiter yet (the CPU is the only master).
+// The register bus (spec 1, section 4.2): the copper goes first. When the
+// copper writes (cw_busy) in the clock the CPU's strobe is due, the strobe
+// moves one clock later; the copper never writes two clocks running, so the
+// next clock is free. rb_addr, rb_hi and rb_wdata are held until the next
+// strobe, so they are still right. Ticket #32.
 `include "regmap.vh"
 
 module bus_if (
@@ -111,13 +115,14 @@ module bus_if (
     // Register bus (spec 1, section 4.2), CPU as master
     output reg  [12:0] rb_addr,
     output reg  [7:0]  rb_hi,
-    output reg         rb_rd,
-    output reg         rb_wr,
+    output wire        rb_rd,
+    output wire        rb_wr,
     output reg  [7:0]  rb_wdata,
     input  wire [7:0]  rb_rdata,
     input  wire        rb_hit,
     input  wire [31:0] rb_cdata,       // with rb_rdata: a capturing register's whole value
     input  wire        rb_cap,         // ... and that rb_cdata holds one
+    input  wire        cw_busy,        // the copper has the register bus this clock
 
     // Interrupt controller (intc.v)
     output wire        int_vreq,       // 1 clock at E + 3 of an acknowledge's first T1
@@ -387,11 +392,19 @@ module bus_if (
     wire       rp_strobe = iorq_n && m1_n && (!rd_n || !wr_n) && ap_regs && !cap_cyc && !pop_cyc;
 
     reg io_seen;                       // this I/O cycle has had its strobe
+    reg q_rd, q_wr;                    // the strobe, due this clock
+    reg d_rd, d_wr;                    // ... moved on a clock by a copper write
+    assign rb_rd = (q_rd && !cw_busy) || d_rd;
+    assign rb_wr = (q_wr && !cw_busy) || d_wr;
     always @(posedge clk) begin
-        rb_rd   <= 1'b0;
-        rb_wr   <= 1'b0;
+        q_rd    <= 1'b0;
+        q_wr    <= 1'b0;
+        d_rd    <= q_rd && cw_busy;
+        d_wr    <= q_wr && cw_busy;
         io_none <= 1'b0;
         if (rst) begin
+            d_rd    <= 1'b0;
+            d_wr    <= 1'b0;
             io_seen <= 1'b0;
             rb_addr <= 13'd0;
             rb_hi   <= 8'd0;
@@ -402,16 +415,16 @@ module bus_if (
             rb_addr  <= A[12:0];
             rb_hi    <= 8'h00;
             rb_wdata <= dout;
-            rb_rd    <= !rd_n;
-            rb_wr    <= !wr_n;
+            q_rd     <= !rd_n;
+            q_wr     <= !wr_n;
         end else if (!io_seen) begin
             io_seen  <= 1'b1;
             rb_addr  <= io_addr;
             rb_hi    <= p_low ? hi : 8'h00;
             rb_wdata <= dout;
             if (p_low || p_sys || p_custom || p_ip || p_dbg) begin
-                rb_rd <= !rd_n;
-                rb_wr <= !wr_n;
+                q_rd <= !rd_n;
+                q_wr <= !wr_n;
             end else
                 io_none <= !rd_n;
         end

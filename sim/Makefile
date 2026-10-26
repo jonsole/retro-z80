@@ -38,6 +38,10 @@
 #                   of make all; CI runs s and h)
 #   make boing      the sprite demo started from the monitor (F1), a frame
 #                   of it grabbed (build/boing/boing.png; ten minutes)
+#   make cop        the copper on its own (ticket #32): every instruction,
+#                   reserved encoding and register, and the timing of WAITs
+#                   and of its memory channel, against a model (cop/; in
+#                   Verilator, about a minute)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -65,8 +69,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds failshow vtest boing cop lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon dis systest intc inttest nmitest dbg speeds cop zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -100,11 +104,11 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
-                 selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc
+                 selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm) $(INC)/hw.inc $(INC)/copper.inc
 
 # The simulations' boot ROM looks for the start-up keys for 1 ms in place of
 # 250 (KEYWAIT), which Icarus would take over an hour to get through
@@ -225,6 +229,16 @@ boing: $(VL_TB) $(BUILD)/boot.hex
 	(cd $$d && ../vl_tb/vtb +rom=boot.hex +hello +boing +timeout=900000 > sim.log); \
 	tail -n 20 $$d/sim.log; grep -q "^TEST PASSED" $$d/sim.log && \
 	$(PYTHON) vtest/ppm2png.py $$d/frame.ppm $$d/boing.png
+
+# The copper on its own (ticket #32): cop/tb_cop.v runs the lists of
+# cop/coptest.asm on copper.v and the scheduler, cop/copcheck.py checks the
+# log against its model of spec 6
+COP_RTL := $(addprefix $(RTL)/,copper.v dmac.v timebase.v)
+$(BUILD)/vl_cop/vcop: cop/tb_cop.v $(COP_RTL) $(RTL)/regmap.vh | $(BUILD)
+	$(VERILATOR) --binary --timing -Wall -Wno-fatal $(VL_OPT) -I$(RTL) --top-module tb_cop 	    --Mdir $(BUILD)/vl_cop -o vcop cop/tb_cop.v $(COP_RTL) > $(BUILD)/vl_cop.log
+
+cop: $(BUILD)/vl_cop/vcop cop/coptest.asm cop/copcheck.py $(INC)/hw.inc $(INC)/copper.inc
+	@d=$(BUILD)/cop; mkdir -p $$d; 	(cd $$d && $(SJASMPLUS) --nologo -I ../../$(INC) ../../cop/coptest.asm) && 	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/coptest.bin $$d/coptest.hex && 	$(PYTHON) $(ROOT)/tools/bin2hex.py $$d/cop_hi.bin $$d/cop_hi.hex && 	(cd $$d && ../vl_cop/vcop > sim.log); tail -n 5 $$d/sim.log; 	grep -q "^TEST PASSED" $$d/sim.log && 	$(PYTHON) cop/copcheck.py $$d/coptest.bin $$d/cop_hi.bin $$d/cop.log
 
 lint:
 	sh $(ROOT)/fpga/lint.sh
