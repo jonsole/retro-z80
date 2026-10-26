@@ -582,7 +582,7 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 | Colour assembly buffer (2 bytes), register bus master | About 30 LUTs, 20 flip-flops |
 | Control and status registers, RESUME, PRI to the scheduler | About 60 LUTs, 80 flip-flops |
 | Total | About 500–600 LUTs, 250 flip-flops; no block RAM. retro68k's 16-bit copper's first build is about 1,100 LUTs |
-| Built (ticket #32, KS2) | About 680 LUTs (16 of them the stack in distributed RAM) and 350 flip-flops on its own; the KS2 build grew by 784 LUTs, to 9,201 (88.5%) |
+| Built (ticket #32, KS2) | About 680 LUTs (16 of them the stack in distributed RAM) and 350 flip-flops on its own; the KS2 build grew by 854 LUTs, to 9,271 (89.1%), with the per-master palette state in video.v |
 
 ## 11. Test plan
 
