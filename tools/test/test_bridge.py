@@ -517,7 +517,7 @@ class DapTests(unittest.TestCase):
         self.launch()
         self.stopped()
         r = self.dap.request("evaluate", {"expression": "D 8000 4", "context": "repl"})["body"]
-        self.assertEqual(r["result"], "8000  3E 41 CD 14")
+        self.assertEqual(r["result"], "8000  3E 41 CD 14" + " " * 37 + "  >A..")
         r = self.dap.request("evaluate", {"expression": "G 8000", "context": "repl"}, ok=False)
         self.assertFalse(r["success"])
         self.assertIn("buttons", r["message"])
@@ -545,7 +545,7 @@ class DapTests(unittest.TestCase):
         deadline = time.time() + 3
         while b"PC=8000" not in got and time.time() < deadline:
             got += con.recv(4096)
-        self.assertIn(b"Detached at 8000", got)
+        self.assertIn(b"Loaded.  PC = 8000", got)      # the usual stop message (debug.md 4.5)
         self.assertIn(b"PC=8000", got)
         con.close()
 
@@ -569,6 +569,378 @@ class DapTests(unittest.TestCase):
         d.request("disconnect", {})
         time.sleep(0.3)
         self.assertEqual(self.bridge.model.mode, "running")   # attach's disconnect lets it run on
+
+
+class ModelAgreesWithTheRom(unittest.TestCase):
+    """The differences found against the ROM's stub in simulation (issue #29)."""
+
+    def setUp(self):
+        self.model = StubModel()
+        self.model.start()
+        self.link = ModelLink(self.model)
+        self.session = Session(self.link, "model")
+        self.session.client.reply_wait = 0.3
+        self.tmp = tempfile.mkdtemp()
+        with open(build_program(self.tmp)["rimg"], "rb") as f:
+            self.image = rlink.Image.parse(f.read())[0]
+
+    def tearDown(self):
+        self.session.close()
+        self.model.shutdown()
+        shutil.rmtree(self.tmp)
+
+    def test_entry_registers(self):
+        self.session.launch(self.image)
+        r = self.session.registers()
+        self.assertEqual([r[n] for n in ("AF'", "BC'", "DE'", "HL'")], [0, 0, 0, 0])
+        self.assertEqual((r["I"], r["IM"]), (0x1F, 2))
+        self.session.step()
+        self.assertEqual(self.session.registers()["IM"], 0xFF)
+
+    def test_dump_pads_the_text_column(self):
+        self.session.launch(self.image)
+        out = self.session.monitor("D 8000 4")
+        self.assertEqual(out, "8000  3E 41 CD 14" + " " * 37 + "  >A..\r\n")
+
+    def test_break_at_the_prompt_sends_nothing(self):
+        time.sleep(0.2)
+        before = self.session.console.read()[1:]
+        self.link.write(rlink.control(rlink.CTL_BREAK))
+        time.sleep(0.3)
+        self.assertEqual(self.session.console.read()[1:], before)
+
+    def test_damaged_hello_answered_and_frames_typed(self):
+        time.sleep(0.2)
+        replies = []
+        self.session.mode = "debug"
+        self.session.client.frame = lambda f: replies.append(f)
+        hello = bytearray(rlink.transport_frame(P.HELLO, 1, P.CH_DEBUG, b"\x01"))
+        hello[-1] ^= 1
+        self.link.write(bytes(hello))
+        time.sleep(0.3)
+        self.assertEqual([(f.type, f.payload[:1]) for f in replies], [(P.T_REPLY, b"C")])
+        self.assertFalse(self.model.attached)
+        self.session.mode = "console"
+        self.link.write(rlink.upload_frame(rlink.PING, 0) + b"\r")
+        time.sleep(0.3)
+        self.assertIn("? ", "".join(self.session.console.read()[0][-2:]))   # typed, and not understood
+
+    def test_stub_page_refused_through_a_window(self):
+        self.session.launch(self.image)
+        with self.model.lock:
+            self.model.mmu[5] = (0x0FC, 0x0FC)
+        with self.assertRaises(P.Refused) as e:
+            self.session.client.read_mem(0xA000, 1)
+        self.assertEqual(e.exception.code, P.E_ADDRESS)
+
+    def test_writeregs_im(self):
+        self.session.launch(self.image)
+        c = self.session.client
+        c.write_regs(27, b"\x01")
+        with self.assertRaises(P.Refused) as e:
+            c.write_regs(27, b"\x03")
+        self.assertEqual(e.exception.code, P.E_LENGTH)
+        c.write_regs(26, b"\x00\x01")          # IFF changed, IM unchanged
+
+    def test_hello_stop_has_the_current_pc(self):
+        self.session.launch(self.image)
+        self.session.detach()
+        time.sleep(0.2)
+        with self.model.lock:
+            self.model.cpu.pc = 0x8005          # as R PC 8005 at the prompt would
+        stop = self.session.attach()
+        self.assertEqual((stop.reason, stop.pc), (P.R_ENTRY, 0x8005))
+
+    def test_console_empty_line_after_n_and_after_exit(self):
+        self.session.launch(self.image)
+        with self.model.lock:
+            self.model.last_cmd = "N"
+        with self.assertRaises(P.Refused) as e:
+            self.session.client.console(" ")
+        self.assertEqual(e.exception.code, P.E_CONSOLE)
+        self.session.cont()
+        time.sleep(0.3)
+        self.assertTrue(self.session.ended)
+        for cmd in (lambda: self.session.client.cont(), lambda: self.session.client.step()):
+            with self.assertRaises(P.Refused) as e:
+                cmd()
+            self.assertEqual(e.exception.code, P.E_ADDRESS)
+
+
+class ConsoleTextTests(unittest.TestCase):
+    def test_cr_lf_split_across_reads(self):
+        from rz80bridge.session import Console
+        c = Console()
+        c.add("one\r")
+        c.add("\ntwo\r\n")
+        self.assertEqual(c.read()[0], ["one", "two"])
+
+    def test_upload_replies_split_across_reads(self):
+        p = rlink.FrameParser(syncs=(), replies=True)
+        text = b""
+        for chunk in (b"LOAD Z80 1\r\nL", b"RK\x00", b"\x00LRK\x01\x00"):
+            text += b"".join(i for i in p.feed(chunk, now=0) if isinstance(i, bytes))
+        self.assertEqual(text, b"LOAD Z80 1\r\n")
+
+
+class TcpLinkTests(unittest.TestCase):
+    def test_bridge_over_a_raw_tcp_link(self):
+        """A simulation's FT232H model on a TCP port: here the stub model behind a socket."""
+        model = StubModel()
+        model.start()
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def serve():
+            conn, _ = srv.accept()
+            link = ModelLink(model)
+
+            def up():
+                while True:
+                    data = conn.recv(4096)
+                    if not data:
+                        return
+                    link.write(data)
+            threading.Thread(target=up, daemon=True).start()
+            while True:
+                data = link.read_some(0.1)
+                if data:
+                    conn.sendall(data)
+        threading.Thread(target=serve, daemon=True).start()
+        tmp = tempfile.mkdtemp()
+        try:
+            img = rlink.Image.parse(open(build_program(tmp)["rimg"], "rb").read())[0]
+            s = Session(rlink.open_link("tcp:127.0.0.1:%d" % srv.getsockname()[1]), "tcp")
+            stop = s.launch(img)
+            self.assertEqual((stop.reason, stop.pc), (P.R_ENTRY, ORG))
+            self.assertEqual(s.read_memory(ORG, 2), [0x3E, 0x41])
+            s.close()
+        finally:
+            model.shutdown()
+            srv.close()
+            shutil.rmtree(tmp)
+
+
+class McpClient:
+    def __init__(self, port):
+        self.url = "http://127.0.0.1:%d/mcp" % port
+        self.seq = 0
+
+    def rpc(self, method, params=None):
+        import urllib.request
+        self.seq += 1
+        body = json.dumps({"jsonrpc": "2.0", "id": self.seq, "method": method, "params": params or {}}).encode()
+        req = urllib.request.Request(self.url, body, {"Content-Type": "application/json",
+                                                      "Accept": "application/json, text/event-stream"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+
+    def call(self, _tool, ok=True, **args):
+        r = self.rpc("tools/call", {"name": _tool, "arguments": args})["result"]
+        text = r["content"][0]["text"]
+        if ok and r.get("isError"):
+            raise AssertionError("%s failed: %s" % (_tool, text))
+        if not ok:
+            assert r.get("isError"), "%s should have failed: %s" % (_tool, text)
+        return text
+
+    def json(self, _tool, **args):
+        return json.loads(self.call(_tool, **args))
+
+
+class McpTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.paths = build_program(self.tmp)
+        os.environ["RZ80_BRIDGE_ADVERT_DIR"] = os.path.join(self.tmp, "adverts")
+        self.bridge = Bridge("model").start()
+        self.mcp = McpClient(self.bridge.ports["mcp"])
+
+    def tearDown(self):
+        self.bridge.close()
+        shutil.rmtree(self.tmp)
+
+    def test_initialize_and_tools(self):
+        r = self.mcp.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                        "clientInfo": {"name": "test", "version": "1"}})["result"]
+        self.assertEqual((r["protocolVersion"], r["serverInfo"]["name"]), ("2025-06-18", "retro-z80"))
+        names = {t["name"] for t in self.mcp.rpc("tools/list")["result"]["tools"]}
+        for n in ("get_state", "get_registers", "set_registers", "read_memory", "write_memory", "set_breakpoint",
+                  "clear_breakpoint", "list_breakpoints", "set_watchpoint", "clear_watchpoint", "list_watchpoints",
+                  "step", "run", "pause", "load_debug_info", "resolve_symbol", "resolve_address", "server_info",
+                  "launch", "attach", "detach", "reset", "get_mmu", "monitor", "send_console", "read_console"):
+            self.assertIn(n, names)
+        self.assertEqual(self.mcp.rpc("ping")["result"], {})
+        self.assertEqual(self.mcp.rpc("nope")["error"]["code"], -32601)
+        info = self.mcp.json("server_info")
+        self.assertEqual((info["serialPort"], info["ports"]["mcp"]), ("model", self.bridge.ports["mcp"]))
+
+    def test_not_attached(self):
+        text = self.mcp.call("get_registers", ok=False)
+        self.assertIn("not attached", text)
+        self.assertEqual(self.mcp.json("get_state")["attached"], False)
+
+    def test_console_while_not_attached(self):
+        time.sleep(0.2)
+        start = self.mcp.json("read_console")["next"]
+        self.mcp.call("send_console", text="H\n")
+        time.sleep(0.3)
+        lines = self.mcp.json("read_console", since=start)["lines"]
+        self.assertTrue(any("help" in l for l in lines), lines)
+
+    def test_launch_break_registers_memory(self):
+        m = self.mcp
+        self.assertIn("Entry at 8000 (start)", m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"]))
+        self.assertEqual(m.call("set_breakpoint", address="add1"), "breakpoint 0 at 8019 (add1)")
+        self.assertEqual(m.call("run"), "Breakpoint 0 at 8019 (add1)")
+        r = m.json("get_registers")
+        self.assertEqual((r["PC"], r["AF"][:2], r["instruction"]), ("$8019 (add1)", "42", "INC A"))
+        self.assertEqual(len(r["flags"]), 8)
+        st = m.json("get_state")
+        self.assertEqual([f["symbol"] for f in st["call_stack"]], ["add1", "add2+4", "start+5"])
+        self.assertEqual(m.json("read_memory", address="msg", length=3)["hex"], "68 69 0D")
+        m.call("write_memory", address="$9000", data="AA BB")
+        self.assertEqual(m.json("read_memory", address=0x9000, length=2)["hex"], "AA BB")
+        self.assertEqual(m.json("read_memory", address="P009000", length=1)["hex"], "AA")
+        self.assertEqual(m.json("resolve_symbol", name="add2+1")["address"], "8015")
+        ra = m.json("resolve_address", address="8016")
+        self.assertEqual((ra["symbol"], ra["source"]["line"]), ("add2+2", 15))   # inside call add1
+        self.assertEqual(m.json("get_mmu")[7]["read_page"], "007")
+        self.assertIn("8000  3E 41", m.call("monitor", command="D 8000 2"))
+        self.assertIn("buttons", m.call("monitor", ok=False, command="G"))
+        m.json("set_registers", hl="msg", a=7, af_=0x1234)
+        r = m.json("get_registers", raw=True)
+        self.assertEqual((r["HL"], r["AF"] >> 8, r["AF'"]), (0x801B, 7, 0x1234))
+        s = m.json("step", instructions=2)
+        self.assertEqual(s["registers"]["PC"], "$8018 (add2+4)")     # INC A, RET: back in add2
+
+    def test_watchpoint(self):
+        m = self.mcp
+        m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"])
+        w = m.json("set_watchpoint", address="result", access="write")
+        self.assertEqual(w["id"], 0)
+        self.assertIn("aligned", m.call("set_watchpoint", ok=False, address="$9001", length=2))
+        self.assertIn("not offered", m.call("set_watchpoint", ok=False, address="$9000", value=5))
+        self.assertEqual(m.call("run"), "Watchpoint 0 at 8008 (start+8) (write 9000: 43)")
+        self.assertEqual(m.json("list_watchpoints")[0]["owners"], ["mcp"])
+        m.call("clear_watchpoint")
+        self.assertEqual(m.json("list_watchpoints"), [])
+
+    def test_run_wait_false_pause_and_detach(self):
+        m = self.mcp
+        m.call("launch", program=self.paths["rimg"], sld=self.paths["sld"])
+        m.call("write_memory", address="$800F", data="18 FE")
+        self.assertEqual(m.call("run", wait=False), "running")
+        time.sleep(0.2)
+        self.assertEqual(m.call("pause"), "Paused at 800F (loop+3)")
+        self.assertIn("runs on", m.call("detach", run=True))
+        time.sleep(0.2)
+        self.assertEqual(self.bridge.model.mode, "running")
+        self.assertEqual(m.call("attach"), "Paused at 800F (loop+3)")
+
+    def test_shared_with_vscode(self):
+        dap = DapClient(self.bridge.ports["dap"])
+        try:
+            dap.request("initialize", {"adapterID": "retro-z80"})
+            dap.request("launch", {"program": self.paths["rimg"], "sld": self.paths["sld"]})
+            dap.event("initialized")
+            r = dap.request("setBreakpoints", {"source": {"path": self.paths["asm"]},
+                                               "breakpoints": [{"line": n} for n in (3, 4, 5)]})
+            self.assertTrue(all(b["verified"] for b in r["body"]["breakpoints"]))
+            dap.request("configurationDone")
+            dap.event("stopped")
+            m = self.mcp
+            m.call("set_breakpoint", address="add1")
+            text = m.call("set_breakpoint", ok=False, address="add2")
+            self.assertIn("only 4 hardware breakpoints", text)
+            self.assertIn("vscode", text)
+            owners = {b["address"]: b["owners"] for b in m.json("list_breakpoints")}
+            self.assertEqual(owners["8019"], ["mcp"])
+            self.assertEqual(owners["8005"], ["vscode"])
+            # a stop MCP causes is seen by VS Code, without moving its editor
+            dap.drain()
+            self.assertTrue(m.call("run").startswith("Breakpoint"))
+            ev = dap.event("stopped")["body"]
+            self.assertTrue(ev.get("preserveFocusHint"))
+            # VS Code disconnects: MCP holds a breakpoint, so the session stays (DB15)
+            dap.request("disconnect", {})
+            time.sleep(0.2)
+            self.assertTrue(self.bridge.session.attached)
+            self.assertEqual([b["owners"] for b in m.json("list_breakpoints")], [["mcp"]])
+        finally:
+            dap.close()
+
+
+class McpFrontTests(unittest.TestCase):
+    """tools/rz80_mcp.py: MCP over stdio, adopting a bridge or starting one."""
+
+    def run_front(self, env, messages):
+        import subprocess
+        full = dict(os.environ)
+        full.pop("RLINK_PORT", None)
+        full.pop("RZ80_PORT", None)
+        full.update(env)
+        p = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(HERE), "rz80_mcp.py")],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=full)
+        out = []
+        for m in messages:
+            p.stdin.write((json.dumps(m) + "\n").encode())
+            p.stdin.flush()
+            if "id" in m:
+                out.append(json.loads(p.stdout.readline()))
+        p.stdin.close()
+        p.wait(10)
+        return out
+
+    @staticmethod
+    def free_port():
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def test_spawns_the_bridge_and_stops_it(self):
+        port = self.free_port()
+        tmp = tempfile.mkdtemp()
+        try:
+            out = self.run_front({"RZ80_PORT": "model", "RZ80_MCP_PORT": str(port),
+                                  "RZ80_BRIDGE_ADVERT_DIR": tmp}, [
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}},
+            ])
+            self.assertEqual(out[0]["result"]["serverInfo"]["name"], "retro-z80")
+            self.assertIn("launch", [t["name"] for t in out[1]["result"]["tools"]])
+            state = json.loads(out[2]["result"]["content"][0]["text"])
+            self.assertEqual((state["attached"], state["serial_port"]), (False, "model"))
+            time.sleep(0.3)
+            with self.assertRaises(OSError):
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_adopts_a_running_bridge_and_leaves_it(self):
+        tmp = tempfile.mkdtemp()
+        os.environ["RZ80_BRIDGE_ADVERT_DIR"] = tmp
+        b = Bridge("model").start()
+        try:
+            out = self.run_front({"RZ80_MCP_PORT": str(b.ports["mcp"])}, [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "server_info", "arguments": {}}},
+            ])
+            self.assertEqual(json.loads(out[0]["result"]["content"][0]["text"])["pid"], os.getpid())
+            socket.create_connection(("127.0.0.1", b.ports["mcp"]), timeout=1).close()   # still up
+        finally:
+            b.close()
+            shutil.rmtree(tmp)
+
+    def test_no_bridge_and_no_port(self):
+        out = self.run_front({"RZ80_MCP_PORT": str(self.free_port())}, [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}},
+        ])
+        self.assertIn("RLINK_PORT", out[0]["result"]["instructions"])
+        self.assertTrue(out[1]["result"]["isError"])
 
 
 class SymbolTests(unittest.TestCase):

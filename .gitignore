@@ -10,3 +10,4 @@ build/
 *.svf
 __pycache__/
 __pycache__/
+!.mcp.json

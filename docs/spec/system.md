@@ -43,7 +43,7 @@ The other system pieces have their own specs: the MMU (spec 2), interrupts (8), 
 | SYSSTAT, BUSERRADDR, BUSERRWHY | CPU halted; bus errors | Left out | The Z80 has no bus errors and no halted state |
 | I2C | I2CCON EN (0), CLKDIV (15–8); SCL = 100 MHz ÷ (4 × (CLKDIV + 1)) | I2CCON EN (0), CLKDIV (7–1); SCL = 100 MHz ÷ (8 × (CLKDIV + 1)) | Narrowed to one byte; the divider counts in eights so 100 kHz still fits 7 bits |
 | Boot console | 80 × 30 text drawn with an 8 × 16 font (Spleen) into a 1 bpp 640 × 480 bitmap | 80 × 30 text on a 1 bpp tile layer, 8 × 8 public-domain font shown 2× tall, in the same 640 × 480 window | A character is one 2-byte map write instead of 16 bytes of bitmap; the tile mode is the one new video unit (spec 4) |
-| Long press of reset | Open (its SY3) | No UPLOAD on a long press: UPLOAD comes only from the PC | Closed here (SY6) |
+| Long press of reset | The same as a short press (its SY3, answered 25 October 2026) | No UPLOAD on a long press: UPLOAD comes only from the PC | Closed here (SY6) |
 | NMI monitor paging | None | Window 0 switched to the boot ROM's monitor page during an NMI, and the return address kept in registers: the NMI set's default of the interrupt pages (spec 2, section 9.7) | Spectrum extra (Multiface style); the interrupt pages are a retro-z80 extra (design plan, branch 17) |
 | Beeper | None (audio is its spec 6) | Port `0xFE` bit 4 to the audio pins, at a fixed quarter of full scale | Spectrum extra; sound itself is parked (design plan Q1) |
 

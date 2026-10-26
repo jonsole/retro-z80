@@ -54,7 +54,7 @@ The FT232H runs in **asynchronous 245 FIFO mode**; its EEPROM is set for this on
 | WR# | FPGA → FTDI | Pulse to write a byte |
 | SIWU# | FPGA → FTDI | "Send immediate": send what it holds to the PC now |
 
-Pins are provisional and the same as retro68k's KS3 build: `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# (open point U2). The accelerator port has pull-ups, so with no module RXF# and TXE# read "not ready" and the link is simply idle.
+Pins are the same as retro68k's KS3 build (checked on the KS2, open point U2): `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# (open point U2). The accelerator port has pull-ups, so with no module RXF# and TXE# read "not ready" and the link is simply idle.
 
 The interface logic is retro68k's `serial.v`, unchanged in its timing: both machines run it on a 100 MHz system clock (10 ns), so its RD#/WR# pulse and gap counts already meet the FT232H's minimum timings.
 
@@ -234,7 +234,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 | # | Item |
 |---|------|
 | U1 | Set the FT232H EEPROM to 245 FIFO mode with FT_Prog (once, before first use) |
-| U2 | The `accel_io` pin assignment is provisional, shared with retro68k (its open point U6) |
+| U2 | Checked on the KS2 (issue 4 schematic, sheets 2 and 5): `accel_io[n]` is Pi GPIO n on header J2, through 200 ohm, with no level shifting; D0-D7 on pins 27, 28, 3, 5, 7, 29, 31, 26, RXF# 24, TXE# 21, RD# 19, WR# 23, SIWU# 32 (wiring in `fpga/ks2/README.md`). Still shared with retro68k (its U6); the KS3's issue 5 pin file puts these on the same FPGA pins |
 | U3 | Closed: the control sequence is retro68k's, byte for byte, so one PC tool serves both machines. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
 | U4 | Closed: the upload protocol is the shared spec "Monitor and upload protocol" (`monitor.md`), the same in retro68k: frames with a CRC-32, a reply to each, the image header; spec 16 gives retro-z80's limits |
 | U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help DMA jobs on port 1; shared with retro68k's U5. The CPU cannot use it |

@@ -294,6 +294,53 @@ The reset button starts it all again: the beam stops for a moment (the monitor m
 
 **Earlier demos.** Issues #13–#19's demos (the palette chart, the colour cycle, the dimming and the console's status line) are gone from the boot ROM now that it runs the monitor (spec 16, section 4.1); the hardware they showed is still built. The tile map demo (`-DTILEDEMO`, issue #14) went with them; the commit before issue #22 still has it.
 
+## Wiring the FT232H (Adafruit FT232H Breakout)
+
+The USB serial link (spec 10) is an FT232H in asynchronous 245 FIFO mode on the Next's accelerator header J2 (the Raspberry Pi header, a 2 x 20 male header marked "ACCELERATOR BOARD"). `accel_io[n]` is the Pi's BCM GPIO n at the standard Pi pin, through a 200 ohm series resistor, with no level shifting (both sides 3.3 V). Checked against the issue 4 schematic (sheets 2 and 5), the Next's `zxnext_pins_issue4.xdc` and FTDI's FT232H datasheet (Table 3.8).
+
+| Adafruit pin | FT232H | Next J2 pin | `accel_io` | Pi GPIO |
+|---|---|---|---|---|
+| D0 | ADBUS0, data 0 | 27 | 0 | 0 (ID_SD) |
+| D1 | ADBUS1, data 1 | 28 | 1 | 1 (ID_SC) |
+| D2 | ADBUS2, data 2 | 3 | 2 | 2 |
+| D3 | ADBUS3, data 3 | 5 | 3 | 3 |
+| D4 | ADBUS4, data 4 | 7 | 4 | 4 |
+| D5 | ADBUS5, data 5 | 29 | 5 | 5 |
+| D6 | ADBUS6, data 6 | 31 | 6 | 6 |
+| D7 | ADBUS7, data 7 | 26 | 7 | 7 |
+| C0 | ACBUS0, RXF# | 24 | 8 | 8 |
+| C1 | ACBUS1, TXE# | 21 | 9 | 9 |
+| C2 | ACBUS2, RD# | 19 | 10 | 10 |
+| C3 | ACBUS3, WR# | 23 | 11 | 11 |
+| C4 | ACBUS4, SIWU# | 32 | 12 | 12 |
+| GND | ground | 6 (or 9, 14, 20, 25, 30, 34, 39) | – | – |
+
+```
+             Next J2, seen from above
+  3.3V (n/c)   1 o   o 2   +5V   do not connect
+   D2 ------   3 o   o 4   +5V   do not connect
+   D3 ------   5 o   o 6   GND  ------ GND
+   D4 ------   7 o   o 8
+                  ...
+   C2 ------  19 o   o 20  (GND)
+   C1 ------  21 o   o 22
+   C3 ------  23 o   o 24  ------ C0
+              25 o   o 26  ------ D7
+   D0 ------  27 o   o 28  ------ D1
+   D5 ------  29 o   o 30  (GND)
+   D6 ------  31 o   o 32  ------ C4
+```
+
+Before connecting:
+
+- **Ground only, no power wires.** J2 pins 2 and 4 carry the Next's +5 V (pin 1 and 17, 3.3 V, are not connected). The Adafruit's 5V pin is the USB supply: joining them would feed one into the other. The FT232H is powered from its own USB cable.
+- **Remove the Pi Zero** if one is fitted: it shares these lines (and probes GPIO0 and GPIO1 for its HAT EEPROM at boot).
+- **Find pin 1 with a meter.** The board layout does not mark it: with the Next on, pins 2 and 4 read +5 V to ground, pin 6 is ground, and pin 1 is the open pin beside pin 2.
+- **USB-C Adafruit boards: the I2C switch off.** It joins D1 and D2.
+- **245 FIFO mode, once** (spec 10, U1): Adafruit ships the EEPROM blank; set "245 FIFO" with FTDI's FT_Prog. If FT_Prog does not see the board, Adafruit's guide erases the EEPROM first (libftdi's `eeprom -e -p 0x6014 -v 0x0403`).
+
+The Next's own core never drives GPIO 1:0 (its NextReg 0x90 cannot enable them, presumably for the Pi's ID lines); nothing else is on those nets on issue 4, so this core drives them as D0 and D1.
+
 ## The test pattern: what you should see
 
 - A white one-pixel frame round the whole picture: every edge should show. A display that overscans hides it.
@@ -322,7 +369,7 @@ The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), 
 - **Clocks.** Two MMCMs from the 50 MHz oscillator. MMCM 1 (VCO 1000 MHz) makes the 100 MHz system clock. MMCM 2 makes 27 MHz (pixel) and 135 MHz (serialiser) from a 675 MHz VCO (50 MHz ÷ 2 × 27). retro68k's KS3 runs that VCO at 1350 MHz, which the KS2's -1 speed grade (600–1200 MHz) does not allow. The two MMCMs are asynchronous clock groups.
 - **Reset.** Power-on reset is held until both MMCMs lock, then 256 clocks more. The reset button is synchronised and needs 10 ms of agreement (as retro68k's KS3 build), then goes to the computer's reset logic (RESETWHY.BUTTON).
 - **SRAM.** IS61WV102416FBLL-8: 1M × 16, 8 ns, 20 address lines. `retroz80` is built with CHIPMB = 2, so physical address bit 21 is ignored (pages `0x100`–`0x1FF` mirror `0x000`–`0x0FF`) and `sram_a[19:0]` go to the pins. The controller is retro68k's: 20 ns cycles, outputs from the pads' flip-flops, /OE, /WE and the data enable from ODDRs, read data taken in the input pads' flip-flops. See "Risks" below.
-- **FT232H.** On the accelerator header, provisional pins as retro68k's KS3 build (spec 10, open point U2): `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU#. The KS2 and KS3 put these on the same FPGA pins (the Next's issue 4 and issue 5 pin files). All 13 are pulled up, so with no module the link is idle.
+- **FT232H.** On the accelerator header J2 (wiring above; checked against the issue 4 schematic, spec 10, U2), as retro68k's KS3 build: `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU#. The KS2 and KS3 put these on the same FPGA pins (the Next's issue 4 and issue 5 pin files). All 13 are pulled up, so with no module the link is idle.
 - **HDMI.** retro68k's `hdmi_out.v` unchanged: 10:1 OSERDESE2 pairs (DDR at 135 MHz) into TMDS_33 pads, least significant bit first, pairs 0 blue, 1 green, 2 red, 3 clock, as the Next does. The computer sends 24-bit colour.
 - **VGA.** Three bits per colour straight from the pads' flip-flops (no DAC). The computer sends the top three bits of each colour; the test pattern makes RGB333 and widens it for HDMI.
 - **Configuration settings** follow the Next's: SPI ×4, 32-bit SPI addresses, 40 MHz configuration rate, no fallback, unused pins pulled up, and the bitstream compressed. The `.bin` is a raw flash image; nothing uses it yet.
