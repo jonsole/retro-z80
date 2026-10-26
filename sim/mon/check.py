@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The monitor's scripted session (tickets #22, #27, #28): what to type and what must come back.
+"""The monitor's scripted session (tickets #22, #27, #28, #29): what to type and what must come back.
 
     check.py make DIR    write DIR/session.in, the lines tb_mon.v types
     check.py check DIR   compare DIR/mon.log with the transcript below
@@ -225,7 +225,7 @@ SESSION = [
     ("D.W 8000 3", ["? size"]),
     ("P.W 7000", ["? size"]),
     ("Q", ["? syntax"]),
-    ("U", ["? not yet: a later ticket"]),
+    ("L", ["? not yet: a later ticket"]),
     ("E 0000 00", ["? address"]),
     # A breakpoint in ROM (the debug unit's breakpoint 0): at RST 08h's entry, then on
     ("G 8000 0008", ["Breakpoint at 0008"] + regs(pc="0008", extra1={"AF": "41[0-9A-F]{2}"})),

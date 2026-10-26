@@ -8,6 +8,7 @@ make smoke      # tool-chain smoke test: sjasmplus assembles a tiny ROM, Icarus 
 make vsmoke     # the same test built with Verilator
 make hello      # the system: the boot ROM's self-test passes and the monitor signs on over USB serial, twice
 make mon        # the monitor typed at over USB serial, in Verilator: a session of every command (about a minute)
+make link       # a debug session through the bridge with the machine's USB link on a TCP socket, against the stub model too (seconds)
 make dis        # the boot ROM's disassembler on a table of every opcode, against a reference sjasmplus checks (seconds)
 make hello2mb   # the same on a build for a 2 MB board (CHIPMB = 2)
 make systest    # the system test ROM: system registers, I/O decode, SRAM bytes, writable boot ROM, the self-test, MMU reset, soft reset
@@ -84,6 +85,16 @@ Ticket #22. `mon/tb_mon.v` runs the whole computer in Verilator, a 2 MB build as
 - the console's 30 rows, read from its map (with SCROLLY's top row from the console's state), against the last 30 lines sent.
 
 The Verilator build takes about two minutes, the run under a minute (0.8 s of simulated time). `make mon` is part of `make`.
+
+## The link on a socket (`make link`)
+
+Ticket #29. `link/tb_link.v` is the whole computer in Verilator, as `mon/tb_mon.v` (a 2 MB build, the cycle models of the SRAM and of the FT232H's FIFO side), with the PC's side of the FT232H on a **TCP socket**, so the PC tools talk to the simulated machine as they would to the board's serial port.
+
+**The socket.** `vl_link/vlink` (its clock and socket are `link/link_main.cpp`) listens on `127.0.0.1`, port `+port=N` (default 0: any free port), prints `LISTENING <port>` and waits for one connection; the clock starts when it comes. The connection is a plain byte stream both ways, with no framing of its own: every byte the PC side sends goes into the FT232H's receive side in order, and every byte the machine writes to the FT232H comes back. The control commands (BREAK, RESET, UPLOAD) are bytes like any other, taken out of the stream by the serial unit as on the board. The socket is read and written every 10 µs of simulated time. The run ends when the connection closes (`LINK CLOSED`, with the counts) or after `+maxms=N` ms of simulated time. It runs about 30 times slower than the board (a 2 s wait of the bridge is about 65 ms of the machine's time), which the bridge's timeouts allow.
+
+**The adapter.** `link/simlink.py` gives the socket the shape of `rlink.SerialLink`: `SimLink(port)` has `write(bytes)` and `read_some(timeout)`, so `tools/rz80bridge` and `rlink.py` run on it unchanged; `start_sim(build)` starts `vlink` and returns its port.
+
+**The session.** `link/session.py BUILD` drives a debug session through the bridge's own session code (`rz80bridge.session.Session`) on a `SimLink`, against the boot ROM's debug stub (`firmware/boot/stub.asm`) and loader (`link.asm`): it launches `link/linkprog.asm` (UPLOAD, the upload with ACTION 0, HELLO at the prompt); reads the target description, the registers, the program's bytes and the MMU windows; sets a breakpoint in RAM and continues to it; steps; sets one in ROM (`RST 08h`'s entry) and continues; stops on a read watchpoint with a breakpoint whose page does not match standing by; asks QUERY; checks the refusals (codes 1-8), a damaged command frame answered `C` and sent again, and a repeated SEQ of a write not done twice; writes memory and a register; runs monitor commands over CONSOLE (`D`, and `G`, `N`, `T` refused); pauses a running program with BREAK; detaches, attaches to the stopped program, detaches leaving it running, attaches to it with BREAK, and detaches. Then it runs the same session against the bridge's stub model (`tools/rz80bridge/model.py`) and compares the two step by step. Differences that are the model's to change are listed in the script's `KNOWN` and reported on every run; any other difference fails the test. `session.py BUILD sim` or `BUILD model` runs one side only; `RZ80_TOOLS=DIR` takes the bridge and the model from another copy of `tools/`. What the machine sent on the link (its console text) goes to `build/link.console`. The Verilator build takes about a minute, the session about 10 seconds (130 ms of simulated time).
 
 ## The disassembler (`make dis`)
 

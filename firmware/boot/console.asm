@@ -17,8 +17,12 @@
 CTEXT   equ     30                      ; text rows
 
 ; PUTC: print E on the screen and the serial link, as CONMODE says
-; (spec 16, section 7.5)
-k_putc: bit     1,(iy+CS_MODE)
+; (spec 16, section 7.5). CONMODE bit 4 (the debug stub's CONSOLE, never a
+; program's) keeps it at CS_CAPP instead, up to 2,048 bytes, and moves only
+; the column, so the monitor's commands start new lines as on the screen
+k_putc: bit     4,(iy+CS_MODE)
+        jr      nz,.cap
+        bit     1,(iy+CS_MODE)
         jr      z,.scr
         ld      a,e
         out     (SERDATA_PORT),a
@@ -54,6 +58,25 @@ k_putc: bit     1,(iy+CS_MODE)
         ld      (iy+CS_COL),0
         jr      clf
 .tc:    ld      (iy+CS_COL),a
+        ret
+.cap:   ld      l,(iy+CS_CAPP)
+        ld      h,(iy+CS_CAPP+1)
+        ld      a,h                     ; full at TXD + 2,048 (rom.inc)
+        cp      high (TXD + 2048)
+        jr      c,.c1
+        ld      a,l
+        cp      low (TXD + 2048)
+        jr      nc,.c2
+.c1:    ld      (hl),e
+        inc     hl
+        ld      (iy+CS_CAPP),l
+        ld      (iy+CS_CAPP+1),h
+.c2:    ld      a,e
+        cp      13
+        jr      z,.cr
+        cp      32
+        ret     c
+        inc     (iy+CS_COL)
         ret
 
 ; PUTRAW: draw the glyph for E, any code, on the screen only
@@ -171,12 +194,17 @@ k_setpair:
         ld      (iy+CS_ATTR),a
         ret
 
-; CONMODE: E = the new mode, or 0x80 to read it; E = the old mode
+; CONMODE: E = the new mode, or 0x80 to read it; E = the old mode. Only
+; bits 3-0 are a program's (bit 4 is the debug stub's)
 k_conmode:
         ld      a,(iy+CS_MODE)
         bit     7,e
         jr      nz,.rd
-        ld      (iy+CS_MODE),e
+        push    af
+        ld      a,e
+        and     0x0F
+        ld      (iy+CS_MODE),a
+        pop     af
 .rd:    ld      e,a
         ret
 

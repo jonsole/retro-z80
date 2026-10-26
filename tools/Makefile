@@ -5,12 +5,14 @@
 #                   linted (Verilator, WIDTHTRUNC as an error, as retro68k);
 #                   then the bridge's tests (bridge)
 #   make bridge     the debug bridge and rlink.py against the stub model (Python only)
+#   make vscode     the VS Code extension's tests (node), the bridge started on the model
 #   make regmap     rewrite the generated files from fpga/regmap.def
 #
 # Needs: python3, sjasmplus, a C compiler (cc), iverilog and verilator. Tools can be given
 # explicitly: make check SJASMPLUS=/path/sjasmplus CC=gcc IVERILOG=/path/iverilog
 
 PYTHON    ?= python3
+NODE      ?= node
 SJASMPLUS ?= sjasmplus
 IVERILOG  ?= iverilog
 VERILATOR ?= verilator
@@ -22,8 +24,8 @@ INC   := $(ROOT)/firmware/include
 RTL   := $(ROOT)/fpga/rtl
 BUILD := build
 
-.PHONY: check regmap verify selftest asm c verilog bridge clean
-check: verify selftest asm c verilog bridge
+.PHONY: check regmap verify selftest asm c verilog bridge vscode clean
+check: verify selftest asm c verilog bridge vscode
 
 regmap:
 	$(PYTHON) regmap.py
@@ -51,6 +53,9 @@ verilog: | $(BUILD)
 
 bridge:
 	$(PYTHON) test/test_bridge.py
+
+vscode:
+	@for t in vscode/tests/*_test.js; do echo "== $$t"; $(NODE) $$t || exit 1; done
 
 clean:
 	rm -rf $(BUILD)

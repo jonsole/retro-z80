@@ -128,6 +128,8 @@ The extension joins a bridge if one is listening on the DAP port, and otherwise 
 | Breakpoints and watchpoints | SETBP, SETWP; VS Code's data breakpoints are watchpoints |
 | Debug console | CONSOLE: a monitor command line, and its output (section 5.9) |
 
+**Custom DAP requests** for the extension's watchpoint panel, as the zx emulator's panel makes them: `watchpoints` (every watchpoint the board holds, with its owners), `setWatchpoint` (`address`, `length` a power of two, `access` `read`, `write` or `readWrite`, `io`) and `clearWatchpoint` (`id`, or every watchpoint without one). Each answers with the list.
+
 ### 3.5 Sharing the board: VS Code and MCP
 
 - **Attach only when asked.** A VS Code launch or attach, or MCP's `launch` or `attach`, attaches (section 4). Every other MCP tool that needs a stopped machine answers "not attached" instead of stopping the board by itself.
@@ -442,12 +444,13 @@ CHANNEL 3, VIDEO, and its TYPE `0x82` are **reserved** for screen capture: a lat
 - **The transport:** `tools/test/test_bridge.py` checks frames both ways against monitor.md's layout and CRC (its check value), CHANNEL in byte 4, bytes 5–7 not 0, a frame among stray bytes, a frame cut short (the 1 s drop), the control commands between frames.
 - **The bridge against the model:** `tools/test/test_bridge.py` runs the bridge against a Python model of the stub (a fake serial port), with no hardware: launch and attach, every command and reply, each refusal code, every STOP reason, a fifth breakpoint refused, step over and step out with and without a spare breakpoint, a CRC error and a frame error each way, a lost reply and a lost STOP (QUERY), a repeated SEQ for a read and for a write, detach and continue with detach. DAP is checked with recorded VS Code requests.
 - **The stub in simulation:** the boot ROM's stub in the whole machine in Verilator, over the FT232H model (spec 10), driven by the bridge through a socket: launch a test program; a breakpoint in RAM, one in ROM and one with a page match in a banked window; both watchpoints (memory read, memory write, I/O write, a masked range); a step of each instruction class, `LDIR` and `HALT` included, and a step with INTO into an interrupt; pause while running; the program's serial output kept off the link; the screen untouched at a stop; no byte of the program's memory changed by a stop and a continue (a checksum); detach.
+  - **Built** (ticket #29, `make -C sim link`, sim/README.md): the machine's link on a TCP socket, and the bridge's own session code on it, unchanged. A launch (UPLOAD, the upload with ACTION 0, HELLO at the prompt) stopped at ENTRY; the target description, the registers, memory and the MMU windows; a breakpoint in RAM, one in ROM, and one whose page does not match; a step; a memory read watchpoint; QUERY; every refusal code; a damaged command answered `C` and sent again; a repeated SEQ of a write not done twice; WRITEMEM and WRITEREGS; CONSOLE, with `G`, `N` and `T` refused; pause while running; detach, attach to the stopped program and to a running one. The same session runs against the stub model, and the two must agree but for the differences the script lists (the model's to change). Still to add: a page match in a banked window that does hit, the write, I/O and masked watchpoints, the step classes and INTO, the screen and the program's memory checked across a stop.
 - **On the board:** a launch from VS Code on the KS2 once the FT232H is fitted: a source breakpoint, step, step over, a watchpoint, pause and continue.
 - **The shared section:** once retro68k takes the transport, a check that section 2 is the same in both repos (as monitor.md, section 12).
 
 ## 12. Open points
 
-Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), the future items DB10 and DB11, and branch 20's DB13–DB16.
+Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), the future items DB10 and DB11, and branch 20's DB13, DB15 and DB16.
 
 | # | Item |
 |---|------|
@@ -464,6 +467,6 @@ Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed
 | DB11 | C source level (z88dk's debug output) is later; the protocol needs no change for it |
 | DB12 | The stub's frame buffers take SRAM page `0x0FC` (kept for the ROM's later use, spec 16, section 5.3) while attached; a program being debugged keeps out of it |
 | DB13 | Branch 20 (25 October 2026): the bridge's default ports, DAP 4780, MCP 8780, console 4781, chosen to sit beside the emulator's 4711 and 8000 |
-| DB14 | Both this extension and the zx extension contribute the `z80-asm` language. With both installed, check that the grammars and the asm index do not clash; if they do, this one stands down when the zx one is present |
+| DB14 | Closed (#34): both extensions contribute `z80-asm` with the same grammar. With the zx extension installed, this one leaves the language's providers (Go to Definition, hovers, references) to it, so nothing is answered twice |
 | DB15 | A VS Code disconnect leaves the session attached when MCP holds breakpoints or watchpoints (section 3.5); the other choice is to detach always |
 | DB16 | Whether retro68k wants the same bridge, carrying its GDB channel (CHANNEL 4) and an MCP server: to ask its session |

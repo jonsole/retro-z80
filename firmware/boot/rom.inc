@@ -45,6 +45,12 @@ CS_RKEY  equ    0x1C                    ; the membrane key that repeats (0: none
 CS_RPOS  equ    0x1D                    ; ... its place, 8 x column + row
 CS_RTIME equ    0x1E                    ; ... 2 bytes: when it next repeats (TIME bits 23-8)
 CS_PEND  equ    0x20                    ; a key waiting to be given (0: none)
+CS_HW    equ    0x21                    ; 1: the monitor's prompt watches the link for HELLO (debug.md 4.4)
+CS_HST   equ    0x22                    ; ... 1: an L held back, 2: L F held back
+CS_HRAW  equ    0x23                    ; ... 1: a byte from the link held back after them
+CS_HBYTE equ    0x24                    ; ... that byte
+CS_HTIME equ    0x25                    ; ... 2: TIME bits 23-8 when the L came
+CS_CAPP  equ    0x27                    ; 2: CONMODE bit 4 (the stub's CONSOLE): where PUTC puts the next byte
 ; The last line typed (GETLINE's Up) is kept in columns 96-127 of map rows
 ; 1-4, 64 bytes a row, ending in 0
 
@@ -122,7 +128,41 @@ T_VAL   equ     0x69C0                  ; 64: values to enter, fill or find
 T_VMAX  equ     64
 DISBUF  equ     T_VAL                   ; 48: I's line from the disassembler (in T_VAL)
 DISVAR  equ     T_VAL + 48              ; 12: the disassembler's variables
-; 0x6A00-0x6DFF: kept for the SD card and the loader (later tickets)
+; 0x6A00-0x6CFF: kept for the SD card (a later ticket)
+; ---- The link (link.asm): frames in, frames out, the loader, 0x6D00-0x6DFF
+; (spec 16, section 5.3). The frames' bytes are in SRAM page 0x0FC, mapped
+; into window 6 while the loader or the debug stub works (window 5 is the
+; access window the memory commands use)
+PG_STUB equ     0x0FC                   ; the frame buffers (debug.md, open point DB12)
+RXBUF   equ     0xC000                  ; 4 KB: the payload of the frame received
+TXF     equ     0xD000                  ; a frame to send: SYNC, the header ...
+TXP     equ     TXF + 12                ; ... its payload ...
+TXD     equ     TXP + 2                 ; ... and a REPLY's data, after STATUS and CODE
+F_HDR   equ     0x6D00                  ; 10: the frame received: TYPE, SEQ, OFFSET (4) or CHANNEL
+F_TYPE  equ     F_HDR                   ;     and 0, 0, 0; LENGTH (2), NLENGTH (2), all big-endian
+F_SEQ   equ     F_HDR + 1
+F_CH    equ     F_HDR + 2
+F_LEN   equ     F_HDR + 6
+F_NLEN  equ     F_HDR + 8
+F_CRC   equ     0x6D0A                  ; 4: its CRC, as received
+F_T     equ     0x6D0E                  ; 2: TIME bits 23-8 when the wait for a byte began
+F_ESC   equ     0x6D10                  ; 1: Esc on the keyboards ends a wait (the loader)
+F_TO    equ     0x6D11                  ; 1: a wait gives up after 1 s (inside a frame)
+F_PLEN  equ     0x6D12                  ; 2: LENGTH, low byte first
+F_NOPC  equ     0x6D14                  ; 1: no room to send for a while: nobody reads, stop waiting
+CRCV    equ     0x6D18                  ; 4: the CRC-32 being worked out, low byte first
+T_P     equ     0x6D1C                  ; 4: a physical address (low byte first)
+T_SRC   equ     0x6D20                  ; 2: where bytes are copied from
+T_NB    equ     0x6D22                  ; 4: a count of bytes
+L_OK    equ     0x6D30                  ; 1: the loader has taken a header
+L_SEQV  equ     0x6D31                  ; 1: the loader has taken a frame ...
+L_SEQ   equ     0x6D32                  ; ... and its SEQ
+L_MODE  equ     0x6D33                  ; CONMODE before the loader
+L_LOAD  equ     0x6D34                  ; 4: LOAD, the physical address (low byte first)
+L_SIZE  equ     0x6D38                  ; 4: SIZE
+L_ENTRY equ     0x6D3C                  ; 4: ENTRY
+L_GOT   equ     0x6D40                  ; 4: the bytes received
+L_ICRC  equ     0x6D44                  ; 4: ICRC, as in the header (big-endian)
 WENT    equ     0x6E00                  ; the entry frame, copied from the program's stack
 WMMUT   equ     0x6E20                  ; 32: the MMU registers as found at entry
 WPAL    equ     0x6E40                  ; 90: PALETTE0's console pairs as the program had them
@@ -138,6 +178,25 @@ NMX_BC  equ     0x6EAC
 NMX_AF  equ     0x6EAE
 NMX_SP  equ     0x6EB0                  ; 2: the program's SP (NMICAPSP - 2)
 NMX_CODE equ    0x6EB4                  ; the exit's bytes, up to 0x6EDF (monitor.asm, nmix)
+; The debug stub's state (stub.asm; spec 16, section 8.8), from 0x0EE0 of
+; page 0x0FF. Not in the state block's sum
+D_ATT   equ     0x6EE0                  ; ATT_ON while VS Code is attached (debug mode)
+ATT_ON  equ     0xA5
+D_SEQV  equ     0x6EE1                  ; 1: D_SEQ is the last command's SEQ
+D_SEQ   equ     0x6EE2
+D_LST   equ     0x6EE3                  ; the last command's STATUS ...
+D_LCODE equ     0x6EE4                  ; ... and CODE (a repeated SEQ is answered with them)
+D_STOPN equ     0x6EE5                  ; the STOP frames' count (their SEQ)
+D_CATCH equ     0x6EE6                  ; 1: CONSOLE runs a command line (mloop comes back to the stub);
+                                        ; 2: a memory command (? address is refused with code 3)
+D_OMODE equ     0x6EE7                  ; CONMODE when HELLO came
+D_PMODE equ     0x6EE8                  ; the program's CONMODE while attached (its serial bits off)
+D_GO    equ     0x6EE9                  ; 1: G puts CONMODE back from D_GOM as it leaves
+D_GOM   equ     0x6EEA
+D_CROW  equ     0x6EEB                  ; CONSOLE: the cursor's row and column, kept
+D_CCOL  equ     0x6EEC
+D_STOP  equ     0x6EF0                  ; 15: the last STOP's payload (debug.md, section 6)
+D_BLK   equ     0x6F00                  ; 28: a register block (WRITEREGS)
 
 ; ---- Why the monitor was entered
 R_START equ     0
@@ -148,6 +207,9 @@ R_TRAP  equ     4                       ; RST 38h
 R_NMI   equ     5
 R_BKPT  equ     6                       ; (not used: a breakpoint is an NMI, with DBGSTAT in M_DBG)
 R_NMI3  equ     7                       ; an NMI through the NMI page (becomes R_NMI)
+
+; ---- Key codes of the ROM's own
+KHELLO  equ     0xF0                    ; GETC at the monitor's prompt: a HELLO frame began on the link
 
 ; ---- Colour pairs (spec 7, section 5.1): entries' high byte, PAL x 2
 PAIR0   equ     1 << 1                  ; light grey on black

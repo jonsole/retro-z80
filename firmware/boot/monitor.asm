@@ -40,11 +40,9 @@ boot2:  call    units                   ; step 4: every unit as a program finds 
 .dev:   call    pmsg
         db      "Development: the boot ROM is left writable.", 13, 10, 0
 .lk:    pop     de
-        bit     1,e                     ; step 8: U (or UPLOAD): the loader, not built yet
-        jr      z,.mon
+        bit     1,e                     ; step 8: U (or UPLOAD): the loader (link.asm)
+        jp      nz,loader
         call    pmsg
-        db      "The loader comes with the FT232H (ticket #24).", 13, 10, 0
-.mon:   call    pmsg
         db      "Monitor.  H for help.", 13, 10, 0
         jp      mloop
 
@@ -118,9 +116,10 @@ cspeed_s: db    "3.57", 0                               ; CPUSPEED.SPECTRUM
 ; on the membrane (KEYMAP) or the PS/2 keyboard (its repeats), the DivMMC
 ; button for M; RESETWHY.UPLOAD (D) counts as U. E = bit 0 M, 1 U, 2 D
 keys:   ld      e,0
-        bit     5,d                     ; RESETWHY.UPLOAD
-        jr      z,.t0
+        bit     5,d                     ; RESETWHY.UPLOAD: the loader, whatever is held
+        jr      z,.t0                   ; (D counts at power-on only), so no wait
         set     1,e
+        ret
 .t0:    call    ktime
         ld      (T_I),hl
 .look:  ld      bc,KEYMAP2_P            ; M: column 2 row 7, D: column 2 row 1
@@ -246,7 +245,7 @@ minit:  ld      hl,WSTATE
         ldir
         ld      a,1
         ld      (M_DSZ),a
-        ret
+        jp      dinit                   ; the debug stub's state too (stub.asm)
 progmap: dw     PG_ROM0, 1, 2, 3, 4, 5, 6, 7
         dw      PG_ROM0, 1, 2, 3, 4, 5, 6, 7
 
@@ -412,6 +411,8 @@ cpal:   db      0x00, 0x00, 0x00,  0xD7, 0xD7, 0xD7     ; 0: light grey on black
 ; map and stack; the frame at WENT, the MMU registers as found at WMMUT
 ment2:  ld      a,MON_ON
         ld      (M_MON),a               ; the monitor runs: an NMI now goes straight back
+        xor     a
+        ld      (D_CATCH),a
         ld      a,(WENT + 18)           ; the workspace's window had the program's pages
         sub     MMU0_0
         ld      e,a
@@ -535,7 +536,9 @@ ment2:  ld      a,MON_ON
         ld      (M_SHOW),hl
         jr      .bp
 .pc:    ld      (M_PC),hl               ; PC at the trap's byte
-.bp:    call    dbgclr                  ; breakpoint 0 off: one breakpoint per G
+.bp:    call    mkstop                  ; the stop for the debug stub (stub.asm) ...
+        jp      z,dbg_stop              ; ... which takes it while attached
+        call    dbgclr                  ; breakpoint 0 off: one breakpoint per G
         call    takescr
         call    wdkick
         call    bol
@@ -837,17 +840,26 @@ boing:  ld      bc,MMU2_0_P
 
 ; ================================================================ the command line
 mloop:  ld      sp,MSTACK
+        ld      a,(D_CATCH)             ; the debug stub's CONSOLE: its line has run
+        dec     a
+        jp      z,dbg_conend
         ld      a,MON_ON
         ld      (M_MON),a               ; (also after start-up)
         ld      a,'>'
         rst     08h
         ld      a,' '
         rst     08h
+        ld      a,1
+        ld      (CMAP + 0xC0 + CS_HW),a ; the prompt watches the link for HELLO (debug.md 4.4)
         ld      hl,LBUF
         ld      b,LBUFSZ
         ld      e,1                     ; a Tab on an empty line: the tape demo
         call    gline
+        xor     a
+        ld      (CMAP + 0xC0 + CS_HW),a
         ld      a,e
+        cp      KHELLO
+        jp      z,dbg_hello             ; debug mode (stub.asm)
         cp      27
         jr      z,mloop
         cp      9
@@ -944,7 +956,7 @@ ctab:   db      'D'
         db      'T'
         dw      c_test                  ; (memtest.asm, page 2)
         db      'U'
-        dw      e_notyet
+        dw      c_upload                ; (link.asm)
         db      'L'
         dw      e_notyet
         db      'B'
@@ -963,7 +975,10 @@ e_size: ld      hl,s_size
         jr      merr
 e_notyet:
         ld      hl,s_notyet
-merr:   ld      sp,MSTACK
+merr:   ld      a,(D_CATCH)             ; the debug stub's memory commands: refused (3)
+        cp      2
+        jp      z,dbg_adderr
+        ld      sp,MSTACK
         push    hl
         call    bol
         pop     hl
@@ -2135,11 +2150,10 @@ c_go:   call    pskip
         ld      b,high DBGBP0_CTL_P
         ld      a,DBGBP_CTL_EN_M
         out     (c),a
-.nob:   ld      a,(M_STEPF)             ; N: STEP, with STEPINT = 0 (no interrupt taken in the step)
-        or      a
+.nob:   ld      a,(M_STEPF)             ; N: STEP, with STEPINT = 0 (no interrupt taken in the step);
+        or      a                       ; the stub's STEP: STEPINT as it asks
         jr      z,.nos
         ld      bc,DBGCTL_P
-        ld      a,DBGCTL_STEP_M
         out     (c),a
 .nos:   ld      a,1
         ld      (M_RUN),a
@@ -2147,6 +2161,7 @@ c_go:   call    pskip
         set     7,(hl)
         call    bol
         call    givescr
+        call    dbg_gomode              ; attached: the program's CONMODE back (stub.asm)
         call    wssum
         ld      (M_SUM),hl
         ld      a,(M_SPEED)

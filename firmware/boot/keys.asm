@@ -8,7 +8,9 @@
 ;            the rest wait in the FIFOs
 ;   Serial   127 is Backspace (8); an LF straight after a CR is dropped; ESC
 ;            [ and ESC O sequences give the cursor and editing keys and
-;            F1-F12; an ESC with nothing after it for 20 ms is Esc (27)
+;            F1-F12; an ESC with nothing after it for 20 ms is Esc (27). At
+;            the monitor's prompt an L is held back to see whether a HELLO
+;            frame follows (hwatch, ticket #29)
 ;   PS/2     scan code set 2 (spec 12, section 3.3): F0 releases, E0
 ;            prefixes, both Shifts, Caps Lock, a UK layout (ps2tab,
 ;            ps2tab_s); the keyboard repeats keys itself
@@ -22,7 +24,10 @@ K_ESC_T equ     78                      ; 20 ms in TIME's 256 us steps
 K_REP1  equ     1953                    ; 0.5 s
 K_REP2  equ     391                     ; 0.1 s
 
-k_poll: ld      a,(iy+CS_PEND)
+k_poll: ld      e,27                    ; the stub's CONSOLE (CONMODE bit 4): no keys, Esc
+        bit     4,(iy+CS_MODE)          ; at once (E's stepping, T)
+        ret     nz
+        ld      a,(iy+CS_PEND)
         or      a
         jr      z,.ser
         ld      e,a
@@ -48,12 +53,23 @@ k_poll: ld      a,(iy+CS_PEND)
         cp      1
         ld      e,27                    ; a lone ESC: Esc
         ret     z
-.rx:    ld      bc,SERSTAT1_P           ; RXCOUNT
+.rx:    call    hheld                   ; an L held back too long: typed after all
+        ld      a,e
+        or      a
+        ret     nz
+        ld      a,(iy+CS_HRAW)          ; a byte held back after it
+        or      a
+        jr      z,.rx1
+        ld      (iy+CS_HRAW),0
+        ld      a,(iy+CS_HBYTE)
+        jr      .rx2
+.rx1:   ld      bc,SERSTAT1_P           ; RXCOUNT
         in      a,(c)
         or      a
         jr      z,.kb
         in      a,(SERDATA_PORT)
-        call    sdec
+.rx2:   call    hwatch                  ; carry: the HELLO watch took it
+        call    nc,sdec
         ld      a,e
         or      a
         ret     nz
@@ -71,6 +87,78 @@ k_poll: ld      a,(iy+CS_PEND)
         or      a
         ret     nz
         jr      .ps2
+
+; ---- The monitor's prompt watches the link for a HELLO frame (debug.md,
+; section 4.4; CS_HW set by mloop): an L is held back until the next byte
+; shows it is no frame, or for 20 ms; L F then TYPE 0x10 gives the key
+; KHELLO, and the monitor reads the rest of the frame. Bytes that turn out
+; to be no frame are typed as they came. A = a byte from the link: carry
+; and E = a key code or 0 if the watch took it; no carry (A kept) for sdec
+hwatch: ld      e,a
+        bit     0,(iy+CS_HW)
+        jr      z,.no
+        ld      a,(iy+CS_SESC)          ; not inside an escape sequence
+        or      a
+        jr      nz,.no
+        ld      a,(iy+CS_HST)
+        or      a
+        jr      nz,.held
+        ld      a,e
+        cp      'L'
+        jr      nz,.no
+        ld      (iy+CS_HST),1
+.stamp: call    ktime
+        ld      (iy+CS_HTIME),l
+        ld      (iy+CS_HTIME+1),h
+        ld      e,0
+        scf
+        ret
+.held:  dec     a
+        jr      nz,.lf
+        ld      a,e                     ; L held: F next?
+        cp      'F'
+        jr      nz,.give
+        ld      (iy+CS_HST),2
+        jr      .stamp
+.lf:    ld      a,e                     ; L F held: HELLO's TYPE next?
+        cp      0x10
+        jr      nz,.give
+        ld      (iy+CS_HST),0
+        ld      e,KHELLO
+        scf
+        ret
+.give:  ld      (iy+CS_HBYTE),e         ; no frame: the byte waits, the L (and F) are typed
+        ld      (iy+CS_HRAW),1
+        call    hrel
+        scf
+        ret
+.no:    ld      a,e
+        or      a
+        ret
+; E = 'L' if an L has been held back for 20 ms (the F, if one came, goes to
+; CS_PEND), or 0
+hheld:  ld      e,0
+        ld      a,(iy+CS_HST)
+        or      a
+        ret     z
+        call    ktime
+        ld      a,l
+        sub     (iy+CS_HTIME)
+        ld      l,a
+        ld      a,h
+        sbc     a,(iy+CS_HTIME+1)
+        jr      nz,hrel
+        ld      a,l
+        cp      K_ESC_T
+        ret     c
+; The L (and F) held back, typed: E = 'L'
+hrel:   ld      a,(iy+CS_HST)
+        ld      (iy+CS_HST),0
+        dec     a
+        jr      z,.l
+        ld      (iy+CS_PEND),'F'
+.l:     ld      e,'L'
+        ret
 
 ; ---- A byte A from the serial link: E = a key code, or 0
 sdec:   ld      e,0

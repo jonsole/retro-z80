@@ -231,6 +231,15 @@ Program ended.
 
 A watchpoint set by hand: DBGWP0's address `9000` (ports `0x3002` and `0x3102`: register × 256 + page `0x02`), its mask left at `FFFF`, and DBGWP0_CTL = `05` (EN and WRITE). The program `LD A,5A`, `LD (9000),A`, `RET` stops after the write, with the access. `P 3402 0` turns it off again; `G` goes on to the end. Other things to try: `P 3402 3` (EN and READ) with `E 8700 3A 00 90 C9` (`LD A,(9000)`) stops on the read; `P 3202 0` (mask `FF00`, the low byte 0) watches the whole page `90xx`.
 
+**The loader and the debug stub** (issue #29) need the FT232H, so on the KS2 today there is only this to see:
+
+```
+> U
+Waiting for upload.  BREAK for the monitor.
+```
+
+The border turns yellow while the loader waits (it has sent `LOAD Z80 1` to the link, which nobody reads). **BREAK** (CAPS SHIFT + SPACE) or Esc ends it: `Stopped.`, the border black again, and the prompt. Everything else (an upload, VS Code through the bridge) is tested in simulation until the module is fitted (`make -C sim link`). The monitor's prompt now also watches the link for the bridge's HELLO frame: with nothing on the link nothing changes.
+
 **The sprite demo** (issues #31 and #32): on an empty line, press **GRAPH** (CAPS SHIFT + 9, or the GRAPH key) or F1 on a PS/2 keyboard. The console goes and, after about half a second (while the balls are drawn), the screen shows:
 
 1. **The tile scroller** of issue #14 over the whole picture: blue, green, orange and purple F's (each the four ways round) and grey dots, scrolling one pixel right and down every frame, smoothly.
@@ -385,6 +394,8 @@ Issue #28 (the debug unit, spec 18): 5,774 LUTs (55.5%, 175 of them distributed 
 Issue #31 (the sprites, spec 5, eight of them, `NSPRITES = 8`, and SPRPALETTE): 8,417 LUTs (80.9%, 533 of them distributed RAM) and 5,895 flip-flops, timing met (+0.198 ns setup, +0.061 ns hold). The video unit is 3,821 LUTs: `sprites.v` (registers, sizes, fetcher, deadlines, the eight 32-word FIFOs in distributed RAM) 1,563 LUTs and 1,009 flip-flops, the eight `sprite_pix.v` units 77–104 LUTs each (740 in all), and the mixing by DEPTH, the collisions and the crossings the rest. The build grew by 2,643 LUTs and 1,853 flip-flops (spec 5, section 8 estimated about 3,000 LUTs). Eight sprites fit, so the KS2 builds all eight; 1,983 LUTs are left. The boot ROM uses 18.7 KB of its 32 KB.
 
 Issue #32 (the copper, spec 6): 9,271 LUTs (89.1%) and 6,294 flip-flops, timing met (+0.064 ns setup, +0.024 ns hold), with PALIDX and the PALDAT byte counter per master and the SKIP's third word (the first build without them: 9,201 LUTs, +0.215 ns). The copper is about 680 LUTs and 350 flip-flops on its own (out-of-context synthesis: its stack in distributed RAM, R0-R7 in flip-flops; spec 6, section 10 estimated 500-600); the whole build grew by 784 LUTs. With the build this full, the default implementation missed 100 MHz by 0.133 ns on the scheduler's path from a layer's deadline compare to the SRAM address register (not in the copper), so `build.tcl` now places with `ExtraTimingOpt`, runs `phys_opt_design` and `route_design` with harder directives, and runs physical optimisation again after routing if a path is still short. A build now takes about 10 minutes. The boot ROM uses about 21 KB of its 32 KB (the demo's copper list template is 1.8 KB).
+
+Issue #29 changed only the boot ROM (the loader for programs and the debug stub): the same 8,417 LUTs and 5,895 flip-flops, timing met (+0.198 ns setup, +0.061 ns hold). The boot ROM uses 23.2 KB of its 32 KB.
 
 Issue #17 alone (on issue #13's build) came to 3,658 LUTs and 2,712 flip-flops: `timers.v` is about 460 LUTs and 415 flip-flops (spec 9 estimated 250–350 LUTs), and the bus interface grew from 393 to about 540 LUTs with the capture. The tile mode (issue #14) adds about 470 LUTs and 430 flip-flops, nearly all in the layer fetcher (`bpldma.v`: 453 LUTs and 552 flip-flops before, 739 and 860 with it). The input units (issue #19) add about 530 LUTs and 570 flip-flops: `ps2kb.v` 163 LUTs and 123 flip-flops, `ps2map.v` 38 and 75, `keys.v` 139 and 259, `joy.v` 66 and 99 (spec 12 estimated 400–630 LUTs), and the bus interface grew by about 120 LUTs with the wider read-data OR. Port `0xFE` writes (issue #21) add about 150 LUTs and 55 flip-flops: `audio.v` is 76 LUTs and 47 flip-flops (synthesis shares the three modulators, whose inputs are the same while the beeper is the only source; spec 7 estimated about 280 LUTs for three), the rest the border's decode, crossing and colour in `video.v`. The tables are the build with all of them.
 
