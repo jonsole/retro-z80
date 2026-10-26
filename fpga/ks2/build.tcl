@@ -41,10 +41,16 @@ synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
 write_checkpoint -force post_synth.dcp
 report_utilization -file utilization_synth.txt
 
+# The machine fills nearly 90% of the XC7A15T since the copper (issue #32):
+# placement and physical optimisation work harder, and once more after
+# routing if a path is still short
 opt_design
-place_design
-phys_opt_design
-route_design
+place_design -directive ExtraTimingOpt
+phys_opt_design -directive AggressiveExplore
+route_design -directive Explore
+if {[get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]] < 0} {
+    phys_opt_design -directive AggressiveExplore
+}
 write_checkpoint -force post_route.dcp
 
 report_utilization     -file utilization.txt

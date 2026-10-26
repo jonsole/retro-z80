@@ -1067,7 +1067,8 @@ module tb #(
         finish(1, "");
     end
     always @(posedge clk) if (boing && grab < 0 && dut.vid.dmacon[2]) begin
-        grab = ofr + 3;
+        if (!$value$plusargs("boinggrab=%d", grab)) grab = 3;  // frames after the fetch is on
+        grab = ofr + grab;
         $display("%t PC: the sprites' fetch is on; grabbing output frame %0d", $realtime, grab);
     end
     // +keys: PS/2 "h", "i", then Z on the membrane, then PS/2 Enter
