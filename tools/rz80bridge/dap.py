@@ -79,7 +79,7 @@ def load_symbols(args, cwd):
     if not os.path.isabs(sld):
         sld = os.path.join(cwd, sld)
     try:
-        return Symbols.load(sld)
+        return Symbols.load(sld, bases=[cwd])
     except OSError as e:
         raise BridgeError("cannot read the SLD file: %s" % e)
 
@@ -362,6 +362,45 @@ class DapConnection(threading.Thread):
                 bp["message"] = msg
             out.append(bp)
         self.respond(req, {"breakpoints": out})
+
+    # ------------------------------------------------------------ the watchpoint panel
+    # Custom requests, as the zx extension's panel makes (its watchpoint_view.js):
+    # what the board watches, whoever set it, and setting or clearing one by address.
+    def _watchpoints_body(self):
+        return {"watchpoints": self.session.list_watchpoints() if self.session.attached else []}
+
+    def req_watchpoints(self, req, args):
+        self.respond(req, self._watchpoints_body())
+
+    def req_setWatchpoint(self, req, args):
+        s = self.session
+        space, addr, _ = s.parse_address(args.get("address", ""))
+        if space:
+            raise BridgeError("a watchpoint takes a CPU address or a port, not a physical address")
+        length = int(args.get("length", 1))
+        mask = s.mask_for(length)
+        if addr & ~mask & 0xFFFF:
+            raise BridgeError("a range of %d must start at a multiple of %d" % (length, length))
+        kind = {"read": P.WP_READ, "write": P.WP_WRITE, "readWrite": P.WP_READ | P.WP_WRITE,
+                "readwrite": P.WP_READ | P.WP_WRITE}.get(args.get("access", "write"))
+        if kind is None:
+            raise BridgeError("access is read, write or readWrite")
+        if args.get("io"):
+            kind |= P.WP_IO
+        n, msg = s.set_watchpoints(self.owner, "panel:%04X/%d/%d" % (addr, length, kind), [(kind, addr, mask)])[0]
+        if n is None:
+            raise BridgeError(msg)
+        self.respond(req, self._watchpoints_body())
+
+    def req_clearWatchpoint(self, req, args):
+        """One watchpoint by id, whoever set it (a person asked), or with no id all of them."""
+        s = self.session
+        ident = args.get("id")
+        for sl in list(s.wps):
+            if sl and ("id" not in args or str(sl.n) == str(ident)):
+                for owner, tag in list(sl.owners):
+                    s.set_watchpoints(owner, tag, [])
+        self.respond(req, self._watchpoints_body())
 
     # ------------------------------------------------------------ running
     def req_threads(self, req, args):

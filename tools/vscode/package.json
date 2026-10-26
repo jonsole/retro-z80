@@ -1,0 +1,420 @@
+{
+  "name": "retro-z80-debug",
+  "displayName": "retro-z80",
+  "publisher": "jonsole",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Debug Z80 programs on the real retro-z80 board (a ZX Spectrum Next's FPGA) over its USB link: hardware breakpoints and watchpoints, stepping, registers, the MMU, memory and disassembly at sjasmplus source level, shared with Claude over MCP.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonsole/retro-z80"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onDebug",
+    "onDebugResolve:retro-z80",
+    "onCommand:retroz80.console",
+    "onCommand:retroz80.bridgeStart",
+    "onCustomEditor:retroz80.program",
+    "onLanguage:z80-asm",
+    "onView:retroz80Watchpoints",
+    "workspaceContains:**/*.rimg"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "z80-asm",
+        "aliases": [
+          "Z80 Assembly",
+          "z80-asm"
+        ],
+        "extensions": [
+          ".asm",
+          ".s",
+          ".a80",
+          ".z80"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "z80-asm",
+        "scopeName": "source.z80-asm",
+        "path": "./syntaxes/z80-asm.tmLanguage.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "z80-asm"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "retroz80.program",
+        "displayName": "retro-z80 Program",
+        "selector": [
+          {
+            "filenamePattern": "*.rimg"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "retro-z80-build",
+        "required": [
+          "source",
+          "load"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "The .asm to assemble"
+          },
+          "load": {
+            "type": "string",
+            "description": "Where the program goes, in hex (8000)"
+          },
+          "entry": {
+            "type": "string",
+            "description": "Where it starts, in hex. Left out: load"
+          },
+          "output": {
+            "type": "string",
+            "description": "The output files' path without extension. Left out: build/<source name> beside the source"
+          },
+          "includes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Include directories for sjasmplus (-I), e.g. firmware/include"
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "sjasmplus",
+        "owner": "z80-asm",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*)\\((\\d+)\\):\\s+(error|warning)[^:]*:\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "severity": 3,
+          "message": 4
+        }
+      }
+    ],
+    "configuration": {
+      "title": "retro-z80",
+      "properties": {
+        "retroz80.bridge.serialPort": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The FT232H's serial port (`COM5`, `/dev/ttyUSB1`), `tcp:HOST:PORT` for a simulation, or `model` for the stub model. A launch configuration's `port` wins."
+        },
+        "retroz80.bridge.python": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The Python that runs the bridge (it needs `pyserial` for a real port). Empty: `python` on Windows, `python3` elsewhere."
+        },
+        "retroz80.bridge.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "`rz80_bridge.py`. Empty: `tools/rz80_bridge.py` in a workspace folder, or beside this extension."
+        },
+        "retroz80.bridge.dapPort": {
+          "type": "integer",
+          "default": 4780,
+          "description": "The bridge's DAP port."
+        },
+        "retroz80.bridge.mcpPort": {
+          "type": "integer",
+          "default": 8780,
+          "description": "The bridge's MCP port."
+        },
+        "retroz80.bridge.consolePort": {
+          "type": "integer",
+          "default": 4781,
+          "description": "The bridge's console port."
+        },
+        "retroz80.bridge.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "More arguments for rz80_bridge.py."
+        },
+        "retroz80.bridge.stopOnExit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Stop a bridge this window started when VS Code closes."
+        },
+        "retroz80.sjasmplus": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The sjasmplus the build task uses. Empty: one on the PATH, or on Windows the pinned release, fetched once."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "retroz80.console",
+        "title": "Console",
+        "category": "retro-z80"
+      },
+      {
+        "command": "retroz80.bridgeStart",
+        "title": "Start Bridge",
+        "category": "retro-z80"
+      },
+      {
+        "command": "retroz80.bridgeStop",
+        "title": "Stop Bridge",
+        "category": "retro-z80"
+      },
+      {
+        "command": "retroz80.bridgeLog",
+        "title": "Show Bridge Log",
+        "category": "retro-z80"
+      },
+      {
+        "command": "retroz80.sjasmplusPath",
+        "title": "sjasmplus Path",
+        "category": "retro-z80"
+      },
+      {
+        "command": "retroz80.watchAddress",
+        "title": "Watch Address...",
+        "category": "retro-z80",
+        "icon": "$(add)"
+      },
+      {
+        "command": "retroz80.clearWatchpoint",
+        "title": "Remove Watchpoint",
+        "category": "retro-z80",
+        "icon": "$(close)"
+      },
+      {
+        "command": "retroz80.clearWatchpoints",
+        "title": "Remove All Watchpoints",
+        "category": "retro-z80",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "views": {
+      "debug": [
+        {
+          "id": "retroz80Watchpoints",
+          "name": "Board Watchpoints",
+          "when": "debugType == 'retro-z80'"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "retroz80Watchpoints",
+        "contents": "Nothing is being watched.\n\nThe board has 2 watchpoints, shared with MCP: it stops after the instruction that reads or writes an address or a port.\n[Watch an address...](command:retroz80.watchAddress)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "retroz80.watchAddress",
+          "when": "view == retroz80Watchpoints",
+          "group": "navigation"
+        },
+        {
+          "command": "retroz80.clearWatchpoints",
+          "when": "view == retroz80Watchpoints && retroz80.hasWatchpoints",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "retroz80.clearWatchpoint",
+          "when": "view == retroz80Watchpoints && viewItem == rz80Watchpoint",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "retroz80.clearWatchpoint",
+          "when": "false"
+        },
+        {
+          "command": "retroz80.watchAddress",
+          "when": "debugType == 'retro-z80'"
+        },
+        {
+          "command": "retroz80.clearWatchpoints",
+          "when": "debugType == 'retro-z80' && retroz80.hasWatchpoints"
+        }
+      ]
+    },
+    "debuggers": [
+      {
+        "type": "retro-z80",
+        "label": "retro-z80 board",
+        "languages": [
+          "z80-asm"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "port": {
+                "type": "string",
+                "description": "The FT232H's serial port (COM5, /dev/ttyUSB1), tcp:HOST:PORT for a simulation's link, or \"model\" for the bridge's stub model. Left out: retroz80.bridge.serialPort."
+              },
+              "sld": {
+                "type": "string",
+                "description": "The sjasmplus --sld file: source lines, labels and the call stack. Relative to the workspace folder."
+              },
+              "bridgePorts": {
+                "description": "Which bridge this session uses. Left out: the one on retroz80.bridge.*Port, started if nothing is there. An object names ports ({ \"dap\": 14780 }): whatever listens there is joined, or a bridge is started on them.",
+                "type": "object",
+                "properties": {
+                  "dap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "mcp": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "console": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false
+              },
+              "program": {
+                "type": "string",
+                "description": "An image file (.rimg, made by rlink.py image or the retro-z80-build task), or a raw binary with load. Uploaded, then stopped at its entry."
+              },
+              "load": {
+                "type": "string",
+                "description": "A raw binary's load address, in hex"
+              },
+              "entry": {
+                "type": "string",
+                "description": "A raw binary's entry point, in hex. Left out: load"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": true,
+                "description": "Stop at the entry point. false: run at once."
+              }
+            }
+          },
+          "attach": {
+            "properties": {
+              "port": {
+                "type": "string",
+                "description": "The FT232H's serial port (COM5, /dev/ttyUSB1), tcp:HOST:PORT for a simulation's link, or \"model\" for the bridge's stub model. Left out: retroz80.bridge.serialPort."
+              },
+              "sld": {
+                "type": "string",
+                "description": "The sjasmplus --sld file: source lines, labels and the call stack. Relative to the workspace folder."
+              },
+              "bridgePorts": {
+                "description": "Which bridge this session uses. Left out: the one on retroz80.bridge.*Port, started if nothing is there. An object names ports ({ \"dap\": 14780 }): whatever listens there is joined, or a bridge is started on them.",
+                "type": "object",
+                "properties": {
+                  "dap": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "mcp": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "console": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "retro-z80",
+            "request": "launch",
+            "name": "Debug on the board",
+            "port": "COM5",
+            "program": "${workspaceFolder}/build/game.rimg",
+            "sld": "${workspaceFolder}/build/game.sld",
+            "stopOnEntry": true,
+            "preLaunchTask": "build game"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "retro-z80: Launch",
+            "description": "Upload a program to the board and stop at its entry",
+            "body": {
+              "type": "retro-z80",
+              "request": "launch",
+              "name": "Debug on the board",
+              "port": "COM5",
+              "program": "^\"\\${workspaceFolder}/build/game.rimg\"",
+              "sld": "^\"\\${workspaceFolder}/build/game.sld\"",
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "retro-z80: Attach",
+            "description": "Stop the program running on the board where it is",
+            "body": {
+              "type": "retro-z80",
+              "request": "attach",
+              "name": "Attach to the board",
+              "port": "COM5",
+              "sld": "^\"\\${workspaceFolder}/build/game.sld\""
+            }
+          },
+          {
+            "label": "retro-z80: Launch on the stub model",
+            "description": "The bridge's Python model of the board: no hardware",
+            "body": {
+              "type": "retro-z80",
+              "request": "launch",
+              "name": "Debug on the model",
+              "port": "model",
+              "program": "^\"\\${workspaceFolder}/build/game.rimg\"",
+              "sld": "^\"\\${workspaceFolder}/build/game.sld\""
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -839,7 +839,8 @@ class Session:
 
         def work():
             changed = set()
-            want = [(k, a & 0xFFFF, m & 0xFFFF) for k, a, m in wanted]
+            # the address as the hardware compares it: under the mask
+            want = [(k, a & m & 0xFFFF, m & 0xFFFF) for k, a, m in wanted]
             for s in list(self.wps):
                 if s and (owner, tag) in s.owners and s.key not in want:
                     s.owners.discard((owner, tag))
