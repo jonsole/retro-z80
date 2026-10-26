@@ -128,6 +128,8 @@ The extension joins a bridge if one is listening on the DAP port, and otherwise 
 | Breakpoints and watchpoints | SETBP, SETWP; VS Code's data breakpoints are watchpoints |
 | Debug console | CONSOLE: a monitor command line, and its output (section 5.9) |
 
+**Custom DAP requests** for the extension's watchpoint panel, as the zx emulator's panel makes them: `watchpoints` (every watchpoint the board holds, with its owners), `setWatchpoint` (`address`, `length` a power of two, `access` `read`, `write` or `readWrite`, `io`) and `clearWatchpoint` (`id`, or every watchpoint without one). Each answers with the list.
+
 ### 3.5 Sharing the board: VS Code and MCP
 
 - **Attach only when asked.** A VS Code launch or attach, or MCP's `launch` or `attach`, attaches (section 4). Every other MCP tool that needs a stopped machine answers "not attached" instead of stopping the board by itself.
@@ -448,7 +450,7 @@ CHANNEL 3, VIDEO, and its TYPE `0x82` are **reserved** for screen capture: a lat
 
 ## 12. Open points
 
-Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), the future items DB10 and DB11, and branch 20's DB13–DB16.
+Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed on CONSOLE), the future items DB10 and DB11, and branch 20's DB13, DB15 and DB16.
 
 | # | Item |
 |---|------|
@@ -465,6 +467,6 @@ Accepted as proposed on 25 October 2026. Still open: DB8 (whether `T` is allowed
 | DB11 | C source level (z88dk's debug output) is later; the protocol needs no change for it |
 | DB12 | The stub's frame buffers take SRAM page `0x0FC` (kept for the ROM's later use, spec 16, section 5.3) while attached; a program being debugged keeps out of it |
 | DB13 | Branch 20 (25 October 2026): the bridge's default ports, DAP 4780, MCP 8780, console 4781, chosen to sit beside the emulator's 4711 and 8000 |
-| DB14 | Both this extension and the zx extension contribute the `z80-asm` language. With both installed, check that the grammars and the asm index do not clash; if they do, this one stands down when the zx one is present |
+| DB14 | Closed (#34): both extensions contribute `z80-asm` with the same grammar. With the zx extension installed, this one leaves the language's providers (Go to Definition, hovers, references) to it, so nothing is answered twice |
 | DB15 | A VS Code disconnect leaves the session attached when MCP holds breakpoints or watchpoints (section 3.5); the other choice is to detach always |
 | DB16 | Whether retro68k wants the same bridge, carrying its GDB channel (CHANNEL 4) and an MCP server: to ask its session |

@@ -45,12 +45,16 @@ class Symbols:
 
     # ------------------------------------------------------------ loading
     @classmethod
-    def load(cls, sld_path, base_dir=None):
+    def load(cls, sld_path, base_dir=None, bases=()):
+        """bases: more directories a relative file name may be relative to. sjasmplus
+        writes names as given, relative to where it ran (the workspace folder, often),
+        not to the SLD file; the first base holding the file wins."""
         with open(sld_path, encoding="utf-8", errors="replace") as f:
             text = f.read()
         s = cls()
         s.sld_path = os.path.abspath(sld_path)
-        s.parse(text, base_dir or os.path.dirname(s.sld_path))
+        s.bases = [base_dir or os.path.dirname(s.sld_path)] + [b for b in bases if b]
+        s.parse(text, s.bases[0])
         return s
 
     def _file(self, name, base_dir):
@@ -61,6 +65,10 @@ class Symbols:
             path = name
         else:
             path = os.path.join(base_dir, name)
+            for base in getattr(self, "bases", ()):
+                if os.path.exists(os.path.join(base, name)):
+                    path = os.path.join(base, name)
+                    break
         self.files.append(SourceFile(name, os.path.normpath(path)))
         return len(self.files) - 1
 

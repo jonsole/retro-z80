@@ -1,0 +1,241 @@
+// Finding every retro-z80 bridge on this machine, from the adverts they write.
+// Copied from the zx emulator's extension (PROVENANCE.md), for the bridge's
+// adverts (tools/rz80bridge/advert.py): the same layout, with a console port
+// and the serial port instead of the screen and sound.
+//
+// Each server writes `<pid>.json` into one directory once all its ports are
+// bound (cpp-core/src/server_registry.h): its pid, the ports it is really on,
+// when it started and the program it last loaded. A server that is killed
+// outright cannot remove its own, so an advert is a claim to check -- the
+// process has to be alive -- and one that fails is deleted here.
+//
+// No vscode API, so it is tested from plain Node
+// (node tests/server_registry_test.js); server_view.js and extension.js do
+// the connecting and showing.
+
+'use strict';
+
+const path = require('path');
+
+const ADVERT_VERSION = 1;
+
+// Where adverts are, worked out exactly as the server works it out:
+// $RZ80_BRIDGE_ADVERT_DIR, else %LOCALAPPDATA%\retro-z80\bridges on Windows
+// and $XDG_RUNTIME_DIR (or ~/.cache)/retro-z80/bridges elsewhere.
+function advertDirectory({ env, platform, home, tmp }) {
+  if (env.RZ80_BRIDGE_ADVERT_DIR) {
+    return env.RZ80_BRIDGE_ADVERT_DIR;
+  }
+  let base;
+  if (platform === 'win32') {
+    base = env.LOCALAPPDATA;
+  } else {
+    base = env.XDG_RUNTIME_DIR || (home ? path.join(home, '.cache') : '');
+  }
+  return path.join(base || tmp, 'retro-z80', 'bridges');
+}
+
+function validPort(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
+// One advert's text -> a server, or null when it is not one this reads: bad
+// JSON, a newer layout, or no usable DAP and console port. `mcp` is null
+// when the bridge serves no MCP.
+function parseAdvert(text) {
+  let info;
+  try {
+    info = JSON.parse(text);
+  } catch (err) {
+    return null;
+  }
+  if (!info || typeof info !== 'object' || info.version !== ADVERT_VERSION) {
+    return null;
+  }
+  const ports = info.ports || {};
+  if (!Number.isInteger(info.pid) || !validPort(ports.dap) || !validPort(ports.console)) {
+    return null;
+  }
+  return {
+    pid: info.pid,
+    host: typeof info.host === 'string' && info.host ? info.host : '127.0.0.1',
+    ports: {
+      dap: ports.dap,
+      mcp: validPort(ports.mcp) ? ports.mcp : null,
+      console: ports.console
+    },
+    serialPort: typeof info.serialPort === 'string' ? info.serialPort : '',
+    started: typeof info.started === 'string' ? info.started : '',
+    program: typeof info.program === 'string' && info.program ? info.program : null,
+    exe: typeof info.exe === 'string' ? info.exe : '',
+    cwd: typeof info.cwd === 'string' ? info.cwd : '',
+    // The build's version; absent from servers that predate it.
+    version: typeof info.serverVersion === 'string' && info.serverVersion ? info.serverVersion : null
+  };
+}
+
+// Whether a process is still there. Signal 0 checks without sending
+// anything; EPERM means it exists but belongs to someone else.
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+// Every live server advertised in `dir`, newest first. Adverts whose process
+// has gone are deleted, and so are leftovers a writer abandoned (`.tmp`).
+// `io` is { readdir, readFile, unlink, alive }, so the test can stand in for
+// the disk and the process table.
+function liveServers(dir, io) {
+  let names;
+  try {
+    names = io.readdir(dir);
+  } catch (err) {
+    return [];
+  }
+  const servers = [];
+  for (const name of names) {
+    const file = path.join(dir, name);
+    const match = /^(\d+)\.json(\.tmp)?$/.exec(name);
+    if (!match) {
+      continue;
+    }
+    const pid = Number(match[1]);
+    if (!io.alive(pid)) {
+      try {
+        io.unlink(file);
+      } catch (err) {
+        // Someone else tidied it first, or it is locked; either way it is
+        // not a server.
+      }
+      continue;
+    }
+    if (match[2]) {
+      continue; // being written right now
+    }
+    let text;
+    try {
+      text = io.readFile(file);
+    } catch (err) {
+      continue;
+    }
+    const server = parseAdvert(text);
+    // The file's name is the pid that wrote it: one that disagrees is not
+    // to be trusted with the other's ports.
+    if (server && server.pid === pid) {
+      servers.push(server);
+    }
+  }
+  servers.sort((a, b) => (a.started < b.started ? 1 : a.started > b.started ? -1 : b.pid - a.pid));
+  return servers;
+}
+
+// A short name for a bridge: its board and what it last launched.
+function describeServer(server) {
+  const program = server.program ? path.basename(server.program.replace(/\\/g, '/')) + ' on ' : '';
+  return `${program}${server.serialPort || 'a board'} (:${server.ports.dap})`;
+}
+
+// The longer line under it in a list.
+function detailServer(server) {
+  const parts = [`pid ${server.pid}`];
+  if (server.version) {
+    parts.push(`v${server.version}`);
+  }
+  if (server.ports.mcp) {
+    parts.push(`MCP :${server.ports.mcp}`);
+  }
+  parts.push(`console :${server.ports.console}`);
+  if (server.started) {
+    parts.push(`started ${server.started.replace('T', ' ').replace('Z', ' UTC')}`);
+  }
+  return parts.join(' · ');
+}
+
+// Whether two descriptions are the same server: the same process, or the
+// same DAP port when either side has no pid to go by (a server too old to
+// answer serverInfo is known by the ports in the settings alone).
+function sameServer(a, b) {
+  if (!a || !b) {
+    return false;
+  }
+  if (a.pid && b.pid) {
+    return a.pid === b.pid;
+  }
+  return a.ports.dap === b.ports.dap;
+}
+
+// A serverInfo body (the same shape as an advert) -> a server, or null.
+function fromServerInfo(body) {
+  return body ? parseAdvert(JSON.stringify(body)) : null;
+}
+
+// What a launch configuration's `ports` asks for:
+//   undefined          -> null: the server in the settings, as ever
+//   "auto"             -> { auto: true }: a new server on free ports, just
+//                         for this session
+//   { dap, mcp, ... }  -> { ports }: that server, each missing port from the
+//                         settings (`defaults`)
+// Anything else is an error message.
+function launchPorts(value, defaults) {
+  if (value === undefined || value === null) {
+    return { request: null };
+  }
+  if (value === 'auto') {
+    return { request: { auto: true } };
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { error: '"bridgePorts" must be "auto" or an object of ports ({ "dap": 14780, ... })' };
+  }
+  const ports = Object.assign({}, defaults);
+  for (const key of ['dap', 'mcp', 'console']) {
+    if (value[key] === undefined) {
+      continue;
+    }
+    if (!validPort(value[key])) {
+      return { error: `"bridgePorts.${key}" must be a port number from 1 to 65535` };
+    }
+    ports[key] = value[key];
+  }
+  return { request: { ports } };
+}
+
+// A version as numbers to compare: "0.3.1-dev" -> [0, 3, 1]. The -dev on a
+// build that is not a release is left out -- it is the same code as the
+// release it is heading for, or newer.
+function versionNumbers(text) {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(String(text || ''));
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+// Whether a server is older than the extension talking to it, and so may
+// lack requests the extension relies on. A server that reports no version
+// predates versions altogether. Unreadable versions are given the benefit of
+// the doubt rather than warned about.
+function serverIsOlder(serverVersion, extensionVersion) {
+  const theirs = versionNumbers(serverVersion);
+  const ours = versionNumbers(extensionVersion);
+  if (!ours) {
+    return false;
+  }
+  if (!serverVersion) {
+    return true;
+  }
+  if (!theirs) {
+    return false;
+  }
+  for (let i = 0; i < 3; i++) {
+    if (theirs[i] !== ours[i]) {
+      return theirs[i] < ours[i];
+    }
+  }
+  return false;
+}
+
+module.exports = {
+  ADVERT_VERSION, advertDirectory, parseAdvert, processAlive, liveServers, describeServer,
+  detailServer, sameServer, fromServerInfo, launchPorts, versionNumbers, serverIsOlder
+};
