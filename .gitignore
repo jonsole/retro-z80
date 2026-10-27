@@ -13,3 +13,4 @@ __pycache__/
 !.mcp.json
 !tools/vscode/*.json
 !tools/vscode/syntaxes/*.json
+!.vscode/*.json

@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build counter",
+      "type": "retro-z80-build",
+      "source": "examples/counter/counter.asm",
+      "load": "8000",
+      "includes": ["firmware/include"],
+      "problemMatcher": "$sjasmplus"
+    }
+  ]
+}

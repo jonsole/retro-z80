@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Debug counter on the board",
+      "port": "COM3",
+      "program": "${workspaceFolder}/examples/counter/build/counter.rimg",
+      "sld": "${workspaceFolder}/examples/counter/build/counter.sld",
+      "preLaunchTask": "build counter"
+    },
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Debug counter on the stub model (no board)",
+      "port": "model",
+      "program": "${workspaceFolder}/examples/counter/build/counter.rimg",
+      "sld": "${workspaceFolder}/examples/counter/build/counter.sld",
+      "preLaunchTask": "build counter"
+    }
+  ]
+}
