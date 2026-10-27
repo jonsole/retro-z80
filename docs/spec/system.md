@@ -179,7 +179,7 @@ All three are synchronised and debounced: a change must hold for 2^20 system clo
 
 | SYSCFG field | Meaning |
 |--------------|---------|
-| CPU (1–0) | 0: Z80 (tv80). Other values are kept for a 6502 build (design plan Q2) |
+| CPU (1–0) | 0: Z80 (tv80). Other values are kept for other CPUs: the 6502 machine, in its own repo, shares this register (design plan, branch 8) |
 | CHIPMB (7–2) | SRAM size in MB: a **build constant**, 4, or 2 for a build made for a 2 MB board. It is not measured at power-on |
 
 ### 6.1 CPU speed

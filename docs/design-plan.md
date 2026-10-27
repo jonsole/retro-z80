@@ -2,7 +2,7 @@
 
 Status: **draft for review**. The decisions below were made one by one (section 1), and every block now has a draft spec in [`spec/`](spec/) (section 4). Nothing in `fpga/`, `firmware/` or `hardware/` gets built until the specs are agreed.
 
-retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a **new machine** (not a copy of an existing one) for use both as a home computer and as a games machine. It runs on the same board, the **ZX Spectrum Next KS3**, with the same video output, storage and USB link, but with a Z80 and a smaller chipset made for an 8-bit CPU. The chipset is kept separate from the CPU, so a 6502 version stays possible.
+retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k): a **new machine** (not a copy of an existing one) for use both as a home computer and as a games machine. It runs on the same board, the **ZX Spectrum Next KS3**, with the same video output, storage and USB link, but with a Z80 and a smaller chipset made for an 8-bit CPU. The chipset is kept separate from the CPU, so a 6502 version stays possible; it will be its own machine in its own repo (branch 8).
 
 ## 1. Decision tree
 
@@ -37,7 +37,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 7 | CP/M | Later (CP/M 3) |
 | 7 | I/O | USB serial (FT232H), SD card, PS/2 keyboard, joysticks, Spectrum keyboard |
 | 7 | Assembler | sjasmplus |
-| 8 | 6502 | Decide later; keep the chipset CPU-independent |
+| 8 | 6502 | ~~Decide later~~ **Its own repo** (a sister machine, as retro68k is), sharing this chipset. Keep the chipset CPU-independent; the 6502 repo copies it from a committed, tested state, as retro-z80 copies retro68k |
 | 9 | Direction | **retro-z80 is retro68k narrowed to 8 bits:** the same blocks, register names, bit layouts and programming model, cut to 8-bit ports. It differs only where the Z80 (8-bit ports, 64 KB address space, IM 2 on one /INT line) or the memory bandwidth (448 guaranteed display bytes per line against retro68k's 1,280) forces it. Every spec has a "Comparison with retro68k" table listing each difference and why |
 | 9 | Layers | Background colour, **two identical layers L0 and L1** with retro68k's per-layer register block (CTRL, window, pointer, stride, scroll), each a **bitmap or a tile map** (a CTRL mode field), and retro68k's PRIO register. Bitmaps chunky 1/2/4/8 bpp; tiles 8×8 at 1/2/4/8 bpp. Scale 1× or 2× across and down (retro68k's HSCALE/VSCALE fields, 4× and 8× reserved). Kept inside the hardware for bandwidth: the FIFOs and the repeat buffer |
 | 9 | Palettes | As retro68k: a 256-entry palette per layer and one for the sprites, with PALOFS and VIDCON.SHAREPAL. Colours stay 12-bit RGB (the KS3's VGA has 4 bits per colour) |
@@ -309,7 +309,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | **4. Games machine** | Copper, sprites, DMA engine, joysticks | A demo with scrolling tiles, magnified sprites reused down the screen and a Spectrum-style screen drawn by the copper |
 | **5. Home computer** | SD card, keyboards, BBC BASIC | Boot to BASIC, load and save a program |
 | **6. Next core** | Package and install as a Next core | The KS3 boots retro-z80 from its core menu |
-| **Later** | Sound (if not before), geometry unit, CP/M 3, a 6502 version | |
+| **Later** | Sound (if not before), geometry unit, CP/M 3; the 6502 machine (its own repo, branch 8) | |
 
 ## 6. Open questions
 
@@ -318,7 +318,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | # | Item | Plan |
 |---|------|------|
 | Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | Parked; custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved under retro68k's names; retro68k's audio narrowed would be the default |
-| Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. A 6502 sees the registers through the register page, as the Z80 can; the slots would serve it with no waits as they serve the Z80 |
+| Q2 | 6502 version: build option here or its own repo | Closed: its own repo (branch 8). The chipset stays CPU-independent. A 6502 sees the registers through memory only (it has no I/O space); the CPU's two cycles per slot would serve it at 20 MHz with no waits |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
 | Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | On the KS2 (issue #11): yes, even single-cycle (+0.89 ns from tv80's IR to the bus interface's address register), with tv80's own paths as 5-clock multicycle paths. Check again on the KS3 build (spec 1, B1); fallback: start a read speculatively in every T1 |
 | Q5 | Copper priority | Closed: urgent display fetches come first in cycle 3, then the copper, then sprites (spec 2) |

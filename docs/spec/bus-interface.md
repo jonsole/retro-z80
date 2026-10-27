@@ -170,9 +170,9 @@ Every unit decodes rb_addr, so one address names a register however it is reache
 - The DMA engine waits a clock whenever the copper, the CPU or the sequencer has the bus. It never delays any of them.
 - The DMA engine reaches the registers only through this bus, one byte per clock, and uses no memory cycle for them. Its SRAM accesses go through the scheduler. It reads the boot ROM, as retro68k's engine does, through the ROM's second block RAM port, one byte per clock, not through this bus (spec 2, section 2; spec 14).
 
-### 4.3 A 6502 later
+### 4.3 A 6502 machine
 
-Nothing on these buses is Z80-specific. A 6502 bus interface could drive the same memory port (with the same MMU) and reach the register bus through a page of its memory map (design plan, Q2). A 6502 makes an access every clock, so with one CPU cycle per slot it could run at 10 MHz with no waits.
+Nothing on these buses is Z80-specific. The 6502 machine, in its own repo (design plan, branch 8), would keep them: its bus interface drives the same memory port (with the same MMU) and reaches the register bus through a page of its memory map, as it has no I/O space. A 6502 makes an access every clock, so with the CPU's two cycles per slot (cycles 0 and 2) it could run at 20 MHz with no waits.
 
 ## 5. Memory cycles
 
