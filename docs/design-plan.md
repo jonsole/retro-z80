@@ -123,6 +123,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 20 | Extension: first scope | Beyond the debugger: the **program panel** (a `.rimg`'s header, Run and Debug buttons) and the **watchpoint panel** (the 2 hardware watchpoints and who set them). Not yet: graphics viewer, screen, profiler, tape tools |
 | 20 | Build | **preLaunchTask, as zx**: a task type the extension adds runs sjasmplus (`--sld`) and makes the `.rimg` with `rlink.py`; launch only uploads |
 | 20 | Before the FT232H | Developed and tested against the **Python model of the stub** (debug.md's test plan): the bridge, DAP and MCP need no hardware. The Verilator run of the real stub stays in debug.md's test plan |
+| 10 | Link: commands and escapes | **SLIP-style** (28 October 2026): a control command is `C0 c ~c`; the PC escapes `C0` and `DB` in everything else it sends (`DB DC`, `DB DD`), and `serial.v` takes the escapes out while CTLEN or CTLLOCK is set. Replaces retro68k's 16-byte sequence, which held back a trailing `0x00` and stalled the debugger. Decoded in the FPGA, so the stub and loader are unchanged. Built here first, then proposed to retro68k (spec 10, U3) |
 
 ## 2. Key decisions
 
@@ -211,7 +212,7 @@ Defined in [spec 3: register map](spec/registers.md).
 | Interrupts | [8](spec/interrupts.md) | retro68k's controller; fixed priority; IM 2 vector = VECBASE + 2n; IM 1 reads INTID |
 | Timers | [9](spec/timers.md) | 4 × 16-bit timers, a 32-bit µs TIME counter, a watchdog |
 | DMA engine | [14](spec/dma-engine.md) | retro68k's version 1: 4 channels, descriptors, COPY, FILL, KEYCOPY, LOGIC, ADD at 1–8 bpp |
-| USB serial | [10](spec/serial.md) | FT232H, retro68k's registers and control commands; SERDROP |
+| USB serial | [10](spec/serial.md) | FT232H, retro68k's registers; SLIP-style control commands and escapes; SERDROP |
 | SD card | [11](spec/sd-card.md) | SPI byte master, polled; a DMA port |
 | Input | [12](spec/input.md) | PS/2 keyboard; joysticks with six-button pads; membrane key map; Spectrum extras: port `0xFE` (also fed by PS/2 keys), Kempston `0x1F` |
 | System | [7](spec/system.md) | SYSID, SYSVER, SYSCFG, RESETWHY, SYSCON, SYSRESET, SYSBTN, CPUSPEED, I2C; the boot console; NMI monitor paging (Spectrum extra) |

@@ -13,6 +13,7 @@ make dis        # the boot ROM's disassembler on a table of every opcode, agains
 make hello2mb   # the same on a build for a 2 MB board (CHIPMB = 2)
 make systest    # the system test ROM: system registers, I/O decode, SRAM bytes, writable boot ROM, the self-test, MMU reset, soft reset
 make intc       # the interrupt controller on its own: registers, every source's vector and priority, frozen choice, spurious, NMI
+make serial     # the serial unit on its own: the escapes and control commands C0 c ~c, a frame ending in 0x00 (spec 10, section 4)
 make inttest    # the interrupt test ROM: IM 2 and IM 1, INTENA, INTPEND/INTRAW, SOFTINT, VBLANK (about 2 minutes)
 make nmitest    # the NMI test ROM: the NMI pages, the stack capture, RETN, a written NMICAPPC, EN off, NMIMASK (seconds)
 make dbg        # the debug unit test ROM: registers, breakpoints, single step at three speeds, /INT held off, watchpoints (about 3 minutes)

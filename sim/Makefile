@@ -76,8 +76,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc inttest nmitest dbg speeds failshow vtest boing cop coppal lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc inttest nmitest dbg speeds cop coppal zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -161,6 +161,14 @@ $(BUILD)/tb_intc.vvp: intc/tb_intc.v $(RTL)/intc.v $(RTL)/regmap.vh | $(BUILD)
 intc: $(BUILD)/tb_intc.vvp
 	cd $(BUILD) && $(VVP) -n tb_intc.vvp | tee intc.log
 	@grep -q "^TEST PASSED" $(BUILD)/intc.log
+
+# The serial unit on its own: escapes and control commands (spec 10, section 4)
+$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(RTL)/fifo8.v ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(RTL)/fifo8.v ft232h_model.v
+
+serial: $(BUILD)/tb_serial.vvp
+	cd $(BUILD) && $(VVP) -n tb_serial.vvp | tee serial.log
+	@grep -q "^TEST PASSED" $(BUILD)/serial.log
 
 $(BUILD)/inttest.bin: inttest/inttest.asm $(INC)/hw.inc | $(BUILD)
 	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<

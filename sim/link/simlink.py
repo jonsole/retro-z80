@@ -19,6 +19,8 @@ import socket
 import subprocess
 import threading
 
+import rlink   # on the path: tools/ (session.py puts it there)
+
 
 class SimLink:
     """The PC's end of the simulated link."""
@@ -34,8 +36,9 @@ class SimLink:
 
     def write(self, data):
         with self.lock:
-            self.sock.sendall(bytes(data))
-            self.sent += len(data)
+            wire = rlink.escape(data)
+            self.sock.sendall(wire)
+            self.sent += len(wire)
 
     def read_some(self, timeout):
         if self.closed:

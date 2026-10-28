@@ -6,7 +6,8 @@ The link code is also a library, imported by the debug bridge
 (tools/rz80_bridge.py):
 
 - CRC-32 and the 32-byte image header (monitor.md, section 5);
-- the control commands BREAK, RESET and UPLOAD (serial spec, section 4);
+- the control commands BREAK, RESET and UPLOAD, and the escapes on every
+  byte sent (serial spec, section 4);
 - the upload frames and their replies (monitor.md, section 6);
 - the transport frames with a channel byte (debug.md, section 2).
 
@@ -34,7 +35,9 @@ TARGET_NAMES = {0: "program", 1: "boot ROM image", 2: "resident image"}
 HEADER_LEN = 32
 MAX_PAYLOAD = 4096
 
-CTL_PREFIX = bytes([0x00, 0xFF]) + b"R68K-CTL" + bytes([0xFF, 0x00, 0xA5, 0x5A])
+# The PC's bytes are SLIP-style (serial spec, section 4): C0 c ~c is a
+# control command, DB DC a data C0 and DB DD a data DB
+CTL_END, CTL_ESC, CTL_ESC_END, CTL_ESC_ESC = 0xC0, 0xDB, 0xDC, 0xDD
 CTL_BREAK, CTL_RESET, CTL_UPLOAD = 1, 2, 3
 
 # Upload frames (monitor.md, section 6.2)
@@ -138,8 +141,57 @@ class Image:
 
 # ---------------------------------------------------------------- control commands
 
+class Control(bytes):
+    """A control command's bytes: a link sends them as they are."""
+
+
 def control(cmd):
-    return CTL_PREFIX + bytes([cmd, cmd ^ 0xFF])
+    return Control(bytes([CTL_END, cmd, cmd ^ 0xFF]))
+
+
+def escape(data):
+    """The bytes as they go on the wire: a control command as it is, any
+    other data with C0 and DB escaped. Every link's write() calls this."""
+    if isinstance(data, Control):
+        return bytes(data)
+    return bytes(data).replace(b"\xdb", b"\xdb\xdd").replace(b"\xc0", b"\xdb\xdc")
+
+
+class Unescaper:
+    """The machine's side, as serial.v does it with recognition on: feed(bytes)
+    returns a list of data bytes (bytes) and control commands (int). Nothing
+    is held back except a lone DB or a command's bytes."""
+
+    def __init__(self):
+        self.state = 0          # 0 data, 1 after DB, 2 after C0, 3 after C0 c
+        self.cmd = 0
+
+    def feed(self, data):
+        out, run = [], bytearray()
+        for b in bytes(data):
+            if b == CTL_END:
+                self.state = 2
+            elif self.state == 0:
+                if b == CTL_ESC:
+                    self.state = 1
+                else:
+                    run.append(b)
+            elif self.state == 1:
+                run.append(0xC0 if b == CTL_ESC_END else 0xDB if b == CTL_ESC_ESC else b)
+                self.state = 0
+            elif self.state == 2:
+                self.cmd = b
+                self.state = 3
+            else:
+                self.state = 0
+                if b == self.cmd ^ 0xFF and 1 <= self.cmd <= 3:
+                    if run:
+                        out.append(bytes(run))
+                        run = bytearray()
+                    out.append(self.cmd)
+        if run:
+            out.append(bytes(run))
+        return out
 
 
 # ---------------------------------------------------------------- frames
@@ -301,7 +353,7 @@ class SerialLink:
 
     def write(self, data):
         with self.lock:
-            self.port.write(data)
+            self.port.write(escape(data))
             self.port.flush()
 
     def read_some(self, timeout):
@@ -328,7 +380,7 @@ class TcpLink:
 
     def write(self, data):
         with self.lock:
-            self.sock.sendall(data)
+            self.sock.sendall(escape(data))
 
     def read_some(self, timeout):
         import socket

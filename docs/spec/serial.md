@@ -20,7 +20,7 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 | DMA | Port 1 of the DMA engine (spec 14), as retro68k: bulk transfers with no CPU work, paced by the FIFOs |
 | Low delay | The FPGA tells the FT232H to send at once when the transmit FIFO empties |
 | Interrupt | Source SERIAL (spec 8): data waiting, timeout, room to send, overflow |
-| Control commands | retro68k's 16-byte sequence from the PC gives BREAK (NMI), RESET or UPLOAD, even when the Z80 has hung. The same PC tool serves both machines |
+| Control commands | `C0 c ~c` from the PC gives BREAK (NMI), RESET or UPLOAD, even when the Z80 has hung. The PC escapes `C0` and `DB` in everything else it sends, SLIP-style; the hardware takes the escapes out |
 | Registers | Page `0x00`, registers `0x50`–`0x57` and `0x5C` (ports `0x5000`–`0x5700`, `0x5C00`); SERDATA also on port `0x53` with any high byte |
 | Memory cycles | None by the CPU; DMA jobs use the DMA engine's (spec 14) |
 
@@ -38,8 +38,9 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 | — | SERCON.RXFLUSH, TXFLUSH: write 1 to empty a FIFO | Kept from the earlier retro-z80 design; bits 4–5 are unused in retro68k |
 | BREAK sets NMISTAT.USB, NMI level 7 | BREAK sets NMISTAT.USB and drives the Z80's /NMI (spec 8) | Z80: one NMI input |
 | Bytes moved with MOVE.B | Bytes moved with `INIR` / `OTIR` (section 6) | Z80 |
+| Control commands: a 16-byte sequence (`00 FF "R68K-CTL" …`) found in the raw stream; matching bytes held back | `C0 c ~c`, with the PC's other bytes escaped SLIP-style (section 4). Nothing waits for a next byte | Found on the KS2: a frame whose CRC ended in `0x00` waited for the next byte, so the stub dropped it after 1 s and the debugger stalled (about 1 frame in 256). Proposed to retro68k |
 
-Everything else is as in retro68k: the FT232H interface and its timing (the same 100 MHz system clock), flow control, SIWU#, the control sequence and its codes, CTLEN and CTLLOCK, TXDROP, the four interrupt flags and their meanings, and DMA engine port 1.
+Everything else is as in retro68k: the FT232H interface and its timing (the same 100 MHz system clock), flow control, SIWU#, the command codes, CTLEN and CTLLOCK, TXDROP, the four interrupt flags and their meanings, and DMA engine port 1.
 
 ## 3. The FIFO link
 
@@ -67,12 +68,15 @@ The interface logic is retro68k's `serial.v`, unchanged in its timing: both mach
 
 ## 4. Control commands from the PC
 
-The receiver watches the data stream for retro68k's 16-byte sequence, unchanged and shared by both machines:
+While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-style. Two byte values are kept for the link:
 
-```
- 00 FF 52 36 38 4B 2D 43 54 4C FF 00 A5 5A  c  ~c
- (0x00 0xFF "R68K-CTL" 0xFF 0x00 0xA5 0x5A, then a command byte c and its inverse)
-```
+| Bytes from the PC | Reach the FIFO as | Meaning |
+|-------------------|-------------------|---------|
+| `C0 c ~c` | Nothing | A control command (table below) |
+| `DB DC` | `C0` | An escaped data byte |
+| `DB DD` | `DB` | An escaped data byte |
+| `DB` then any other byte | That byte | Not sent by the PC tools; passed on |
+| Any other byte | Itself, at once | Data |
 
 | c | ~c | Command | Effect |
 |---|----|---------|--------|
@@ -80,13 +84,15 @@ The receiver watches the data stream for retro68k's 16-byte sequence, unchanged 
 | `0x02` | `0xFD` | RESET | Reset the computer, with RESETWHY.USB set (spec 7) |
 | `0x03` | `0xFC` | UPLOAD | Reset with RESETWHY.UPLOAD set, so the boot ROM's loader waits for a program over the link (spec 16; the shared spec "Monitor and upload protocol", section 6). This is the only way into UPLOAD: the reset button has no long-press UPLOAD |
 
-- The sequence is recognised in hardware, so it works when the Z80 has crashed or runs with interrupts disabled.
-- The 16 bytes are removed from the stream; software and the DMA engine never see them. A partly matching sequence that turns out different is passed on unchanged and in order.
-- The chance of binary data holding the sequence by accident is about 1 in 2^120 at each position, so file transfers need no escaping.
-- While the hardware is matching the start of a sequence it holds those bytes back, so a message that ends with the start of the sequence (a single `0x00`, say) is seen only when the next byte arrives. With CTLEN and CTLLOCK both clear, nothing is held back.
+- The commands and escapes are handled in hardware, so commands work when the Z80 has crashed or runs with interrupts disabled.
+- The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine see only the data, in order.
+- **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once. (retro68k's 16-byte sequence held back any bytes that might start it, so a message ending in `0x00` was seen only when the next byte came.)
+- A broken command (a wrong inverse, or a code other than 1–3) is dropped. A `C0` always starts a command again, even inside another one.
+- The PC tools escape every byte they send except the commands: `rlink.escape()` in every link's `write()`. Random data grows by about 0.8 %.
+- With CTLEN and CTLLOCK both clear, every byte goes to the FIFO as it is, `C0` and `DB` too: a program can then run its own protocol on the link, and the PC must not escape.
 - **SERCON.CTLEN** turns recognition off (on after reset). With **SERCON.CTLLOCK** set, RESET and UPLOAD still work when CTLEN is off. Once set, CTLLOCK cannot be cleared by software; a reset clears it.
 
-The PC tool `tools/rlink.py` (shared with retro68k) sends the commands and uploads programs with the upload protocol of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md), sections 6 and 8). The sequence is the same as retro68k's, so one tool and one command serve both machines; after the reset the loader's ready line (`LOAD Z80 1`, or `LOAD 68K 1` on retro68k) tells the tool which machine it is talking to.
+The PC tool `tools/rlink.py` (shared with retro68k) sends the commands and uploads programs with the upload protocol of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md), sections 6 and 8). After the reset the loader's ready line (`LOAD Z80 1`, or `LOAD 68K 1` on retro68k) tells the tool which machine it is talking to. Until retro68k takes the same escapes (open point U3), its tool and this one differ in the command bytes and the escaping.
 
 ## 5. Using the link from the CPU
 
@@ -150,7 +156,7 @@ The timeout counts in steps of 16 µs, from the microsecond tick that the timers
 
 ### 5.5 Bulk transfers with the DMA engine
 
-The DMA engine's **port 1** is this link, as in retro68k (spec 14). A channel copies bytes from the receive FIFO to SRAM, or from SRAM to the transmit FIFO, one byte at a time, paced by the FIFOs: when the FIFO is empty (receive) or full (transmit) the channel waits and the other channels go on. The CPU does other work meanwhile. Control-command recognition goes on during DMA, and the 16 bytes of a command never reach the engine.
+The DMA engine's **port 1** is this link, as in retro68k (spec 14). A channel copies bytes from the receive FIFO to SRAM, or from SRAM to the transmit FIFO, one byte at a time, paced by the FIFOs: when the FIFO is empty (receive) or full (transmit) the channel waits and the other channels go on. The CPU does other work meanwhile. Commands and escapes are handled during DMA too: the engine sees only the data.
 
 While a DMA job uses port 1 in one direction, the CPU must not read (receive) or write (transmit) SERDATA in that direction; the counts, flags and the other direction stay usable.
 
@@ -211,7 +217,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 | Item | Resource |
 |------|----------|
 | Receive and transmit FIFOs, 2 KB each | 2 block RAMs |
-| FT232H interface, control-sequence matcher, timeout, SERDROP, registers, DMA port 1 handshake | Estimate 220–320 LUTs |
+| FT232H interface, command and escape decoder, timeout, SERDROP, registers, DMA port 1 handshake | Estimate 200–300 LUTs |
 | Pins | 13 on the accelerator port |
 | Request lines | SERIAL (level) to spec 8; BREAK pulse to the NMI logic (spec 8); RESET and UPLOAD pulses to the reset logic (spec 7); port 1 ready/take to the DMA engine (spec 14) |
 
@@ -223,7 +229,8 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 - **Ports:** SERDATA answers at `0x53` with every high byte (as `INIR` with B from 255 down to 1 uses), at `0x5300` and at register page offset `0x0053`; the other serial registers answer only in their page form (`0x5000` and so on); `IN A,(0x50)` reaches reserved page `0x50` and reads `0xFF`.
 - **Interrupts:** RXREADY and TXREADY at every level code; RXTIMEOUT at several SERTIME values with fewer bytes than RXLEVEL; TXOVF on a full FIFO; the SERIAL request follows SERIRQ and SERIRQEN; W1C clears only the sticky flags.
 - **No listener:** with the PC port closed, writes fill the FIFO and TXOVF is set; with TXDROP, the oldest bytes drop, TXOVF stays clear and SERDROP counts them, saturates at 255 and clears when read.
-- **Control commands:** BREAK gives one NMI with NMISTAT.USB set; RESET and UPLOAD reset with RESETWHY.USB and RESETWHY.UPLOAD; the 16 bytes never reach SERDATA or a DMA job; near misses pass through unchanged; CTLEN and CTLLOCK work; commands work with the Z80 stuck in `DI` / `HALT`. The same PC tool commands drive retro68k's simulation and this one.
+- **Control commands and escapes** (`make -C sim serial`, `tb_serial.v`): a frame ending in `0x00` is all in the FIFO at once; `DB DC` and `DB DD` give `C0` and `DB`; commands among data give one pulse each and leave nothing in the FIFO; broken commands are dropped and a `C0` starts again; CTLLOCK alone keeps RESET and UPLOAD but not BREAK; with CTLEN and CTLLOCK clear every byte is raw. In the system tests: BREAK gives one NMI with NMISTAT.USB set; RESET and UPLOAD reset with RESETWHY.USB and RESETWHY.UPLOAD; commands work with the Z80 stuck in `DI` / `HALT`.
+- **On the board:** an upload of every byte value; 40 debugger steps from VS Code with registers read after each (before this change, a register read whose CRC ended in `0x00` stalled).
 - **Flush:** RXFLUSH and TXFLUSH empty their FIFO and set the counts.
 - **DMA:** port 1 jobs each way at full speed; a stalled port does not hold up other channels.
 - **Latency:** a single byte reaches the PC in well under 16 ms (SIWU#).
@@ -235,7 +242,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 |---|------|
 | U1 | Set the FT232H EEPROM to 245 FIFO mode with FT_Prog (once, before first use) |
 | U2 | Checked on the KS2 (issue 4 schematic, sheets 2 and 5): `accel_io[n]` is Pi GPIO n on header J2, through 200 ohm, with no level shifting; D0-D7 on pins 27, 28, 3, 5, 7, 29, 31, 26, RXF# 24, TXE# 21, RD# 19, WR# 23, SIWU# 32 (wiring in `fpga/ks2/README.md`). Still shared with retro68k (its U6); the KS3's issue 5 pin file puts these on the same FPGA pins |
-| U3 | Closed: the control sequence is retro68k's, byte for byte, so one PC tool serves both machines. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
+| U3 | Open: the SLIP-style commands and escapes (section 4) replace retro68k's 16-byte sequence here, built and tried on the KS2 first; proposed to retro68k so that one PC tool serves both machines again. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
 | U4 | Closed: the upload protocol is the shared spec "Monitor and upload protocol" (`monitor.md`), the same in retro68k: frames with a CRC-32, a reply to each, the image header; spec 16 gives retro-z80's limits |
 | U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help DMA jobs on port 1; shared with retro68k's U5. The CPU cannot use it |
 | U6 | Closed: SERDROP is at register `0x5C` of page `0x00` (branch 11) |

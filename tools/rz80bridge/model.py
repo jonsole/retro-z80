@@ -44,7 +44,7 @@ class ModelLink:
         self.closed = False
 
     def write(self, data):
-        self.model.inbox.put(bytes(data))
+        self.model.inbox.put(rlink.escape(data))
 
     def read_some(self, timeout):
         try:
@@ -77,6 +77,7 @@ class StubModel(threading.Thread):
         self.corrupt_next_reply = None   # "crc" or "drop": damage the next REPLY or STOP sent
         self.drop_next_stop = False
         self.commands_seen = []
+        self.unescaper = rlink.Unescaper()   # survives resets, as the hardware's does
         self._power_on()
 
     # ------------------------------------------------------------ machine
@@ -100,7 +101,6 @@ class StubModel(threading.Thread):
         self.line = ""
         self.last_line = ""
         self.inparser = rlink.FrameParser(syncs=(rlink.SYNC_PC,))
-        self.ctl_held = b""
         self.last_seq = None
         self.last_result = None
         self.stop_count = 0
@@ -250,32 +250,12 @@ class StubModel(threading.Thread):
                     self._take(item)
 
     def _input(self, data):
-        """Every byte from the PC goes through the control-command matcher first (in hardware)."""
-        data = self.ctl_held + data
-        self.ctl_held = b""
-        pre = rlink.CTL_PREFIX
-        full = len(pre) + 2
-        out = bytearray()
-        i = 0
-        while i < len(data):
-            if data[i] == pre[0]:
-                rest = data[i:i + full]
-                head = rest[:len(pre)]
-                if head == pre[:len(head)]:
-                    if len(rest) < full:
-                        self.ctl_held = bytes(rest)      # might still become a command
-                        break
-                    if rest[-1] == rest[-2] ^ 0xFF:
-                        if out:
-                            self._bytes(bytes(out))
-                            out.clear()
-                        self._control(rest[-2])
-                        i += full
-                        continue
-            out.append(data[i])
-            i += 1
-        if out:
-            self._bytes(bytes(out))
+        """Every byte from the PC goes through the escapes and control commands first (in hardware)."""
+        for item in self.unescaper.feed(data):
+            if isinstance(item, int):
+                self._control(item)
+            else:
+                self._bytes(item)
 
     def _control(self, c):
         if c == rlink.CTL_RESET:

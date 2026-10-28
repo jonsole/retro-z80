@@ -158,13 +158,8 @@ module tb_mon (input clk);
             nnmi = nnmi + 1;
             if (!go_brk) nmi_t = 100;
             else begin
-                q[qt[15:0]] = 8'h00; q[qt[15:0] + 16'd1]  = 8'hFF; q[qt[15:0] + 16'd2]  = "R";
-                q[qt[15:0] + 16'd3]  = "6"; q[qt[15:0] + 16'd4]  = "8"; q[qt[15:0] + 16'd5]  = "K";
-                q[qt[15:0] + 16'd6]  = "-"; q[qt[15:0] + 16'd7]  = "C"; q[qt[15:0] + 16'd8]  = "T";
-                q[qt[15:0] + 16'd9]  = "L"; q[qt[15:0] + 16'd10] = 8'hFF; q[qt[15:0] + 16'd11] = 8'h00;
-                q[qt[15:0] + 16'd12] = 8'hA5; q[qt[15:0] + 16'd13] = 8'h5A;
-                q[qt[15:0] + 16'd14] = 8'h01; q[qt[15:0] + 16'd15] = 8'hFE;   // BREAK
-                qt = qt + 16;
+                q[qt[15:0]] = 8'hC0; q[qt[15:0] + 16'd1] = 8'h01; q[qt[15:0] + 16'd2] = 8'hFE;   // BREAK
+                qt = qt + 3;
             end
             quiet = 0;
         end

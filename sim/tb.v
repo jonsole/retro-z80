@@ -738,14 +738,9 @@ module tb #(
     end
 
     // ---------------------------------------------------------------- serial
-    task send_ctl(input [7:0] c);
-        integer m;
+    task send_ctl(input [7:0] c);   // C0 c ~c (spec 10, section 4)
         begin
-            for (m = 0; m < 14; m = m + 1)
-                ft.send(m == 0 ? 8'h00 : m == 1 ? 8'hFF : m == 2 ? "R" : m == 3 ? "6" : m == 4 ? "8" : m == 5 ? "K" :
-                        m == 6 ? "-" : m == 7 ? "C" : m == 8 ? "T" : m == 9 ? "L" : m == 10 ? 8'hFF : m == 11 ? 8'h00 :
-                        m == 12 ? 8'hA5 : 8'h5A);
-            ft.send(c); ft.send(~c);
+            ft.send(8'hC0); ft.send(c); ft.send(~c);
         end
     endtask
 

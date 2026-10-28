@@ -206,8 +206,29 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(p.feed(bytes(badlen), now=4)[0].error, "frame")
 
     def test_control_commands(self):
-        self.assertEqual(rlink.control(1)[:14], bytes([0, 0xFF]) + b"R68K-CTL" + bytes([0xFF, 0, 0xA5, 0x5A]))
-        self.assertEqual(rlink.control(1)[14:], b"\x01\xfe")
+        self.assertEqual(rlink.control(1), b"\xc0\x01\xfe")
+        self.assertEqual(rlink.escape(rlink.control(2)), b"\xc0\x02\xfd")   # sent as it is
+
+    def test_escapes(self):
+        self.assertEqual(rlink.escape(b"a\xc0b\xdbc"), b"a\xdb\xdcb\xdb\xddc")
+        self.assertEqual(rlink.escape(b"\xdb\xdc"), b"\xdb\xdd\xdc")
+        # every byte value comes back, and nothing waits for a next byte (a frame ending 0x00)
+        u = rlink.Unescaper()
+        data = bytes(range(256)) * 2
+        self.assertEqual(b"".join(u.feed(rlink.escape(data))), data)
+        frame = rlink.transport_frame(0x12, 0x43, 1)
+        self.assertEqual(frame[-1], 0)
+        self.assertEqual(u.feed(rlink.escape(frame)), [frame])
+        # a command among data, split anywhere
+        wire = rlink.escape(b"xy") + rlink.control(1) + rlink.escape(b"\xc0z")
+        got = []
+        for b in wire:
+            got += u.feed(bytes([b]))
+        self.assertEqual([g for g in got if isinstance(g, int)], [1])
+        self.assertEqual(b"".join(g for g in got if isinstance(g, bytes)), b"xy\xc0z")
+        # a broken command is dropped; a C0 starts again
+        self.assertEqual(u.feed(b"\xc0\x05\xfa" + b"q"), [b"q"])
+        self.assertEqual(u.feed(b"\xc0\x01\xc0\x03\xfc"), [3])
 
     def test_image_header(self):
         img = rlink.Image(b"\x01\x02\x03", "z80", 0x8000, 0x8001)
@@ -718,7 +739,8 @@ class TcpLinkTests(unittest.TestCase):
                     data = conn.recv(4096)
                     if not data:
                         return
-                    link.write(data)
+                    model.inbox.put(data)     # the wire's bytes, escaped already
+
             threading.Thread(target=up, daemon=True).start()
             while True:
                 data = link.read_some(0.1)
