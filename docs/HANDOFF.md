@@ -96,7 +96,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
 | # | Question | Notes |
 |---|----------|-------|
 | Q1 | Sound hardware | Parked. Custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved; retro68k's 4 channels narrowed is the default; the beeper already exists |
-| Q2 | 6502 version: build option here or own repo | Closed: its own repo (design plan, branch 8). Registers through memory only; a 6502 runs from SRAM at 10 MHz with no waits; retro-6502 gets 20 MHz from zero page and stack in block RAM |
+| Q2 | 6502 version: build option here or own repo | Closed: its own repo (design plan, branch 8). Registers through memory only; a 6502 runs from SRAM at 10 MHz with no waits; retro-6502 runs at 10 MHz with no waits |
 | Q3 | Is tv80 exact enough? | Run ZEXDOC/ZEXALL first in phase 1; fallback T80 (VHDL) |
 | Q4 | tv80 → MMU → SRAM pad path at 100 MHz (multicycle) | Met on the KS2 (issue #11), single-cycle, +0.89 ns; check again on the KS3 |
 | Q11 | Does the KS2's XC7A15T-1 meet 100 MHz with the bring-up build? | Yes for issue #11's build (+0.86 ns, 1,949 LUTs; `fpga/ks2/README.md`); check again as units are added |
