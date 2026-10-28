@@ -86,13 +86,15 @@ While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-s
 
 - The commands and escapes are handled in hardware, so commands work when the Z80 has crashed or runs with interrupts disabled.
 - The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine see only the data, in order.
-- **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once. (retro68k's 16-byte sequence held back any bytes that might start it, so a message ending in `0x00` was seen only when the next byte came.)
+- **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once: a `C0` with nothing after it would wait, but the PC tools never send one. (retro68k's 16-byte sequence held back any bytes that might start it, so a message ending in `0x00` was seen only when the next byte came.)
+- The decoder's state (in an escape, in a command) is cleared at power-on only, like the FT232H interface, so the link survives other resets. A reset cannot come in the middle of a command: the command itself causes it.
+- **Terminals:** a plain terminal program sends its bytes unescaped. That is fine for ASCII. In UTF-8, `C0` never appears, but `DB` is a lead byte (U+06C0–U+06FF), so such a character would be decoded wrongly. For binary or non-ASCII text use `rlink.py term` or the bridge's console, which escape.
 - A broken command (a wrong inverse, or a code other than 1–3) is dropped. A `C0` always starts a command again, even inside another one.
 - The PC tools escape every byte they send except the commands: `rlink.escape()` in every link's `write()`. Random data grows by about 0.8 %.
 - With CTLEN and CTLLOCK both clear, every byte goes to the FIFO as it is, `C0` and `DB` too: a program can then run its own protocol on the link, and the PC must not escape.
 - **SERCON.CTLEN** turns recognition off (on after reset). With **SERCON.CTLLOCK** set, RESET and UPLOAD still work when CTLEN is off. Once set, CTLLOCK cannot be cleared by software; a reset clears it.
 
-The PC tool `tools/rlink.py` (shared with retro68k) sends the commands and uploads programs with the upload protocol of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md), sections 6 and 8). After the reset the loader's ready line (`LOAD Z80 1`, or `LOAD 68K 1` on retro68k) tells the tool which machine it is talking to. Until retro68k takes the same escapes (open point U3), its tool and this one differ in the command bytes and the escaping.
+The PC tool `tools/rlink.py` (shared with retro68k) sends the commands and uploads programs with the upload protocol of the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md), sections 6 and 8). After the reset the loader's ready line (`LOAD Z80 1`, or `LOAD 68K 1` on retro68k) tells the tool which machine it is talking to. retro68k is taking the same escapes (open point U3); until it has, its tool and this one differ in the command bytes and the escaping.
 
 ## 5. Using the link from the CPU
 
@@ -242,7 +244,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 |---|------|
 | U1 | Set the FT232H EEPROM to 245 FIFO mode with FT_Prog (once, before first use) |
 | U2 | Checked on the KS2 (issue 4 schematic, sheets 2 and 5): `accel_io[n]` is Pi GPIO n on header J2, through 200 ohm, with no level shifting; D0-D7 on pins 27, 28, 3, 5, 7, 29, 31, 26, RXF# 24, TXE# 21, RD# 19, WR# 23, SIWU# 32 (wiring in `fpga/ks2/README.md`). Still shared with retro68k (its U6); the KS3's issue 5 pin file puts these on the same FPGA pins |
-| U3 | Open: the SLIP-style commands and escapes (section 4) replace retro68k's 16-byte sequence here, built and tried on the KS2 first; proposed to retro68k so that one PC tool serves both machines again. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
+| U3 | Agreed with retro68k (28 October 2026): the SLIP-style commands and escapes (section 4) replace the 16-byte sequence on both machines, built and tried on the KS2 first. Open until retro68k has ported it, so that one PC tool serves both machines again. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
 | U4 | Closed: the upload protocol is the shared spec "Monitor and upload protocol" (`monitor.md`), the same in retro68k: frames with a CRC-32, a reply to each, the image header; spec 16 gives retro-z80's limits |
 | U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help DMA jobs on port 1; shared with retro68k's U5. The CPU cannot use it |
 | U6 | Closed: SERDROP is at register `0x5C` of page `0x00` (branch 11) |
