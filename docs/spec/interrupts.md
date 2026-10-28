@@ -200,7 +200,7 @@ Registers `0x00`–`0x0F` of the system page `0x00` (spec 3). Port = (register <
 
 | Register | Port | Name | Access | Bits | Reset | Description |
 |----------|------|------|--------|------|-------|-------------|
-| `0x00` | `0x0000` | INTCON | RW | MASTER (0) | `0x00` | All interrupts except the NMI on. Bits 7–1 read 0 |
+| `0x00` | `0x0000` | INTCON | RW | MASTER (0) | `0x00` | All interrupts except the NMI on. Bit 1 is reserved for retro-6502's VECTOR (its spec 1, section 7.1: the 65C02's vector reads go to the table); here it reads 0 and ignores writes. Bits 7–1 read 0 |
 | `0x01` | `0x0100` | INTENA0 | Set/clear | SETCLR (7), sources 6–0 (6–0) | `0x00` | Enables of sources 0–6. Writing with SETCLR = 1 sets the bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reads give the enables, bit 7 reads 0 |
 | `0x02` | `0x0200` | INTENA1 | Set/clear | SETCLR (7), sources 13–7 (6–0) | `0x00` | As INTENA0, sources 7–13 |
 | `0x03` | `0x0300` | INTENA2 | Set/clear | SETCLR (7), sources 20–14 (6–0) | `0x00` | As INTENA0, sources 14–20 |
