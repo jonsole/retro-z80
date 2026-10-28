@@ -492,7 +492,9 @@ Page `0x3F8` shows the machine's registers as memory, in any window, so the Z80 
 | `0x0108`–`0x013F` | – | Reserved |
 | `0x0140`–`0x01FF` | `0x01` | The **interrupt pages**: register r of I/O page `0x01` at `0x0100` + r (section 9.8) |
 | `0x0200`–`0x023C` | `0x02` | The **debug unit**: register r of I/O page `0x02` at `0x0200` + r (spec 18, section 8) |
-| `0x023D`–`0x0FFF` | – | Reserved |
+| `0x023D`–`0x03FF` | – | Reserved |
+| `0x0400`–`0x05FF` | – | Reserved for retro-6502's fast zero page and stack (its design plan, branch 5); read `0xFF` here |
+| `0x0600`–`0x0FFF` | – | Reserved |
 | `0x1000`–`0x13FF` | `0x10`–`0x13` | The **custom block**: custom offset k at `0x1000` + k (spec 3) |
 | `0x1400`–`0x1FFF` | – | The **palettes**, memory only (section 10.2) |
 
