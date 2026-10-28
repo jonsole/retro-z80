@@ -582,20 +582,23 @@ Channel n (0–3) at `0x140` + n × `0x40`:
 | Offset | Name | Width | Access | Spec |
 |--------|------|-------|--------|------|
 | `+0x00`–`+0x02` | CTRL | 3 | RW (ignored while BUSY) | 14, 3 |
-| `+0x04`–`+0x06` | SRC | 3 | RW (ignored while BUSY) | 14, 8.1 |
-| `+0x08`–`+0x0A` | DST | 3 | RW (ignored while BUSY) | 14, 8.1 |
-| `+0x0C`–`+0x0E` | WIDTH | 3 | RW (ignored while BUSY) | 14, 8.1 |
-| `+0x10`–`+0x12` | HEIGHT (HEIGHT, SRCBIT, DSTBIT) | 3 | RW (ignored while BUSY) | 14, 3 |
-| `+0x14`–`+0x15` | DSTSTRIDE | 2 | RW (ignored while BUSY) | 14, 8.1 |
-| `+0x16`–`+0x17` | SRCSTRIDE | 2 | RW (ignored while BUSY) | 14, 8.1 |
+| `+0x03` | MINTERM | 1 | RW (ignored while BUSY) | 14, 3.1 |
+| `+0x04`–`+0x06` | APT | 3 | RW (ignored while BUSY) | 14, 3 |
+| `+0x07`–`+0x09` | BPT | 3 | RW (ignored while BUSY) | 14, 3 |
+| `+0x0A`–`+0x0C` | DPT | 3 | RW (ignored while BUSY) | 14, 3 |
+| `+0x0D`–`+0x0F` | WIDTH | 3 | RW (ignored while BUSY) | 14, 3 |
+| `+0x10`–`+0x11` | HEIGHT | 2 | RW (ignored while BUSY) | 14, 3 |
+| `+0x12`–`+0x13` | SHIFT (ABIT, BBIT, DBIT) | 2 | RW (ignored while BUSY) | 14, 3 |
+| `+0x14`–`+0x15` | ABSTRIDE | 2 | RW (ignored while BUSY) | 14, 3 |
+| `+0x16`–`+0x17` | CDSTRIDE | 2 | RW (ignored while BUSY) | 14, 3 |
 | `+0x18`–`+0x1B` | VALUE | 4 | RW (ignored while BUSY) | 14, 3 |
-| `+0x1C`–`+0x1E` | NEXT | 3 | RW (ignored while BUSY) | 14, 8.1 |
+| `+0x1C`–`+0x1E` | NEXT | 3 | RW (ignored while BUSY) | 14, 3 |
 | `+0x20`–`+0x22` | CHDESC | 3 | RW (ignored while BUSY), CAP | 14, 8.1 |
 | `+0x24` | CHCTRL | 1 | S (START, RUN, STOP), RW (PAUSE) | 14, 8.2 |
 | `+0x28` | CHSTAT | 1 | R, W1C | 14, 8.3 |
 | `+0x2C`–`+0x2E` | CHERR | 3 | R | 14, 8.1 |
 
-`+0x03`, `+0x07`, `+0x0B`, `+0x0F`, `+0x13`, `+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except two bytes in channel 3:
+`+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except two bytes in channel 3:
 
 | Offset | Port | Name | Width | Access | Spec |
 |--------|------|------|-------|--------|------|

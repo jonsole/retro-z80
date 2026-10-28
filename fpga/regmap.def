@@ -257,15 +257,18 @@ reg  0x135 ATSCROLL 1 RW      4/7.1  FINEX=3:0 FINEY=6:4
 
 # DMA engine channels 0-3 (spec 14)
 array DMX 4 0x140 0x40 14/8.1
-  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 FN=7:4 BPP=9:8 DESC=10 IRQ=12 SRCKIND=14:13 DSTKIND=16:15
-  reg 0x04 SRC       3 RW,BUSY     14/8.1
-  reg 0x08 DST       3 RW,BUSY     14/8.1
-  reg 0x0C WIDTH     3 RW,BUSY     14/8.1
-  reg 0x10 HEIGHT    3 RW,BUSY     14/3   HEIGHT=15:0 SRCBIT=18:16 DSTBIT=22:20
-  reg 0x14 DSTSTRIDE 2 RW,BUSY     14/8.1
-  reg 0x16 SRCSTRIDE 2 RW,BUSY     14/8.1
+  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 SAT=4 SIGNED=5 BPP=9:8 DESC=10 IRQ=11 BCONST=12 MASK=14:13
+  reg 0x03 MINTERM   1 RW,BUSY     14/3.1
+  reg 0x04 APT       3 RW,BUSY     14/3
+  reg 0x07 BPT       3 RW,BUSY     14/3
+  reg 0x0A DPT       3 RW,BUSY     14/3
+  reg 0x0D WIDTH     3 RW,BUSY     14/3
+  reg 0x10 HEIGHT    2 RW,BUSY     14/3
+  reg 0x12 SHIFT     2 RW,BUSY     14/3   ABIT=2:0 BBIT=6:4 DBIT=10:8
+  reg 0x14 ABSTRIDE  2 RW,BUSY     14/3
+  reg 0x16 CDSTRIDE  2 RW,BUSY     14/3
   reg 0x18 VALUE     4 RW,BUSY     14/3
-  reg 0x1C NEXT      3 RW,BUSY     14/8.1
+  reg 0x1C NEXT      3 RW,BUSY     14/3
   reg 0x20 CHDESC    3 RW,BUSY,CAP 14/8.1
   reg 0x24 CHCTRL    1 S           14/8.2 START=0 RUN=1 STOP=2 PAUSE=3
   reg 0x28 CHSTAT    1 RW1C        14/8.3 BUSY=0 DONE=1 ERR=2 PAUSED=3

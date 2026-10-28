@@ -39,7 +39,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/sprites.md` | Spec 5: retro68k's 8 sprites with fractional scaling |
 | `docs/spec/copper.md` | Spec 6: retro68k's copper in 16-bit words |
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
-| `docs/spec/dma-engine.md` | Spec 14: retro68k's version-1 DMA engine, 4 channels |
+| `docs/spec/dma-engine.md` | Spec 14: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm); guide chapter `docs/guide/blitter.md` |
 | `docs/spec/boot-rom.md`, `monitor.md` | Spec 16: the boot ROM (draft); the shared spec "Monitor and upload protocol" (draft, for retro68k to adopt) |
 | Specs 13, 15 | Not written: sound (parked), geometry unit (branch 10, another session) |
 | `docs/guide/playfields.md` | Programmer's guide, chapter 3: playfields (the first chapter written) |
