@@ -172,7 +172,7 @@ Every unit decodes rb_addr, so one address names a register however it is reache
 
 ### 4.3 A 6502 machine
 
-Nothing on these buses is Z80-specific. The 6502 machine, in its own repo (design plan, branch 8), would keep them: its bus interface drives the same memory port (with the same MMU) and reaches the register bus through a page of its memory map, as it has no I/O space. A 6502 makes an access every clock and often needs the byte just read to form its next address. A read here takes 7–12 clocks from address to data, so from SRAM a 6502 runs at 10 MHz with no waits (one access a slot); retro-6502 reaches 20 MHz by putting zero page, stack and ROM in block RAM and letting SRAM accesses wait.
+Nothing on these buses is Z80-specific. The 6502 machine, in its own repo (design plan, branch 8), would keep them: its bus interface drives the same memory port (with the same MMU) and reaches the register bus through a page of its memory map, as it has no I/O space. A 6502 makes an access every clock and often needs the byte just read to form its next address. A read here takes 8–13 clocks from address to data, so from SRAM a 6502 runs at 10 MHz with no waits (one access a slot); retro-6502 reaches 20 MHz by putting zero page, stack and ROM in block RAM and letting SRAM accesses wait.
 
 ## 5. Memory cycles
 
