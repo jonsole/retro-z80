@@ -318,7 +318,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 | # | Item | Plan |
 |---|------|------|
 | Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | Parked; custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved under retro68k's names; retro68k's audio narrowed would be the default |
-| Q2 | 6502 version: build option here or its own repo | Closed: its own repo (branch 8). The chipset stays CPU-independent. A 6502 sees the registers through memory only (it has no I/O space); the CPU's two cycles per slot would serve it at 20 MHz with no waits |
+| Q2 | 6502 version: build option here or its own repo | Closed: its own repo (branch 8). The chipset stays CPU-independent. A 6502 sees the registers through memory only (it has no I/O space); from SRAM it runs at 10 MHz with no waits (a read takes 7–12 clocks from address to data); retro-6502 runs at 20 MHz with zero page, stack and ROM in block RAM |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
 | Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | On the KS2 (issue #11): yes, even single-cycle (+0.89 ns from tv80's IR to the bus interface's address register), with tv80's own paths as 5-clock multicycle paths. Check again on the KS3 build (spec 1, B1); fallback: start a read speculatively in every T1 |
 | Q5 | Copper priority | Closed: urgent display fetches come first in cycle 3, then the copper, then sprites (spec 2) |
