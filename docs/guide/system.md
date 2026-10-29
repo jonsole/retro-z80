@@ -8,14 +8,20 @@ It is also a Spectrum at heart: port `0xFE` reads the keyboard and sets the bord
 
 This chapter is the base the others build on. It covers:
 
-- the machine at a glance, and the other chapters;
+- an overview of the guide: the machine at a glance, and the other chapters;
 - memory: the windows, the MMU, pages and physical addresses;
 - the hardware registers, and how the Z80 reaches them through ports and through the register page;
 - how memory is shared between the CPU and the chipset;
+- the system control registers: identification, the cause of a reset, the CPU's speed, the buttons;
 - reset and the boot ROM;
 - the environment a program starts in, how it ends, and how it is built and loaded;
-- the system control registers: identification, the cause of a reset, the CPU's speed, the buttons;
-- the set-up the guide's examples use.
+- a program built step by step, with the set-up the guide's examples use.
+
+---
+
+## Guide Overview
+
+Two tables to start with: what the machine has, and which chapter covers each part.
 
 ### The Machine at a Glance
 
@@ -185,17 +191,24 @@ So Z80 address `0xC010`, in window 6 showing page `0x020`, is physical `0x040010
 
 A screen, a sprite image or a copper list can be anywhere in SRAM: the Z80 writes it through a window, then gives its physical address to the chipset.
 
-### Example 1-2: One page, two windows
+### Example 1-1: One page, two windows
 
-The program maps SRAM page `0x020` (physical `0x040000`) into windows 5 and 6, writes a string through window 6 and prints it from window 5: the same memory. Then it makes window 6 read-only, with NONE as its write page, and shows that a write there changes nothing.
+The program, `examples/system/windows.asm`, maps SRAM page `0x020` (physical `0x040000`) into windows 5 and 6, writes a string through window 6 and prints it from window 5: the same memory. Then it makes window 6 read-only, with NONE as its write page, and shows that a write there changes nothing.
 
 ```asm
-; Example 1-2: one page in two windows, then a read-only window (examples/system/windows.asm)
+; Example 1-1 (docs/guide/system.md): one page in two windows, then a
+; read-only window. SRAM page 0x020 (physical 0x040000) goes into windows 5
+; and 6. A string written through window 6 is printed through window 5:
+; the same memory. Then window 6's write page becomes NONE, and a write
+; through it changes nothing. Windows 5 and 6 get their own pages back
+; before the program ends.
+
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
-PG_NONE equ     0x3FB                   ; reads 0xFF, ignores writes
+PG_NONE equ     0x3FB                   ; reads 0xFF, ignores writes (memory spec, section 9.3)
 PAGE    equ     0x020                   ; an SRAM page this program does not use
 WIN5    equ     0xA000
 WIN6    equ     0xC000
@@ -386,59 +399,6 @@ Through ports, read, change and write back:
 
 Neither suits a set/clear register (rule 5) or a register with sticky flags (rule 4), where writing back what was read has effects of its own.
 
-### Example 1-3: The registers as memory
-
-The program moves the stack out of window 7 (where the boot ROM put it), maps the register page there, and then uses ordinary loads: it reads SYSID, sets the background colour to orange, blue and green first and red last, waits 100 frames on the vertical blank flag, VIDSTAT.VBLANK, and gives window 7 its SRAM page back with one `LD (nn),HL`.
-
-```asm
-; Example 1-3: the registers as memory (examples/system/regpage.asm)
-        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
-        org     0x8000
-        include "hw.inc"
-
-PUTHEX  equ     0x06                    ; RST 28h function: print A as two hex digits
-EXIT    equ     0x0040                  ; the ROM's EXIT: back to the monitor, whatever SP holds
-PG_REGS equ     0x3F8                   ; the register page
-
-REGS    equ     0xE000                  ; the register page, in window 7
-SREG    equ     REGS+REGS_SYSTEM        ; 0xE000: system register r at SREG + r
-CREG    equ     REGS+REGS_CUSTOM        ; 0xF000: custom offset k at CREG + k
-
-start:  ld      sp,0xE000               ; the stack below window 7, at the top of window 6
-        ld      hl,PG_REGS
-        ld      bc,MMU7_0_P             ; the first mapping needs ports
-        out     (c),l
-        inc     b
-        out     (c),h                   ; from here, 0xE000-0xFFFF are the registers
-
-        ld      hl,s_id
-        rst     0x18                    ; PUTS
-        ld      a,(SREG+SYSID)          ; a register read with LD
-        rst     0x28
-        db      PUTHEX
-
-        ld      hl,0x8000               ; BGCOLOR: blue 0x00, green 0x80 ...
-        ld      (CREG+BGCOLOR),hl       ; (held for the red byte)
-        ld      a,0xFF
-        ld      (CREG+BGCOLOR+2),a      ; ... red 0xFF: the colour changes, whole
-
-        ld      b,100                   ; 100 frames: 2 seconds
-.frame: ld      a,VIDSTAT_VBLANK_M
-        ld      (CREG+VIDSTAT),a        ; a sticky flag: writing 1 clears it
-.wait:  ld      a,(CREG+VIDSTAT)
-        and     VIDSTAT_VBLANK_M        ; set again at the next frame's start
-        jr      z,.wait
-        djnz    .frame
-
-        ld      hl,7
-        ld      (SREG+MMU7),hl          ; window 7 back to SRAM page 7, in one instruction
-        jp      EXIT
-
-s_id:   db      13, 10, "SYSID through the register page: ", 0
-```
-
-The border round the console turns orange for two seconds, then the monitor is back. `JP 0x0040` ends the program, because `RET` would need the stack the program moved.
-
 ---
 
 ## Sharing the Memory
@@ -461,155 +421,13 @@ The **register page and the boot ROM** use no SRAM cycle at all: they are not SR
 
 ---
 
-## Reset and the Boot ROM
-
-### What resets the computer
-
-**Table 1-16: Reset Sources**
-
-| Source | RESETWHY bit |
-|--------|--------------|
-| Power-on: the FPGA has just loaded the design | POWER (0) |
-| The watchdog, not kicked in time (Chapter 2) | WATCHDOG (1) |
-| The reset button | BUTTON (2) |
-| Software: `0xA5` written to SYSRESET | SOFTWARE (3) |
-| The PC: the RESET control command on the USB link | USB (4) |
-| The PC: the UPLOAD command (reset, then wait for a program) | UPLOAD (5) |
-
-RESETWHY tells a program which one it was: exactly one bit is set.
-
-### What a reset does
-
-Every source gives the same full reset. The Z80 starts at `0x0000` at 20 MHz, the MMU goes back to its reset map, and every chipset and system register goes back to its reset value: the display shows only the background colour, the sprites, copper and DMA engine are stopped, every interrupt is off. Some things survive:
-
-- **The SRAM keeps its contents**, after anything but power-on. A program can keep data across a reset, and the monitor can look at what a crashed program left. After power-on the SRAM holds random values, so check RESETWHY.POWER before trusting it.
-- **The palettes** keep their colours.
-- **TIME**, the microsecond counter (Chapter 2), keeps counting.
-- **The USB link** stays up: a terminal on the PC stays connected.
-
-The Z80 has no instruction that resets the hardware without the CPU. A program that wants a clean machine sets the registers it uses, or writes SYSRESET.
-
-### The reset map
-
-**Table 1-17: The Reset Map**
-
-| Window | Page |
-|--------|------|
-| 0, 1 | Boot ROM pages 0 and 1 |
-| 2–7 | SRAM pages 0–5 |
-
-So the Z80 starts in the ROM, with `0x0038` and `0x0066` in it too, and 48 KB of SRAM above, like a Spectrum 48K. The boot ROM changes the map before it starts a program (below).
-
-### The boot ROM
-
-The boot ROM is 32 KB in four MMU pages, `0x3FC`–`0x3FF`, part of the FPGA's design. Reading it uses no SRAM cycle. It ignores writes unless SYSCON.ROMWE is set (see "Writable boot ROM" below). After a reset it:
-
-1. tests the SRAM, at power-on only, showing its progress as the background colour (a red screen with white stripes is a failed test; the number of stripes says which);
-2. sets up the boot console: 80 × 30 characters on layer L0;
-3. looks at the keys held: **U** waits for a program over USB, **M** or the DivMMC button starts the monitor, **D** at power-on leaves the boot ROM writable;
-4. after an UPLOAD reset, waits for a program from the PC and starts it;
-5. otherwise starts the **monitor**.
-
-(Starting from an SD card and a resident BBC BASIC come later.) The monitor is on the screen and on the USB console at once; `H` lists its commands, and the boot ROM spec covers it in full.
-
----
-
-## Programs
-
-### The program map
-
-When the boot ROM starts a program, the MMU holds the **program map**:
-
-**Table 1-18: The Program Map**
-
-| Window | Read page | Write page |
-|--------|-----------|------------|
-| 0 | Boot ROM page 0 | The same (it ignores writes) |
-| 1–7 | SRAM pages 1–7 | The same |
-
-**Window n holds SRAM page n**, so a Z80 address from `0x2000` to `0xFFFF` is also its **physical address**: `0x8000` is physical `0x008000`. A program can give the chipset the address of a screen or a copper list in its own memory as it stands. SRAM page 0, under the ROM, and every page from 8 up are free for the program to map where it likes, except the pages the boot ROM keeps for itself, `0x0F8`–`0x0FF` (physical `0x1F0000`–`0x1FFFFF`: its console, font and workspace).
-
-### The state at the first instruction
-
-**Table 1-19: The State at a Program's First Instruction**
-
-| Item | State |
-|------|-------|
-| PC | The program's entry point |
-| SP | `0xFFFE`, holding `0x0040`, the ROM's EXIT: a `RET` from the entry point ends the program |
-| Registers | All 0 |
-| Interrupts | Disabled (DI), IM 2, with the ROM's own table; every source off. A program that wants interrupts sets up its own (Chapter 2) |
-| CPU speed | 20 MHz |
-| Display | Layer L0 is the boot console; the other layers and the sprites are off; the background is black |
-| Copper, DMA engine, timers | Stopped |
-| PS/2 keyboard | Its FIFO on, its interrupt off |
-| Serial link | On, dropping output when the PC is not reading |
-
-### Ending a program
-
-**Table 1-20: Ways to End a Program**
-
-| How | Then |
-|-----|------|
-| `RET` from the entry point (SP back at `0xFFFE`) | `Program ended.`; the monitor shows the registers, and `G` runs the program again |
-| `JP 0x0040`, or `RST 28h` function EXIT (`0x0F`) | The same, from anywhere, whatever SP holds |
-| `RST 30h` | `Break at` the address; `G` carries on after it |
-| SYSRESET, or `RST 28h` function RESET | A full reset |
-
-The Multiface button, and BREAK from the PC, stop a running program in the monitor too; `G` carries on.
-
-### The ROM calls
-
-The boot ROM offers a small set of calls through `RST` instructions, as a Spectrum's ROM does:
-
-**Table 1-21: The ROM Calls**
-
-| Call | Does |
-|------|------|
-| `RST 08h` PUTC | Prints the character in A (13 is back to column 0, 10 down a line) |
-| `RST 10h` GETC | Waits for a key; A = its code |
-| `RST 18h` PUTS | Prints the string at HL, up to a 0 byte |
-| `RST 20h` POLLC | A key if one is waiting (NZ), or Z |
-| `RST 28h` CALL | A numbered function, its number in the byte after the `RST` |
-| `RST 30h` BREAK | Into the monitor |
-
-`RST 28h`'s functions include PUTHEX (`0x06`, A as two hex digits), PUTHEX16 (`0x07`), PUTDEC (`0x08`, HL in decimal), GETLINE (`0x05`), CLS (`0x09`), SETPOS (`0x0A`) and EXIT (`0x0F`). A call keeps every register except the ones it returns, works with interrupts on, and needs up to 48 bytes of stack. Its strings and buffers may be anywhere in `0x2000`–`0xFFFF`, under any mapping of windows 1–7, the register page included. The boot ROM spec, section 7, lists them all.
-
-```asm
-        ld      hl,hello
-        rst     0x18                    ; PUTS
-        ld      a,0x5A
-        rst     0x28
-        db      0x06                    ; PUTHEX: prints 5A
-        ret
-hello:  db      "Hello, ", 0
-```
-
-### Building and loading
-
-A program is assembled with sjasmplus into a raw binary, then wrapped by `tools/rlink.py` into a **program image** (`.rimg`): a short header with its load address, entry point and checksums, then the code. The loader checks the header before it runs anything.
-
-```
-sjasmplus -Ifirmware/include --sld=build/game.sld --raw=build/game.bin game.asm
-python tools/rlink.py image --machine z80 --load 8000 -o build/game.rimg build/game.bin
-```
-
-Then, from the PC:
-
-- **VS Code**, with the retro-z80 extension: the `retro-z80-build` task does both steps, and a launch configuration uploads the image and stops at its entry point, with breakpoints, stepping and the registers at source level (the `.sld` file). The extension's README says how.
-- **`rlink.py upload`** sends an image straight to the board and runs it, with no debugger.
-
-The upload resets the board (UPLOAD) and the boot ROM's loader takes the program, so a program always starts from a clean machine.
-
----
-
 ## The System Control Registers
 
 ### Identifying the machine: SYSID, SYSVER and SYSCFG
 
 **SYSID** reads `0x5A` ("Z") on every retro-z80. **SYSVER** is the FPGA build's version:
 
-**Table 1-22: SYSVER Bits**
+**Table 1-16: SYSVER Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -618,7 +436,7 @@ The upload resets the board (UPLOAD) and the boot ROM's loader takes the program
 
 **SYSCFG** describes the hardware:
 
-**Table 1-23: SYSCFG Bits**
+**Table 1-17: SYSCFG Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -627,17 +445,22 @@ The upload resets the board (UPLOAD) and the boot ROM's loader takes the program
 
 A program that wants more than 2 MB checks CHIPMB first: on a 2 MB board pages `0x100`–`0x1FF` repeat pages `0x000`–`0x0FF`.
 
-### Example 1-1: About this machine
+### Example 1-2: About this machine
 
-The program reads the system registers through ports and prints what they say.
+The program, `examples/system/about.asm`, reads the system registers through ports and prints what they say.
 
 ```asm
-; Example 1-1: about this machine (examples/system/about.asm)
+; Example 1-2 (docs/guide/system.md): about this machine.
+; Reads the system registers through ports and prints what they say: the
+; machine's ID, the FPGA build, the SRAM size, why it was last reset, and
+; the CPU speed. Then RET goes back to the monitor.
+
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
-PUTHEX  equ     0x06                    ; RST 28h functions
+PUTHEX  equ     0x06                    ; RST 28h functions (boot ROM spec, section 7.3)
 PUTDEC  equ     0x08
 
 start:  ld      hl,s_id
@@ -748,9 +571,9 @@ CPU          20 MHz
 
 ### Why was I reset? RESETWHY
 
-Exactly one bit of RESETWHY is set, for the cause of the last reset (Table 1-16):
+Exactly one bit of RESETWHY is set, for the cause of the last reset (Table 1-24, in "Reset and the Boot ROM"):
 
-**Table 1-24: RESETWHY Bits**
+**Table 1-18: RESETWHY Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -780,7 +603,7 @@ cold:   ; ... set everything up, then:
 
 ### The CPU's speed: CPUSPEED
 
-**Table 1-25: CPUSPEED Bits**
+**Table 1-19: CPUSPEED Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -788,7 +611,7 @@ cold:   ; ... set everything up, then:
 | 3 | SPECTRUM | 1 = 3.57 MHz, whatever DIV holds |
 | 2–0 | DIV | 20 MHz ÷ (DIV + 1) |
 
-**Table 1-26: CPUSPEED Values**
+**Table 1-20: CPUSPEED Values**
 
 | CPUSPEED | Speed |
 |----------|-------|
@@ -816,7 +639,7 @@ Writing `0xA5` (`SYSRESET_MAGIC`) to SYSRESET gives a full reset, with RESETWHY.
 
 ### The buttons: SYSBTN
 
-**Table 1-27: The Buttons**
+**Table 1-21: The Buttons**
 
 | Button | Does |
 |--------|------|
@@ -826,7 +649,7 @@ Writing `0xA5` (`SYSRESET_MAGIC`) to SYSRESET gives a full reset, with RESETWHY.
 
 SYSBTN shows two of them, debounced, so a program can use them as two more keys:
 
-**Table 1-28: SYSBTN Bits**
+**Table 1-22: SYSBTN Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -836,7 +659,7 @@ SYSBTN shows two of them, debounced, so a program can use them as two more keys:
 
 ### Writable boot ROM: SYSCON
 
-**Table 1-29: SYSCON Bits**
+**Table 1-23: SYSCON Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -849,22 +672,288 @@ SYSBTN shows two of them, debounced, so a program can use them as two more keys:
 
 ---
 
-## The Guide's Examples
+## Reset and the Boot ROM
 
-The complete examples in the other chapters start from the program map and share one set-up:
+### What resets the computer
 
-- **Loaded at `0x8000`**, so their Z80 addresses are their physical addresses (window n holds SRAM page n).
-- **The register page in window 7.** The stack is moved first, to `0xE000` (just below window 7), then window 7 is mapped onto page `0x3F8` through ports. They name the parts of it:
+**Table 1-24: Reset Sources**
 
-  ```asm
-  REGS    equ     0xE000                  ; the register page, in window 7
-  SREG    equ     REGS+REGS_SYSTEM        ; 0xE000: system register r at SREG + r
-  CREG    equ     REGS+REGS_CUSTOM        ; 0xF000: custom offset k at CREG + k
-  PREG    equ     REGS+REGS_PALETTE       ; 0xF400: palette p at PREG + p * REGS_PAL_SPAN
-  ```
+| Source | RESETWHY bit |
+|--------|--------------|
+| Power-on: the FPGA has just loaded the design | POWER (0) |
+| The watchdog, not kicked in time (Chapter 2) | WATCHDOG (1) |
+| The reset button | BUTTON (2) |
+| Software: `0xA5` written to SYSRESET | SOFTWARE (3) |
+| The PC: the RESET control command on the USB link | USB (4) |
+| The PC: the UPLOAD command (reset, then wait for a program) | UPLOAD (5) |
 
-  so custom offset k is at `CREG + k` and system register r at `SREG + r`. A program that keeps window 7 as the register page ends with `JP 0x0040`, not `RET`.
-- **Ports** where the register page is not yet mapped, and in code meant to work whatever the program has in its windows.
+RESETWHY tells a program which one it was: exactly one bit is set.
+
+### What a reset does
+
+Every source gives the same full reset. The Z80 starts at `0x0000` at 20 MHz, the MMU goes back to its reset map, and every chipset and system register goes back to its reset value: the display shows only the background colour, the sprites, copper and DMA engine are stopped, every interrupt is off. Some things survive:
+
+- **The SRAM keeps its contents**, after anything but power-on. A program can keep data across a reset, and the monitor can look at what a crashed program left. After power-on the SRAM holds random values, so check RESETWHY.POWER before trusting it.
+- **The palettes** keep their colours.
+- **TIME**, the microsecond counter (Chapter 2), keeps counting.
+- **The USB link** stays up: a terminal on the PC stays connected.
+
+The Z80 has no instruction that resets the hardware without the CPU. A program that wants a clean machine sets the registers it uses, or writes SYSRESET.
+
+### The reset map
+
+**Table 1-25: The Reset Map**
+
+| Window | Page |
+|--------|------|
+| 0, 1 | Boot ROM pages 0 and 1 |
+| 2–7 | SRAM pages 0–5 |
+
+So the Z80 starts in the ROM, with `0x0038` and `0x0066` in it too, and 48 KB of SRAM above, like a Spectrum 48K. The boot ROM changes the map before it starts a program (below).
+
+### The boot ROM
+
+The boot ROM is 32 KB in four MMU pages, `0x3FC`–`0x3FF`, part of the FPGA's design. Reading it uses no SRAM cycle. It ignores writes unless SYSCON.ROMWE is set (see "Writable boot ROM: SYSCON" above). After a reset it:
+
+1. tests the SRAM, at power-on only, showing its progress as the background colour (a red screen with white stripes is a failed test; the number of stripes says which);
+2. sets up the boot console: 80 × 30 characters on layer L0;
+3. looks at the keys held: **U** waits for a program over USB, **M** or the DivMMC button starts the monitor, **D** at power-on leaves the boot ROM writable;
+4. after an UPLOAD reset, waits for a program from the PC and starts it;
+5. otherwise starts the **monitor**.
+
+(Starting from an SD card and a resident BBC BASIC come later.) The monitor is on the screen and on the USB console at once; `H` lists its commands, and the boot ROM spec covers it in full.
+
+---
+
+## Programs
+
+### The program map
+
+When the boot ROM starts a program, the MMU holds the **program map**:
+
+**Table 1-26: The Program Map**
+
+| Window | Read page | Write page |
+|--------|-----------|------------|
+| 0 | Boot ROM page 0 | The same (it ignores writes) |
+| 1–7 | SRAM pages 1–7 | The same |
+
+**Window n holds SRAM page n**, so a Z80 address from `0x2000` to `0xFFFF` is also its **physical address**: `0x8000` is physical `0x008000`. A program can give the chipset the address of a screen or a copper list in its own memory as it stands. SRAM page 0, under the ROM, and every page from 8 up are free for the program to map where it likes, except the pages the boot ROM keeps for itself, `0x0F8`–`0x0FF` (physical `0x1F0000`–`0x1FFFFF`: its console, font and workspace).
+
+### The state at the first instruction
+
+**Table 1-27: The State at a Program's First Instruction**
+
+| Item | State |
+|------|-------|
+| PC | The program's entry point |
+| SP | `0xFFFE`, holding `0x0040`, the ROM's EXIT: a `RET` from the entry point ends the program |
+| Registers | All 0 |
+| Interrupts | Disabled (DI), IM 2, with the ROM's own table; every source off. A program that wants interrupts sets up its own (Chapter 2) |
+| CPU speed | 20 MHz |
+| Display | Layer L0 is the boot console; the other layers and the sprites are off; the background is black |
+| Copper, DMA engine, timers | Stopped |
+| PS/2 keyboard | Its FIFO on, its interrupt off |
+| Serial link | On, dropping output when the PC is not reading |
+
+### Ending a program
+
+**Table 1-28: Ways to End a Program**
+
+| How | Then |
+|-----|------|
+| `RET` from the entry point (SP back at `0xFFFE`) | `Program ended.`; the monitor shows the registers, and `G` runs the program again |
+| `JP 0x0040`, or `RST 28h` function EXIT (`0x0F`) | The same, from anywhere, whatever SP holds |
+| `RST 30h` | `Break at` the address; `G` carries on after it |
+| SYSRESET, or `RST 28h` function RESET | A full reset |
+
+The Multiface button, and BREAK from the PC, stop a running program in the monitor too; `G` carries on.
+
+### The ROM calls
+
+The boot ROM offers a small set of calls through `RST` instructions, as a Spectrum's ROM does:
+
+**Table 1-29: The ROM Calls**
+
+| Call | Does |
+|------|------|
+| `RST 08h` PUTC | Prints the character in A (13 is back to column 0, 10 down a line) |
+| `RST 10h` GETC | Waits for a key; A = its code |
+| `RST 18h` PUTS | Prints the string at HL, up to a 0 byte |
+| `RST 20h` POLLC | A key if one is waiting (NZ), or Z |
+| `RST 28h` CALL | A numbered function, its number in the byte after the `RST` |
+| `RST 30h` BREAK | Into the monitor |
+
+`RST 28h`'s functions include PUTHEX (`0x06`, A as two hex digits), PUTHEX16 (`0x07`), PUTDEC (`0x08`, HL in decimal), GETLINE (`0x05`), CLS (`0x09`), SETPOS (`0x0A`) and EXIT (`0x0F`). A call keeps every register except the ones it returns, works with interrupts on, and needs up to 48 bytes of stack. Its strings and buffers may be anywhere in `0x2000`–`0xFFFF`, under any mapping of windows 1–7, the register page included. The boot ROM spec, section 7, lists them all.
+
+```asm
+        ld      hl,hello
+        rst     0x18                    ; PUTS
+        ld      a,0x5A
+        rst     0x28
+        db      0x06                    ; PUTHEX: prints 5A
+        ret
+hello:  db      "Hello, ", 0
+```
+
+### Building and loading
+
+A program is assembled with sjasmplus into a raw binary, then wrapped by `tools/rlink.py` into a **program image** (`.rimg`): a short header with its load address, entry point and checksums, then the code. The loader checks the header before it runs anything.
+
+```
+sjasmplus -Ifirmware/include --sld=build/game.sld --raw=build/game.bin game.asm
+python tools/rlink.py image --machine z80 --load 8000 -o build/game.rimg build/game.bin
+```
+
+Then, from the PC:
+
+- **VS Code**, with the retro-z80 extension: the `retro-z80-build` task does both steps, and a launch configuration uploads the image and stops at its entry point, with breakpoints, stepping and the registers at source level (the `.sld` file). The extension's README says how.
+- **`rlink.py upload`** sends an image straight to the board and runs it, with no debugger.
+
+The upload resets the board (UPLOAD) and the boot ROM's loader takes the program, so a program always starts from a clean machine.
+
+---
+
+## Putting Together a Program
+
+The complete examples in the other chapters start from the program map and share one set-up. This section builds it step by step, as Example 1-3 does: the program moves the stack, maps the register page into window 7, works on registers with ordinary loads, and ends.
+
+### Step 1: Start in the program map
+
+Begin the file as every example does:
+
+```asm
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
+        org     0x8000
+
+        include "hw.inc"
+```
+
+The program is **loaded at `0x8000`**, so its Z80 addresses are its physical addresses (window n holds SRAM page n, Table 1-26). It starts with interrupts disabled, at 20 MHz, with the boot console on layer L0 (Table 1-27).
+
+### Step 2: Move the stack out of window 7
+
+The boot ROM leaves SP at `0xFFFE`, in window 7. Window 7 is about to become the register page, and a stack there would write to registers. So move the stack first, to just below window 7:
+
+```asm
+start:  ld      sp,0xE000               ; the stack below window 7, at the top of window 6
+```
+
+The first push goes to `0xDFFF`, the top of window 6. The ROM's EXIT address, `0x0040`, stays behind at `0xFFFE`, so from here `RET` from the entry point no longer ends the program (Step 5).
+
+### Step 3: Map the register page through ports
+
+The MMU registers are in the system page, so the first mapping of the register page must be made through ports. Write the low byte, then the high byte, which commits the page (Table 1-8):
+
+```asm
+PG_REGS equ     0x3F8                   ; the register page
+
+        ld      hl,PG_REGS
+        ld      bc,MMU7_0_P             ; the first mapping needs ports
+        out     (c),l
+        inc     b
+        out     (c),h                   ; from here, 0xE000-0xFFFF are the registers
+```
+
+Committing the read page sets the write page too, so reads and writes in window 7 both reach the registers. Then name the parts of the page (Table 1-14):
+
+```asm
+REGS    equ     0xE000                  ; the register page, in window 7
+SREG    equ     REGS+REGS_SYSTEM        ; 0xE000: system register r at SREG + r
+CREG    equ     REGS+REGS_CUSTOM        ; 0xF000: custom offset k at CREG + k
+PREG    equ     REGS+REGS_PALETTE       ; 0xF400: palette p at PREG + p * REGS_PAL_SPAN
+```
+
+So custom offset k is at `CREG + k` and system register r at `SREG + r`. (Example 1-3 uses no palette, so it leaves PREG out.)
+
+### Step 4: Use the registers as memory
+
+Now ordinary loads reach the registers:
+
+```asm
+        ld      a,(SREG+SYSID)          ; a register read with LD
+        ld      hl,0x8000               ; BGCOLOR: blue 0x00, green 0x80 ...
+        ld      (CREG+BGCOLOR),hl       ; (held for the red byte)
+        ld      a,0xFF
+        ld      (CREG+BGCOLOR+2),a      ; ... red 0xFF: the colour changes, whole
+```
+
+The rules of "The Hardware Registers" still hold: a colour commits on its red byte, and a sticky flag such as VIDSTAT.VBLANK is cleared by writing 1. Use **ports** where the register page is not yet mapped, and in code meant to work whatever the program has in its windows.
+
+### Step 5: End the program
+
+Give window 7 its SRAM page back, with one `LD (nn),HL` through the register page itself, then end with `JP 0x0040`, the ROM's EXIT:
+
+```asm
+EXIT    equ     0x0040                  ; the ROM's EXIT: back to the monitor, whatever SP holds
+
+        ld      hl,7
+        ld      (SREG+MMU7),hl          ; window 7 back to SRAM page 7, in one instruction
+        jp      EXIT
+```
+
+`RET` would need the stack the program moved, so a program that moves the stack, or keeps window 7 as the register page, ends with `JP 0x0040`, not `RET`.
+
+### Example 1-3: The registers as memory
+
+The whole program, `examples/system/regpage.asm`, puts the steps together. Between Steps 4 and 5 it waits 100 frames on the vertical blank flag, VIDSTAT.VBLANK, so the colour can be seen.
+
+```asm
+; Example 1-3 (docs/guide/system.md): the registers as memory.
+; Moves the stack out of window 7, maps the register page (MMU page 0x3F8)
+; there, and then works on registers with ordinary loads: it reads SYSID,
+; sets the background colour to orange (blue and green first, red last),
+; and waits two seconds, 100 frames of VIDSTAT.VBLANK. Then window 7 gets
+; SRAM page 7 back, through the register page itself, and JP 0x0040 (the
+; ROM's EXIT) ends the program.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
+        org     0x8000
+
+        include "hw.inc"
+
+PUTHEX  equ     0x06                    ; RST 28h function: print A as two hex digits
+EXIT    equ     0x0040                  ; the ROM's EXIT: back to the monitor, whatever SP holds
+PG_REGS equ     0x3F8                   ; the register page
+
+REGS    equ     0xE000                  ; the register page, in window 7
+SREG    equ     REGS+REGS_SYSTEM        ; 0xE000: system register r at SREG + r
+CREG    equ     REGS+REGS_CUSTOM        ; 0xF000: custom offset k at CREG + k
+
+start:  ld      sp,0xE000               ; the stack below window 7, at the top of window 6
+        ld      hl,PG_REGS
+        ld      bc,MMU7_0_P             ; the first mapping needs ports
+        out     (c),l
+        inc     b
+        out     (c),h                   ; from here, 0xE000-0xFFFF are the registers
+
+        ld      hl,s_id
+        rst     0x18                    ; PUTS
+        ld      a,(SREG+SYSID)          ; a register read with LD
+        rst     0x28
+        db      PUTHEX
+
+        ld      hl,0x8000               ; BGCOLOR: blue 0x00, green 0x80 ...
+        ld      (CREG+BGCOLOR),hl       ; (held for the red byte)
+        ld      a,0xFF
+        ld      (CREG+BGCOLOR+2),a      ; ... red 0xFF: the colour changes, whole
+
+        ld      b,100                   ; 100 frames: 2 seconds
+.frame: ld      a,VIDSTAT_VBLANK_M
+        ld      (CREG+VIDSTAT),a        ; a sticky flag: writing 1 clears it
+.wait:  ld      a,(CREG+VIDSTAT)
+        and     VIDSTAT_VBLANK_M        ; set again at the next frame's start
+        jr      z,.wait
+        djnz    .frame
+
+        ld      hl,7
+        ld      (SREG+MMU7),hl          ; window 7 back to SRAM page 7, in one instruction
+        jp      EXIT
+
+s_id:   db      13, 10, "SYSID through the register page: ", 0
+```
+
+The border round the console turns orange for two seconds, then the monitor is back.
 
 ---
 
@@ -884,8 +973,12 @@ All are registers of page `0x00`: the port is the register number then `0x00` (T
 | SYSRESET | `0x75` | `0x7500` | W (S) | `0xA5` resets |
 | SYSBTN | `0x76` | `0x7600` | R | DIVMMC (1), MULTIFACE (0), 1 = held |
 | CPUSPEED | `0x77` | `0x7700` | RW | SPECTRUM (3): 3.57 MHz. DIV (2–0): 20 MHz ÷ (DIV + 1) |
-| MMU0–MMU7 | `0x80`–`0x8F` | `0x8000`–`0x8F00` | RW | Each window's read page, 2 bytes; the high byte commits, and sets the write page |
-| MMU0W–MMU7W | `0x90`–`0x9F` | `0x9000`–`0x9F00` | RW | Each window's write page, 2 bytes; the high byte commits |
+| MMUn_0 | `0x80` + 2n | `0x8000` + `0x200` × n | RW | Window n's read page bits 7–0; held until MMUn_1 is written |
+| MMUn_1 | `0x81` + 2n | `0x8100` + `0x200` × n | RW | Bits 7–2 read 0. Bits 1–0: read page bits 9–8; writing commits the read page and sets the write page to it |
+| MMUnW_0 | `0x90` + 2n | `0x9000` + `0x200` × n | RW | Window n's write page bits 7–0; held until MMUnW_1 is written |
+| MMUnW_1 | `0x91` + 2n | `0x9100` + `0x200` × n | RW | Bits 7–2 read 0. Bits 1–0: write page bits 9–8; writing commits the write page only |
+
+n is the window, 0–7 (Table 1-7). Reading a page register gives the committed page.
 
 Registers `0x78`–`0x7B` are the I2C master, for the real-time clock and the display's DDC; the system spec, section 7, describes it.
 
@@ -900,9 +993,15 @@ SYSCON's ROMWE is clear (ROMLOCK keeps its value until power-on), CPUSPEED is `0
 | Equate | Value |
 |--------|-------|
 | `SYSID_P` … `CPUSPEED_P`, `MMU0_0_P` … `MMU7W_1_P` | Each register's port |
-| `MMU7`, `MMU7_0`, `MMU7_1` (and the others) | Register numbers, so `SREG+MMU7` in the register page |
-| `RESETWHY_POWER_M` … | Each cause's bit |
+| `SYSID` … `CPUSPEED`, `MMU7`, `MMU7_0`, `MMU7_1` (and the others) | Register numbers, so `SREG+SYSID` and `SREG+MMU7` in the register page |
+| `NAME_B`, `NAME_W`, `NAME_M` | A field's lowest bit, width and mask, for every field (`KEYCON_KXMAP_B`, `VIDSTAT_VBLANK_M`) |
+| `SYSVER_MAJOR_M`, `SYSVER_MINOR_M` | `0xF0`, `0x0F` |
+| `SYSCFG_CHIPMB_M`, `SYSCFG_CPU_M` | `0xFC`, `0x03` |
+| `RESETWHY_POWER_M` … `RESETWHY_HALTED_M` | `0x01` … `0x80`: each cause's bit |
+| `SYSCON_ROMWE_M`, `SYSCON_ROMLOCK_M` | `0x02`, `0x04` |
+| `SYSBTN_MULTIFACE_M`, `SYSBTN_DIVMMC_M` | `0x01`, `0x02` |
 | `CPUSPEED_DIV_M`, `CPUSPEED_SPECTRUM_M` | `0x07`, `0x08` |
+| `MMU_PAGE_M`, `MMUW_PAGE_M` | `0x3FF`: a page number's 10 bits |
 | `SYSRESET_MAGIC` | `0xA5` |
 | `REGS_SYSTEM`, `REGS_CUSTOM`, `REGS_PALETTE`, `REGS_PAL_SPAN` | `0x0000`, `0x1000`, `0x1400`, `0x300`: offsets in the register page |
 | `SYSPAGE`, `CUSTPAGE` | `0x00`, `0x10`: the I/O pages |

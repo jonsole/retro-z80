@@ -1,4 +1,4 @@
-; Example 1-1 (docs/guide/system.md): about this machine.
+; Example 1-2 (docs/guide/system.md): about this machine.
 ; Reads the system registers through ports and prints what they say: the
 ; machine's ID, the FPGA build, the SRAM size, why it was last reset, and
 ; the CPU speed. Then RET goes back to the monitor.

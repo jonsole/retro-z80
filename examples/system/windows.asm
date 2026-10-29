@@ -1,4 +1,4 @@
-; Example 1-2 (docs/guide/system.md): one page in two windows, then a
+; Example 1-1 (docs/guide/system.md): one page in two windows, then a
 ; read-only window. SRAM page 0x020 (physical 0x040000) goes into windows 5
 ; and 6. A string written through window 6 is printed through window 5:
 ; the same memory. Then window 6's write page becomes NONE, and a write
