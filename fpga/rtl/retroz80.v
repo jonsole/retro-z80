@@ -338,11 +338,12 @@ module retroz80 #(
     // ---------------------------------------------------------------- USB serial (spec 10)
     wire        cmd_key;           // KEY: a PS/2 byte from the PC, to the keyboard (spec 12)
     wire [7:0]  key_byte;
+    wire        irq_ser;           // SERIAL: source 15
     serial ser (
         .clk(clk), .rst(sys_rst), .por(por), .us_tick(us_tick),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_ser), .rb_hit(hit_ser),
-        .irq(), .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
+        .irq(irq_ser), .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
         .cmd_key(cmd_key), .key_byte(key_byte),
         .p_rxv(), .p_rxd(), .p_rxpop(1'b0), .p_txr(), .p_txpush(1'b0), .p_txd(8'd0),
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
@@ -350,7 +351,7 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- interrupts (spec 8)
-    // Sources so far: VBLANK (0), COPPER (2), VIDERR (3), DMA0-3 (4-7), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
+    // Sources so far: VBLANK (0), COPPER (2), VIDERR (3), DMA0-3 (4-7), TIMER0-3 (11-14), SERIAL (15), KEYB (17) and SOFT (18,
     // inside the controller). The other lines are tied off until their
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
@@ -358,7 +359,7 @@ module retroz80 #(
     wire [3:0]  irq_dmx;               // DMA0-3: sources 4-7
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, 1'b0, irq_vid};
+    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, 1'b0, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
