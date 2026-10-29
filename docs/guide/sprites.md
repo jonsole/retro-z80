@@ -19,13 +19,14 @@ This chapter covers:
 - the sprite sequencer, which reuses sprites from a list without a copper list;
 - collision detection;
 - the data FIFO, the DMA, and how many sprites the memory can feed;
+- what sprites cannot do;
 - a summary of the registers.
 
 You should have read the Playfield Hardware chapter, because sprites are mixed with the layers described there, and because it explains how the Z80 reaches the registers ("Reaching the registers from the Z80"). Some examples use the copper, which has its own chapter.
 
 ### About this chapter
 
-"Forming a Sprite" goes through the registers in the order you set them and ends with a complete program: a ball bouncing round the screen. The sections after it explain each part in more depth: the image, the window and size, positioning and clipping, moving, scaling, and depth. Then come the techniques: reusing a sprite down the screen with the copper, the sprite sequencer, and collisions. "Sprite DMA" explains how the hardware fetches sprite images, how much it can fetch, and what happens when it cannot keep up. The chapter ends with a summary of the registers.
+"Forming a Sprite" goes through the registers in the order you set them and ends with a complete program: a ball bouncing round the screen. The sections after it explain each part in more depth: the image, the window and size, positioning and clipping, moving, scaling, and depth. Then come the techniques: reusing a sprite down the screen with the copper, the sprite sequencer, and collisions. "Sprite DMA" explains how the hardware fetches sprite images, how much it can fetch, and what happens when it cannot keep up. "What Sprites Cannot Do" gathers the limits in one place, and the chapter ends with a summary of every register it uses, the sequencer's among them.
 
 ---
 
@@ -35,7 +36,7 @@ You should have read the Playfield Hardware chapter, because sprites are mixed w
 - As in the Playfield Hardware chapter, **the register page is in window 7** (`REGS` = `0xE000`), and the examples write registers through it: `CREG` (`0xF000`) + custom offset, `SREG` + system register, `PREG` + palette offset. The sprite palette, SPRPALETTE, is at `PREG + 3 × REGS_PAL_SPAN` (`0xFD00`); this chapter calls it `SPRPAL`.
 - In `hw.inc`, `SPR0` … `SPR7` are the offsets of the eight sprites in the custom block (`0x010`, `0x020` … `0x080`: 16 bytes apart), and `SPR_PT`, `SPR_H`, `SPR_V`, `SPR_CTL` and `SPR_STEP` are the offsets of the registers inside a sprite (`0x0`, `0x3`, `0x7`, `0xB`, `0xC`). So sprite 3's window across is at `CREG+SPR3+SPR_H`. The same offset also has a ready-added name, `SPR3_H`, and a port, `SPR3_H_P`.
 - **IX points at a sprite** when code sets one up field by field: `ld ix,CREG+SPR0`, then `ld (ix+SPR_CTL),value`.
-- `hw.inc` has no `CPORT()`: sjasmplus has no function-like defines. Use the `_P` names, or write a computed port out as `((off & 0xFF) << 8) | 0x10 | (off >> 8)` (Table 4-16).
+- `hw.inc` has no `CPORT()`: sjasmplus has no function-like defines. Use the `_P` names, or write a computed port out as `((off & 0xFF) << 8) | 0x10 | (off >> 8)` (Table 4-13).
 - Sprite positions are in **beam coordinates**, which count the blanking (see "Beam coordinates" in the Playfield Hardware chapter): the 720 × 576 picture is beam pixels 144–863 and beam lines 49–624. `hw.inc` gives the picture's top left corner as `VID_X0` (144) and `VID_Y0` (49), so picture position (x, y) is beam position (VID_X0 + x, VID_Y0 + y). In the text, "pixel 200, line 100" is a picture position unless it is called a beam pixel or beam line.
 - **Physical and Z80 addresses.** The sprites read SRAM by 22-bit physical address, not through the MMU. Physical addresses have names like `BALL` (`0x040000`), and the Z80 reaches them by mapping their 8 KB page into window 6 (`DRAWWIN`, `0xC000`). As in Chapter 3, the complete examples are loaded at `0x8000` with windows 2–6 still showing SRAM pages 0–4, so a Z80 address a in `0x4000`–`0xDFFF` is physical a − `RAMOFS` (`0x4000`).
 - Comments give T-states where they help. The CPU runs at 20 MHz: a line is 640 T-states, a frame 400,000.
@@ -111,8 +112,8 @@ The window also sets the image's size: there is no separate width or height regi
 
 | Bits | Name | Meaning |
 |------|------|---------|
-| 7–4 | PAL | 2 and 4 bpp: the 16-colour block of the sprite palette |
-| 3–2 | DEPTH | 0 = in front of all layers … 3 = behind all layers |
+| 7–4 | PAL | 2 and 4 bpp: the 16-colour block of SPRPALETTE (colour = PAL × 16 + value). Not used at 8 bpp |
+| 3–2 | DEPTH | 0 = in front of all layers; 1 = behind FRONT; 2 = behind MIDDLE; 3 = behind BACK (Table 4-8) |
 | 1–0 | BPP | Bits per pixel: 0 = 2, 1 = 4, 2 = 8 (3 is reserved, and counts as 8) |
 
 For a 4-bit sprite in colours 32–47 of the sprite palette (block 2), in front of everything: PAL 2, DEPTH 0, BPP 1.
@@ -130,7 +131,7 @@ CTL_SHIP    equ     (2<<SPR_CTL_PAL_B)|(0<<SPR_CTL_DEPTH_B)|(1<<SPR_CTL_BPP_B)
 
 ### Step 4: the pointer, CTL last, and DMA on
 
-**SPRxPT** points at the image's first line: 3 bytes, the physical address. It moves on through the image as the sprite is drawn, so it must be written again for every frame.
+**SPRxPT** points at the image's first line: 3 bytes, the physical address. It moves on through the image, line by line, as the sprite is drawn, so it must be written again for every frame.
 
 **Writing SPRxCTL starts the sprite** (any write, even of the value it already holds), and **the vertical blank stops every sprite**. So in each vertical blank, by the CPU or (more usually) by the copper, write each sprite's pointer, and its window and scale if they changed, then **its CTL last**:
 
@@ -515,7 +516,7 @@ Table 4-5 sums these up.
 
 The copper's writes and the CPU's land in the order the register bus takes them, and the last write to each byte wins: let one of them own each sprite.
 
-**Reading SPRxPT** gives where the sprite is in its image: the address of its next word. Reading its lowest byte captures all three, as for BPL0PT and BEAMPOS (Chapter 3, "Reading the lowest byte captures"):
+**Reading SPRxPT** gives the start of the image line being drawn, or the value just written. It moves on by itself, so **reading SPRxPT0, its lowest byte, captures all three bytes**, and the other two read the captured copy, as for BPL0PT and BEAMPOS (Chapter 3, "Reading the lowest byte captures"):
 
 ```asm
         ld   hl,(CREG+SPR0_PT)      ; bits 15-0: reading byte 0 captures
@@ -726,7 +727,9 @@ The rules:
 
 ![A sprite's old use, the gap line with the copper's or the sequencer's writes, and the new use](img/sprites-4-5-reuse.svg)
 
-*Figure 4-5: Reusing a Sprite (to scale across; lines spaced out)*
+*Figure 4-5: Reusing a Sprite*
+
+Figure 4-5 is to scale across; its lines are spaced out so that each can be seen.
 
 ### Example 4-3: One sprite, three ships
 
@@ -982,38 +985,7 @@ list1:      ds      (ROWS*COLS+1)*SEQ_ENTRY
 
 SEQLC is written once the frame has started and long before the next one, so the frame start never finds it half written.
 
-### Sequencer registers
-
-**Table 4-10: Sequencer Registers**
-
-| Name | Offset | Port | Access | Function |
-|------|--------|------|--------|----------|
-| SEQCON | `0x300` | `0x0013` | RW | IRQEN (1): SEQSTAT.SKIP raises VIDERR. EN (0): on from the next frame start, with DMACON.SPREN and DMAEN |
-| SEQLC | `0x301`–`0x303` | `0x0113`–`0x0313` | RW | The list's physical address (21–1). Taken at every frame start |
-| SEQMASK | `0x304` | `0x0413` | RW | Sprite n may be used (bit n). Acts at once |
-| SEQSTAT | `0x305` | `0x0513` | R, W1C | RUN (2): working through this frame's list. END (1): the end entry reached this frame. SKIP (0): sticky |
-| SEQSKIP | `0x306` | `0x0613` | R | Entries skipped so far this frame (stops at 255) |
-| SEQSKIPL | `0x307` | `0x0713` | R | Entries skipped in the last whole frame |
-| SEQPT | `0x308`–`0x30A` | `0x0813`–`0x0A13` | R, CAP | The next entry to read. Reading `0x308` captures all three bytes |
-
-The copper writes them with `CMOVEF`. After reset they are all 0: the sequencer is off and may use no sprite.
-
-**Table 4-11: SEQCON Bits**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–2 | – | Reserved: write 0 |
-| 1 | IRQEN | SEQSTAT.SKIP raises VIDERR |
-| 0 | EN | The sequencer runs from the next frame start, with DMACON.SPREN and DMAEN |
-
-**Table 4-12: SEQSTAT Bits**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–3 | – | Reserved |
-| 2 | RUN | Working through this frame's list. Read only |
-| 1 | END | The end entry was reached this frame. Read only |
-| 0 | SKIP | An entry was skipped. Sticky: write 1 to clear |
+The sequencer's registers, with the bits of SEQCON and SEQSTAT, are in the summary: Tables 4-17 to 4-19.
 
 ---
 
@@ -1021,7 +993,7 @@ The copper writes them with `CMOVEF`. After reset they are all 0: the sequencer 
 
 The hardware checks every picture pixel for sprites touching: **SPRCOLL** collects what it finds. It is four separate byte registers:
 
-**Table 4-13: SPRCOLL Registers**
+**Table 4-10: SPRCOLL Registers**
 
 | Register | Bit n set when |
 |----------|----------------|
@@ -1070,7 +1042,7 @@ The DMA fetches each line's words **during that line**, from its start (the hori
 
 Only when a FIFO is about to run dry does the sprite's fetch become urgent. Then it competes with the layers by deadline: whoever needs a word soonest goes first (see "The Fetch Budget" in the Playfield Hardware chapter). An urgent fetch never takes a memory cycle the Z80 is using: **the sprites never slow the CPU**. They can slow the copper at PRI 0 and the DMA engine, which come after them.
 
-A line takes the words that hold its shown pixels, from HSTART to HSTOP or beam pixel 864, whichever comes first; words past the right edge are not fetched. Each word fetched moves SPRxPT on by 2. Each further line moves on by the source lines YSTEP gives: at normal size one line, when bigger down often none (the line is fetched again), when smaller some lines are skipped and not fetched.
+A line takes the words that hold its shown pixels, from HSTART to HSTOP or beam pixel 864, whichever comes first; words past the right edge are not fetched. SPRxPT moves on line by line, not word by word: it holds the start of the image line being drawn. Each further line moves on by the source lines YSTEP gives: at normal size one line, when bigger down often none (the line is fetched again), when smaller some lines are skipped and not fetched.
 
 The FIFO is emptied when the sprite's CTL is written (and the fetch starts from SPRxPT), and at the start of each vertical blank, which stops the sprite.
 
@@ -1087,9 +1059,9 @@ At every point across the screen, the layers whose windows cover it and the spri
 
 *Figure 4-9: Sprites Stacked over the Same Pixels*
 
-Table 4-14 gives how many sprites can be stacked over the same 16 screen pixels with only the certain cycles.
+Table 4-11 gives how many sprites can be stacked over the same 16 screen pixels with only the certain cycles.
 
-**Table 4-14: Sprites Stacked over the Same 16 Pixels**
+**Table 4-11: Sprites Stacked over the Same 16 Pixels**
 
 | Layers | Words per 16 pixels | 8 bpp | 8 bpp, 2× across | 4 bpp | 2 bpp |
 |--------|--------------------|-------|------------------|-------|-------|
@@ -1121,7 +1093,7 @@ An underrun means the screen asks too much of the memory at that point. Use fewe
 
 ### Turning sprite DMA on and off
 
-**Table 4-15: Sprite DMA Enables**
+**Table 4-12: Sprite DMA Enables**
 
 | Register | Bits | Name | Meaning |
 |----------|------|------|---------|
@@ -1153,11 +1125,31 @@ There is no way to feed a sprite by hand: retro-z80 has no SPRxDAT, so only the 
 
 ---
 
+## What Sprites Cannot Do
+
+The limits below are explained through the chapter; this section gathers them in one place, each with the section that explains it.
+
+- **No mirroring.** The hardware does not flip a sprite. For an object that faces either way, store both images and point SPRxPT at the one you want ("Scaling").
+- **No feeding by hand.** There is no SPRxDAT: only the DMA fills a sprite's FIFO ("Turning sprite DMA on and off").
+- **No collision interrupt.** Read SPRCOLL once a frame, in the vertical blank ("Collisions").
+- **No partner in a sprite collision.** SPRCOLL0 says that sprite n touched another sprite, not which one. Keep the candidates on sprites of their own, or check positions in software ("Collisions").
+- **No HSTART below 16.** The DMA needs a few pixels before the sprite's first. A sprite can hang off the left edge by up to 128 pixels; what a smaller HSTART does is not specified ("Positioning and Clipping").
+- **No sprite on beam line 0.** The vertical blank stops every sprite there, and nothing starts again by itself: write each sprite's CTL every frame ("When writes take effect").
+- **No more than eight on a line.** To show more objects, reuse a sprite further down, with the copper or the sequencer. The new use needs a gap line: new VSTART ≥ old VSTOP + 1 ("Reusing a Sprite down the Screen").
+- **No scale beyond 16×.** Steps below `0x0080` (16 times bigger) count as `0x0080`, and steps above `0x8000` (16 times smaller) as `0x8000` ("Scaling").
+- **No recovery from an underrun.** A sprite that runs short shows nothing more until its CTL is written again ("Running out: SPRUNDER").
+- **No depth in direct colour.** With VIDCON.DIRECT set, sprites are drawn in front of the whole picture and DEPTH is not used ("Depth: Sprites and Layers").
+- **No attributes on sprites.** The attribute layer does not act on sprites ("Depth: Sprites and Layers").
+- **No writes at the very end of a line.** The hardware works out the next line's sizes at beam pixels 840–847; what a write in pixels 840–863 does is not specified yet ("Changing a sprite while it is drawn").
+- **No choice of sprite in the sequencer.** It does not report which entry went to which sprite. Per-line effects, a fixed front-to-back order and collisions that matter need a sprite outside SEQMASK ("Sharing with the copper and the CPU").
+
+---
+
 ## Summary of Sprite Registers
 
-All offsets are custom offsets. Table 4-16 gives the port of an offset; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`).
+All offsets are custom offsets. Table 4-13 gives the port of an offset; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`).
 
-**Table 4-16: The Port of a Custom Offset**
+**Table 4-13: The Port of a Custom Offset**
 
 | Bits | Meaning |
 |------|---------|
@@ -1176,17 +1168,17 @@ Sprite n's registers are at SPRn + offset, where SPRn = `0x010` + n × `0x10`; `
 
 ### Sprite registers
 
-**Table 4-17: Sprite Registers**
+**Table 4-14: Sprite Registers**
 
 | Name | Offset | Bytes | Access | Function |
 |------|--------|-------|--------|----------|
-| SPRxPT | SPRn + `0x0` | 3 | RW, CAP | Where the next image line starts (21–1; bit 0 reads 0). Read: the next word of the image. Write it each frame, before CTL |
+| SPRxPT | SPRn + `0x0` | 3 | RW, CAP | Where the next image line starts (21–1; bit 0 reads 0). Read: the start of the image line being drawn, or the value just written; reading SPRxPT0 captures all three bytes. Write it each frame, before CTL |
 | SPRxH | SPRn + `0x3` | 4 | RW | HSTART (bytes 0–1, 10–0), HSTOP (bytes 2–3, 10–0): unsigned beam pixels. HSTART 16 or more |
 | SPRxV | SPRn + `0x7` | 4 | RW | VSTART (bytes 0–1, 10–0), VSTOP (bytes 2–3, 10–0): unsigned beam lines |
-| SPRxCTL | SPRn + `0xB` | 1 | RW | PAL (7–4), DEPTH (3–2), BPP (1–0). Any write starts the sprite: write it each frame, last |
+| SPRxCTL | SPRn + `0xB` | 1 | RW | PAL (7–4), DEPTH (3–2), BPP (1–0): the bits in Table 4-2. Any write starts the sprite: write it each frame, last |
 | SPRxSTEP | SPRn + `0xC` | 4 | RW | XSTEP (bytes 0–1), YSTEP (bytes 2–3): source pixels per screen pixel, 5.11 (`0x0800` normal, `0x0080`–`0x8000`; 0 counts as `0x0800`) |
 
-**Table 4-18: Each Sprite's Offsets and Ports**
+**Table 4-15: Each Sprite's Offsets and Ports**
 
 | Sprite | Offsets | Ports | Register page |
 |--------|---------|-------|---------------|
@@ -1197,19 +1189,9 @@ Sprite n's registers are at SPRn + offset, where SPRn = `0x010` + n × `0x10`; `
 
 The copper writes them with one-word MOVEs.
 
-### SPRxCTL bits
-
-**Table 4-19: SPRxCTL Bits in Full**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–4 | PAL | 2 and 4 bpp: colour block of SPRPALETTE (colour = PAL × 16 + value) |
-| 3–2 | DEPTH | 0 = in front of all layers; 1 = behind FRONT; 2 = behind MIDDLE; 3 = behind BACK |
-| 1–0 | BPP | 0 = 2, 1 = 4, 2 = 8 bits per pixel; 3 reserved (counts as 8) |
-
 ### Sprite globals
 
-**Table 4-20: Sprite Global Registers**
+**Table 4-16: Sprite Global Registers**
 
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
@@ -1222,21 +1204,59 @@ The copper writes them with one-word MOVEs.
 
 The copper reaches the sprite globals with `CMOVEF` only.
 
-Table 4-21 lists the related bits elsewhere.
+### Sequencer registers
 
-**Table 4-21: Related Bits in Other Registers**
+**Table 4-17: Sequencer Registers**
+
+| Name | Offset | Port | Access | Function |
+|------|--------|------|--------|----------|
+| SEQCON | `0x300` | `0x0013` | RW | IRQEN (1): SEQSTAT.SKIP raises VIDERR. EN (0): on from the next frame start, with DMACON.SPREN and DMAEN |
+| SEQLC | `0x301`–`0x303` | `0x0113`–`0x0313` | RW | The list's physical address (21–1). Taken at every frame start |
+| SEQMASK | `0x304` | `0x0413` | RW | Sprite n may be used (bit n). Acts at once |
+| SEQSTAT | `0x305` | `0x0513` | R, W1C | RUN (2): working through this frame's list. END (1): the end entry reached this frame. SKIP (0): sticky |
+| SEQSKIP | `0x306` | `0x0613` | R | Entries skipped so far this frame (stops at 255) |
+| SEQSKIPL | `0x307` | `0x0713` | R | Entries skipped in the last whole frame |
+| SEQPT | `0x308`–`0x30A` | `0x0813`–`0x0A13` | R, CAP | The next entry to read. Reading `0x308` captures all three bytes |
+
+The copper writes them with `CMOVEF`. After reset they are all 0: the sequencer is off and may use no sprite.
+
+**Table 4-18: SEQCON Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Reserved: write 0 |
+| 1 | IRQEN | SEQSTAT.SKIP raises VIDERR |
+| 0 | EN | The sequencer runs from the next frame start, with DMACON.SPREN and DMAEN |
+
+**Table 4-19: SEQSTAT Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–3 | – | Reserved |
+| 2 | RUN | Working through this frame's list. Read only |
+| 1 | END | The end entry was reached this frame. Read only |
+| 0 | SKIP | An entry was skipped. Sticky: write 1 to clear |
+
+### Related bits
+
+Table 4-20 lists the related bits elsewhere that this chapter uses.
+
+**Table 4-20: Related Bits in Other Registers**
 
 | Register | Bit | Function |
 |----------|-----|----------|
 | DMACON | DMAEN (6) | The master DMA enable: needed for sprite DMA, with SPREN |
 | DMACON | SPREN (2) | Sprite DMA and the sequencer |
 | VIDSTAT | SPRUNDER (7) | A sprite's FIFO ran dry. W1C |
+| VIDSTAT | VBLANK (0) | The frame has started: beam line 0, pixel 0. W1C |
 | VIDINTEN | SPRUNDER (7) | Raise VIDERR on SPRUNDER |
 | VIDCON | SHAREPAL (5) | Sprites use PALETTE0 |
+| VIDCON | DIRECT (4) | Direct colour: sprites in front of the whole picture, DEPTH not used |
 | VIDCON | BLANKALL (2) | Background colour only: hides every layer and sprite |
+| VIDCON | EN (0) | The beam runs and the display is on |
 | SPRPALETTE | – | The sprites' 256 entries, register page `0x1D00`–`0x1FFF`, 3 bytes each (blue, green, red); palette 3 through PALIDX |
 
-The sequencer's registers are listed under "The Sprite Sequencer".
+PRIO, BGCOLOR, BEAMPOS and the MMU registers are in the Playfield Hardware chapter; COP1LC is in the Copper chapter.
 
 ### State after reset
 
@@ -1244,7 +1264,7 @@ DMACON.SPREN is clear, SPRDMA has all eight sprites on, and every sprite's PT, H
 
 ### Equates in hw.inc
 
-**Table 4-22: Sprite Equates in hw.inc**
+**Table 4-21: Sprite Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
