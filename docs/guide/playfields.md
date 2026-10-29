@@ -28,13 +28,14 @@ This chapter covers:
 - the fetch budget, and how to work out whether a screen fits;
 - video interrupts and the beam position;
 - when register writes take effect;
-- the Spectrum extras: the Spectrum screen, the attribute layer and the port `0xFE` border.
+- the Spectrum extras: the Spectrum screen, the attribute layer and the port `0xFE` border;
+- what playfields cannot do.
 
 You should know Z80 assembly language. The Interrupts chapter explains interrupt handlers in full; this chapter uses them without repeating the details. The copper, which can change any of these registers at an exact beam position, has its own chapter.
 
 ### About this chapter
 
-The first sections build a working screen as quickly as possible: "The Screen" describes the one video mode, and "Forming a Basic Playfield" goes through the registers in the order you set them, ending with a complete program. The sections after that explain bitmaps in more depth: chunky pixels and how the Z80 draws them, the window, scaling, the stride, scrolling and resetting the pointer. "Tile Maps" is the longest section, since tile maps are new in this machine. Then come split screens and the parts that concern more than one layer: priority, the palettes and direct colour. "The Fetch Budget" tells you how to check a screen design before you build it. The chapter ends with the video interrupts, the timing rules, the Spectrum extras and a summary of every register.
+The first sections build a working screen as quickly as possible: "The Screen" describes the one video mode, and "Forming a Basic Playfield" goes through the registers in the order you set them, ending with a complete program. The sections after that explain bitmaps in more depth: chunky pixels and how the Z80 draws them, the window, scaling, the stride, scrolling and resetting the pointer. "Tile Maps" is the longest section, since tile maps are new in this machine. Then come split screens and the parts that concern more than one layer: priority, the palettes and direct colour. "The Fetch Budget" tells you how to check a screen design before you build it. The chapter ends with the video interrupts, the timing rules, the Spectrum extras, the limits of the playfields gathered in one table, and the summary, the one place that lists every register.
 
 ---
 
@@ -127,12 +128,7 @@ Table 3-3 compares the two ways (T-states at any speed; at 20 MHz a T-state is 5
 | Write a whole layer (32 bytes) from a table | 32 × `OUT`/`INC B`, about 550 | `LDIR`: 667, or 32 × `LDI`: 512 |
 | Load a palette (768 bytes) | `OUTI` and `INC B` (see "Loading a palette"): 15,360 | `LDIR`: 16,123, or unrolled `LDI`: 12,288 |
 
-Four rules from the register map matter all through this chapter:
-
-- **Low byte first; every byte is written at once.** A value wider than a byte sits in consecutive registers, low byte first. There are no latches: each byte takes effect as soon as it is written, in any order and with any instruction. To change only the high byte, write just the high byte.
-- **Change wide registers between frames.** The hardware can catch a value half written: it copies a layer's settings at the start of each line, and a layer's fetch moves its pointer as it goes. So change pointers, scroll positions, windows and sprite positions in the vertical blank, or let the copper write them at a set position, as on the Amiga. A line setting caught half written spoils one line at most. A pointer written while its layer is fetching can spoil the rest of the frame (see "Writing a new pointer partway down").
-- **Colours and MMU pages wait for their last byte.** A colour (a palette entry or BGCOLOR) changes when its red byte is written; blue and green are held until then. An MMU page changes when its second byte, MMUn_1, is written. So write these low byte first. `LD (nn),HL`, `LDI`, `LDIR` and `OUT (C),r` with `INC B` all do.
-- **Reading the lowest byte captures.** For registers the hardware changes by itself (BEAMPOS, FRAMECOUNT, BPL0PT), reading the lowest byte captures the whole value, and the higher bytes of the same register then read the captured copy. The CPU has one capture: reading the lowest byte of another such register replaces it. So an interrupt handler that reads one of them between your reads spoils your value. `LD HL,(nn)` reads both bytes of a 2-byte value in one instruction, so it always gives a matching pair; for longer values, or through ports, read with interrupts off.
+Four rules matter all through this chapter: values are low byte first and every byte acts at once; wide registers are changed between frames; colours and MMU pages wait for their last byte; reading the lowest byte captures. "When Register Writes Take Effect", near the end of the chapter, gives them in full with the timing of every register. Read it before you change registers while the display runs.
 
 **CTRL0–CTRL3 are four separate byte registers**, not one value. Each acts when it is written, on its own fields.
 
@@ -313,7 +309,7 @@ The **background colour**, BGCOLOR, shows wherever no layer has a pixel. It is a
 
 ### Step 6: Set the layer's format and turn it on
 
-CTRL0 and CTRL1 hold the format, the scale, the colour block and the enable bit. Tables 3-7 and 3-8 give the values this example uses; Tables 3-60 and 3-61 in the summary give every value.
+CTRL0 and CTRL1 hold the format, the scale, the colour block and the enable bit. Tables 3-7 and 3-8 give the values this example uses; Tables 3-54 and 3-55 in the summary give every value.
 
 **Table 3-7: CTRL0 in Example 3-1**
 
@@ -760,23 +756,13 @@ That is about 100,000 pixels a second at 20 MHz. Nearly a third of the time goes
 
 Large jobs, such as clearing a screen or copying a picture into place, belong to the DMA engine, which has its own chapter; see also "What the CPU can draw in a frame" under "The Fetch Budget".
 
-### Summary: format registers
-
-**Table 3-13: Format Registers**
-
-| Register | Field | Bits | Function |
-|----------|-------|------|----------|
-| CTRL0 | MODE | 5 | 0: bitmap, 1: tile map |
-| CTRL0 | BPP | 3–2 | 0–3 for 1, 2, 4, 8 bits per pixel |
-| BPL0PT | ADDR | 21–1 | Bitmap: physical address of the next word; even |
-
 ---
 
 ## The Display Window
 
 Each layer has its own display window, set by WINX and WINY in beam coordinates:
 
-**Table 3-14: Window Registers**
+**Table 3-13: Window Registers**
 
 | Register | Layer offset | Bytes | Meaning |
 |----------|--------------|-------|---------|
@@ -819,7 +805,7 @@ WIN_Y       equ     VID_Y0+(VID_H-WIN_H)/2  ; 145
 
 ### When window changes take effect
 
-The hardware reads CTRL0–CTRL3, WINX, WINY, SCROLLX and SCROLLY for each line at the start of its horizontal blank (beam pixel 0), before its picture. **To change line L, write during the visible part of line L − 1 or earlier.** This lets you move a window or change a layer's format partway down the screen.
+WINX and WINY are line settings, read at the start of each line's horizontal blank, as CTRL0–CTRL3 and the scroll are: to change line L, write during line L − 1 or earlier (Table 3-44). This lets you move a window or change a layer's format partway down the screen.
 
 ### How much is fetched
 
@@ -831,7 +817,7 @@ The window also decides how much the hardware fetches for each line of a bitmap 
    bytes fetched  =  groups × 2 × bits per pixel
 ```
 
-**Table 3-15: Bytes Fetched per Line**
+**Table 3-14: Bytes Fetched per Line**
 
 | Window width | Scale | Depth | Source pixels | Bytes fetched per line |
 |--------------|-------|-------|---------------|------------------------|
@@ -849,7 +835,7 @@ With fine scroll the hardware may fetch one group more. The picture must have th
 
 Each layer can show every source pixel 1, 2, 4 or 8 times across (CTRL0.HSCALE) and every source line 1, 2, 4 or 8 times down (CTRL1.VSCALE), independently:
 
-**Table 3-16: Scale Codes (HSCALE, VSCALE)**
+**Table 3-15: Scale Codes (HSCALE, VSCALE)**
 
 | HSCALE, VSCALE | Scale |
 |----------------|-------|
@@ -860,7 +846,7 @@ Each layer can show every source pixel 1, 2, 4 or 8 times across (CTRL0.HSCALE) 
 
 This gives the low-resolution looks of older machines on a modern screen, with sharp pixels:
 
-**Table 3-17: Scaled Pictures**
+**Table 3-16: Scaled Pictures**
 
 | Picture | Scale | On the 720 × 576 picture | Looks like |
 |---------|-------|--------------------------|------------|
@@ -928,7 +914,7 @@ The number of words fetched makes no difference. The window width, the scale and
 
 *Figure 3-5: The Stride for a Window Narrower Than the Picture*
 
-**Table 3-18: Strides for Some Pictures**
+**Table 3-17: Strides for Some Pictures**
 
 | Picture | Window shows | BPLSTRIDE |
 |---------|--------------|-----------|
@@ -945,14 +931,6 @@ Other strides show the picture differently:
 - BPLSTRIDE = −(row stride) steps **back** one row each line. Point the pointer at the picture's last line and the picture appears upside down.
 
 The stride is live. The hardware reads it when it fetches the line's last word, about two groups (32 source pixels) before the window's right edge. A value written at the start of a line, or in the horizontal blank before it, applies at the end of that line. Example 3-9 uses this for a reflection.
-
-### Summary: the stride
-
-**Table 3-19: The Stride Register**
-
-| Name | Layer offset | Bytes | Function |
-|------|--------------|-------|----------|
-| BPLSTRIDE | `+0x10` | 2 | Signed, even: bytes from the start of one line to the start of the next |
 
 ---
 
@@ -984,7 +962,7 @@ A group is always 16 source pixels, so **any SCROLLX from 0 to 15 works at any d
 
 You may also move the pointer in single words and use a smaller SCROLLX:
 
-**Table 3-20: Coarse and Fine Scroll at Each Depth**
+**Table 3-18: Coarse and Fine Scroll at Each Depth**
 
 | Depth | Pointer in groups | Or in words |
 |-------|-------------------|-------------|
@@ -1040,16 +1018,16 @@ Call it in the vertical blank, as its header says. The pointer's bytes are writt
 
 A game that scrolls through a long map does not need the whole map in memory as a picture, only the lines on the screen and a few more. With **pointer wrap**, those lines are kept as a **ring** in a block of memory, and the display goes round it by itself. (A tile map does the same job in both directions; see "Tile Maps".)
 
-CTRL2 holds only the wrap (Table 3-21). WRAP sets the size of the block, 2^(WRAP + 9) bytes (Table 3-22).
+CTRL2 holds only the wrap (Table 3-19). WRAP sets the size of the block, 2^(WRAP + 9) bytes (Table 3-20).
 
-**Table 3-21: CTRL2**
+**Table 3-19: CTRL2**
 
 | Bits | Name | Meaning |
 |------|------|---------|
 | 7–4 | WRAP | Bitmap: pointer wrap; 0 off |
 | 3–0 | – | Reserved; write 0 |
 
-**Table 3-22: Pointer Wrap Block Sizes (CTRL2.WRAP)**
+**Table 3-20: Pointer Wrap Block Sizes (CTRL2.WRAP)**
 
 | WRAP | Block |
 |------|-------|
@@ -1114,16 +1092,6 @@ ring_scroll:
 The display does the rest: as it fetches down the screen, a pointer that passes `RING + 0x1FFFF` carries on at `RING`. Before map line y + 256 scrolls into view, draw it at ring line z = (y + 256) mod 512: page `RING ÷ 0x2000 + z ÷ 32`, offset `(z mod 32) × 256`.
 
 Wrap is not across a line: a picture that scrolls sideways must still be wide enough, or be redrawn at its edges.
-
-### Summary: scrolling a bitmap
-
-**Table 3-23: Bitmap Scrolling Registers**
-
-| Name | Layer offset | Bytes | Function |
-|------|--------------|-------|----------|
-| SCROLLX | `+0x0C` | 2 | Bitmap: fine scroll, source pixels (0–15) skipped at the start of each line (bits 3–0) |
-| BPL0PT | `+0x14` | 3 | The pointer: coarse scrolling, across and down |
-| CTRL2.WRAP | `+0x02`, bits 7–4 | 1 | Pointer wrap: the pointer stays in an aligned block of 2^(WRAP + 9) bytes; 0 off |
 
 ---
 
@@ -1214,7 +1182,7 @@ A **tile** is 8 × 8 pixels of the layer's depth d (CTRL0.BPP), stored as 8 rows
              Figure 3-6: Tile Patterns in Memory
 ```
 
-**Table 3-24: Pattern Sizes**
+**Table 3-21: Pattern Sizes**
 
 | Depth | Bytes per row | Bytes per tile | 512 tiles |
 |-------|---------------|----------------|-----------|
@@ -1240,9 +1208,9 @@ diag:       db      0x30,0x00,0x00,0x00     ; row 0: pixel 0 is colour 3
 
 ### The map
 
-The map is **MW × MH entries** of 2 bytes, stored row by row from **MAPPT**. CTRL3 sets its size (Table 3-25):
+The map is **MW × MH entries** of 2 bytes, stored row by row from **MAPPT**. CTRL3 sets its size (Table 3-22):
 
-**Table 3-25: CTRL3**
+**Table 3-22: CTRL3**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -1268,7 +1236,7 @@ A 64 × 64 map, as in Example 3-7, has CTRL3 = `0x05`:
              Figure 3-7: A Tile Map in Memory
 ```
 
-**Table 3-26: Map Sizes**
+**Table 3-23: Map Sizes**
 
 | Map | Bytes | Pixels | Row of entries |
 |-----|-------|--------|----------------|
@@ -1298,7 +1266,7 @@ Each entry is 2 bytes, low byte first:
                   Figure 3-8: A Map Entry
 ```
 
-**Table 3-27: A Map Entry**
+**Table 3-24: A Map Entry**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -1308,9 +1276,9 @@ Each entry is 2 bytes, low byte first:
 | 12–9 | PAL | Palette block, for tiles of up to 4 bits (see "Colours per tile") |
 | 8–0 | TILE | Tile number, 0–511 |
 
-A program writes the entry a byte at a time, so Table 3-28 gives it by byte. The **low byte** is the tile number's low 8 bits. A program usually builds the high byte once (its colours and flips) and writes it after each tile number.
+A program writes the entry a byte at a time, so Table 3-25 gives it by byte. The **low byte** is the tile number's low 8 bits. A program usually builds the high byte once (its colours and flips) and writes it after each tile number.
 
-**Table 3-28: A Map Entry by Byte**
+**Table 3-25: A Map Entry by Byte**
 
 | Byte | Bits | Meaning |
 |------|------|---------|
@@ -1321,18 +1289,7 @@ A program writes the entry a byte at a time, so Table 3-28 gives it by byte. The
 | | 0 | TILE bit 8 |
 | Low (address) | 7–0 | TILE bits 7–0 |
 
-The examples in this chapter use these names for the high byte:
-
-```asm
-; Map entry, high byte. (These names are not yet generated in hw.inc.)
-ME_TILE8    equ     0x01                ; TILE bit 8: tiles 256-511
-ME_PAL_B    equ     1                   ; PAL, bits 4-1: (pal << ME_PAL_B)
-ME_XFLIP    equ     0x20
-ME_YFLIP    equ     0x40
-ME_PRI      equ     0x80
-```
-
-For example, tile 300 in colour block 2, mirrored left to right, is the entry `0x252C`: low byte `0x2C` (300 and 255), high byte `0x25`:
+`hw.inc` names the high byte's bits: ME_TILE8 (`0x01`, TILE bit 8), ME_PAL_B (1) and ME_PAL_M (`0x1E`) for PAL, ME_XFLIP (`0x20`), ME_YFLIP (`0x40`) and ME_PRI (`0x80`). The examples build the high byte from them. For example, tile 300 in colour block 2, mirrored left to right, is the entry `0x252C`: low byte `0x2C` (300 and 255), high byte `0x25`:
 
 ```asm
         dw      0x252C                  ; tile 300, PAL 2, XFLIP
@@ -1343,7 +1300,7 @@ For example, tile 300 in colour block 2, mirrored left to right, is the entry `0
 
 A tile layer uses these registers; BPL0PT, BPLSTRIDE and CTRL2.WRAP are not used:
 
-**Table 3-29: Tile Layer Registers**
+**Table 3-26: Tile Layer Registers**
 
 | Register | Layer offset | Bytes | Meaning |
 |----------|--------------|-------|---------|
@@ -1437,7 +1394,7 @@ For tiles of up to 4 bits per pixel, the palette index of pixel value p is:
 
 PAL comes from the tile's entry and PALOFS from the layer's CTRL1. So each tile has its own block of 16 colours (a 1 bpp tile uses the first two entries of its block, a 2 bpp tile the first four), and one write to CTRL1 shifts the whole layer to other blocks. An 8 bpp tile's index is p itself; PAL and PALOFS are not used.
 
-**Table 3-30: A Tile Pixel's Palette Index**
+**Table 3-27: A Tile Pixel's Palette Index**
 
 | Layer depth | Index |
 |-------------|-------|
@@ -1462,7 +1419,7 @@ PRI makes a single layer behave as two: a tree's leaves can be in front of the p
 
 There is no text layer: **text is a 1 bpp tile map**, one entry per character, with the character code as TILE and a colour pair as PAL. A font of 256 characters of 8 × 8 is 2 KB of patterns. The boot console is such a layer:
 
-**Table 3-31: The Boot Console's Text Layer**
+**Table 3-28: The Boot Console's Text Layer**
 
 | Item | The boot console |
 |------|------------------|
@@ -1481,7 +1438,7 @@ The font stays at `0x1FE000` until a program overwrites it, so a program can use
 
 A tile layer is fetched by the same hardware as a bitmap, 16 source pixels at a time: two tile columns per group. For each group the fetcher reads the two pattern rows, and the two map entries of the next group, one group ahead:
 
-**Table 3-32: Memory Cycles for a Tile Layer**
+**Table 3-29: Memory Cycles for a Tile Layer**
 
 | Depth | Pattern words per group | Entry words per group | Memory cycles per group | A bitmap group |
 |-------|-------------------------|-----------------------|-------------------------|----------------|
@@ -1492,7 +1449,7 @@ A tile layer is fetched by the same hardware as a bitmap, 16 source pixels at a 
 
 In bytes per screen pixel, HS being the horizontal scale:
 
-**Table 3-33: The Cost of a Tile Layer**
+**Table 3-30: The Cost of a Tile Layer**
 
 | Layer | Bytes per screen pixel |
 |-------|------------------------|
@@ -1532,9 +1489,6 @@ STACK       equ     0xBF00
 MAP         equ     0x040000            ; game map: 64 x 64 entries, 8 KB
 TEXT        equ     0x042000            ; text map: 128 x 32 entries, 8 KB
 FONT        equ     0x1FE000            ; the boot console's font
-
-ME_PAL_B    equ     1                   ; map entry, high byte (see above)
-ME_XFLIP    equ     0x20
 
             org     0x8000
 start:      di
@@ -1919,7 +1873,7 @@ If TRANSP is clear, the layer is solid everywhere inside its window, and pixel v
 
 PRIO lists the three layers from front to back:
 
-**Table 3-34: PRIO**
+**Table 3-31: PRIO**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -1945,7 +1899,7 @@ That value is `0x31`:
 
 Sprites go among the layers by their DEPTH, and PRI tiles have a place of their own. For each pixel the hardware shows the front-most source that is not transparent. Back to front:
 
-**Table 3-35: The Display Order, Back to Front**
+**Table 3-32: The Display Order, Back to Front**
 
 | # | Source |
 |---|--------|
@@ -1988,16 +1942,6 @@ Each layer scrolls independently, so scrolling them at different speeds gives pa
 
 Two 4 bpp tile layers at 2× cost 0.375 + 0.375 = 0.75 bytes per pixel, leaving room for a third layer.
 
-### Summary: priority and transparency
-
-**Table 3-36: Priority and Transparency Registers**
-
-| Name | Offset | Port | Function |
-|------|--------|------|----------|
-| PRIO | `0x003` | `0x0310` | BACK (5–4), MIDDLE (3–2), FRONT (1–0): layer numbers; 3 = none. Reset `0x24` (Table 3-34) |
-| BGCOLOR | `0x004`–`0x006` | `0x0410`–`0x0610` | Background colour: blue, green, red (commits) |
-| CTRL0.TRANSP | Layer `+0x00`, bit 4 | | 1: pixel value 0 is transparent |
-
 ---
 
 ## Colour Registers and Palette Offsets
@@ -2006,7 +1950,7 @@ Two 4 bpp tile layers at 2× cost 0.375 + 0.375 = 0.75 bytes per pixel, leaving 
 
 There are four palettes, each of 256 entries of 24-bit colour: one for each layer and one for the sprites. A layer takes its colours from its own palette only, so three 8 bpp layers can show 768 different colours at once, plus the background.
 
-**Table 3-37: The Palettes**
+**Table 3-33: The Palettes**
 
 | Palette | Number | Used by | Register page | In this chapter's window 7 |
 |---------|--------|---------|---------------|----------------------------|
@@ -2034,10 +1978,10 @@ Entry i of palette p is at `PREG + p × 0x300 + 3i`:
 
 Through ports, the palettes are reached by an index and a data register, as many machines' colour hardware is:
 
-- **PALIDX** (`0x009`–`0x00A`) is a 10-bit index (Table 3-38). Each byte acts when it is written, and writing either byte starts PALDAT's byte order again at blue.
+- **PALIDX** (`0x009`–`0x00A`) is a 10-bit index (Table 3-34). Each byte acts when it is written, and writing either byte starts PALDAT's byte order again at blue.
 - **PALDAT** (`0x00B`) takes blue, green and red in turn. The red write changes the entry and steps PALIDX by 1: from entry 255 of one palette to entry 0 of the next.
 
-**Table 3-38: PALIDX**
+**Table 3-34: PALIDX**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2094,7 +2038,7 @@ Both fit easily in the vertical blank (31,360 T-states). For the fastest load, u
 
 ### Which entries a layer uses
 
-**Table 3-39: The Palette Entry a Pixel Uses**
+**Table 3-35: The Palette Entry a Pixel Uses**
 
 | Layer | Depth up to 4 bits | 8 bits |
 |-------|--------------------|--------|
@@ -2116,7 +2060,7 @@ With **VIDCON.SHAREPAL** (bit 5) set, every layer and every sprite takes its col
 
 The palettes are not cleared by reset. When the FPGA is loaded, all four palettes hold the Spectrum's colours in entries 0–15 and black in 16–255:
 
-**Table 3-40: The Default Palette**
+**Table 3-36: The Default Palette**
 
 | Entry | Colour | Value | Entry | Colour | Value |
 |-------|--------|-------|-------|--------|-------|
@@ -2139,27 +2083,13 @@ On a Spectrum the border is set through port `0xFE`, and that works here too (se
 
 **VIDCON.BLANKALL** shows the background colour over the whole screen, hiding every layer and sprite, without stopping them.
 
-### Summary: colours
-
-**Table 3-41: Colour Registers**
-
-| Name | Offset | Port | Function |
-|------|--------|------|----------|
-| PALIDX | `0x009`–`0x00A` | `0x0910`–`0x0A10` | Palette (9–8), entry (7–0) (Table 3-38). Writing either byte restarts PALDAT's byte order |
-| PALDAT | `0x00B` | `0x0B10` | Blue, green, red in turn; red changes the entry and steps PALIDX |
-| Palettes | Register page `0x1400`–`0x1FFF` | – | 4 × 256 entries of 3 bytes; red commits. PALIDX not used |
-| VIDCON.SHAREPAL | `0x000`, bit 5 | `0x0010` | 1: every layer and sprite uses PALETTE0 |
-| BGCOLOR | `0x004`–`0x006` | `0x0410`–`0x0610` | Background colour; read at the start of each line's picture |
-| CTRL1.PALOFS | Layer `+0x01`, bits 7–4 | | Colour block for layers of up to 4 bits |
-| VIDCON.BLANKALL | `0x000`, bit 2 | `0x0010` | 1: show only the background colour |
-
 ---
 
 ## Direct Colour
 
 In **direct colour**, set by VIDCON.DIRECT, the three layers together make one picture with the colour in each pixel, instead of an index into a palette. Each layer gives one channel:
 
-**Table 3-42: Direct Colour Channels**
+**Table 3-37: Direct Colour Channels**
 
 | Channel | From | Depth |
 |---------|------|-------|
@@ -2169,7 +2099,7 @@ In **direct colour**, set by VIDCON.DIRECT, the three layers together make one p
 
 Each channel's value is widened to 8 bits by repeating its bits, so that full scale stays full scale: a 4-bit value `abcd` becomes `abcdabcd`, a 2-bit value `ab` becomes `abababab`.
 
-**Table 3-43: Direct Colour Depths and Their Cost**
+**Table 3-38: Direct Colour Depths and Their Cost**
 
 | Colour | Each layer | Bits per pixel | Bytes per pixel at 2× across | At 4× across |
 |--------|------------|----------------|------------------------------|--------------|
@@ -2258,7 +2188,7 @@ So the display reads memory at the rate it shows it. It has **memory cycles 1 an
 
 Because data is fetched while it is shown, the limit is a **rate**: bytes per screen pixel that the beam passes, counting the blanking. A line is 864 pixels and lasts 32 µs, which is 320 memory slots:
 
-**Table 3-44: The Fetch Budget**
+**Table 3-39: The Fetch Budget**
 
 | Bytes per line | Pixels per line | Budget |
 |----------------|-----------------|--------|
@@ -2266,7 +2196,7 @@ Because data is fetched while it is shown, the limit is a **rate**: bytes per sc
 
 Each layer needs, per screen pixel:
 
-**Table 3-45: What Each Layer Costs**
+**Table 3-40: What Each Layer Costs**
 
 | Layer | Bytes per screen pixel |
 |-------|------------------------|
@@ -2281,7 +2211,7 @@ HS is the horizontal scale; vertical scaling does not reduce the cost. **At ever
 ### How to work out whether a screen fits
 
 1. List the layers and, for each, its kind, depth, horizontal scale and window.
-2. Work out each layer's bytes per pixel from Table 3-45.
+2. Work out each layer's bytes per pixel from Table 3-40.
 3. Find the places across and down the screen where different sets of windows overlap. Windows that do not overlap do not add up.
 4. Add up each place's layers, and the sprites that can be there. Each sum must be 1.48 or less.
 5. Check the memory: each picture, map and set of tiles, at the stride you chose. There are 4 MB.
@@ -2309,7 +2239,7 @@ HS is the horizontal scale; vertical scaling does not reduce the cost. **At ever
 
 **Three 8 bpp tile layers at 2×**: 3 × 0.625 = **1.875**. Too much. Make one of them 4 bpp (0.375): 1.625, still too much; make two of them 4 bpp: 1.375, fits.
 
-**Table 3-46: Which Screens Fit**
+**Table 3-41: Which Screens Fit**
 
 | Screen | Bytes per pixel | Fits? |
 |--------|-----------------|-------|
@@ -2336,7 +2266,7 @@ Each layer has one group of time in hand. Close to the budget, 8 bpp layers at 1
 
 The display's budget is one limit; the Z80's time is the other. At 20 MHz a frame is 400,000 T-states:
 
-**Table 3-47: CPU Time for Some Jobs**
+**Table 3-42: CPU Time for Some Jobs**
 
 | Job | T-states | Time |
 |-----|----------|------|
@@ -2461,7 +2391,7 @@ The copper makes the same bars with no CPU time (see the Copper chapter).
 
 The video unit raises three interrupt sources: VBLANK (source 0), LINE (source 1) and VIDERR (source 3). Their flags are in VIDSTAT:
 
-**Table 3-48: VIDSTAT**
+**Table 3-43: VIDSTAT**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2499,24 +2429,20 @@ You can also poll the flags with interrupts off:
 
 **LINE** comes once per frame, at the start of the beam line in LINECMP (2 bytes, bits 10–0). For picture line L, write VID_Y0 + L; a value above 624 never matches. To have it on several lines, write the next line number into LINECMP in the handler. The Z80 at 20 MHz takes at most 42 T-states (2.1 µs) to start an IM 2 handler, so a LINE handler runs early in the line it was asked for; that leaves most of the line's 640 T-states to change CTRL0–CTRL3, the window, SCROLLX, SCROLLY, PRIO or BGCOLOR for the **next** line, or BPLSTRIDE for the end of this one. At slower CPUSPEED settings the start-up time grows (16.8 µs at 2.5 MHz), so a LINE handler at a slow speed may miss the next line. Effects that must land on an exact pixel belong to the copper.
 
-### Summary: interrupts and the beam
-
-**Table 3-49: Interrupt and Beam Registers**
-
-| Name | Offset | Port | Function |
-|------|--------|------|----------|
-| VIDSTAT | `0x001` | `0x0110` | SPRUNDER (7), OVERRUN2–0 (6–4), OVERRUNA (2), LINE (1), VBLANK (0): sticky, write 1 to clear. INVBLANK (3): read only (Table 3-48) |
-| VIDINTEN | `0x002` | `0x0210` | Interrupt enables, as VIDSTAT bits 7–4, 2, 1, 0 |
-| LINECMP | `0x007`–`0x008` | `0x0710`–`0x0810` | Beam line (10–0) of the LINE interrupt |
-| BEAMPOS | `0x0F0`–`0x0F3` | `0xF010`–`0xF310` | `hpixel` (`0x0F0`), `vline` (`0x0F2`); reading `0x0F0` captures all four bytes |
-| FRAMECOUNT | `0x0F4`–`0x0F5` | `0xF410`–`0xF510` | Frames; reading `0x0F4` captures both bytes |
-| VIDSIZE | `0x0F6`–`0x0F9` | `0xF610`–`0xF910` | HVISIBLE (720), VVISIBLE (576) |
-
 ---
 
 ## When Register Writes Take Effect
 
-**Table 3-50: When Register Writes Take Effect**
+Four rules from the register map apply to every register in this chapter:
+
+- **Low byte first; every byte is written at once.** A value wider than a byte sits in consecutive registers, low byte first. There are no latches: each byte takes effect as soon as it is written, in any order and with any instruction. To change only the high byte, write just the high byte.
+- **Change wide registers between frames.** The hardware can catch a value half written: it copies a layer's settings at the start of each line, and a layer's fetch moves its pointer as it goes. So change pointers, scroll positions, windows and sprite positions in the vertical blank, or let the copper write them at a set position, as on the Amiga. A line setting caught half written shows the mix on one line at most. A pointer written while its layer is fetching can spoil the rest of the frame (see "Writing a new pointer partway down").
+- **Colours and MMU pages wait for their last byte.** A colour (a palette entry or BGCOLOR) changes when its red byte is written; blue and green are held until then. An MMU page changes when its second byte, MMUn_1, is written. So write these low byte first. `LD (nn),HL`, `LDI`, `LDIR` and `OUT (C),r` with `INC B` all do.
+- **Reading the lowest byte captures.** For registers the hardware changes by itself (BEAMPOS, FRAMECOUNT, BPL0PT), reading the lowest byte captures the whole value, and the higher bytes of the same register then read the captured copy. The CPU has one capture: reading the lowest byte of another such register replaces it. So an interrupt handler that reads one of them between your reads spoils your value. `LD HL,(nn)` reads both bytes of a 2-byte value in one instruction, so it always gives a matching pair; for longer values, or through ports, read with interrupts off.
+
+Table 3-44 gives when each register's write reaches the screen.
+
+**Table 3-44: When Register Writes Take Effect**
 
 | Registers | Take effect |
 |-----------|-------------|
@@ -2527,7 +2453,7 @@ You can also poll the flags with interrupts off:
 | VIDCON, palette entries | At once: the next pixel |
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once. DMACON stops or starts the next fetch |
 
-Each byte of a value wider than a byte takes effect when it is written; only colours wait for their red byte. A line setting copied while half written shows the mix on one line, so change wide values in the vertical blank, or with the copper at a set position. A write that lands in the same few clocks as the hardware's copy of the line settings (at beam pixel 0) may take effect a line later.
+A write that lands in the same few clocks as the hardware's copy of the line settings (at beam pixel 0) may take effect a line later.
 
 ---
 
@@ -2550,16 +2476,9 @@ The attribute layer draws nothing. It replaces the colour block of its **target*
 
 With 8 × 1 cells (CELL1) every pixel line of a cell has its own attribute: Timex-style high colour, with no CPU timing at all.
 
-**Table 3-51: Attribute Layer Registers**
+The attribute layer has four registers, ATCTL, ATADDR, ATSTRIDE and ATSCROLL; Table 3-56 in the summary gives their offsets and ports.
 
-| Name | Offset | Port | Bits |
-|------|--------|------|------|
-| ATCTL | `0x130` | `0x3011` | Control (Table 3-52) |
-| ATADDR | `0x131`–`0x133` | `0x3111`–`0x3311` | 21–1: the top cell row's address |
-| ATSTRIDE | `0x134` | `0x3411` | 7–1: bytes per cell row (0–254) |
-| ATSCROLL | `0x135` | `0x3511` | Fine scroll (Table 3-53) |
-
-**Table 3-52: ATCTL**
+**Table 3-45: ATCTL**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2570,7 +2489,7 @@ With 8 × 1 cells (CELL1) every pixel line of a cell has its own attribute: Time
 | 2–1 | TARGET | 0 = L0, 1 = L1, 2 = L2, 3 = none |
 | 0 | EN | 1: the attribute layer is on |
 
-**Table 3-53: ATSCROLL**
+**Table 3-46: ATSCROLL**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2589,23 +2508,23 @@ The attribute registers are at offsets `0x130` and up, in page `0x11`: read them
 
 ### The border: port 0xFE
 
-As on a Spectrum, a write to port `0xFE` sets the border colour, which here is the background colour. Bits 2–0 pick one of eight colours, the Spectrum's without BRIGHT; bit 4 is the beeper and bit 3 MIC, as on a Spectrum (Table 3-54):
+As on a Spectrum, a write to port `0xFE` sets the border colour, which here is the background colour. Bits 2–0 pick one of eight colours, the Spectrum's without BRIGHT, and bit 4 is the beeper, as on a Spectrum. Bit 3, MIC (tape out on a Spectrum), is ignored, and so are bits 7–5 (Table 3-47):
 
-**Table 3-54: Port 0xFE Written**
+**Table 3-47: Port 0xFE Written**
 
 | Bits | Name | Meaning |
 |------|------|---------|
-| 7–5 | – | Not used by the video |
+| 7–5 | – | Ignored |
 | 4 | Beeper | The beeper (see the System chapter) |
-| 3 | MIC | As on a Spectrum |
-| 2–0 | Border | Border colour (Table 3-55) |
+| 3 | MIC | Tape out on a Spectrum; ignored |
+| 2–0 | Border | Border colour (Table 3-48) |
 
 ```asm
         ld   a,2                    ; red border, beeper off
         out  (0xFE),a               ; or out (ULA_PORT),a
 ```
 
-**Table 3-55: Border Colours from Port 0xFE**
+**Table 3-48: Border Colours from Port 0xFE**
 
 | Bits 2–0 | Colour | BGCOLOR |
 |----------|--------|---------|
@@ -2627,7 +2546,7 @@ As on a Spectrum, a write to port `0xFE` sets the border colour, which here is t
 
 A 48K Spectrum's screen is 6,144 bytes of pixels, 32 bytes a line, in its own line order, then 768 attribute bytes, 32 a row. This example shows it unchanged at 2 × 2, centred:
 
-**Table 3-56: The Spectrum Screen's Set-up**
+**Table 3-49: The Spectrum Screen's Set-up**
 
 | Part | Set-up |
 |------|--------|
@@ -2639,9 +2558,9 @@ A 48K Spectrum's screen is 6,144 bytes of pixels, 32 bytes a line, in its own li
 
 The screen is at physical `0x000000`. After reset, window 2 shows SRAM page 0, so the Z80 sees the screen at `0x4000`–`0x5AFF`, exactly where a Spectrum has it.
 
-**The line order.** Table 3-57 gives the offset in the screen of byte x (0–31) of pixel line y (0–191).
+**The line order.** Table 3-50 gives the offset in the screen of byte x (0–31) of pixel line y (0–191).
 
-**Table 3-57: A Spectrum Screen Offset**
+**Table 3-50: A Spectrum Screen Offset**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2817,50 +2736,84 @@ A Spectrum game that writes its screen at `0x4000` runs its screen code unchange
 6. **Raster effects.** Attribute changes timed to the beam (multicolour) are not needed: use 8 × 1 attribute cells (ATCTL.CELL1) and an attribute area of 6,144 bytes, ATSTRIDE 32. Effects that need other changes mid-screen are the copper's job.
 7. **The keyboard.** Port `0xFE` reads give the keyboard rows as on a Spectrum (see the Input chapter).
 
-### The default palette
+The Spectrum's 16 colours in entries 0–15 of every palette at power-on are a Spectrum extra too; see "The default palette" under "Colour Registers and Palette Offsets".
 
-The Spectrum colours in entries 0–15 of every palette at power-on are a Spectrum extra too; see "The default palette" under "Colour Registers and Palette Offsets".
+---
+
+## What Playfields Cannot Do
+
+These are the limits stated through this chapter, gathered in one place, with what to do instead.
+
+**Table 3-51: Limits of the Playfields**
+
+| Limit | What to do instead | See |
+|-------|--------------------|-----|
+| One video mode, 576p at 50 Hz; no timing registers | Make a smaller screen with a window and scaling | "The Screen" |
+| Three layers, each from its own palette | SHAREPAL puts every layer on PALETTE0; sprites add more objects | "Colour Registers and Palette Offsets" |
+| Scaling by 1, 2, 4 or 8 only: no fractional scaling and no shrinking | Pick the window and source size to suit a whole scale | "Scaling" |
+| Scaling down the screen saves no bandwidth: each source line is fetched again for every screen line | Scale across to save bandwidth | "Scaling" |
+| Pointers and the stride are even: a bitmap line cannot start at an odd byte | Keep pictures 16-pixel aligned | "The Stride" |
+| A line shown must have whole 16-pixel groups of data, and one group to spare when SCROLLX is not 0 | Make the picture a group wider than the part shown | "How much is fetched", "Horizontal scrolling" |
+| The hardware never resets a bitmap's pointer | Write it in every vertical blank, or by the copper | "Resetting the Pointer Every Frame" |
+| Pointer wrap is not across a line | Make a sideways-scrolling picture wide enough, redraw its edges, or use a tile map | "Endless scrolling: pointer wrap" |
+| The layers have no data registers that the CPU or the copper can write: a layer is fed only by its own fetch | Draw into SRAM | docs/spec/video.md, open point V5 |
+| A tile layer has up to 512 tiles and a map of up to 128 × 128 entries (1,024 × 1,024 pixels) | Write new columns and rows just off the screen | "A world bigger than the map" |
+| PAL and PALOFS do not apply at 8 bpp; below that a block is 16 colours | Use 8 bpp for more colours in one tile or bitmap | "Colours per tile", "Which entries a layer uses" |
+| A map entry read between its two bytes shows for one frame with one old byte | Write entries in the vertical blank or off the screen | "Example 3-6: Writing a new column" |
+| The fetch budget: 1.48 bytes per screen pixel, at every point across the screen; a narrower window does not help | Lower a layer's depth or raise its horizontal scale | "The Fetch Budget" |
+| 24-bit direct colour at 2× across is just over the budget | Show it at 4× across, or use 12-bit colour | "Direct Colour" |
+| In direct colour, palettes, PRIO, PALOFS, PAL, PRI, TRANSP, the background colour and the attribute layer do nothing | Use the palette modes for those effects | "Direct Colour" |
+| The Z80 cannot redraw a whole bitmap screen every frame (a 40 KB clear takes 11–43 ms) | Redraw only what moves, use tile maps and sprites, and the DMA engine | "What the CPU can draw in a frame" |
+| The Z80 cannot hit the 20–40 T-state gap for a mid-line pointer write | Let the copper write it at an exact pixel | "Writing a new pointer partway down" |
+| A LINE handler at a slow CPUSPEED may miss the next line | Use the copper for effects on exact lines | "Video interrupts" |
+| `OTIR` cannot load a palette, since B is the register number | Unrolled `OUTI` with `INC B`, or `LDIR` through the register page | "Example 3-10: Loading a palette" |
+| The copper cannot reach the register page or write port `0xFE`; it reaches the attribute registers only with MOVEF | The copper writes PALIDX and PALDAT, and BGCOLOR | "Through PALIDX and PALDAT", "The border: port 0xFE" |
+| The palettes are not cleared by reset, and a program cannot rely on them afterwards | Set every colour you use | "The default palette" |
+| Port `0xFE` gives only the eight Spectrum colours without BRIGHT | Write BGCOLOR for other border colours | "The border: port 0xFE" |
+| No contended memory and no floating bus | Time Spectrum code by CPUSPEED's SPECTRUM setting, not by them | "Porting a Spectrum game's screen code" |
+| The attribute layer has no effect in direct colour and does not act on sprites | Colour sprites through SPRPALETTE | "The attribute layer" |
 
 ---
 
 ## Summary of Playfield Registers
 
-All offsets are custom offsets. Table 3-1 gives the port of offset k; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`). Layer n's registers are at Ln + offset, where L0 = `0x090`, L1 = `0x0B0` and L2 = `0x0D0`; `hw.inc` also gives them ready-added, as `L0_CTRL0` and `L1_BPL0PT`, with `_P` for the port. Values wider than a byte are low byte first, and each byte is written at once; colours change on their red byte. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures. Fields are listed top bit first.
+All offsets are custom offsets. Table 3-1 gives the port of offset k; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`). Layer n's registers are at Ln + offset, where L0 = `0x090`, L1 = `0x0B0` and L2 = `0x0D0`; `hw.inc` also gives them ready-added, as `L0_CTRL0` and `L1_BPL0PT`, with `_P` for the port. Values wider than a byte are low byte first, and each byte is written at once; colours change on their red byte. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures. Fields are listed top bit first. When each write takes effect is in Table 3-44, and the limits are in Table 3-51.
 
 ### Global registers
 
-**Table 3-58: Global Video Registers**
+**Table 3-52: Global Video Registers**
 
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
 | VIDCON | `0x000` | `0x0010` | RW | SHAREPAL (5): everything on PALETTE0. DIRECT (4): direct colour. BLANKALL (2): background colour only. EN (0): display on (Table 3-10) |
-| VIDSTAT | `0x001` | `0x0110` | W1C | SPRUNDER (7), OVERRUN2–0 (6–4), INVBLANK (3, R), OVERRUNA (2), LINE (1), VBLANK (0) (Table 3-48) |
+| VIDSTAT | `0x001` | `0x0110` | W1C | SPRUNDER (7), OVERRUN2–0 (6–4), INVBLANK (3, R), OVERRUNA (2), LINE (1), VBLANK (0) (Table 3-43) |
 | VIDINTEN | `0x002` | `0x0210` | RW | Enables for VIDSTAT bits 7–4, 2, 1, 0 |
-| PRIO | `0x003` | `0x0310` | RW | BACK (5–4), MIDDLE (3–2), FRONT (1–0); 3 = no layer. Reset `0x24` (Table 3-34) |
+| PRIO | `0x003` | `0x0310` | RW | BACK (5–4), MIDDLE (3–2), FRONT (1–0); 3 = no layer. Reset `0x24` (Table 3-31) |
 | BGCOLOR | `0x004`–`0x006` | `0x0410`–`0x0610` | RW | Background colour: blue, green, red (commits). Also set by port `0xFE` |
 | LINECMP | `0x007`–`0x008` | `0x0710`–`0x0810` | RW | LINE interrupt beam line (10–0) |
-| PALIDX | `0x009`–`0x00A` | `0x0910`–`0x0A10` | RW | Palette (9–8), entry (7–0) (Table 3-38) |
+| PALIDX | `0x009`–`0x00A` | `0x0910`–`0x0A10` | RW | Palette (9–8), entry (7–0) (Table 3-34). Writing either byte restarts PALDAT's byte order |
 | PALDAT | `0x00B` | `0x0B10` | RW | Palette data: blue, green, red; red changes the entry and steps PALIDX |
 | DMACON | `0x00C` | `0x0C10` | SC | SETCLR (7), DMAEN (6), BPLEN (5): both needed for layer DMA; COPEN (4), BLTEN (3), SPREN (2), AUDEN (1) (Table 3-9) |
 | BEAMPOS | `0x0F0`–`0x0F3` | `0xF010`–`0xF310` | R, CAP | `hpixel` (`0x0F0`), `vline` (`0x0F2`) |
 | FRAMECOUNT | `0x0F4`–`0x0F5` | `0xF410`–`0xF510` | R, CAP | Frames |
 | VIDSIZE | `0x0F6`–`0x0F9` | `0xF610`–`0xF910` | R | HVISIBLE (720), VVISIBLE (576) |
+| Palettes | Register page `0x1400`–`0x1FFF` | – | RW | PALETTE0–2, SPRPALETTE: 256 entries each, 3 bytes (blue, green, red; red commits) at palette base + 3i (Table 3-33) |
 
 ### Layer registers
 
-**Table 3-59: Layer Registers**
+**Table 3-53: Layer Registers**
 
 | Name | Offset | Bytes | Access | Function |
 |------|--------|-------|--------|----------|
-| CTRL0 | Ln + `0x00` | 1 | RW | HSCALE (7–6), MODE (5), TRANSP (4), BPP (3–2), EN (0) (Table 3-60) |
-| CTRL1 | Ln + `0x01` | 1 | RW | PALOFS (7–4), VSCALE (1–0) (Table 3-61) |
-| CTRL2 | Ln + `0x02` | 1 | RW | WRAP (7–4): bitmap pointer wrap (Table 3-62) |
-| CTRL3 | Ln + `0x03` | 1 | RW | MAPH (3–2), MAPW (1–0): tile map size (Table 3-63) |
+| CTRL0 | Ln + `0x00` | 1 | RW | HSCALE (7–6), MODE (5), TRANSP (4), BPP (3–2), EN (0) (Table 3-54) |
+| CTRL1 | Ln + `0x01` | 1 | RW | PALOFS (7–4), VSCALE (1–0) (Table 3-55) |
+| CTRL2 | Ln + `0x02` | 1 | RW | WRAP (7–4): bitmap pointer wrap, an aligned block of 2^(WRAP + 9) bytes; 0 off (Tables 3-19, 3-20) |
+| CTRL3 | Ln + `0x03` | 1 | RW | MAPH (3–2), MAPW (1–0): tile map size, 32, 64 or 128 entries (Table 3-22) |
 | WINX (XEND) | Ln + `0x04` | 2 | RW | First beam pixel after the window. Reset 864 |
 | WINX (XSTART) | Ln + `0x06` | 2 | RW | First beam pixel of the window. Reset 144 |
 | WINY (YEND) | Ln + `0x08` | 2 | RW | First beam line after the window. Reset 625 |
 | WINY (YSTART) | Ln + `0x0A` | 2 | RW | First beam line of the window. Reset 49 |
-| SCROLLX | Ln + `0x0C` | 2 | RW | Bitmap: fine scroll (3–0). Tiles: map X (9–0) |
+| SCROLLX | Ln + `0x0C` | 2 | RW | Bitmap: fine scroll, source pixels 0–15 skipped (3–0). Tiles: map X (9–0) |
 | SCROLLY | Ln + `0x0E` | 2 | RW | Tiles: map Y (9–0) |
 | BPLSTRIDE | Ln + `0x10` | 2 | RW | Bitmap: bytes from one line's start to the next; signed, even |
 | BPL0PT | Ln + `0x14` | 3 | RW, CAP | Bitmap: physical address of the next word (21–1) |
@@ -2869,9 +2822,9 @@ All offsets are custom offsets. Table 3-1 gives the port of offset k; in the reg
 
 Offsets `0x12`–`0x13`, `0x17`, `0x1B` and `0x1F` are reserved: they read `0xFF` and ignore writes.
 
-### CTRL fields
+### CTRL0, CTRL1 and the map entry
 
-**Table 3-60: CTRL0**
+**Table 3-54: CTRL0**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2882,7 +2835,7 @@ Offsets `0x12`–`0x13`, `0x17`, `0x1B` and `0x1F` are reserved: they read `0xFF
 | 1 | – | Reserved; write 0 |
 | 0 | EN | 1: layer on |
 
-**Table 3-61: CTRL1**
+**Table 3-55: CTRL1**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -2890,66 +2843,30 @@ Offsets `0x12`–`0x13`, `0x17`, `0x1B` and `0x1F` are reserved: they read `0xFF
 | 3–2 | – | Reserved |
 | 1–0 | VSCALE | 0–3: 1×, 2×, 4×, 8× down |
 
-**Table 3-62: CTRL2**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–4 | WRAP | Bitmap: 0 off; n = blocks of 2^(n + 9) bytes (1–13) |
-| 3–0 | – | Reserved; write 0 |
-
-**Table 3-63: CTRL3**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–4 | – | Reserved |
-| 3–2 | MAPH | 0 = 32, 1 = 64, 2 = 128 entries high |
-| 1–0 | MAPW | 0 = 32, 1 = 64, 2 = 128 entries wide |
-
-### Tile map entry
-
-**Table 3-64: Tile Map Entry**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 15 | PRI | In front of all layers and of sprites with DEPTH 1–3. High byte, bit 7 |
-| 14 | YFLIP | Upside down. High byte, bit 6 |
-| 13 | XFLIP | Mirrored left to right. High byte, bit 5 |
-| 12–9 | PAL | Palette block for tiles of up to 4 bits. High byte, bits 4–1 |
-| 8–0 | TILE | Tile number 0–511. High byte bit 0, and the low byte |
-
-### Palettes in the register page
-
-**Table 3-65: Palettes in the Register Page**
-
-| Register page | Palette | Entry i |
-|---------------|---------|---------|
-| `0x1400`–`0x16FF` | PALETTE0 (layer 0) | `0x1400` + 3i: blue, green, red (red commits) |
-| `0x1700`–`0x19FF` | PALETTE1 (layer 1) | `0x1700` + 3i |
-| `0x1A00`–`0x1CFF` | PALETTE2 (layer 2) | `0x1A00` + 3i |
-| `0x1D00`–`0x1FFF` | SPRPALETTE | `0x1D00` + 3i |
+A tile map entry's bits are in Table 3-24, and by byte in Table 3-25.
 
 ### Attribute layer (Spectrum extra)
 
-**Table 3-66: Attribute Layer Registers**
+**Table 3-56: Attribute Layer Registers**
 
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
-| ATCTL | `0x130` | `0x3011` | RW (PHASE R) | PHASE (7), RATE (6–5), FLASH (4), CELL1 (3), TARGET (2–1), EN (0) (Table 3-52) |
+| ATCTL | `0x130` | `0x3011` | RW (PHASE R) | PHASE (7), RATE (6–5), FLASH (4), CELL1 (3), TARGET (2–1), EN (0) (Table 3-45) |
 | ATADDR | `0x131`–`0x133` | `0x3111`–`0x3311` | RW | Top cell row's address (21–1) |
-| ATSTRIDE | `0x134` | `0x3411` | RW | Bytes per cell row (7–1) |
-| ATSCROLL | `0x135` | `0x3511` | RW | Fine Y (6–4), fine X (3–0) (Table 3-53) |
+| ATSTRIDE | `0x134` | `0x3411` | RW | Bytes per cell row (7–1), 0–254 |
+| ATSCROLL | `0x135` | `0x3511` | RW | Fine Y (6–4), fine X (3–0) (Table 3-46) |
 
 ### Port 0xFE (Spectrum extra)
 
-**Table 3-67: Port 0xFE**
+**Table 3-57: Port 0xFE**
 
 | Port | Write | Read |
 |------|-------|------|
-| `0xFE`, any high byte | Bit 4 beeper, bit 3 MIC; bits 2–0: border, sets BGCOLOR at once to one of 8 colours | Keyboard rows picked by A15–A8 (Input chapter) |
+| `0xFE`, any high byte | Bits 2–0: border, sets BGCOLOR at once to one of 8 colours (Table 3-48). Bit 4: beeper. Bits 7–5 and bit 3 (MIC): ignored (Table 3-47) | Keyboard rows picked by A15–A8 (Input chapter) |
 
 ### State after reset
 
-**Table 3-68: Video State After Reset**
+**Table 3-58: Video State After Reset**
 
 | What | After reset |
 |------|-------------|
@@ -2957,13 +2874,13 @@ Offsets `0x12`–`0x13`, `0x17`, `0x1B` and `0x1F` are reserved: they read `0xFF
 | WINX, WINY | The full screen: XSTART 144, XEND 864, YSTART 49, YEND 625 |
 | PRIO | `0x24`: L0 in front, then L1, then L2 |
 | Other video registers | 0, BGCOLOR black among them |
-| The palettes | Not changed by reset. When the FPGA is loaded they hold the default palette (Table 3-40) |
+| The palettes | Not changed by reset. When the FPGA is loaded they hold the default palette (Table 3-36) |
 
-When a program starts, the boot ROM's console is on: layer 0 as a 1 bpp tile layer (Table 3-31), with the display and layer DMA on. The rest of what the boot ROM leaves is not specified yet, so a program sets up every register it relies on, as `video_off` in Example 3-1 does.
+When a program starts, the boot ROM's console is on: layer 0 as a 1 bpp tile layer (Table 3-28), with the display and layer DMA on. The rest of what the boot ROM leaves is not specified yet, so a program sets up every register it relies on, as `video_off` in Example 3-1 does.
 
 ### Equates in hw.inc
 
-**Table 3-69: Video Equates in hw.inc**
+**Table 3-59: Video Equates in hw.inc**
 
 | Equate | Meaning |
 |--------|---------|
@@ -2973,6 +2890,7 @@ When a program starts, the boot ROM's console is on: layer 0 as a 1 bpp tile lay
 | `name_FIELD_B`, `name_FIELD_M` | A field's first bit and mask (`L_CTRL0_BPP_B` = 2, `L_CTRL0_BPP_M` = `0x0C`) |
 | `L0`, `L1`, `L2`, `L_SPAN` | The layers' offsets (`0x090`, `0x0B0`, `0x0D0`) and their size (`0x20`) |
 | `L_CTRL0` … `L_PATPT` | Offsets inside a layer; `L1_SCROLLY` and so on ready-added |
+| `ME_TILE8`, `ME_PAL_B`, `ME_PAL_M`, `ME_XFLIP`, `ME_YFLIP`, `ME_PRI` | A tile map entry's high byte: TILE bit 8 (`0x01`), PAL's first bit (1) and mask (`0x1E`), XFLIP (`0x20`), YFLIP (`0x40`), PRI (`0x80`) (Table 3-25) |
 | `VID_X0`, `VID_Y0`, `VID_W`, `VID_H` | The picture: beam pixel 144, beam line 49, 720 × 576 |
 | `BEAM_W`, `BEAM_H` | The beam's total: 864 × 625 |
 | `REGS_SYSTEM`, `REGS_CUSTOM`, `REGS_PALETTE`, `REGS_PAL_SPAN` | Register page offsets: `0x0000`, `0x1000`, `0x1400`; `0x300` from one palette to the next |
