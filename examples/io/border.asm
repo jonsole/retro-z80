@@ -2,7 +2,8 @@
 ; Keys 0-7 set the border to that Spectrum colour, read through port 0xFE
 ; the way a Spectrum reads its keyboard, so the membrane, a PS/2 keyboard
 ; and keys typed from the PC all work. BREAK (CAPS SHIFT + SPACE, or Esc
-; on a PS/2 keyboard) goes back to the monitor.
+; on a PS/2 keyboard) puts the border back to black and goes back to the
+; monitor.
 
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
@@ -33,7 +34,10 @@ start:
         in      a,(ULA_PORT)
         rra
         jr      c,.scan
-        ret                             ; both held: BREAK. RET goes to the ROM's EXIT
+
+        xor     a                       ; both held: BREAK. Put the border back to
+        out     (ULA_PORT),a            ; black, as the boot ROM left it (beeper 0)
+        ret                             ; RET goes to the ROM's EXIT
 
 ; For each colour 0-7: the row's address byte, then the key's column bit
 keys:   db      0xEF, 0x01              ; 0: row 4, bit 0

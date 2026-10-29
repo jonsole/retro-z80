@@ -15,13 +15,16 @@ A fourth source is the PC: keys typed in VS Code, or sent by the bridge's MCP to
 This chapter covers:
 
 - which way to read the keys, and when;
-- reading the keyboard the Spectrum way, through port `0xFE`, and KEYCON, with a complete program;
-- the whole membrane at once: KEYMAP0–6, KEYROW0–7 and the extra Next keys;
-- the PS/2 keyboard: the FIFO, scan codes, a complete program that prints them, and sending to the keyboard;
+- the membrane's matrix, and reading it the Spectrum way through port `0xFE`, with KEYCON;
+- the whole membrane at once: KEYMAP0–6, KEYROW0–7 and the extra keys;
+- the PS/2 keyboard: its registers, the FIFO and scan codes;
 - how PS/2 keys reach port `0xFE`;
 - keys typed from the PC;
 - the boot ROM's key calls;
-- the joysticks, Kempston and Mega Drive pads;
+- the joysticks and the Kempston port;
+- two complete programs, built step by step: the border from the number keys, and the PS/2 scan codes;
+- advanced topics: sending to the keyboard, the keyboard's interrupt, Mega Drive pads;
+- what the hardware cannot do, or does not do yet;
 - a summary of the registers.
 
 You should know how the Z80 reaches the registers through ports (see "Reaching the registers from the Z80" in the Playfield Hardware chapter). The keyboard's interrupt belongs to the Interrupts and Timers chapter; this chapter reads the keys by polling.
@@ -57,7 +60,41 @@ A game usually reads **port `0xFE`**: it shows which keys are held, it works wit
 
 ## The Spectrum Way: Port 0xFE
 
-Port `0xFE` is the Spectrum's keyboard. The 40 Spectrum keys are in 8 **rows** of 5; the high byte of the port address picks the rows, one address line each, and the low 5 bits of the answer say which keys in those rows are held, **0 = pressed** (Table 8-2):
+### The membrane's matrix
+
+The membrane is a matrix of 8 **rows** and 7 **columns**, 56 keys (Figure 8-1). Columns 0–4 hold the Spectrum's 40 keys, in the Spectrum's own layout. Columns 5–6 hold the KS3's 16 extra keys. Each row is picked by one line of the high byte of the port address, A8 for row 0 up to A15 for row 7: that line at 0 picks the row.
+
+```
+                       extra keys        Spectrum keys
+ Line  High byte  Row   col 6   col 5     col 4 col 3 col 2 col 1 col 0
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A8    0xFE        0  |  UP   |  EXT  | |  V  |  C  |  X  |  Z  | CS  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A9    0xFD        1  | GRAPH |CAPS LK| |  G  |  F  |  D  |  S  |  A  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A10   0xFB        2  |  INV  | TRUE  | |  T  |  R  |  E  |  W  |  Q  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A11   0xF7        3  | EDIT  | BREAK | |  5  |  4  |  3  |  2  |  1  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A12   0xEF        4  |   "   |   ;   | |  6  |  7  |  8  |  9  |  0  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A13   0xDF        5  |   .   |   ,   | |  Y  |  U  |  I  |  O  |  P  |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A14   0xBF        6  | RIGHT |  DEL  | |  H  |  J  |  K  |  L  | ENT |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+ A15   0x7F        7  | DOWN  | LEFT  | |  B  |  N  |  M  | SS  | SPC |
+                      +-------+-------+ +-----+-----+-----+-----+-----+
+                       KEYMAP6 KEYMAP5   bit 4 bit 3 bit 2 bit 1 bit 0
+                                         of port 0xFE
+
+                   Figure 8-1: The Membrane's Matrix
+```
+
+In Figure 8-1, CS is CAPS SHIFT, SS SYMBOL SHIFT, ENT ENTER, SPC SPACE; EXT is EXTEND MODE, CAPS LK CAPS LOCK, TRUE and INV are TRUE VIDEO and INV VIDEO, DEL is DELETE, and UP, DOWN, LEFT and RIGHT are the cursor keys. Port `0xFE` reads columns 0–4; KEYMAP0–6 read every column (see "The Whole Membrane: KEYMAP0–6").
+
+### Reading port 0xFE
+
+Port `0xFE` is the Spectrum's keyboard. The high byte of the port address picks the rows, and the low 5 bits of the answer say which keys in those rows are held, **0 = pressed** (Table 8-2):
 
 **Table 8-2: Port 0xFE Keyboard Rows**
 
@@ -104,9 +141,11 @@ Bits 7–5 are not keys (Table 8-3): bit 6 is the Spectrum's EAR input, a fixed 
         jr      nz,something_held
 ```
 
-Reading port `0xFE` changes nothing, so read it as often as you like. Only the whole low byte `0xFE` reaches the keyboard: a Spectrum answers on any even port, so Spectrum code that reads through another even port must be changed to `0xFE`.
+Reading port `0xFE` changes nothing, so read it as often as you like.
 
-**Writing** port `0xFE` sets the border colour (bits 2–0, a Spectrum colour, at once) and the beeper (bit 4), as on a Spectrum. Every write sets both.
+### Writing port 0xFE
+
+Writing port `0xFE` sets the border colour (bits 2–0, a Spectrum colour, at once) and the beeper (bit 4), as on a Spectrum. Every write sets both.
 
 **Table 8-4: Port 0xFE Write Bits**
 
@@ -149,71 +188,11 @@ A game that wants the extra keys as keys of their own clears KXMAP and keeps the
 
 Put `0x07` back before the program ends.
 
-### Example 8-1: The border from the number keys
-
-The program reads the keys 0–7 and sets the border to the colour of whichever is held. CAPS SHIFT and SPACE together, the Spectrum's BREAK, end it. On a PS/2 keyboard, or from the PC, Esc is BREAK.
-
-It works in three steps:
-
-1. For each colour 0–7, read the row of that number key and test its column (the table `keys`).
-2. If the key is held, write its colour to port `0xFE`.
-3. Read rows 0 and 7 one at a time; if CAPS SHIFT and SPACE are both held, return to the monitor, otherwise go back to step 1.
-
-```asm
-; Example 8-1: the border from the number keys (examples/io/border.asm)
-        org     0x8000
-        include "hw.inc"
-
-start:
-.scan:  ld      hl,keys
-        ld      e,0                     ; E = the colour of the key being tested
-.key:   ld      a,(hl)                  ; the row's high byte: 0 in the row's bit
-        in      a,(ULA_PORT)            ; A = that row, 0 = pressed
-        inc     hl
-        and     (hl)                    ; this key's column
-        inc     hl
-        jr      nz,.next                ; 1: not pressed
-        ld      a,e
-        out     (ULA_PORT),a            ; bits 2-0 the border, bit 4 the beeper (0)
-.next:  inc     e
-        ld      a,e
-        cp      8
-        jr      nz,.key
-
-        ld      a,0xFE                  ; row 0: CAPS SHIFT is bit 0
-        in      a,(ULA_PORT)
-        rra
-        jr      c,.scan
-        ld      a,0x7F                  ; row 7: SPACE is bit 0
-        in      a,(ULA_PORT)
-        rra
-        jr      c,.scan
-        ret                             ; both held: BREAK. RET goes to the ROM's EXIT
-
-; For each colour 0-7: the row's high byte, then the key's column bit
-keys:   db      0xEF, 0x01              ; 0: row 4, bit 0
-        db      0xF7, 0x01              ; 1: row 3, bit 0
-        db      0xF7, 0x02              ; 2
-        db      0xF7, 0x04              ; 3
-        db      0xF7, 0x08              ; 4
-        db      0xF7, 0x10              ; 5
-        db      0xEF, 0x10              ; 6: row 4, bit 4
-        db      0xEF, 0x08              ; 7: row 4, bit 3
-```
-
-Hold 3 and the border goes magenta; 6, yellow. The keys on the digit row of a PS/2 keyboard, the keypad's digits and the PC's keys all work, because they all reach port `0xFE` (see "PS/2 Keys on Port 0xFE" below).
-
-**Note:** BREAK is tested with two reads, one row each. A single read of rows 0 and 7 together (`0x7E`) would say "bit 0 is held" for CAPS SHIFT alone, or SPACE alone: combined rows cannot tell which row a key is in.
-
-### Ghosting
-
-The membrane has no diodes, as on a real Spectrum. Three keys held at three corners of a rectangle in the matrix (two in one row, and one in the same column as one of them) can make the fourth corner look held too. Games pick keys that do not form rectangles, or accept it. PS/2 keys and keys from the PC never ghost: they are mapped, not wired.
-
 ---
 
 ## The Whole Membrane: KEYMAP0–6
 
-The membrane is a matrix of 8 rows and 7 columns, 56 keys: the 40 Spectrum keys in columns 0–4, and the KS3's 16 extra keys in columns 5–6. The hardware scans it all the time, about every half millisecond, and debounces it, so a read always gives a settled answer whatever the CPU speed.
+The hardware scans the whole matrix of Figure 8-1 all the time, about every half millisecond, and debounces it, so a read always gives a settled answer whatever the CPU speed.
 
 **KEYMAP0–6** (registers `0x10`–`0x16`, ports `0x1000`–`0x1600`) give the whole membrane, one register per column, **1 = pressed**: bit r of KEYMAPc is the key at row r, column c. Table 8-6 gives every key.
 
@@ -264,25 +243,16 @@ Any PS/2 keyboard plugs into the PS/2 socket. It sends **scan codes** (set 2): a
 
 ### The registers
 
-**Table 8-7: PS/2 Keyboard Registers**
+Six registers, KBCON to KBIRQEN (registers `0x60`–`0x65`), drive the keyboard; Table 8-19 in the summary gives their ports and access. KBCON turns the FIFO on (Table 8-7), KBSTAT counts the bytes waiting (Table 8-8), KBDATA gives them, KBSEND sends a byte to the keyboard (see "Sending to the keyboard" under Advanced Topics), and KBIRQ and KBIRQEN hold the flags and their interrupt enables (Table 8-9).
 
-| Name | Register | Port | Function |
-|------|----------|------|----------|
-| KBCON | `0x60` | `0x6000` | The FIFO on or off (Table 8-8) |
-| KBSTAT | `0x61` | `0x6100` | Bytes waiting, and a byte being sent (Table 8-9) |
-| KBDATA | `0x62` | `0x6200`, and `0x62` with any high byte | Reading takes one byte; an empty FIFO reads `0x00` and takes nothing |
-| KBSEND | `0x63` | `0x6300` | Write a byte to send it to the keyboard |
-| KBIRQ | `0x64` | `0x6400` | Bytes waiting (live) and errors (sticky, write 1 to clear) (Table 8-10) |
-| KBIRQEN | `0x65` | `0x6500` | Interrupt enables, as KBIRQ |
-
-**Table 8-8: KBCON Bits**
+**Table 8-7: KBCON Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
 | 7–1 | – | Read 0 |
 | 0 | EN | 1: the FIFO on. 0: the FIFO off; turning it off empties it |
 
-**Table 8-9: KBSTAT Bits**
+**Table 8-8: KBSTAT Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -290,7 +260,7 @@ Any PS/2 keyboard plugs into the PS/2 socket. It sends **scan codes** (set 2): a
 | 6–5 | – | Read 0 |
 | 4–0 | COUNT | Bytes waiting in the FIFO, 0–16 |
 
-**Table 8-10: KBIRQ and KBIRQEN Bits**
+**Table 8-9: KBIRQ and KBIRQEN Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -307,7 +277,7 @@ The boot ROM starts a program with KBCON.EN on and the keyboard's interrupt off,
 
 ### Reading the FIFO
 
-Check KBSTAT.COUNT, then read KBDATA. An empty FIFO reads `0x00`, which a keyboard also sends (it means its own buffer overflowed), so KBDATA alone cannot say the FIFO is empty: check COUNT first:
+Check KBSTAT.COUNT, then read KBDATA. Reading KBDATA takes one byte. An empty FIFO reads `0x00` and takes nothing; but a keyboard also sends `0x00` (it means its own buffer overflowed), so KBDATA alone cannot say the FIFO is empty: check COUNT first:
 
 ```asm
         ld      bc,KBSTAT_P
@@ -335,7 +305,7 @@ Every read of KBDATA takes a byte, whichever way it is reached. A byte with a ba
 
 ### Scan codes
 
-**Table 8-11: Set 2 Scan Codes**
+**Table 8-10: Set 2 Scan Codes**
 
 | The keyboard sends | Meaning |
 |--------------------|---------|
@@ -355,7 +325,179 @@ Shift is a key like any other: a capital A is Shift down, A down, A up, Shift up
         db      0x12, 0x1C, 0xF0,0x1C, 0xF0,0x12    ; Shift down, A down, A up, Shift up
 ```
 
-Software keeps track of the shift keys itself.
+Software keeps track of the shift keys itself. A real decoder turns the codes into characters with a layout table, keeps the shift keys' state, and ignores Pause's `E1` sequence. The boot ROM's decoder (`firmware/boot/keys.asm`, `ps2key` and its tables `ps2tab` and `ps2tab_s`) does this for a UK layout.
+
+---
+
+## PS/2 Keys on Port 0xFE
+
+With **KEYCON.PS2MAP** set (after reset), a key held on the PS/2 keyboard also shows on port `0xFE` as the Spectrum key, or pair of keys, it stands for. A **mapper** in the hardware watches the bytes the keyboard sends, follows `E0` and `F0`, and keeps a held bit for each key it knows. So a Spectrum game can be played on a PS/2 keyboard with no help from software. Table 8-11 gives the map.
+
+**Table 8-11: PS/2 Keys on Port 0xFE**
+
+| PS/2 key | Spectrum key(s) |
+|----------|-----------------|
+| A–Z, 0–9 (the main row and the keypad) | The same key |
+| Enter, keypad Enter | ENTER |
+| Space | SPACE |
+| Either Shift | CAPS SHIFT |
+| Either Ctrl, either Alt | SYMBOL SHIFT |
+| Backspace | CAPS SHIFT + 0 (DELETE) |
+| The cursor keys | CAPS SHIFT + 5, 6, 7, 8 |
+| Esc | CAPS SHIFT + SPACE (BREAK) |
+| Caps Lock | CAPS SHIFT + 2 |
+| Tab | CAPS SHIFT + SYMBOL SHIFT (EXTEND MODE) |
+| `,` `.` `;` `'` `/` `-` `=` | SYMBOL SHIFT + N, M, O, 7, V, J, L |
+
+- The mapper watches the bytes **before** the FIFO, so it works whether KBCON.EN is on or off, and whatever the program does with KBDATA. A program can read port `0xFE` and the FIFO side by side.
+- Its held keys are let go at reset, when PS2MAP is cleared, and when the keyboard sends `AA` (plugged in again), so a key cannot stay stuck.
+- What the map leaves out is in "What It Cannot Do, or Not Yet".
+
+---
+
+## Keys from the PC
+
+The PC can type on the board. Each key goes down the USB link as the **KEY** control command, which the FPGA turns into a PS/2 byte as if the PS/2 keyboard had sent it: a key's down code as it goes down, its up code as it comes up. The hardware decodes KEY itself, so it works whether the program is running, stopped in the debugger, or hung.
+
+To the program, keys from the PC **are** PS/2 keys:
+
+**Table 8-12: Where Keys from the PC Arrive**
+
+| Where | Sees keys from the PC |
+|-------|------------------------|
+| The PS/2 FIFO (KBDATA) | Yes, as scan codes: Example 8-2 prints them |
+| Port `0xFE` and KEYROW0–7 | Yes, through the mapper: Example 8-1 works |
+| The ROM's GETC, POLLC and the monitor | Yes |
+| KEYMAP0–6 | No: they are the membrane alone |
+
+The PC side:
+
+- **VS Code:** open **retro-z80: Show Screen**, the board's picture through a USB HDMI capture device, and click it. The keys you press go to the board, down and up, until you click elsewhere.
+- **MCP:** the bridge's tools `key_down`, `key_up` and `type_text`, so Claude can type on the board and look at the result with `screen_capture`. Both examples in this chapter were tried this way.
+
+Both need the bridge running (`tools/rz80_bridge.py`, which VS Code starts for a debug session). The KEY command itself is in the serial spec, section 4.
+
+---
+
+## The Boot ROM's Key Calls
+
+For text, let the ROM do the work. Its console reads the serial link, the PS/2 keyboard and the membrane, turns keys into **key codes** (ASCII, plus codes above 127 for the cursor, editing and function keys), and repeats a held key.
+
+**Table 8-13: Boot ROM Key Calls**
+
+| Call | Does |
+|------|------|
+| `RST 10h` GETC | Waits for a key; A = its code |
+| `RST 20h` POLLC | NZ and A = a key's code if one was waiting; Z if not. Never waits |
+| `RST 28h` GETLINE (`0x05`) | Reads a line with the monitor's editing |
+| `RST 28h` CONMODE (`0x0E`) | Which sources the ROM reads keys from (bit 2 the keyboards, bit 3 the serial link) |
+
+The PS/2 keyboard is decoded with a UK layout. GETC and POLLC take bytes from the PS/2 FIFO, so a program uses either the ROM's calls or its own reads of KBDATA, not both. Port `0xFE` is never affected: the ROM's reads change nothing there. The boot ROM spec, section 7.4, lists every key code.
+
+---
+
+## The Joysticks
+
+The KS3 has two 9-pin joystick ports. The hardware reads both, all the time, and keeps the result in two registers, JOY1 (`0x6600`) and JOY2 (`0x6700`), **1 = pressed**:
+
+**Table 8-14: JOY1 and JOY2 Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | START | A Mega Drive pad's START |
+| 6 | A | A Mega Drive pad's A |
+| 5 | FIRE2 | Fire 2, or a pad's C |
+| 4 | FIRE1 | Fire 1, or a pad's B |
+| 3 | UP | Up |
+| 2 | DOWN | Down |
+| 1 | LEFT | Left |
+| 0 | RIGHT | Right |
+
+The low five bits are in the **Kempston** order, and **port `0x1F`** reads joystick 1 as a Kempston interface, with any high byte:
+
+```asm
+        in      a,(KEMPSTON_PORT)       ; joystick 1, 1 = pressed
+        bit     KEMPSTON_FIRE1_B,a
+        jr      nz,fire
+        and     KEMPSTON_LEFT_M | KEMPSTON_RIGHT_M
+        ...
+```
+
+An Atari one-button stick gives bits 0–4; a two-button stick adds Fire 2. Bits 6 and 7 are a Mega Drive pad's A and START (see "Mega Drive pads" under Advanced Topics), and read 0 with a stick, so a Spectrum game that compares the whole byte with 0 sees only what is pressed.
+
+---
+
+## Reading the Keys, Step by Step
+
+The parts come together in two complete programs. Example 8-1 reads held keys through port `0xFE`, as a game does, so it works with every keyboard and with the PC. Example 8-2 reads every key going down and up from the PS/2 FIFO.
+
+### Example 8-1: The border from the number keys
+
+The program reads the keys 0–7 and sets the border to the colour of whichever is held. CAPS SHIFT and SPACE together, the Spectrum's BREAK, end it. On a PS/2 keyboard, or from the PC, Esc is BREAK.
+
+It is built in four steps:
+
+1. For each colour 0–7, read the row of that number key and test its column (the table `keys`, from Table 8-2).
+2. If the key is held, write its colour to port `0xFE` (Table 8-4).
+3. Read rows 0 and 7 one at a time; if CAPS SHIFT and SPACE are not both held, go back to step 1.
+4. Put the border back to black, as the boot ROM left it, and return to the monitor.
+
+```asm
+; Example 8-1 (docs/guide/io.md): the border from the number keys.
+; Keys 0-7 set the border to that Spectrum colour, read through port 0xFE
+; the way a Spectrum reads its keyboard, so the membrane, a PS/2 keyboard
+; and keys typed from the PC all work. BREAK (CAPS SHIFT + SPACE, or Esc
+; on a PS/2 keyboard) puts the border back to black and goes back to the
+; monitor.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
+        org     0x8000
+
+        include "hw.inc"
+
+start:
+.scan:  ld      hl,keys
+        ld      e,0                     ; E = the colour of the key being tested
+.key:   ld      a,(hl)                  ; the row's address byte: 0 in the row's bit
+        in      a,(ULA_PORT)            ; A = that row, 0 = pressed (A15-A8 pick the row)
+        inc     hl
+        and     (hl)                    ; this key's column
+        inc     hl
+        jr      nz,.next                ; 1: not pressed
+        ld      a,e
+        out     (ULA_PORT),a            ; bits 2-0 the border, bit 4 the beeper (0)
+.next:  inc     e
+        ld      a,e
+        cp      8
+        jr      nz,.key
+
+        ld      a,0xFE                  ; row 0: CAPS SHIFT is bit 0
+        in      a,(ULA_PORT)
+        rra
+        jr      c,.scan
+        ld      a,0x7F                  ; row 7: SPACE is bit 0
+        in      a,(ULA_PORT)
+        rra
+        jr      c,.scan
+
+        xor     a                       ; both held: BREAK. Put the border back to
+        out     (ULA_PORT),a            ; black, as the boot ROM left it (beeper 0)
+        ret                             ; RET goes to the ROM's EXIT
+
+; For each colour 0-7: the row's address byte, then the key's column bit
+keys:   db      0xEF, 0x01              ; 0: row 4, bit 0
+        db      0xF7, 0x01              ; 1: row 3, bit 0
+        db      0xF7, 0x02              ; 2
+        db      0xF7, 0x04              ; 3
+        db      0xF7, 0x08              ; 4
+        db      0xF7, 0x10              ; 5
+        db      0xEF, 0x10              ; 6: row 4, bit 4
+        db      0xEF, 0x08              ; 7: row 4, bit 3
+```
+
+Hold 3 and the border goes magenta; 6, yellow. The keys on the digit row of a PS/2 keyboard, the keypad's digits and the PC's keys all work, because they all reach port `0xFE` (see "PS/2 Keys on Port 0xFE"). BREAK leaves the border black again.
+
+**Note:** BREAK is tested with two reads, one row each. A single read of rows 0 and 7 together (`0x7E`) would say "bit 0 is held" for CAPS SHIFT alone, or SPACE alone: combined rows cannot tell which row a key is in.
 
 ### Example 8-2: Showing the scan codes
 
@@ -369,11 +511,21 @@ It is built in four steps:
 4. If the code is `76` with neither flag set, Esc went down: return to the monitor. Otherwise clear both flags and go back to step 1.
 
 ```asm
-; Example 8-2: the PS/2 keyboard's scan codes (examples/io/scancodes.asm)
+; Example 8-2 (docs/guide/io.md): the PS/2 keyboard's scan codes.
+; Reads the bytes from the PS/2 FIFO itself and prints one line per key
+; going down or up, such as "down 1C" and "up E0 75", with the ROM's
+; PUTS and PUTHEX. Keys typed from the PC (the link's KEY command) arrive
+; the same way. Esc, pressed, goes back to the monitor.
+;
+; The program never calls GETC or POLLC, which would take bytes from the
+; same FIFO.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
-PUTHEX  equ     0x06                    ; RST 28h function: print A as two hex digits
+PUTHEX  equ     0x06                    ; RST 28h functions (boot ROM spec, section 7.3)
 
 start:  ld      hl,title
         rst     0x18                    ; PUTS
@@ -443,14 +595,16 @@ up   E0 75
 
 **Note:** the program never calls the ROM's GETC or POLLC. They read the same FIFO, so a program that mixes its own reads with the ROM's loses bytes to whichever reads first.
 
-A real decoder turns the codes into characters with a layout table, keeps the shift keys' state, and ignores Pause's `E1` sequence. The boot ROM's decoder (`firmware/boot/keys.asm`, `ps2key` and its tables `ps2tab` and `ps2tab_s`) does this for a UK layout.
+---
+
+## Advanced Topics
 
 ### Sending to the keyboard
 
-The keyboard takes commands too: its lights, its repeat rate, a reset. Write a byte to KBSEND when TXBUSY is 0. The hardware holds the keyboard's clock low for 100 µs, then the keyboard clocks the byte in; TXBUSY goes back to 0 when the keyboard has taken it, or after 15 ms with KBIRQ.TIMEOUT set if it never does. The keyboard answers `FA` through the FIFO: wait for it before the next byte. Nothing is received while a byte is being sent.
+The keyboard takes commands too: its lights, its repeat rate, a reset. Write a byte to KBSEND when TXBUSY is 0; a write while TXBUSY is 1 is ignored. The hardware holds the keyboard's clock low for 100 µs, then the keyboard clocks the byte in; TXBUSY goes back to 0 when the keyboard has taken it, or after 15 ms with KBIRQ.TIMEOUT set if it never does. The keyboard answers `FA` through the FIFO: wait for it before the next byte. Nothing is received while a byte is being sent.
 
 ```asm
-; set the keyboard's lights: E = the lights byte (Table 8-13)
+; set the keyboard's lights: E = the lights byte (Table 8-16)
 lights: ld      a,0xED
         call    kbsend
         ld      a,e
@@ -468,15 +622,15 @@ kbsend: ld      bc,KBSTAT_P
         ret
 ```
 
-**Table 8-12: Keyboard Commands**
+**Table 8-15: Keyboard Commands**
 
 | Command | Bytes |
 |---------|-------|
-| Set the lights | `ED`, then the lights byte (Table 8-13) |
+| Set the lights | `ED`, then the lights byte (Table 8-16) |
 | Set the repeat rate and delay | `F3`, then the rate byte |
 | Reset and self-test | `FF`; the keyboard answers `FA`, then `AA` |
 
-**Table 8-13: Lights Byte**
+**Table 8-16: Lights Byte**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -493,116 +647,17 @@ For example, the Caps light alone:
         call    lights
 ```
 
-This loop waits for ever if no keyboard answers; a program that must not hang also checks KBIRQ.TIMEOUT. (Sending has been tried in simulation against a keyboard model, not yet with a real keyboard: ticket #20.)
+This loop waits for ever if no keyboard answers; a program that must not hang also checks KBIRQ.TIMEOUT.
 
 ### The keyboard's interrupt
 
 With KBIRQEN.DATA set, the keyboard asks for an interrupt (source KEYB) while the FIFO holds bytes. DATA follows the FIFO, so the request stays on until the handler has read every byte; the error flags, if enabled, stay on until written back. Setting up the interrupt controller and a handler is in the Interrupts and Timers chapter.
 
----
-
-## PS/2 Keys on Port 0xFE
-
-With **KEYCON.PS2MAP** set (after reset), a key held on the PS/2 keyboard also shows on port `0xFE` as the Spectrum key, or pair of keys, it stands for. A **mapper** in the hardware watches the bytes the keyboard sends, follows `E0` and `F0`, and keeps a held bit for each key it knows. So a Spectrum game can be played on a PS/2 keyboard with no help from software. Table 8-14 gives the map.
-
-**Table 8-14: PS/2 Keys on Port 0xFE**
-
-| PS/2 key | Spectrum key(s) |
-|----------|-----------------|
-| A–Z, 0–9 (the main row and the keypad) | The same key |
-| Enter, keypad Enter | ENTER |
-| Space | SPACE |
-| Either Shift | CAPS SHIFT |
-| Either Ctrl, either Alt | SYMBOL SHIFT |
-| Backspace | CAPS SHIFT + 0 (DELETE) |
-| The cursor keys | CAPS SHIFT + 5, 6, 7, 8 |
-| Esc | CAPS SHIFT + SPACE (BREAK) |
-| Caps Lock | CAPS SHIFT + 2 |
-| Tab | CAPS SHIFT + SYMBOL SHIFT (EXTEND MODE) |
-| `,` `.` `;` `'` `/` `-` `=` | SYMBOL SHIFT + N, M, O, 7, V, J, L |
-
-- Other keys (the function keys, Pause and so on) map to nothing; read them from the FIFO.
-- The map is per key and ignores the PC's shift state: Shift + `,` is CAPS SHIFT + SYMBOL SHIFT + N, not `<`.
-- The mapper watches the bytes **before** the FIFO, so it works whether KBCON.EN is on or off, and whatever the program does with KBDATA. A program can read port `0xFE` and the FIFO side by side.
-- Its held keys are let go at reset, when PS2MAP is cleared, and when the keyboard sends `AA` (plugged in again), so a key cannot stay stuck.
-
----
-
-## Keys from the PC
-
-The PC can type on the board. Each key goes down the USB link as the **KEY** control command, which the FPGA turns into a PS/2 byte as if the PS/2 keyboard had sent it: a key's down code as it goes down, its up code as it comes up. The hardware decodes KEY itself, so it works whether the program is running, stopped in the debugger, or hung.
-
-To the program, keys from the PC **are** PS/2 keys:
-
-**Table 8-15: Where Keys from the PC Arrive**
-
-| Where | Sees keys from the PC |
-|-------|------------------------|
-| The PS/2 FIFO (KBDATA) | Yes, as scan codes: Example 8-2 prints them |
-| Port `0xFE` and KEYROW0–7 | Yes, through the mapper: Example 8-1 works |
-| The ROM's GETC, POLLC and the monitor | Yes |
-| KEYMAP0–6 | No: they are the membrane alone |
-
-The PC side:
-
-- **VS Code:** open **retro-z80: Show Screen**, the board's picture through a USB HDMI capture device, and click it. The keys you press go to the board, down and up, until you click elsewhere.
-- **MCP:** the bridge's tools `key_down`, `key_up` and `type_text`, so Claude can type on the board and look at the result with `screen_capture`. Both examples in this chapter were tried this way.
-
-Both need the bridge running (`tools/rz80_bridge.py`, which VS Code starts for a debug session). The KEY command itself is in the serial spec, section 4.
-
----
-
-## The Boot ROM's Key Calls
-
-For text, let the ROM do the work. Its console reads the serial link, the PS/2 keyboard and the membrane, turns keys into **key codes** (ASCII, plus codes above 127 for the cursor, editing and function keys), and repeats a held key.
-
-**Table 8-16: Boot ROM Key Calls**
-
-| Call | Does |
-|------|------|
-| `RST 10h` GETC | Waits for a key; A = its code |
-| `RST 20h` POLLC | NZ and A = a key's code if one was waiting; Z if not. Never waits |
-| `RST 28h` GETLINE (`0x05`) | Reads a line with the monitor's editing |
-| `RST 28h` CONMODE (`0x0E`) | Which sources the ROM reads keys from (bit 2 the keyboards, bit 3 the serial link) |
-
-The PS/2 keyboard is decoded with a UK layout. GETC and POLLC take bytes from the PS/2 FIFO, so a program uses either the ROM's calls or its own reads of KBDATA, not both. Port `0xFE` is never affected: the ROM's reads change nothing there. The boot ROM spec, section 7.4, lists every key code.
-
----
-
-## The Joysticks
-
-The KS3 has two 9-pin joystick ports. The hardware reads both, all the time, and keeps the result in two registers, JOY1 (`0x6600`) and JOY2 (`0x6700`), **1 = pressed**:
-
-**Table 8-17: JOY1 and JOY2 Bits**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7 | START | A Mega Drive pad's START |
-| 6 | A | A Mega Drive pad's A |
-| 5 | FIRE2 | Fire 2, or a pad's C |
-| 4 | FIRE1 | Fire 1, or a pad's B |
-| 3 | UP | Up |
-| 2 | DOWN | Down |
-| 1 | LEFT | Left |
-| 0 | RIGHT | Right |
-
-The low five bits are in the **Kempston** order, and **port `0x1F`** reads joystick 1 as a Kempston interface, with any high byte:
-
-```asm
-        in      a,(KEMPSTON_PORT)       ; joystick 1, 1 = pressed
-        bit     KEMPSTON_FIRE1_B,a
-        jr      nz,fire
-        and     KEMPSTON_LEFT_M | KEMPSTON_RIGHT_M
-        ...
-```
-
-An Atari one-button stick gives bits 0–4; a two-button stick adds Fire 2. Bits 6 and 7 are a Mega Drive pad's A and START, and read 0 with a stick, so a Spectrum game that compares the whole byte with 0 sees only what is pressed.
-
 ### Mega Drive pads
 
 A Mega Drive pad multiplexes its buttons on a select line, so the hardware must be told to read it as a pad. Set **JOYCON.MD1** (port 1) or **MD2** (port 2): the hardware then reads that port in a burst every 2 ms, and JOYCON says what it found.
 
-**Table 8-18: JOYCON Bits**
+**Table 8-17: JOYCON Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -616,7 +671,7 @@ A Mega Drive pad multiplexes its buttons on a select line, so the hardware must 
 
 A 6-button pad's X, Y, Z and MODE are in **JOY1X** (`0x6C00`) and **JOY2X** (`0x6D00`), 1 = pressed:
 
-**Table 8-19: JOY1X and JOY2X Bits**
+**Table 8-18: JOY1X and JOY2X Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -641,31 +696,64 @@ They read 0 without a 6-button pad. Each register is updated at the end of a bur
 
 With MD1 clear, port 1 is read as an Atari stick, and A, START and JOY1X read 0.
 
-(The joysticks have been tried in simulation against models of a stick and of 3- and 6-button pads, not yet on the board: ticket #20.)
+---
+
+## What It Cannot Do, or Not Yet
+
+**The membrane.**
+
+- It has no diodes, as on a real Spectrum. Three keys held at three corners of a rectangle in the matrix of Figure 8-1 (two in one row, and one in the same column as one of them) can make the fourth corner look held too. Games pick keys that do not form rectangles, or accept it. PS/2 keys and keys from the PC never ghost: they are mapped, not wired.
+- The shift of an extra key's Spectrum pair is not held on for an extra scan; it comes and goes with the key.
+- The scan and debounce times (64 µs a row, two scans that agree) are still to be checked on the real membrane, which is slow to settle.
+
+**Port 0xFE and port 0x1F.**
+
+- Only the whole low byte `0xFE` reaches the keyboard. A Spectrum answers on any even port, so Spectrum code that reads through another even port must be changed to `0xFE`.
+- In the same way, port `0x1F` is decoded whole. A real Kempston interface answers whenever A5 is 0, so code that reads it through another port (`0xDF`, say) must be changed to `0x1F`.
+- Joystick 2 has no Kempston port; read it at JOY2.
+- There is no tape input: port `0xFE` bit 6 is the fixed value in KEYCON.EAR6.
+
+**The mapper.**
+
+- Only the keys of Table 8-11 are mapped. The others (the function keys, Pause, `[` `]` and so on) map to nothing; read them from the FIFO.
+- The map is per key and ignores the PC's shift state: Shift + `,` is CAPS SHIFT + SYMBOL SHIFT + N, not `<`. A program that wants the PC's own characters reads KBDATA, or the ROM's calls.
+- The "fake shift" codes `E0 12` and `E0 59`, which some keyboards send round the grey cursor keys, are ignored.
+- Nothing is received while a byte is being sent to the keyboard, so a key pressed or let go then may be missed by the mapper until it is next pressed.
+
+**The PS/2 keyboard.**
+
+- Only a PS/2 keyboard works. Some USB keyboards also speak PS/2 through a passive adapter; most new ones do not.
+- The FIFO and the mapper have been tried on the board only with keys from the PC (the KEY command). A real PS/2 keyboard on the board is still to be checked: ticket #20.
+- Sending has been tried in simulation against a keyboard model, not yet with a real keyboard: ticket #20.
+
+**The joysticks.**
+
+- The joysticks have been tried in simulation against models of a stick and of 3- and 6-button pads, not yet on the board: ticket #20.
+- Which port is joystick 1 seen from the front (the left one, by the design) is still to be checked on the board, and so is the Mega Drive burst timing with real pads.
 
 ---
 
 ## Summary of Registers
 
-All are registers of page `0x00`: port = (register << 8) | `0x00`. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, F reading takes data. Table 8-20 lists them.
+All are registers of page `0x00`: port = (register << 8) | `0x00`. Access: R read only, RW read and write, W write only, W1C sticky flags cleared by writing 1, F reading takes data. Table 8-19 lists them.
 
-**Table 8-20: Summary of Registers**
+**Table 8-19: Summary of Registers**
 
 | Name | Register | Port | Access | Function |
 |------|----------|------|--------|----------|
 | KEYMAP0–6 | `0x10`–`0x16` | `0x1000`–`0x1600` | R | The membrane, column c, bit r = row r, 1 = pressed |
 | KEMPSTON | `0x1F` | `0x1F`, any high byte; `0x1F00` | R | Joystick 1, as JOY1 |
-| KBCON | `0x60` | `0x6000` | RW | EN (0) |
-| KBSTAT | `0x61` | `0x6100` | R | TXBUSY (7), COUNT (4–0) |
+| KBCON | `0x60` | `0x6000` | RW | EN (0): the FIFO on |
+| KBSTAT | `0x61` | `0x6100` | R | TXBUSY (7), COUNT (4–0): bytes waiting, 0–16 |
 | KBDATA | `0x62` | `0x62`, any high byte; `0x6200` | R, F | Takes a byte from the FIFO; `0x00` if empty |
 | KBSEND | `0x63` | `0x6300` | W | A byte to send to the keyboard (ignored while TXBUSY) |
 | KBIRQ | `0x64` | `0x6400` | R, W1C | TIMEOUT (4), OVERFLOW (3), FRAME (2), PARITY (1), DATA (0, live) |
-| KBIRQEN | `0x65` | `0x6500` | RW | As KBIRQ |
+| KBIRQEN | `0x65` | `0x6500` | RW | Interrupt enables, as KBIRQ |
 | JOY1, JOY2 | `0x66`, `0x67` | `0x6600`, `0x6700` | R | START (7), A (6), Fire 2/C (5), Fire 1/B (4), Up (3), Down (2), Left (1), Right (0) |
 | JOYCON | `0x68` | `0x6800` | RW | Read only: MDPRES2 (7), MDPRES1 (6), SIX2 (5), SIX1 (4); MD2 (1), MD1 (0) |
 | KEYCON | `0x6B` | `0x6B00` | RW | PS2MAP (2), EAR6 (1), KXMAP (0) |
 | JOY1X, JOY2X | `0x6C`, `0x6D` | `0x6C00`, `0x6D00` | R | MODE (3), Z (2), Y (1), X (0) |
-| (the keyboard rows) | `0xFE` | `0xFE`, high byte picks rows; `0xFE00` all rows | R | Read: keys, 0 = pressed. Write: border (2–0), beeper (4) |
+| (the keyboard rows) | `0xFE` | `0xFE`, high byte picks rows; `0xFE00` all rows | RW | Read: keys, 0 = pressed. Write: border (2–0), beeper (4) |
 | KEYROW0–7 | – | – (register page `0x0100`–`0x0107`) | R | Each row of port `0xFE` alone |
 
 ### State after reset
@@ -674,7 +762,7 @@ KBCON is 0 (the FIFO off and empty), KBIRQEN 0, JOYCON 0 (both ports read as Ata
 
 ### Equates in hw.inc
 
-**Table 8-21: Equates in hw.inc**
+**Table 8-20: Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
