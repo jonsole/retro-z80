@@ -47,6 +47,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/guide/interrupts.md` | Programmer's guide, chapter 2: interrupts and timers (ticket #46): IM 2 and the table, handlers, INTENA, nesting, SOFT, IM 1, the NMI, TIME, the timers, the watchdog. `examples/interrupts` (2-1 VBLANK and SOFT, 2-2 timing with TIME, 2-3 a timer interrupt, 2-4 the watchdog), all tried on the KS2. LINE is not built (#53); the maskable interrupt pages neither |
 | `docs/guide/sprites.md` | Programmer's guide, chapter 4: sprites and the sprite sequencer |
 | `docs/guide/io.md` | Programmer's guide, chapter 8: keyboards and joysticks (ticket #49), with `examples/io` (8-1 the border from port 0xFE, 8-2 the PS/2 scan codes), both tried on the KS2 through KEY and screen_capture. Chapters 1, 2, 5 and 7 are tickets #45-#48 |
+| `docs/guide/copper.md` | Programmer's guide, chapter 5: the copper, with examples in `examples/copper` tried on the KS2 |
 | `docs/guide/timing.md` | Programmer's guide, appendix A: timing and screen reference, figures to scale |
 | `docs/guide/img/`, `tools/guide_figures/` | The guide's SVG figures, and the scripts that draw the to-scale ones |
 
