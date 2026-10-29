@@ -1,6 +1,6 @@
 # Chapter 1: Introduction and System Control
 
-## About retro-z80
+## Introduction
 
 retro-z80 is a Z80 home computer built in the FPGA of a ZX Spectrum Next. The Z80 runs at 20 MHz and never waits for memory. Around it is a chipset in the style of the Amiga's: layers of bitmaps and tile maps, sprites, a copper, and a DMA engine with a blitter, all reading the same SRAM as the CPU, on their own share of the memory cycles. An MMU gives the Z80 its 64 KB as eight 8 KB windows onto 4 MB of memory. A boot ROM starts the machine, offers a monitor, and loads programs from a PC over USB.
 
@@ -19,6 +19,8 @@ This chapter is the base the others build on. It covers:
 
 ### The Machine at a Glance
 
+**Table 1-1: The Machine at a Glance**
+
 | Item | Value |
 |------|-------|
 | CPU | Z80 at 20 MHz (or slower, down to 2.5 MHz, or 3.57 MHz for Spectrum timing). Never waits for memory |
@@ -34,6 +36,8 @@ This chapter is the base the others build on. It covers:
 
 ### The Hardware Chapters
 
+**Table 1-2: The Hardware Chapters**
+
 | Chapter | Covers |
 |---------|--------|
 | 1. Introduction and System Control | This chapter |
@@ -46,13 +50,16 @@ This chapter is the base the others build on. It covers:
 | 8. Keyboards and Joysticks | Every way to read the keys and the joysticks |
 | Appendix A | Timing and the screen in numbers |
 
-### Conventions in This Guide
+---
+
+## Conventions in This Guide
 
 - Examples are Z80 assembly language for **sjasmplus**, starting with `include "hw.inc"` (in `firmware/include/`). `hw.inc` is made from the one register list, `fpga/regmap.def`, so its names are the specs' names.
-- Numbers are hexadecimal when they start with `0x`, decimal otherwise. Bits are numbered from 0, the lowest.
+- Numbers are hexadecimal when they start with `0x`, decimal otherwise. Bits are numbered from 0, the lowest. Bit tables list the top bit first.
+- Tables and figures are numbered by chapter: Table 1-3 is the third table of Chapter 1.
 - Register access codes: R read only, W write only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, S strobe, F reading has an effect, CAP reading the low byte captures.
 - Timings in T-states are at 20 MHz, where a T-state is 50 ns, a 576-line frame 400,000 T-states and one line 640.
-- The complete examples are in `examples/`, one folder per chapter, and run on the board. The specs in `docs/spec/` have every detail; the guide refers to them where it leaves something out.
+- The complete examples are in `examples/`, one folder per chapter, and run on the board. Each starts with `device zxspectrum48`, `org 0x8000` and `include "hw.inc"`, and runs in the boot ROM's program map (see "Programs" below). The specs in `docs/spec/` have every detail; the guide refers to them where it leaves something out.
 
 ---
 
@@ -61,6 +68,8 @@ This chapter is the base the others build on. It covers:
 ### Windows and pages
 
 The Z80 addresses 64 KB. The MMU cuts that into **eight windows** of 8 KB, and maps each window onto an 8 KB **page** of the machine's memory:
+
+**Table 1-3: The Windows**
 
 | Window | Z80 addresses |
 |--------|---------------|
@@ -73,7 +82,18 @@ The Z80 addresses 64 KB. The MMU cuts that into **eight windows** of 8 KB, and m
 | 6 | `0xC000`–`0xDFFF` |
 | 7 | `0xE000`–`0xFFFF` |
 
-Address bits 15–13 pick the window and bits 12–0 the byte in its page. A page is a number from 0 to `0x3FF`:
+A Z80 address has two fields:
+
+**Table 1-4: Z80 Address Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 15–13 | Window | The window, 0–7 |
+| 12–0 | Offset | The byte in the window's page, `0x0000`–`0x1FFF` |
+
+A page is a number from 0 to `0x3FF`:
+
+**Table 1-5: The Pages**
 
 | Page | What it is |
 |------|------------|
@@ -90,6 +110,8 @@ The same page can be in several windows at once.
 
 Each window has **two** page registers: a **read page**, for opcode fetches and reads, and a **write page**, for writes. Normally they are the same page, and setting the read page sets the write page too. Splitting them gives some useful tricks:
 
+**Table 1-6: Uses of a Split Window**
+
 | Read page | Write page | Use |
 |-----------|------------|-----|
 | SRAM | NONE | A read-only window: a ROM image kept in RAM, safe from stray writes |
@@ -101,11 +123,37 @@ Each window has **two** page registers: a **read page**, for opcode fetches and 
 
 The MMU's registers are in the system page (see "The Hardware Registers" below): registers `0x80`–`0x9F`, ports `0x8000`–`0x9F00`.
 
-| Window | Read page | Write page |
-|--------|-----------|------------|
-| n (0–7) | MMUn: registers `0x80` + 2n (bits 7–0) and `0x81` + 2n (bits 9–8) | MMUnW: registers `0x90` + 2n and `0x91` + 2n |
+**Table 1-7: The MMU Registers**
 
-A page number has 10 bits, so it takes two registers. **Writing the high byte commits the page**, using the low byte written just before: a window never points at a half-changed page, even while code runs in it. So always write the low byte first. Through ports, with B the register and C the page `0x00`, `INC B` steps from one to the other:
+| Window | Read page | Registers | Write page | Registers |
+|--------|-----------|-----------|------------|-----------|
+| 0 | MMU0 | `0x80`, `0x81` | MMU0W | `0x90`, `0x91` |
+| 1 | MMU1 | `0x82`, `0x83` | MMU1W | `0x92`, `0x93` |
+| 2 | MMU2 | `0x84`, `0x85` | MMU2W | `0x94`, `0x95` |
+| 3 | MMU3 | `0x86`, `0x87` | MMU3W | `0x96`, `0x97` |
+| 4 | MMU4 | `0x88`, `0x89` | MMU4W | `0x98`, `0x99` |
+| 5 | MMU5 | `0x8A`, `0x8B` | MMU5W | `0x9A`, `0x9B` |
+| 6 | MMU6 | `0x8C`, `0x8D` | MMU6W | `0x9C`, `0x9D` |
+| 7 | MMU7 | `0x8E`, `0x8F` | MMU7W | `0x9E`, `0x9F` |
+
+A page number has 10 bits, so it takes two registers, MMUn_0 and MMUn_1 (MMUnW_0 and MMUnW_1 for the write page):
+
+**Table 1-8: Page Register Bytes**
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| MMUn_0 | 7–0 | Page bits 7–0. Held until MMUn_1 is written |
+| MMUn_1 | 7–2 | Read 0; write 0 |
+| MMUn_1 | 1–0 | Page bits 9–8. Writing commits the page |
+
+The register page, `0x3F8`, is the two bytes `0xF8` and `0x03`, low byte first:
+
+```asm
+        DB      0xF8,0x03               ; page 0x3F8: MMUn_0, then MMUn_1
+        DW      0x3F8                   ; the same two bytes
+```
+
+**Writing the high byte commits the page**, using the low byte written just before: a window never points at a half-changed page, even while code runs in it. So always write the low byte first. Through ports, with B the register and C the page `0x00`, `INC B` steps from one to the other:
 
 ```asm
 ; window 6 onto page HL
@@ -119,12 +167,21 @@ Committing a read page also sets the window's write page to the same page. To sp
 
 ### Physical addresses
 
-The chipset does not use the MMU. The display, the sprites, the copper and the DMA engine read SRAM by **physical address**: a 22-bit byte address, from `0x000000` to `0x3FFFFF`, written into their 3-byte pointer registers. A page's first byte is at page × `0x2000`, so:
+The chipset does not use the MMU. The display, the sprites, the copper and the DMA engine read SRAM by **physical address**: a 22-bit byte address, from `0x000000` to `0x3FFFFF`, written into their 3-byte pointer registers. A physical address has two fields:
 
-| | |
-|-|-|
-| Physical address of Z80 address a, in a window showing page p | p × `0x2000` + (a and `0x1FFF`) |
-| Page holding physical address x | x ÷ `0x2000` |
+**Table 1-9: Physical Address Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 21–13 | Page | The SRAM page, `0x000`–`0x1FF` |
+| 12–0 | Offset | The byte in the page: the Z80 address's bits 12–0 (Table 1-4) |
+
+So Z80 address `0xC010`, in window 6 showing page `0x020`, is physical `0x040010`. A pointer register takes it low byte first:
+
+```asm
+        DB      0x10,0x00,0x04          ; physical 0x040010: page 0x020, byte 0x0010
+        D24     0x020*0x2000+0x0010     ; the same three bytes
+```
 
 A screen, a sprite image or a copper list can be anywhere in SRAM: the Z80 writes it through a window, then gives its physical address to the chipset.
 
@@ -134,6 +191,7 @@ The program maps SRAM page `0x020` (physical `0x040000`) into windows 5 and 6, w
 
 ```asm
 ; Example 1-2: one page in two windows, then a read-only window (examples/system/windows.asm)
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
         include "hw.inc"
 
@@ -206,18 +264,47 @@ Every register is **8 bits**. A wider value, a pointer or a count, sits in conse
 
 ### Ports: register and page
 
-Every port address is **register : page**: the high byte is the register number and the low byte the **I/O page**.
+Every port address is **register : page**:
+
+**Table 1-10: Port Address Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 15–8 | Register | The register number, `0x00`–`0xFF` (B in `OUT (C),r`) |
+| 7–0 | Page | The **I/O page**, `0x00`–`0xFF` (C in `OUT (C),r`) |
+
+The I/O page says which block of registers the port reaches:
+
+**Table 1-11: The I/O Pages**
 
 | Low byte | High byte | Reaches |
 |----------|-----------|---------|
 | `0x00` | Register r | The **system page**: interrupts, timers, serial, keyboard and joysticks, the system registers, the MMU |
 | `0x01` | `0x40`–`0xFF` | The interrupt pages (Chapter 2) |
 | `0x02` | Register r | The debug unit |
-| `0x10`–`0x13` | Register r | The **custom block**, the chipset: custom offset (page − `0x10`) × 256 + r |
+| `0x10`–`0x13` | Register r | The **custom block**, the chipset (Table 1-12) |
 | `0x1F`, `0x53`, `0x5B`, `0x62`, `0xFE` | Anything | The **low-byte-only ports**: Kempston, SERDATA, SDDATA, KBDATA and the Spectrum's port `0xFE` |
 | Anything else | | Reserved: reads `0xFF`, writes are ignored |
 
-`OUT (C),r` and `IN r,(C)` put B on the high half of the address, so `LD BC,port` loads the register into B and the page into C. `hw.inc` names every port `NAME_P`:
+The chipset's registers are numbered by **custom offset**, `0x000`–`0x3FF`, which spreads over the four custom pages:
+
+**Table 1-12: Custom Offset Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 9–8 | Page | The I/O page less `0x10`: 0–3 for pages `0x10`–`0x13` |
+| 7–0 | Register | The register number in that page |
+
+`OUT (C),r` and `IN r,(C)` put B on the high half of the address, so `LD BC,port` loads the register into B and the page into C. `hw.inc` names every port `NAME_P`. CPUSPEED is register `0x77` of page `0x00`; BGCOLOR is custom offset `0x004`, so register `0x04` of page `0x10`:
+
+```asm
+        DB      0x01,0x00,0x77          ; LD BC,0x7700: C = page 0x00, B = register 0x77
+        ld      bc,CPUSPEED_P           ; the same three bytes
+        DB      0x01,0x10,0x04          ; LD BC,0x0410: C = page 0x10, B = register 0x04
+        ld      bc,BGCOLOR_P            ; the same three bytes
+```
+
+Reading and writing a register through its port:
 
 ```asm
         ld      bc,CPUSPEED_P           ; 0x7700: register 0x77 of page 0x00
@@ -241,7 +328,18 @@ A wider register is written low byte first with `INC B` between the bytes:
 
 ### The register page
 
-Map MMU page `0x3F8` into a window and the registers appear as memory. Register r of I/O page p is at offset p × 256 + r in the page, the port with its two bytes swapped:
+Map MMU page `0x3F8` into a window and the registers appear as memory. A register's offset in the page is its port with the two bytes swapped:
+
+**Table 1-13: Register Page Offset Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 12–8 | Page | The I/O page, `0x00`–`0x13`; from `0x14` up, the palettes (Table 1-14) |
+| 7–0 | Register | The register number in that page |
+
+So CPUSPEED, port `0x7700`, is at offset `0x0077`, and BGCOLOR, port `0x0410`, at offset `0x1004`. The page holds:
+
+**Table 1-14: The Register Page**
 
 | Offset in the page | What |
 |--------------------|------|
@@ -294,6 +392,7 @@ The program moves the stack out of window 7 (where the boot ROM put it), maps th
 
 ```asm
 ; Example 1-3: the registers as memory (examples/system/regpage.asm)
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
         include "hw.inc"
 
@@ -346,6 +445,8 @@ The border round the console turns orange for two seconds, then the monitor is b
 
 The CPU and the chipset share the SRAM, but the Z80 **never waits** for it. Memory works in **slots** of 100 ns, two T-states at 20 MHz, each with five memory cycles of 20 ns:
 
+**Table 1-15: The Memory Cycles of a Slot**
+
 | Cycle | Belongs to |
 |-------|------------|
 | 0, 2 | The CPU. A cycle the CPU asks for is never given to anyone else |
@@ -363,6 +464,8 @@ The **register page and the boot ROM** use no SRAM cycle at all: they are not SR
 ## Reset and the Boot ROM
 
 ### What resets the computer
+
+**Table 1-16: Reset Sources**
 
 | Source | RESETWHY bit |
 |--------|--------------|
@@ -387,6 +490,8 @@ Every source gives the same full reset. The Z80 starts at `0x0000` at 20 MHz, th
 The Z80 has no instruction that resets the hardware without the CPU. A program that wants a clean machine sets the registers it uses, or writes SYSRESET.
 
 ### The reset map
+
+**Table 1-17: The Reset Map**
 
 | Window | Page |
 |--------|------|
@@ -415,6 +520,8 @@ The boot ROM is 32 KB in four MMU pages, `0x3FC`–`0x3FF`, part of the FPGA's d
 
 When the boot ROM starts a program, the MMU holds the **program map**:
 
+**Table 1-18: The Program Map**
+
 | Window | Read page | Write page |
 |--------|-----------|------------|
 | 0 | Boot ROM page 0 | The same (it ignores writes) |
@@ -423,6 +530,8 @@ When the boot ROM starts a program, the MMU holds the **program map**:
 **Window n holds SRAM page n**, so a Z80 address from `0x2000` to `0xFFFF` is also its **physical address**: `0x8000` is physical `0x008000`. A program can give the chipset the address of a screen or a copper list in its own memory as it stands. SRAM page 0, under the ROM, and every page from 8 up are free for the program to map where it likes, except the pages the boot ROM keeps for itself, `0x0F8`–`0x0FF` (physical `0x1F0000`–`0x1FFFFF`: its console, font and workspace).
 
 ### The state at the first instruction
+
+**Table 1-19: The State at a Program's First Instruction**
 
 | Item | State |
 |------|-------|
@@ -438,6 +547,8 @@ When the boot ROM starts a program, the MMU holds the **program map**:
 
 ### Ending a program
 
+**Table 1-20: Ways to End a Program**
+
 | How | Then |
 |-----|------|
 | `RET` from the entry point (SP back at `0xFFFE`) | `Program ended.`; the monitor shows the registers, and `G` runs the program again |
@@ -450,6 +561,8 @@ The Multiface button, and BREAK from the PC, stop a running program in the monit
 ### The ROM calls
 
 The boot ROM offers a small set of calls through `RST` instructions, as a Spectrum's ROM does:
+
+**Table 1-21: The ROM Calls**
 
 | Call | Does |
 |------|------|
@@ -494,7 +607,25 @@ The upload resets the board (UPLOAD) and the boot ROM's loader takes the program
 
 ### Identifying the machine: SYSID, SYSVER and SYSCFG
 
-**SYSID** reads `0x5A` ("Z") on every retro-z80. **SYSVER** is the FPGA build's version, major in bits 7–4 and minor in bits 3–0. **SYSCFG** describes the hardware: bits 1–0 the CPU (0 for the Z80) and bits 7–2 **CHIPMB**, the SRAM size in MB, 2 or 4. A program that wants more than 2 MB checks CHIPMB first: on a 2 MB board pages `0x100`–`0x1FF` repeat pages `0x000`–`0x0FF`.
+**SYSID** reads `0x5A` ("Z") on every retro-z80. **SYSVER** is the FPGA build's version:
+
+**Table 1-22: SYSVER Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | MAJOR | Major version |
+| 3–0 | MINOR | Minor version |
+
+**SYSCFG** describes the hardware:
+
+**Table 1-23: SYSCFG Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | CHIPMB | SRAM size in MB: 2 or 4 |
+| 1–0 | CPU | The CPU: 0 = Z80 |
+
+A program that wants more than 2 MB checks CHIPMB first: on a 2 MB board pages `0x100`–`0x1FF` repeat pages `0x000`–`0x0FF`.
 
 ### Example 1-1: About this machine
 
@@ -502,6 +633,7 @@ The program reads the system registers through ports and prints what they say.
 
 ```asm
 ; Example 1-1: about this machine (examples/system/about.asm)
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
         include "hw.inc"
 
@@ -616,7 +748,22 @@ CPU          20 MHz
 
 ### Why was I reset? RESETWHY
 
-Exactly one bit of RESETWHY is set, for the cause of the last reset: POWER (0), WATCHDOG (1), BUTTON (2), SOFTWARE (3), USB (4), UPLOAD (5). Bits 6 and 7 are kept and never set. The usual use is a **warm start**: after anything but power-on the SRAM still holds what the program left, so a program can keep its state, a high-score table say, and pick it up again:
+Exactly one bit of RESETWHY is set, for the cause of the last reset (Table 1-16):
+
+**Table 1-24: RESETWHY Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | HALTED | Never set |
+| 6 | KEYBOARD | Not set in this version |
+| 5 | UPLOAD | The UPLOAD command from the PC |
+| 4 | USB | The RESET command from the PC |
+| 3 | SOFTWARE | `0xA5` written to SYSRESET |
+| 2 | BUTTON | The reset button |
+| 1 | WATCHDOG | The watchdog was not kicked in time |
+| 0 | POWER | Power-on: the SRAM holds random values |
+
+The usual use is a **warm start**: after anything but power-on the SRAM still holds what the program left, so a program can keep its state, a high-score table say, and pick it up again:
 
 ```asm
         ld      bc,RESETWHY_P
@@ -633,11 +780,27 @@ cold:   ; ... set everything up, then:
 
 ### The CPU's speed: CPUSPEED
 
+**Table 1-25: CPUSPEED Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | – | Read 0 |
+| 3 | SPECTRUM | 1 = 3.57 MHz, whatever DIV holds |
+| 2–0 | DIV | 20 MHz ÷ (DIV + 1) |
+
+**Table 1-26: CPUSPEED Values**
+
 | CPUSPEED | Speed |
 |----------|-------|
 | `0x00` (after reset) | 20 MHz |
-| `0x01`–`0x07` (DIV) | 20 MHz ÷ (DIV + 1): 10, 6.67, 5, 4, 3.33, 2.86, 2.5 MHz |
-| `0x08` (SPECTRUM) | 3.57 MHz, close to a Spectrum's 3.5 MHz |
+| `0x01` | 10 MHz |
+| `0x02` | 6.67 MHz |
+| `0x03` | 5 MHz |
+| `0x04` | 4 MHz |
+| `0x05` | 3.33 MHz |
+| `0x06` | 2.86 MHz |
+| `0x07` | 2.5 MHz |
+| `0x08` | 3.57 MHz, close to a Spectrum's 3.5 MHz |
 
 The new speed starts at the next machine cycle. At every speed the Z80 still never waits for memory, and the ROM calls work the same (their waits use TIME, not loops). The SPECTRUM speed is for code that times itself with loops: beeper tones and delays sound and run as on a Spectrum, 2% fast.
 
@@ -653,17 +816,36 @@ Writing `0xA5` (`SYSRESET_MAGIC`) to SYSRESET gives a full reset, with RESETWHY.
 
 ### The buttons: SYSBTN
 
+**Table 1-27: The Buttons**
+
 | Button | Does |
 |--------|------|
 | Reset | A full reset (RESETWHY.BUTTON) |
 | Multiface | The NMI: a running program stops in the monitor |
 | DivMMC | Nothing by itself. The boot ROM uses it as the "monitor" button at reset |
 
-SYSBTN shows the Multiface (bit 0) and DivMMC (bit 1) buttons, 1 = held, debounced, so a program can use them as two more keys.
+SYSBTN shows two of them, debounced, so a program can use them as two more keys:
+
+**Table 1-28: SYSBTN Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | DIVMMC | 1 = the DivMMC button is held |
+| 0 | MULTIFACE | 1 = the Multiface button is held |
 
 ### Writable boot ROM: SYSCON
 
-**SYSCON.ROMWE** (bit 1) makes the boot ROM's pages writable, through any window whose write page is a ROM page, so a new ROM can be tried without rebuilding the FPGA: write it in, then reset. It lasts until the FPGA is reloaded. **SYSCON.ROMLOCK** (bit 2) locks ROMWE off until the next power-on; the boot ROM sets it at power-on, unless D is held, so an everyday program cannot change the ROM by accident. Writing 0 to ROMLOCK does nothing.
+**Table 1-29: SYSCON Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–3 | – | Read 0 |
+| 2 | ROMLOCK | Writing 1 locks ROMWE off until power-on; writing 0 does nothing |
+| 1 | ROMWE | 1 = the boot ROM's pages are writable |
+| 0 | – | Read 0 |
+
+**SYSCON.ROMWE** makes the boot ROM's pages writable, through any window whose write page is a ROM page, so a new ROM can be tried without rebuilding the FPGA: write it in, then reset. It lasts until the FPGA is reloaded. **SYSCON.ROMLOCK** locks ROMWE off until the next power-on; the boot ROM sets it at power-on, unless D is held, so an everyday program cannot change the ROM by accident. Writing 0 to ROMLOCK does nothing.
 
 ---
 
@@ -688,18 +870,20 @@ The complete examples in the other chapters start from the program map and share
 
 ## Summary of System Control Registers
 
-All are registers of page `0x00`: port = (register << 8) | `0x00`; in the register page at offset = register.
+All are registers of page `0x00`: the port is the register number then `0x00` (Table 1-10), and the offset in the register page is the register number.
+
+**Table 1-30: System Control Registers**
 
 | Name | Register | Port | Access | Function |
 |------|----------|------|--------|----------|
 | SYSID | `0x70` | `0x7000` | R | `0x5A` ("Z") |
 | SYSVER | `0x71` | `0x7100` | R | FPGA build: MAJOR (7–4), MINOR (3–0) |
-| SYSCFG | `0x72` | `0x7200` | R | CPU (1–0): 0 = Z80. CHIPMB (7–2): SRAM in MB |
-| RESETWHY | `0x73` | `0x7300` | R | POWER (0), WATCHDOG (1), BUTTON (2), SOFTWARE (3), USB (4), UPLOAD (5); one bit set |
-| SYSCON | `0x74` | `0x7400` | RW | ROMWE (1), ROMLOCK (2) |
+| SYSCFG | `0x72` | `0x7200` | R | CHIPMB (7–2): SRAM in MB. CPU (1–0): 0 = Z80 |
+| RESETWHY | `0x73` | `0x7300` | R | HALTED (7), KEYBOARD (6), UPLOAD (5), USB (4), SOFTWARE (3), BUTTON (2), WATCHDOG (1), POWER (0); one bit set |
+| SYSCON | `0x74` | `0x7400` | RW | ROMLOCK (2), ROMWE (1) |
 | SYSRESET | `0x75` | `0x7500` | W (S) | `0xA5` resets |
-| SYSBTN | `0x76` | `0x7600` | R | MULTIFACE (0), DIVMMC (1), 1 = held |
-| CPUSPEED | `0x77` | `0x7700` | RW | DIV (2–0): 20 MHz ÷ (DIV + 1). SPECTRUM (3): 3.57 MHz |
+| SYSBTN | `0x76` | `0x7600` | R | DIVMMC (1), MULTIFACE (0), 1 = held |
+| CPUSPEED | `0x77` | `0x7700` | RW | SPECTRUM (3): 3.57 MHz. DIV (2–0): 20 MHz ÷ (DIV + 1) |
 | MMU0–MMU7 | `0x80`–`0x8F` | `0x8000`–`0x8F00` | RW | Each window's read page, 2 bytes; the high byte commits, and sets the write page |
 | MMU0W–MMU7W | `0x90`–`0x9F` | `0x9000`–`0x9F00` | RW | Each window's write page, 2 bytes; the high byte commits |
 
@@ -710,6 +894,8 @@ Registers `0x78`–`0x7B` are the I2C master, for the real-time clock and the di
 SYSCON's ROMWE is clear (ROMLOCK keeps its value until power-on), CPUSPEED is `0x00` (20 MHz), and the MMU holds the reset map. The boot ROM then sets the program map before it starts a program.
 
 ### Equates in hw.inc
+
+**Table 1-31: Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
