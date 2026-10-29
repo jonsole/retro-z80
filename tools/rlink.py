@@ -39,6 +39,7 @@ MAX_PAYLOAD = 4096
 # control command, DB DC a data C0 and DB DD a data DB
 CTL_END, CTL_ESC, CTL_ESC_END, CTL_ESC_ESC = 0xC0, 0xDB, 0xDC, 0xDD
 CTL_BREAK, CTL_RESET, CTL_UPLOAD = 1, 2, 3
+CTL_KEY = 4             # C0 04 b ~b: b taken as a byte from the PS/2 keyboard (ticket #44)
 
 # Upload frames (monitor.md, section 6.2)
 PING, HEADER, DATA, END, ABORT = 0, 1, 2, 3, 4
@@ -149,6 +150,17 @@ def control(cmd):
     return Control(bytes([CTL_END, cmd, cmd ^ 0xFF]))
 
 
+def key(data):
+    """KEY commands for these PS/2 bytes, one each: C0 04 b ~b with b and ~b
+    escaped (serial spec, section 4)."""
+    out = bytearray()
+    for b in bytes(data):
+        out += bytes([CTL_END, CTL_KEY])
+        for v in (b, b ^ 0xFF):
+            out += bytes([CTL_ESC, CTL_ESC_END if v == CTL_END else CTL_ESC_ESC]) if v in (CTL_END, CTL_ESC) else bytes([v])
+    return Control(bytes(out))
+
+
 def escape(data):
     """The bytes as they go on the wire: a control command as it is, any
     other data with C0 and DB escaped. Every link's write() calls this."""
@@ -159,12 +171,17 @@ def escape(data):
 
 class Unescaper:
     """The machine's side, as serial.v does it with recognition on: feed(bytes)
-    returns a list of data bytes (bytes) and control commands (int). Nothing
-    is held back except a lone DB or a command's bytes."""
+    returns a list of data bytes (bytes), control commands (int) and KEYs
+    ((CTL_KEY, b)). Nothing is held back except a lone DB or a command's bytes."""
 
     def __init__(self):
-        self.state = 0          # 0 data, 1 after DB, 2 after C0, 3 after C0 c
-        self.cmd = 0
+        self.state = 0          # 0 data, 1 after DB, 2 after C0, 3 after C0 c,
+        self.cmd = 0            # 4-7 KEY's b, its escape, ~b, its escape
+        self.kb = 0
+
+    @staticmethod
+    def _unesc(b):
+        return 0xC0 if b == CTL_ESC_END else 0xDB if b == CTL_ESC_ESC else b
 
     def feed(self, data):
         out, run = [], bytearray()
@@ -181,7 +198,24 @@ class Unescaper:
                 self.state = 0
             elif self.state == 2:
                 self.cmd = b
-                self.state = 3
+                self.state = 4 if b == CTL_KEY else 3
+            elif self.state in (4, 5):
+                if self.state == 4 and b == CTL_ESC:
+                    self.state = 5
+                else:
+                    self.kb = self._unesc(b) if self.state == 5 else b
+                    self.state = 6
+            elif self.state in (6, 7):
+                if self.state == 6 and b == CTL_ESC:
+                    self.state = 7
+                    continue
+                inv = self._unesc(b) if self.state == 7 else b
+                self.state = 0
+                if inv == self.kb ^ 0xFF:
+                    if run:
+                        out.append(bytes(run))
+                        run = bytearray()
+                    out.append((CTL_KEY, self.kb))
             else:
                 self.state = 0
                 if b == self.cmd ^ 0xFF and 1 <= self.cmd <= 3:

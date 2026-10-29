@@ -11,5 +11,6 @@ Files copied from the zx emulator's extension (`jonsole/zx-spectrum-emulator`, `
 | `tests/asm_doc_test.js`, `tests/asm_index_test.js` | The tests of the emulator's own sources replaced by one on `firmware/boot/` |
 | `tests/sjasmplus_fetch_test.js` | The check against the emulator's `scripts/fetch_sjasmplus.py` left out |
 | `tests/server_registry_test.js` | The bridge's adverts |
+| `screen_scaling.js` (from commit `26d40c8`) | Cut down: the filters and sizes kept (the sizes for the captured picture, 720x576 from the KS2, and `fit` the default); the border crop and scanlines left out |
 
-Adapted (rewritten from the emulator's, same shape): `bridge_launch.js` and `bridge_view.js` (from `server_launch.js` and `server_view.js`), `watchpoint_model.js` and `watchpoint_view.js`. New: `extension.js`, `console_terminal.js`, `program_view.js`, `rimg.js`, `build_task.js`, `task_provider.js`, `tests/harness.js` and the other tests.
+Adapted (rewritten from the emulator's, same shape): `bridge_launch.js` and `bridge_view.js` (from `server_launch.js` and `server_view.js`), `watchpoint_model.js` and `watchpoint_view.js`. New: `hdmi_stream.js` and `hdmi_view.js` (the Board Screen tab, shaped like the emulator's screen panel), `extension.js`, `console_terminal.js`, `program_view.js`, `rimg.js`, `build_task.js`, `task_provider.js`, `tests/harness.js` and the other tests.

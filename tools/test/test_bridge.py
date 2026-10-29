@@ -26,6 +26,7 @@ import rlink  # noqa: E402
 from rz80bridge import protocol as P  # noqa: E402
 from rz80bridge.bridge import Bridge  # noqa: E402
 from rz80bridge.model import ModelLink, StubModel  # noqa: E402
+from rz80bridge import ps2keys  # noqa: E402
 from rz80bridge.session import Session  # noqa: E402
 from rz80bridge.sld import Symbols  # noqa: E402
 
@@ -230,6 +231,27 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(u.feed(b"\xc0\x05\xfa" + b"q"), [b"q"])
         self.assertEqual(u.feed(b"\xc0\x01\xc0\x03\xfc"), [3])
 
+    def test_key(self):
+        # KEY: C0 04 b ~b, b and ~b escaped (ticket #44), the same bytes as sim/serial/tb_serial.v
+        self.assertEqual(rlink.escape(rlink.key(b"\x1c\xc0$")),
+                         bytes.fromhex("c0041ce3 c004dbdc3f c00424dbdd"))
+        u = rlink.Unescaper()
+        wire = rlink.escape(b"a") + rlink.key(bytes(range(256))) + rlink.escape(b"b")
+        got = []
+        for b in wire:
+            got += u.feed(bytes([b]))
+        self.assertEqual([g[1] for g in got if isinstance(g, tuple)], list(range(256)))
+        self.assertEqual(b"".join(g for g in got if isinstance(g, bytes)), b"ab")
+        self.assertEqual(u.feed(b"\xc0\x04\x1c\x00q"), [b"q"])            # wrong inverse: dropped
+
+    def test_ps2_keys(self):
+        self.assertEqual((ps2keys.make("A"), ps2keys.brk("KeyA")), (b"\x1c", b"\xf0\x1c"))
+        self.assertEqual((ps2keys.make("up"), ps2keys.brk("ArrowUp")), (b"\xe0u", b"\xe0\xf0u"))
+        self.assertEqual(ps2keys.make("ENTER"), ps2keys.make("Enter"))
+        self.assertEqual(ps2keys.type_text("a!")[1][:2], (b"\x12\x16", b"\xf0\x16\xf0\x12"))
+        with self.assertRaises(ValueError):
+            ps2keys.make("NOPE")
+
     def test_image_header(self):
         img = rlink.Image(b"\x01\x02\x03", "z80", 0x8000, 0x8001)
         back, problems = rlink.Image.parse(img.file_bytes())
@@ -253,6 +275,20 @@ class ChannelTests(unittest.TestCase):
         self.session.close()
         self.model.shutdown()
         shutil.rmtree(self.tmp)
+
+    def test_keys_reach_the_board_attached_or_not(self):
+        self.session.key_down("SHIFT")
+        self.session.key_down("A")
+        self.session.launch(self.image)
+        self.session.key_up("A")
+        self.session.type_text("b", 0, 0)
+        self.session.key_up()                                   # SHIFT, still held
+        deadline = time.time() + 2
+        want = list(b"\x12\x1c\xf0\x1c2\xf02\xf0\x12")
+        while self.model.keys_in != want and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.model.keys_in, want)
+        self.assertEqual(self.session.held_keys, set())
 
     def test_launch_stops_at_entry(self):
         stop = self.session.launch(self.image)

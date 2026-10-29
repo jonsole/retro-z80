@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import rlink  # noqa: E402
 from rz80bridge import protocol as P  # noqa: E402
 from rz80bridge import disasm  # noqa: E402
+from rz80bridge import ps2keys  # noqa: E402
 
 CONSOLE_LINES = 2000
 STEP_WAIT = 2.0          # a STEP's STOP comes at once; after this, QUERY
@@ -144,6 +145,7 @@ class Session:
         self.log = log or (lambda s: None)
         self.console = Console()
         self.mode = "console"           # console, upload, debug
+        self.held_keys = set()          # KeyboardEvent.codes sent down and not yet up
         self.feed = None
         self.parser = rlink.FrameParser(syncs=(rlink.SYNC_MACHINE,))
         self.client = P.DebugClient(self.link.write, self._on_stop)
@@ -891,6 +893,34 @@ class Session:
         return (~(length - 1)) & 0xFFFF
 
     # ------------------------------------------------------------ console
+    # ------------------------------------------------------------ keys (ticket #44)
+    # PS/2 bytes through the KEY control command: decoded in hardware, so
+    # they reach the board attached or not, running or stopped.
+    def key_down(self, name):
+        code = ps2keys.lookup(name)
+        self.link.write(rlink.key(ps2keys.make(code)))
+        self.held_keys.add(code)
+        return code
+
+    def key_up(self, name=None):
+        """One key up; with no name, every key held."""
+        codes = [ps2keys.lookup(name)] if name is not None else sorted(self.held_keys)
+        for code in codes:
+            self.link.write(rlink.key(ps2keys.brk(code)))
+            self.held_keys.discard(code)
+        return codes
+
+    def type_text(self, text, hold=0.04, gap=0.02):
+        """Each character down for hold seconds, then gap before the next:
+        long enough for a program that polls the keys once a frame."""
+        steps = ps2keys.type_text(text)
+        for down, up, _ in steps:
+            self.link.write(rlink.key(down))
+            time.sleep(hold)
+            self.link.write(rlink.key(up))
+            time.sleep(gap)
+        return len(steps)
+
     def send_console(self, text):
         if self.attached:
             raise BridgeError("attached: the console is on the board's screen only (debug.md 4.3)")

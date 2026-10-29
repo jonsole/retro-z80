@@ -38,6 +38,7 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 | — | SERCON.RXFLUSH, TXFLUSH: write 1 to empty a FIFO | Kept from the earlier retro-z80 design; bits 4–5 are unused in retro68k |
 | BREAK sets NMISTAT.USB, NMI level 7 | BREAK sets NMISTAT.USB and drives the Z80's /NMI (spec 8) | Z80: one NMI input |
 | Bytes moved with MOVE.B | Bytes moved with `INIR` / `OTIR` (section 6) | Z80 |
+| No keys from the PC | KEY, `C0 04 b ~b` (section 4): a PS/2 byte from the PC | Typing on the board from VS Code and MCP (ticket #44). Agreed with retro68k (its #25), which keeps 04 for KEY; the same there, into its FIFO (it has no mapper) |
 | Control commands: a 16-byte sequence (`00 FF "R68K-CTL" …`) found in the raw stream; matching bytes held back | `C0 c ~c`, with the PC's other bytes escaped SLIP-style (section 4). Nothing waits for a next byte | Found on the KS2: a frame whose CRC ended in `0x00` waited for the next byte, so the stub dropped it after 1 s and the debugger stalled (about 1 frame in 256). Proposed to retro68k |
 
 Everything else is as in retro68k: the FT232H interface and its timing (the same 100 MHz system clock), flow control, SIWU#, the command codes, CTLEN and CTLLOCK, TXDROP, the four interrupt flags and their meanings, and DMA engine port 1.
@@ -73,6 +74,7 @@ While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-s
 | Bytes from the PC | Reach the FIFO as | Meaning |
 |-------------------|-------------------|---------|
 | `C0 c ~c` | Nothing | A control command (table below) |
+| `C0 04 b ~b` | Nothing | KEY: b to the PS/2 keyboard (below). b and ~b are escaped like data |
 | `DB DC` | `C0` | An escaped data byte |
 | `DB DD` | `DB` | An escaped data byte |
 | `DB` then any other byte | That byte | Not sent by the PC tools; passed on |
@@ -83,13 +85,15 @@ While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-s
 | `0x01` | `0xFE` | BREAK | NMI with NMISTAT.USB set (spec 8), to enter the debug monitor. Only while NMICON.USBEN is set |
 | `0x02` | `0xFD` | RESET | Reset the computer, with RESETWHY.USB set (spec 7) |
 | `0x03` | `0xFC` | UPLOAD | Reset with RESETWHY.UPLOAD set, so the boot ROM's loader waits for a program over the link (spec 16; the shared spec "Monitor and upload protocol", section 6). This is the only way into UPLOAD: the reset button has no long-press UPLOAD |
+| `0x04` | – | KEY | `C0 04 b ~b`: the byte b is taken as if the PS/2 keyboard had sent it (spec 12, section 3.1). Only while CTLEN is set |
 
 - The commands and escapes are handled in hardware, so commands work when the Z80 has crashed or runs with interrupts disabled.
 - The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine see only the data, in order.
 - **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once: a `C0` with nothing after it would wait, but the PC tools never send one. (retro68k's 16-byte sequence held back any bytes that might start it, so a message ending in `0x00` was seen only when the next byte came.)
 - The decoder's state (in an escape, in a command) is cleared at power-on only, like the FT232H interface, so the link survives other resets. A reset cannot come in the middle of a command: the command itself causes it.
 - **Terminals:** a plain terminal program sends its bytes unescaped. That is fine for ASCII. In UTF-8, `C0` never appears, but `DB` is a lead byte (U+06C0–U+06FF), so such a character would be decoded wrongly. For binary or non-ASCII text use `rlink.py term` or the bridge's console, which escape.
-- A broken command (a wrong inverse, or a code other than 1–3) is dropped. A `C0` always starts a command again, even inside another one.
+- **KEY** (ticket #44): the PC sends a key's make code as it goes down and its break code (`F0`, after `E0` for an extended key) as it comes up, one KEY a byte, as a PS/2 keyboard would. The keyboard takes b while its receiver runs (KBCON.EN or KEYCON.PS2MAP), into the FIFO if KBCON.EN is set (full: dropped, OVERFLOW) and to the Spectrum key mapper if PS2MAP is set. A real keyboard byte on the same clock goes first and b a clock later. Software cannot tell b from a keyboard's byte. KEYMAP0–6 (the membrane) never see it.
+- A broken command (a wrong inverse, or a code other than 1–4) is dropped. A `C0` always starts a command again, even inside another one.
 - The PC tools escape every byte they send except the commands: `rlink.escape()` in every link's `write()`. Random data grows by about 0.8 %.
 - With CTLEN and CTLLOCK both clear, every byte goes to the FIFO as it is, `C0` and `DB` too: a program can then run its own protocol on the link, and the PC must not escape.
 - **SERCON.CTLEN** turns recognition off (on after reset). With **SERCON.CTLLOCK** set, RESET and UPLOAD still work when CTLEN is off. Once set, CTLLOCK cannot be cleared by software; a reset clears it.
@@ -233,6 +237,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 - **No listener:** with the PC port closed, writes fill the FIFO and TXOVF is set; with TXDROP, the oldest bytes drop, TXOVF stays clear and SERDROP counts them, saturates at 255 and clears when read.
 - **Control commands and escapes** (`make -C sim serial`, `tb_serial.v`): a frame ending in `0x00` is all in the FIFO at once; `DB DC` and `DB DD` give `C0` and `DB`; commands among data give one pulse each and leave nothing in the FIFO; broken commands are dropped and a `C0` starts again; CTLLOCK alone keeps RESET and UPLOAD but not BREAK; with CTLEN and CTLLOCK clear every byte is raw. In the system tests: BREAK gives one NMI with NMISTAT.USB set; RESET and UPLOAD reset with RESETWHY.USB and RESETWHY.UPLOAD; commands work with the Z80 stuck in `DI` / `HALT`.
 - **On the board:** an upload of every byte value; 40 debugger steps from VS Code with registers read after each (before this change, a register read whose CRC ended in `0x00` stalled).
+- **KEY** (`make -C sim serial`, `make -C sim input`): KEY among data with b = `C0` and ~b = `DB` escaped; a wrong inverse or a `C0` inside dropped; none with CTLLOCK alone or with recognition off; the keyboard takes b into the FIFO and the mapper (port `0xFE`), with EN off only the mapper, with the receiver off nothing; a real byte on the same clock kept, first. On the board: typing at the monitor from the Show Screen tab and over MCP.
 - **Flush:** RXFLUSH and TXFLUSH empty their FIFO and set the counts.
 - **DMA:** port 1 jobs each way at full speed; a stalled port does not hold up other channels.
 - **Latency:** a single byte reaches the PC in well under 16 ms (SIWU#).

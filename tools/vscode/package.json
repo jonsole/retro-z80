@@ -4,7 +4,7 @@
   "publisher": "jonsole",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Debug Z80 programs on the real retro-z80 board (a ZX Spectrum Next's FPGA) over its USB link: hardware breakpoints and watchpoints, stepping, registers, the MMU, memory and disassembly at sjasmplus source level, shared with Claude over MCP.",
+  "description": "Debug Z80 programs on the real retro-z80 board (a ZX Spectrum Next's FPGA) over its USB link: hardware breakpoints and watchpoints, stepping, registers, the MMU, memory and disassembly at sjasmplus source level, and the board's HDMI screen through a USB capture device; shared with Claude over MCP.",
   "repository": {
     "type": "git",
     "url": "https://github.com/jonsole/retro-z80"
@@ -25,7 +25,8 @@
     "onCustomEditor:retroz80.program",
     "onLanguage:z80-asm",
     "onView:retroz80Watchpoints",
-    "workspaceContains:**/*.rimg"
+    "workspaceContains:**/*.rimg",
+    "onCommand:retroz80.showScreen"
   ],
   "contributes": {
     "languages": [
@@ -169,6 +170,63 @@
           "type": "string",
           "default": "",
           "markdownDescription": "The sjasmplus the build task uses. Empty: one on the PATH, or on Windows the pinned release, fetched once."
+        },
+        "retroz80.screen.device": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The USB capture device the board's HDMI goes into, by name (`USB3.0 HD Video Capture`; `/dev/video0` on Linux). Empty: auto-detected, one whose name says capture or HDMI. **retro-z80: Choose Capture Device** lists them. The MCP tools use it too."
+        },
+        "retroz80.screen.ffmpeg": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "ffmpeg, which reads the capture device. Empty: the PATH, then where winget, Chocolatey and Scoop put it."
+        },
+        "retroz80.screen.reencode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Re-encode the frames as JPEG: for a capture device that does not send MJPEG itself."
+        },
+        "retroz80.screen.port": {
+          "type": "integer",
+          "default": 4790,
+          "description": "While the Board Screen tab streams, its frames are served on this port of 127.0.0.1 for the bridge's MCP tools screen_capture and screen_record. 0: off."
+        },
+        "retroz80.screen.filter": {
+          "type": "string",
+          "enum": [
+            "nearest",
+            "sharp-bilinear",
+            "bilinear"
+          ],
+          "enumDescriptions": [
+            "Hard-edged pixels. Uneven at in-between sizes.",
+            "Hard-edged pixels, evenly sized at any size: nearest neighbour to a whole multiple, then bilinear for the rest.",
+            "Smoothed, as a television would soften it."
+          ],
+          "default": "nearest",
+          "description": "How the Board Screen tab scales the board's picture."
+        },
+        "retroz80.screen.scale": {
+          "type": "string",
+          "enum": [
+            "fit",
+            "fit-integer",
+            "1",
+            "2"
+          ],
+          "enumDescriptions": [
+            "Fill the tab, keeping the shape.",
+            "As large as the tab allows in whole steps, so every pixel is the same size.",
+            "As captured (720 x 576 from the KS2)",
+            "Twice that"
+          ],
+          "default": "fit",
+          "description": "How large the Board Screen tab draws the board's picture."
+        },
+        "retroz80.screen.showOnDebug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the board's screen when a debug session on the board starts."
         }
       }
     },
@@ -215,6 +273,42 @@
         "title": "Remove All Watchpoints",
         "category": "retro-z80",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "retroz80.showScreen",
+        "title": "Show Screen",
+        "category": "retro-z80",
+        "icon": "$(device-desktop)"
+      },
+      {
+        "command": "retroz80.screenPause",
+        "title": "Pause Board Screen",
+        "category": "retro-z80",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "retroz80.screenResume",
+        "title": "Resume Board Screen",
+        "category": "retro-z80",
+        "icon": "$(play)"
+      },
+      {
+        "command": "retroz80.screenSave",
+        "title": "Save Board Screen Frame...",
+        "category": "retro-z80",
+        "icon": "$(save)"
+      },
+      {
+        "command": "retroz80.screenDevice",
+        "title": "Choose Capture Device...",
+        "category": "retro-z80",
+        "icon": "$(device-camera-video)"
+      },
+      {
+        "command": "retroz80.screenScaling",
+        "title": "Screen Scaling...",
+        "category": "retro-z80",
+        "icon": "$(zoom-in)"
       }
     ],
     "views": {
@@ -264,6 +358,41 @@
         {
           "command": "retroz80.clearWatchpoints",
           "when": "debugType == 'retro-z80' && retroz80.hasWatchpoints"
+        },
+        {
+          "command": "retroz80.screenPause",
+          "when": "!retroz80.screenPaused"
+        },
+        {
+          "command": "retroz80.screenResume",
+          "when": "retroz80.screenPaused"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "retroz80.screenPause",
+          "when": "activeWebviewPanelId == 'retroz80Screen' && !retroz80.screenPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "retroz80.screenResume",
+          "when": "activeWebviewPanelId == 'retroz80Screen' && retroz80.screenPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "retroz80.screenScaling",
+          "when": "activeWebviewPanelId == 'retroz80Screen'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "retroz80.screenSave",
+          "when": "activeWebviewPanelId == 'retroz80Screen'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "retroz80.screenDevice",
+          "when": "activeWebviewPanelId == 'retroz80Screen'",
+          "group": "navigation@4"
         }
       ]
     },

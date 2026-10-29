@@ -1,6 +1,6 @@
 // The retro-z80 extension: debug programs on the real board through the
 // bridge (tools/rz80_bridge.py), with the z80-asm language, the program and
-// watchpoint panels, the console and a build task. docs/spec/debug.md,
+// watchpoint panels, the board's HDMI screen, the console and a build task. docs/spec/debug.md,
 // section 3; design plan, branch 20. Shaped like the zx emulator's
 // extension, much of whose code it carries (PROVENANCE.md).
 
@@ -12,6 +12,7 @@ const { activateConsole } = require('./console_terminal');
 const { activateWatchpoints } = require('./watchpoint_view');
 const { activateProgramView } = require('./program_view');
 const { activateTasks } = require('./task_provider');
+const { activateScreen } = require('./hdmi_view');
 
 const vscode = require('vscode');
 
@@ -26,6 +27,7 @@ function activate(context) {
   activateWatchpoints(context);
   activateProgramView(context);
   activateTasks(context);
+  activateScreen(context);
   if (!vscode.extensions.getExtension(ZX_EXTENSION)) {
     activateAsmLanguage(context);
   }

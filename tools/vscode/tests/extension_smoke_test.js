@@ -57,6 +57,8 @@ const vscode = {
   CustomExecution: class { constructor(cb) { this.callback = cb; } },
   Task: class { constructor(def, scope, name, source, execution) { Object.assign(this, { def, scope, name, source, execution }); } },
   Uri: { file: (p) => ({ fsPath: p }) },
+  ViewColumn: { Beside: -2 },
+  ConfigurationTarget: { Global: 1 },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: path.resolve(TOOLS, '..') } }],
     getConfiguration: (section) => ({ get: (key, fallback) => {
@@ -71,7 +73,8 @@ const vscode = {
       onDidDelete: () => disposable, dispose() {} }),
     findFiles: async () => [],
     textDocuments: [],
-    getWorkspaceFolder: () => undefined
+    getWorkspaceFolder: () => undefined,
+    onDidChangeConfiguration: () => disposable
   },
   window: {
     createOutputChannel: () => ({ append() {}, appendLine() {}, show() {}, dispose() {} }),
@@ -81,6 +84,7 @@ const vscode = {
       registered.terminals.push(opts);
       return { show() {} };
     },
+    showSaveDialog: async () => undefined,
     registerCustomEditorProvider: (id, provider) => {
       registered.editors[id] = provider;
       return disposable;
@@ -115,6 +119,7 @@ const vscode = {
     },
     onDidChangeActiveDebugSession: () => disposable,
     onDidTerminateDebugSession: () => disposable,
+    onDidStartDebugSession: () => disposable,
     startDebugging: async () => true,
     activeDebugSession: undefined
   },

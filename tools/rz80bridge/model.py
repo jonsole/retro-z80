@@ -78,6 +78,7 @@ class StubModel(threading.Thread):
         self.drop_next_stop = False
         self.commands_seen = []
         self.unescaper = rlink.Unescaper()   # survives resets, as the hardware's does
+        self.keys_in = []                    # bytes from KEY commands
         self._power_on()
 
     # ------------------------------------------------------------ machine
@@ -254,6 +255,8 @@ class StubModel(threading.Thread):
         for item in self.unescaper.feed(data):
             if isinstance(item, int):
                 self._control(item)
+            elif isinstance(item, tuple):
+                self.keys_in.append(item[1])     # KEY: the model has no keyboard; kept for tests
             else:
                 self._bytes(item)
 

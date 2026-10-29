@@ -336,11 +336,14 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- USB serial (spec 10)
+    wire        cmd_key;           // KEY: a PS/2 byte from the PC, to the keyboard (spec 12)
+    wire [7:0]  key_byte;
     serial ser (
         .clk(clk), .rst(sys_rst), .por(por), .us_tick(us_tick),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_ser), .rb_hit(hit_ser),
         .irq(), .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
+        .cmd_key(cmd_key), .key_byte(key_byte),
         .p_rxv(), .p_rxd(), .p_rxpop(1'b0), .p_txr(), .p_txpush(1'b0), .p_txd(8'd0),
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n)
@@ -432,6 +435,7 @@ module retroz80 #(
         .ps2_clk_i(ps2_clk_i), .ps2_data_i(ps2_data_i),
         .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
         .map_en(ps2map_en), .rx_stb(kb_rx_stb), .rx_byte(kb_rx_byte), .rx_on(kb_rx_on),
+        .inj_stb(cmd_key), .inj_byte(key_byte),
         .irq(irq_kb)
     );
 

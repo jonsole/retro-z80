@@ -7,6 +7,8 @@
 //     and nothing reaches the FIFO; broken commands are dropped
 //   - BREAK only with CTLEN; with CTLLOCK alone RESET and UPLOAD still work
 //   - with CTLEN and CTLLOCK clear every byte, C0 and DB too, goes on raw
+//   - KEY, C0 04 b ~b with b and ~b escaped, gives one cmd_key with b; a
+//     broken KEY is dropped; KEY only with CTLEN (ticket #44)
 `timescale 1ns/1ps
 `include "regmap.vh"
 module tb_serial;
@@ -18,7 +20,8 @@ module tb_serial;
     reg [12:0] rb_addr = 0;
     reg [7:0]  rb_wdata = 0;
     wire [7:0] rb_rdata;
-    wire       rb_hit, irq, cmd_break, cmd_reset, cmd_upload, p_rxv, p_txr;
+    wire       rb_hit, irq, cmd_break, cmd_reset, cmd_upload, cmd_key, p_rxv, p_txr;
+    wire [7:0] key_byte;
     wire [7:0] p_rxd;
 
     wire [7:0] ft_d;
@@ -30,13 +33,16 @@ module tb_serial;
                 .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
                 .rb_rdata(rb_rdata), .rb_hit(rb_hit), .irq(irq),
                 .cmd_break(cmd_break), .cmd_reset(cmd_reset), .cmd_upload(cmd_upload),
+                .cmd_key(cmd_key), .key_byte(key_byte),
                 .p_rxv(p_rxv), .p_rxd(p_rxd), .p_rxpop(1'b0), .p_txr(p_txr), .p_txpush(1'b0), .p_txd(8'h00),
                 .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d), .ft_d_o(ft_d_o), .ft_d_oe(ft_d_oe),
                 .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n));
     ft232h_model ft (.d(ft_d), .rxf_n(ft_rxf_n), .txe_n(ft_txe_n), .rd_n(ft_rd_n), .wr_n(ft_wr_n), .siwu_n(ft_siwu_n));
 
-    integer errors = 0, nbrk = 0, nrst = 0, nupl = 0;
+    integer errors = 0, nbrk = 0, nrst = 0, nupl = 0, nkey = 0;
+    reg [7:0] keys [0:15];
     always @(posedge clk) begin
+        if (cmd_key) begin keys[nkey] = key_byte; nkey = nkey + 1; end
         if (cmd_break)  nbrk = nbrk + 1;
         if (cmd_reset)  nrst = nrst + 1;
         if (cmd_upload) nupl = nupl + 1;
@@ -64,6 +70,24 @@ module tb_serial;
     endtask
     // the receive FIFO must hold exactly these n bytes
     reg [7:0] want [0:31];
+    // KEY must have given exactly these n bytes since the last check
+    reg [7:0] wantkey [0:15];
+    task expect_keys(input integer n, input [8*40-1:0] what);
+        integer i;
+        begin
+            idle;
+            if (nkey != n) begin
+                $display("FAIL %0s: %0d KEYs, not %0d", what, nkey, n);
+                errors = errors + 1;
+            end
+            for (i = 0; i < n && i < nkey; i = i + 1)
+                if (keys[i] !== wantkey[i]) begin
+                    $display("FAIL %0s: KEY %0d is %h, not %h", what, i, keys[i], wantkey[i]);
+                    errors = errors + 1;
+                end
+            nkey = 0;
+        end
+    endtask
     task expect_rx(input integer n, input [8*40-1:0] what);
         integer i;
         begin
@@ -122,6 +146,25 @@ module tb_serial;
         expect_rx(3, "commands among data");
         expect_cmds(1, 1, 1, "commands among data");
 
+        // 3b. KEY among data: A down and up, then b = C0 and b = 24 (~b = DB), escaped
+        ft.send(8'h61); ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'hE3);
+        ft.send(8'h62); ft.send(8'hC0); ft.send(8'h04); ft.send(8'hF0); ft.send(8'h0F);
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'hE3); ft.send(8'h63);
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'hDB); ft.send(8'hDC); ft.send(8'h3F);
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h24); ft.send(8'hDB); ft.send(8'hDD);
+        want[0] = 8'h61; want[1] = 8'h62; want[2] = 8'h63;
+        expect_rx(3, "KEY among data");
+        wantkey[0] = 8'h1C; wantkey[1] = 8'hF0; wantkey[2] = 8'h1C; wantkey[3] = 8'hC0; wantkey[4] = 8'h24;
+        expect_keys(5, "KEY among data");
+        // broken KEYs: a wrong inverse, an unescaped C0 inside (which starts a BREAK)
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'h00);
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'hC0); ft.send(8'h01); ft.send(8'hFE);
+        ft.send(8'h64);
+        want[0] = 8'h64;
+        expect_rx(1, "broken KEY");
+        expect_keys(0, "broken KEY");
+        expect_cmds(1, 0, 0, "broken KEY");
+
         // 4. broken commands: dropped; a C0 starts again; DB then C0 is a command
         ft.send(8'hC0); ft.send(8'h05); ft.send(8'hFA);          // no such command
         ft.send(8'hC0); ft.send(8'h01); ft.send(8'hFF);          // wrong inverse
@@ -140,6 +183,8 @@ module tb_serial;
         want[0] = 8'hC0;
         expect_rx(1, "CTLLOCK");
         expect_cmds(0, 1, 0, "CTLLOCK");
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'hE3);
+        expect_keys(0, "KEY with CTLLOCK alone");
 
         // 6. raw: CTLEN and CTLLOCK clear (CTLLOCK needs a reset to clear)
         rst = 1; repeat (2) @(posedge clk); rst = 0;
@@ -148,6 +193,10 @@ module tb_serial;
         want[0] = 8'hC0; want[1] = 8'h01; want[2] = 8'hFE; want[3] = 8'hDB; want[4] = 8'hDC;
         expect_rx(5, "raw");
         expect_cmds(0, 0, 0, "raw");
+        ft.send(8'hC0); ft.send(8'h04); ft.send(8'h1C); ft.send(8'hE3);
+        want[0] = 8'hC0; want[1] = 8'h04; want[2] = 8'h1C; want[3] = 8'hE3;
+        expect_rx(4, "KEY raw");
+        expect_keys(0, "KEY raw");
 
         if (errors == 0 && ft.errors == 0) $display("TEST PASSED");
         else $display("TEST FAILED: %0d errors, %0d FT232H errors", errors, ft.errors);

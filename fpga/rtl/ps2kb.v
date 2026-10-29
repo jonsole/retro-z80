@@ -9,7 +9,10 @@
 // 2 ms is dropped (the next starts afresh). The receiver runs while
 // KBCON.EN or KEYCON.PS2MAP (map_en) is 1; every good byte is also handed
 // to the Spectrum key mapper (rx_stb, rx_byte), whether or not it fits in
-// the FIFO (spec 12, section 8.3).
+// the FIFO (spec 12, section 8.3). Bytes from the link's KEY command
+// (inj_stb, inj_byte; spec 10, section 4) are taken the same way, while the
+// receiver runs; KEYs come at least 4 link bytes apart, so one held a clock
+// behind a real byte is never overtaken.
 //
 // Sending (KBSEND, with KBCON.EN set): hold the clock low for 100 us, pull
 // data low (the start bit), let the clock go; then the keyboard clocks the
@@ -46,6 +49,9 @@ module ps2kb (
     output reg         rx_stb,         // 1 clock: a good byte was received ...
     output reg  [7:0]  rx_byte,        // ... this one
     output wire        rx_on,          // the receiver is running
+
+    input  wire        inj_stb,        // 1 clock: KEY from the link (spec 10), taken as if received ...
+    input  wire [7:0]  inj_byte,       // ... this byte
 
     output wire        irq             // KEYB (spec 8, source 17)
 );
@@ -93,6 +99,13 @@ module ps2kb (
 
     wire        send_w = rb_wr && rb_addr == `RM_KBSEND && en && !tx;
 
+    // A byte from the link (KEY) waits here a clock if a real one is taken
+    // on the same clock, so neither is lost.
+    reg         inj_wait;
+    reg  [7:0]  inj_held;
+    wire        inj_any  = inj_wait || inj_stb;
+    wire [7:0]  inj_now  = inj_wait ? inj_held : inj_byte;
+
     always @(posedge clk) begin
         f_push <= 1'b0;
         rx_stb <= 1'b0;
@@ -101,8 +114,17 @@ module ps2kb (
             fh <= 4'd0; ft <= 4'd0; fcount <= 5'd0;
             rn <= 4'd0; rt <= 18'd0; tx <= 1'b0; tx_ack <= 1'b0;
             ps2_clk_low <= 1'b0; ps2_data_low <= 1'b0;
+            inj_wait <= 1'b0;
         end else begin
-            // ---- receiving
+            // ---- receiving: the link's bytes (KEY) ...
+            inj_wait <= 1'b0;
+            if (inj_any && rx_on) begin
+                f_push  <= en;
+                f_byte  <= inj_now;
+                rx_stb  <= 1'b1;
+                rx_byte <= inj_now;
+            end
+            // ... and the keyboard's, which go first on the same clock
             if (!tx) begin
                 if (kfall) begin
                     rt <= 18'd0;
@@ -121,6 +143,10 @@ module ps2kb (
                                 f_byte  <= rsh[8:1];
                                 rx_stb  <= 1'b1;
                                 rx_byte <= rsh[8:1];
+                                if (inj_any && rx_on) begin
+                                    inj_wait <= 1'b1;       // the link's byte goes next clock
+                                    inj_held <= inj_now;
+                                end
                             end
                         end else
                             rn <= rn + 1'b1;

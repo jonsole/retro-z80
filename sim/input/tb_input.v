@@ -68,12 +68,15 @@ module tb_input;
     wire        map_en, rx_stb, rx_on, irq;
     wire [7:0]  rx_byte;
     wire [39:0] ps2_keys;
+    reg         inj_stb = 1'b0;        // KEY from the link (ticket #44)
+    reg  [7:0]  inj_byte = 8'h00;
     ps2kb kb (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_kb), .rb_hit(hit_kb),
         .ps2_clk_i(ps2_clk), .ps2_data_i(ps2_data), .ps2_clk_low(ps2_clk_low), .ps2_data_low(ps2_data_low),
-        .map_en(map_en), .rx_stb(rx_stb), .rx_byte(rx_byte), .rx_on(rx_on), .irq(irq)
+        .map_en(map_en), .rx_stb(rx_stb), .rx_byte(rx_byte), .rx_on(rx_on),
+        .inj_stb(inj_stb), .inj_byte(inj_byte), .irq(irq)
     );
     ps2map kmap (.clk(clk), .clr(rst || !rx_on || !map_en), .stb(rx_stb), .byte_in(rx_byte), .keys(ps2_keys));
 
@@ -147,6 +150,13 @@ module tb_input;
     integer i, n;
     task ps2(input [7:0] b);
         kbm.send(b, 1'b0);
+    endtask
+    task inject(input [7:0] b);        // one KEY, as serial.v gives it
+        begin
+            @(negedge clk); inj_stb = 1'b1; inj_byte = b;
+            @(negedge clk); inj_stb = 1'b0;
+            #100;
+        end
     endtask
     task settle;
         #(3 * SCAN);
@@ -276,6 +286,45 @@ module tb_input;
         wr(`RM_KBIRQ, 8'h10);
         kb_plugged = 1'b1;
         #100000;
+
+        // ---- KEY from the link (ticket #44): bytes taken as if received
+        inject(8'h1C);                 // A down
+        expect("KEY: in the FIFO", `RM_KBSTAT, 0, 8'h01);
+        expect("KEY: A on port 0xFE", `RM_ULA, 8'hFD, fe(5'b00001));
+        inject(8'hF0); inject(8'h1C);  // A up
+        expect("KEY: A let go", `RM_ULA, 8'hFD, 8'hFF);
+        expect("KEY: KBDATA 1", `RM_KBDATA, 0, 8'h1C);
+        expect("KEY: KBDATA 2", `RM_KBDATA, 0, 8'hF0);
+        expect("KEY: KBDATA 3", `RM_KBDATA, 0, 8'h1C);
+        // on the clock a real byte is taken: both kept, the keyboard's first
+        fork
+            ps2(8'h32);
+            begin
+                @(negedge clk);
+                while (!(kb.rn == 4'd10 && kb.kfall)) @(negedge clk);
+                inj_stb = 1'b1; inj_byte = 8'h21;
+                @(negedge clk); inj_stb = 1'b0;
+            end
+        join
+        #1000;
+        expect("KEY with a real byte: COUNT 2", `RM_KBSTAT, 0, 8'h02);
+        expect("KEY with a real byte: the keyboard's", `RM_KBDATA, 0, 8'h32);
+        expect("KEY with a real byte: the link's", `RM_KBDATA, 0, 8'h21);
+        inject(8'hF0); inject(8'h32); inject(8'hF0); inject(8'h21);   // B and C up
+        // KBCON.EN off: the mapper only
+        wr(`RM_KBCON, 8'h00);
+        inject(8'h3A);                 // M down
+        expect("KEY, EN off: M on port 0xFE", `RM_ULA, 8'h7F, fe(5'b00100));
+        expect("KEY, EN off: FIFO empty", `RM_KBSTAT, 0, 8'h00);
+        inject(8'hF0); inject(8'h3A);
+        expect("KEY, EN off: M let go", `RM_ULA, 8'h7F, 8'hFF);
+        // nothing running (EN and PS2MAP off): ignored
+        wr(`RM_KEYCON, 8'h03);
+        inject(8'h1C);
+        wr(`RM_KEYCON, 8'h07);
+        expect("KEY, receiver off: nothing", `RM_ULA, 8'hFD, 8'hFF);
+        wr(`RM_KBCON, 8'h01);
+        expect("KEY, receiver off: FIFO empty", `RM_KBSTAT, 0, 8'h00);
 
         // ---- the membrane: A (row 1, column 0) and M (row 7, column 2)
         mkeys[7 * 1 + 0] = 1'b1;

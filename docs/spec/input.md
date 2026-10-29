@@ -43,6 +43,7 @@ The Spectrum's own ways in, port `0xFE` (keyboard rows, with PS/2 keys mapped on
 - A bad byte is dropped. Bad parity sets KBIRQ.PARITY; a bad start or stop bit sets KBIRQ.FRAME. Software can send `FE` (resend) if it wants the byte again.
 - If the FIFO is full, the new byte is dropped and KBIRQ.OVERFLOW is set. The mapper still sees it.
 - With KBCON.EN = 0 the FIFO is empty and takes nothing.
+- **Bytes from the PC:** the link's KEY command (spec 10, section 4; ticket #44) gives a byte that is taken exactly as a received one, while the receiver runs: into the FIFO if KBCON.EN is 1, to the mapper if PS2MAP is 1. A keyboard byte taken on the same clock goes first, the PC's a clock later. So the PC can type on the board, and software cannot tell. KEYMAP0–6 never show these keys.
 
 ### 3.2 Reading the FIFO
 

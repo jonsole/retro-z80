@@ -9,6 +9,7 @@ as application/json; GET is refused with 405, as the spec allows, since
 the server never starts a message.
 """
 
+import base64
 import json
 import os
 import sys
@@ -21,6 +22,7 @@ import rlink  # noqa: E402
 from rz80bridge import protocol as P  # noqa: E402
 from rz80bridge.session import BridgeError, FLAG_BITS, HALVES  # noqa: E402
 from rz80bridge.sld import Symbols  # noqa: E402
+from rz80bridge import screen  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "retro-z80"
@@ -37,7 +39,10 @@ INSTRUCTIONS = (
     "refused. While not attached, send_console and read_console use the monitor's console. Addresses are numbers "
     "or strings: hex as $8000, 0x8000, &8000 or a bare 8000, symbols and expressions (\"loop+3\") once "
     "load_debug_info or launch has loaded an SLD file, P012000 for a physical address, and page:address "
-    "(\"0A3:$4000\") for a breakpoint in a banked window."
+    "(\"0A3:$4000\") for a breakpoint in a banked window. The board's HDMI picture, through a USB capture device: "
+    "screen_capture (a frame) and screen_record (a few seconds), shared with VS Code's Board Screen tab. Keys: "
+    "key_down, key_up and type_text go in as a PS/2 keyboard's bytes (in hardware, attached or not), so the "
+    "ROM, programs and Spectrum-style games all see them."
 )
 
 ADDRESS = {"description": "A number, or a string: $8000, 0x8000, 8000 (hex), a symbol expression such as loop+3, "
@@ -115,6 +120,24 @@ TOOLS = [
     tool("read_console", "The console's output: lines from number since (omit for the latest), and the line "
          "being written. Returns next, the number to pass as since next time.",
          {"since": {"type": "integer"}, "max": {"type": "integer"}}),
+    tool("screen_capture", "The board's HDMI output now, as a JPEG image (from a USB capture device, the same "
+         "picture VS Code's Board Screen view shows). save: also write it to this path.",
+         {"save": {"type": "string", "description": "A path for the JPEG"}}),
+    tool("screen_record", "Record the board's HDMI output for some seconds and return a few frames spread over it "
+         "as images, each with its time, to see motion or a change. save keeps the whole sequence: a .mjpeg, "
+         ".avi or .mkv (the frames as they came), .mp4 or .gif (re-encoded), or a folder (numbered JPEGs).",
+         {"seconds": {"type": "number", "description": "0.1-30, default 2"},
+          "frames": {"type": "integer", "description": "How many frames to return as images, 1-16, default 6"},
+          "save": {"type": "string", "description": "A path for the whole sequence"}}),
+    tool("key_down", "Press a key on the board's keyboard (as a PS/2 keyboard sends it) and hold it until key_up. "
+         "key: a name (A, 5, ENTER, SPACE, SHIFT, CTRL, ALT, ESC, BACKSPACE, TAB, UP, DOWN, LEFT, RIGHT, F1-F12, "
+         "HOME, DELETE, punctuation such as , . ;) or a KeyboardEvent.code (KeyA, ShiftLeft, ArrowUp). Port 0xFE "
+         "sees it as the Spectrum key it maps to (SHIFT is CAPS SHIFT, CTRL is SYMBOL SHIFT).",
+         {"key": {"type": "string"}}, ["key"]),
+    tool("key_up", "Let a key go; with no key, every key held down.", {"key": {"type": "string"}}),
+    tool("type_text", "Type text on the board's keyboard, a US layout, each key held hold_ms (default 40, long "
+         "enough for a program that reads the keys once a frame) with gap_ms (default 20) between. \\n is Enter.",
+         {"text": {"type": "string"}, "hold_ms": {"type": "integer"}, "gap_ms": {"type": "integer"}}, ["text"]),
     tool("server_info", "Which bridge this is: pid, version, ports, serial port, start time, the program last "
          "launched, the advert file."),
 ]
@@ -126,6 +149,14 @@ def text_result(text):
 
 def json_result(value):
     return text_result(json.dumps(value))
+
+
+def held_text(session):
+    return "; held: %s" % ", ".join(sorted(session.held_keys)) if session.held_keys else ""
+
+
+def image_content(jpeg):
+    return {"type": "image", "data": base64.b64encode(jpeg).decode("ascii"), "mimeType": "image/jpeg"}
 
 
 def error_result(text):
@@ -179,6 +210,8 @@ class Tools:
         except BridgeError as e:
             return error_result(str(e))
         except (P.Refused, P.LinkLost, rlink.LinkError, rlink.Refused) as e:
+            return error_result(str(e))
+        except (screen.ScreenError, OSError) as e:
             return error_result(str(e))
         except (ValueError, KeyError, TypeError) as e:
             return error_result("bad arguments: %s" % e)
@@ -412,6 +445,48 @@ class Tools:
         lines, nxt, partial = self.s.console.read(a.get("since"), int(a.get("max", 200)))
         return json_result({"lines": lines, "next": nxt, "partial": partial})
 
+    def t_screen_capture(self, a):
+        jpeg, source = screen.capture()
+        if a.get("save"):
+            with open(a["save"], "wb") as f:
+                f.write(jpeg)
+        size = screen.jpeg_size(jpeg)
+        text = "%s, from %s%s" % ("%dx%d" % size if size else "a frame", source,
+                                  ", saved to %s" % a["save"] if a.get("save") else "")
+        return {"content": [image_content(jpeg), {"type": "text", "text": text}]}
+
+    def t_screen_record(self, a):
+        seconds = min(30.0, max(0.1, float(a.get("seconds", 2))))
+        want = min(16, max(1, int(a.get("frames", 6))))
+        frames, fps, source = screen.record(seconds)
+        if not frames:
+            return error_result("no frames in %g s" % seconds)
+        if a.get("save"):
+            screen.save_sequence(frames, fps, a["save"])
+        picks = sorted({round(i * (len(frames) - 1) / max(1, want - 1)) for i in range(want)}) if want > 1 else [0]
+        content = []
+        for i in picks:
+            content.append({"type": "text", "text": "frame %d, t=%.3f s" % (i, frames[i][0])})
+            content.append(image_content(frames[i][1]))
+        distinct = len({f for _, f in frames})
+        size = screen.jpeg_size(frames[0][1])
+        content.append({"type": "text", "text": "%d frames in %g s (%.1f fps, %d byte-distinct), %s, from %s%s" % (
+            len(frames), seconds, fps, distinct, "%dx%d" % size if size else "?", source,
+            ", saved to %s" % a["save"] if a.get("save") else "")})
+        return {"content": content}
+
+    def t_key_down(self, a):
+        code = self.s.key_down(a["key"])
+        return text_result("%s down%s" % (code, held_text(self.s)))
+
+    def t_key_up(self, a):
+        codes = self.s.key_up(a.get("key"))
+        return text_result("%s up%s" % (", ".join(codes) or "nothing held, nothing", held_text(self.s)))
+
+    def t_type_text(self, a):
+        n = self.s.type_text(a["text"], int(a.get("hold_ms", 40)) / 1000.0, int(a.get("gap_ms", 20)) / 1000.0)
+        return text_result("typed %d character%s" % (n, "" if n == 1 else "s"))
+
     def t_server_info(self, a):
         b = self.bridge
         info = {"pid": os.getpid(), "name": SERVER_NAME, "serialPort": self.s.serial_name,
@@ -508,7 +583,7 @@ def handle(tools, msg):
         if not isinstance(name, str):
             return rpc_error(ident, -32602, "missing tool 'name'")
         args = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
-        detail = next((" %s" % args[k] for k in ("address", "program", "command", "name") if k in args), "")
+        detail = next((" %s" % args[k] for k in ("address", "program", "command", "name", "save", "key", "text") if k in args), "")
         tools.s.log("MCP  %s%s" % (name, detail))
         return ok(tools.call(name, args))
     return rpc_error(ident, -32601, "unknown method: %s" % method)

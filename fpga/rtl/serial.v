@@ -24,6 +24,8 @@ module serial (
     output reg         cmd_break,      // 1 clock each: control commands from the PC
     output reg         cmd_reset,
     output reg         cmd_upload,
+    output reg         cmd_key,        // 1 clock: KEY, a PS/2 byte from the PC ...
+    output reg  [7:0]  key_byte,       // ... this one
 
     // DMA engine port 1 (spec 14): the CPU's own accesses go first
     output wire        p_rxv,
@@ -174,12 +176,16 @@ module serial (
     // (section 4): C0 c ~c is a control command, DB DC a data C0, DB DD a data
     // DB. Every other byte goes on at once, so no data byte waits for the next
     // one. A broken command is dropped; a C0 always starts a command again.
+    // KEY is C0 04 b ~b, with b and ~b escaped like data.
     localparam [7:0] B_END = 8'hC0, B_ESC = 8'hDB, B_ESC_END = 8'hDC, B_ESC_ESC = 8'hDD;
-    localparam [1:0] D_DATA = 2'd0, D_ESC = 2'd1, D_CMD = 2'd2, D_INV = 2'd3;
+    localparam [7:0] C_KEY = 8'd4;
+    localparam [2:0] D_DATA = 3'd0, D_ESC = 3'd1, D_CMD = 3'd2, D_INV = 3'd3,
+                     D_KB = 3'd4, D_KBESC = 3'd5, D_KBINV = 3'd6, D_KBINVESC = 3'd7;
 
     wire        match_on = sercon[1] || sercon[2];
-    reg  [1:0]  ds;
+    reg  [2:0]  ds;
     reg  [7:0]  mc;            // the command byte
+    reg  [7:0]  kb;            // KEY's b
 
     reg         in_valid;      // a byte from the FT232H
     reg  [7:0]  in_byte;
@@ -189,6 +195,7 @@ module serial (
         cmd_break  <= 1'b0;
         cmd_reset  <= 1'b0;
         cmd_upload <= 1'b0;
+        cmd_key    <= 1'b0;
         if (por) begin
             ds <= D_DATA;
         end else if (in_valid) begin
@@ -207,15 +214,33 @@ module serial (
                 end
                 D_CMD: begin
                     mc <= in_byte;
-                    ds <= D_INV;
+                    ds <= (in_byte == C_KEY) ? D_KB : D_INV;
                 end
-                default: begin   // D_INV
+                D_INV: begin
                     ds <= D_DATA;
                     if (in_byte == ~mc && mc >= 8'd1 && mc <= 8'd3) begin
                         cmd_break  <= (mc == 8'd1) && sercon[1];
                         cmd_reset  <= (mc == 8'd2);
                         cmd_upload <= (mc == 8'd3);
                     end
+                end
+                D_KB: if (in_byte == B_ESC) ds <= D_KBESC;
+                      else begin kb <= in_byte; ds <= D_KBINV; end
+                D_KBESC: begin
+                    kb <= (in_byte == B_ESC_END) ? B_END : (in_byte == B_ESC_ESC) ? B_ESC : in_byte;
+                    ds <= D_KBINV;
+                end
+                D_KBINV: if (in_byte == B_ESC) ds <= D_KBINVESC;
+                         else begin
+                             ds <= D_DATA;
+                             cmd_key  <= (in_byte == ~kb) && sercon[1];
+                             key_byte <= kb;
+                         end
+                default: begin   // D_KBINVESC
+                    ds <= D_DATA;
+                    cmd_key  <= (((in_byte == B_ESC_END) ? B_END : (in_byte == B_ESC_ESC) ? B_ESC : in_byte) == ~kb)
+                                && sercon[1];
+                    key_byte <= kb;
                 end
             endcase
         end
