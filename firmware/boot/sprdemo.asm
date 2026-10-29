@@ -744,6 +744,69 @@ bsq5:   SQTAB   32, 32, 0
 bsq6:   SQTAB   16, 48, 0
 bsq7:   SQTAB   48, 60, 0
 
+        IFDEF   BD_KEYS
+; Ball 0's dx from the keys held, through port 0xFE (a PS/2 keyboard's keys
+; show there, PS2MAP): O or cursor left (CAPS SHIFT + 5) speeds it up to
+; the left, P or cursor right (CAPS SHIFT + 8) to the right; with neither
+; held it slows down, so it glides on. The speed is +11 (1/16 pixel a
+; frame, signed), the position's sixteenths +12; a side turns the speed
+; round (.flp). Returns the whole pixels this frame in A. Uses A and DE
+BKACC   equ     3                       ; speeding up: 1/16 pixel a frame, each frame
+BKMAX   equ     64                      ; the top speed: 4 pixels a frame
+bdkeys: ld      a,0xDF                  ; row 5: P bit 0, O bit 1
+        in      a,(0xFE)
+        ld      d,a
+        ld      a,0xF7                  ; row 3: 5 bit 4
+        in      a,(0xFE)
+        bit     4,a
+        jr      nz,.n5
+        res     1,d                     ; as O
+.n5:    ld      a,0xEF                  ; row 4: 8 bit 2
+        in      a,(0xFE)
+        bit     2,a
+        jr      nz,.n8
+        res     0,d                     ; as P
+.n8:    ld      a,(ix+11)               ; the speed
+        bit     1,d
+        jr      nz,.nl
+        sub     BKACC
+.nl:    bit     0,d
+        jr      nz,.nr
+        add     a,BKACC
+.nr:    ld      e,a
+        ld      a,d
+        and     3
+        cp      3
+        ld      a,e
+        jr      nz,.lim                 ; a key held
+        or      a                       ; none: 1/16 slower
+        jr      z,.lim
+        jp      m,.up
+        dec     a
+        jr      .lim
+.up:    inc     a
+.lim:   or      a                       ; no faster than BKMAX either way
+        jp      p,.pos
+        cp      -BKMAX
+        jr      nc,.ok
+        ld      a,-BKMAX
+        jr      .ok
+.pos:   cp      BKMAX + 1
+        jr      c,.ok
+        ld      a,BKMAX
+.ok:    ld      (ix+11),a
+        add     a,(ix+12)               ; + the sixteenths: whole pixels, and the rest
+        ld      e,a
+        and     15
+        ld      (ix+12),a
+        ld      a,e
+        sra     a
+        sra     a
+        sra     a
+        sra     a
+        ret
+        ENDIF
+
 ; The balls at the start, and their first frame's registers
 bdinit: ld      ix,BD_BALL
         ld      iy,btab
@@ -766,6 +829,10 @@ bdinit: ld      ix,BD_BALL
         ld      (ix+7),a
         ld      (ix+8),a
         ld      (ix+10),a
+        IFDEF   BD_KEYS
+        ld      (ix+11),a               ; at rest
+        ld      (ix+12),a
+        ENDIF
         ld      a,(iy+8)
         ld      (ix+6),a
         ld      a,1
@@ -821,6 +888,14 @@ bdmove: ld      ix,BD_BALL
         ld      (ix+7),7                ; squashed for 7 frames
 .air:   ld      (ix+2),l
         ld      (ix+3),h
+        IFDEF   BD_KEYS                 ; examples/sprdemo: the keys steer ball 0 across
+        ld      a,b
+        cp      8
+        jr      nz,.auto
+        call    bdkeys
+        ld      (ix+6),a
+.auto:
+        ENDIF
         ; ---- across: bounce off the sides
         ld      l,(ix+0)
         ld      h,(ix+1)
@@ -849,6 +924,11 @@ bdmove: ld      ix,BD_BALL
 .flp:   xor     a
         sub     (ix+6)
         ld      (ix+6),a
+        IFDEF   BD_KEYS                 ; the steered ball's speed too (unused for the others)
+        xor     a
+        sub     (ix+11)
+        ld      (ix+11),a
+        ENDIF
 .xok:   ld      (ix+0),l
         ld      (ix+1),h
         ; ---- the level: squash left, or the zoom's triangle wave

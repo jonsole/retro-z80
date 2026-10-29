@@ -2,6 +2,8 @@
 ; a program to load and debug from VS Code. The same source, assembled at
 ; 0x2000 in RAM, with what it takes from the rest of the ROM given here.
 ; BREAK (or Esc) ends it, back to the monitor, which puts the console back.
+; Here the keys steer the big ball across: O or cursor left, P or cursor right
+; speed it up; let go and it glides on, slowing down, and bounces off the sides.
 ;
 ; The KS2 builds 2 sprites while the DMA engine is in, so it shows 2 balls.
 
@@ -17,6 +19,7 @@ ivt     equ     0x1FD0                  ; the ROM's IM 2 table, in ROM page 0 (w
 EXIT    equ     0x0040                  ; back to the monitor: "Program ended."
         DEFINE  BD_PAGE 0x0F0           ; the demo's two SRAM pages (0x1E0000): the ROM's
                                         ; 0x0FC holds the debug stub's buffers while stopped
+        DEFINE  BD_KEYS                 ; O / P or the cursor keys steer the big ball (ball 0)
 
 start:  ld      sp,stack_top            ; the demo maps its own pages into windows 5-7,
         call    sprdemo                 ; where the program map's stack would be
