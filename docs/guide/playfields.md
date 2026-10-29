@@ -2750,6 +2750,7 @@ These are the limits stated through this chapter, gathered in one place, with wh
 |-------|--------------------|-----|
 | One video mode, 576p at 50 Hz; no timing registers | Make a smaller screen with a window and scaling | "The Screen" |
 | Three layers, each from its own palette | SHAREPAL puts every layer on PALETTE0; sprites add more objects | "Colour Registers and Palette Offsets" |
+| Only L0 on the KS2: its FPGA has room for one layer (the KS3 has all three). L1's and L2's registers do not answer there | Use L0 for the playfield, and sprites for the rest | "Forming a Basic Playfield" |
 | Scaling by 1, 2, 4 or 8 only: no fractional scaling and no shrinking | Pick the window and source size to suit a whole scale | "Scaling" |
 | Scaling down the screen saves no bandwidth: each source line is fetched again for every screen line | Scale across to save bandwidth | "Scaling" |
 | Pointers and the stride are even: a bitmap line cannot start at an odd byte | Keep pictures 16-pixel aligned | "The Stride" |
