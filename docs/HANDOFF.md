@@ -48,6 +48,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/guide/sprites.md` | Programmer's guide, chapter 4: sprites and the sprite sequencer |
 | `docs/guide/io.md` | Programmer's guide, chapter 8: keyboards and joysticks (ticket #49), with `examples/io` (8-1 the border from port 0xFE, 8-2 the PS/2 scan codes), both tried on the KS2 through KEY and screen_capture. Chapters 1, 2, 5 and 7 are tickets #45-#48 |
 | `docs/guide/copper.md` | Programmer's guide, chapter 5: the copper, with examples in `examples/copper` tried on the KS2 |
+| `docs/guide/serial.md` | Programmer's guide, chapter 7: the USB serial link and debugging, with examples in `examples/serial` tried on the KS2 (7-3 needs the serial interrupt fix, PR #60) |
 | `docs/guide/timing.md` | Programmer's guide, appendix A: timing and screen reference, figures to scale |
 | `docs/guide/img/`, `tools/guide_figures/` | The guide's SVG figures, and the scripts that draw the to-scale ones |
 
