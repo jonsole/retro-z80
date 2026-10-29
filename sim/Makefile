@@ -53,6 +53,10 @@
 #                   with each mask, XOR, 4 bpp shifts, ADD, a backwards
 #                   copy, a chain with IRQ, errors and registers (dmx/;
 #                   seconds)
+#   make dtest      the DMA engine's random test (ticket #40): random jobs on
+#                   all 4 channels and all 256 minterms, the SRAM afterwards
+#                   checked byte by byte against a Python model (dtest/;
+#                   DTEST_SEEDS, three seeds by default; a minute or so each)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -80,8 +84,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dtest zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -274,6 +278,15 @@ $(BUILD)/dmxtest.bin: dmx/dmxtest.asm $(INC)/hw.inc | $(BUILD)
 dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxtest.hex +timeout=10000 | tee dmx.log
 	@grep -q "^TEST PASSED" $(BUILD)/dmx.log
+
+# The DMA engine's random test (ticket #40): dgen.py writes the SRAM and the
+# jobs, dtest.asm starts them, dmodel.py checks the SRAM dumped at the end
+DTEST_SEEDS ?= 11 12 13
+$(BUILD)/dtest.bin: dtest/dtest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+dtest: $(BUILD)/tb.vvp $(BUILD)/dtest.hex
+	@for s in $(DTEST_SEEDS); do d=$(BUILD)/dtest/$$s; mkdir -p $$d && 	$(PYTHON) dtest/dgen.py $$d $$s && 	(cd $(BUILD) && $(VVP) -n tb.vvp +rom=dtest.hex +ram=dtest/$$s/ram.hex +ramout=dtest/$$s/after.hex 	    +timeout=20000 > dtest/$$s/sim.log); 	grep -q "^TEST PASSED" $$d/sim.log || { echo "dtest: seed $$s failed"; tail -n 3 $$d/sim.log; exit 1; }; 	$(PYTHON) dtest/dmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex || { echo "dtest: seed $$s failed"; exit 1; }; 	done; echo "dtest: all seeds passed"
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

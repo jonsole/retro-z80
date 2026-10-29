@@ -248,9 +248,50 @@ chain:  ld      d,0x20
         call    waitch
         RCHK    DMX2_CHSTAT_P, DMX_CHSTAT_DONE_M
 
+        ; ---- a job written as a 32-byte image through the register page
+        ; (page 0x3F8 in window 7: channel 2's job registers at 0xE000 +
+        ; 0x11C0), with LDIR and with LDDR
+        ld      d,0x42
+        WREG    MMU7_0_P, 0xF8
+        WREG    MMU7_1_P, 0x03
+        ld      hl,job_ldir
+        ld      de,0xE000 + 0x11C0
+        ld      bc,32
+        ldir
+        call    rungo
+        ld      hl,DST + 0x10
+        ld      a,0x5A
+        call    chk4
+        ld      d,0x43
+        ld      hl,job_lddr + 31
+        ld      de,0xE000 + 0x11C0 + 31
+        ld      bc,32
+        lddr
+        call    rungo
+        ld      hl,DST + 0x14
+        ld      a,0xA5
+        call    chk4
+        WREG    MMU7_0_P, 5             ; window 7 back to page 5
+        WREG    MMU7_1_P, 0
+
         ld      hl,pass
         call    puts
         jp      stop
+
+; RUN channel 2's job, wait, check DONE and clear it (D: the check)
+rungo:  WREG    DMX2_CHCTRL_P, DMX_CHCTRL_RUN_M
+        call    waitch
+        RCHK    DMX2_CHSTAT_P, DMX_CHSTAT_DONE_M
+        WREG    DMX2_CHSTAT_P, DMX_CHSTAT_DONE_M
+        ret
+
+; Check the 4 bytes at HL are A
+chk4:   ld      b,4
+.lp:    cp      (hl)
+        jp      nz,fail
+        inc     hl
+        djnz    .lp
+        ret
 
 ; Write the 32-byte job at HL into the job registers whose CTRL port high
 ; byte is E (channels 0-2: port low byte 0x11). HL is left after the job.
@@ -415,4 +456,6 @@ job_ctrl2:  db  0, B8|BCONST, 1, 0xCC
 job_far:    JOB 0, B8|BCONST, 0xCC, 0, 0, 0x7F0000, 1, 1, 0, 0, 0, 0, 0
 job_two1:   JOB 0, B8, 0xCC, 0, SRC_P+10, DST_P+0x400, 100, 3, 0, 100, 128, 0, 0
 job_two0:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x800, 600, 1, 0, 0, 0, 0x77777777, 0
+job_ldir:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x10, 4, 1, 0, 0, 0, 0x5A5A5A5A, 0
+job_lddr:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x14, 4, 1, 0, 0, 0, 0xA5A5A5A5, 0
 job_long:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x100, 4000, 1, 0, 0, 0, 0, 0

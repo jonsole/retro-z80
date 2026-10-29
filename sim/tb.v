@@ -942,6 +942,7 @@ module tb #(
                              spd_hello[s]);
         end
     endtask
+    reg [8*128-1:0] ramout;
     task finish(input pass, input [8*40-1:0] why);
         begin
             done = 1;
@@ -969,6 +970,9 @@ module tb #(
                 $display("TEST FAILED: T1 at 3.57 MHz not on every slot edge");
             else
                 $display("TEST FAILED: %0s", why);
+            // +ramout=FILE: the SRAM at the end (sim/dtest; its whole 2 or 4 MB)
+            if ($value$plusargs("ramout=%s", ramout))
+                $writememh(ramout, sram.mem, 0, CHIPMB == 6'd2 ? 21'h0FFFFF : 21'h1FFFFF);
             $finish;
         end
     endtask
