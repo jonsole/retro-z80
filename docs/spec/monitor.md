@@ -409,7 +409,7 @@ python3 tools/rlink.py [-p PORT] COMMAND [options]
 
 - Addresses on the command line are hex, as in the monitor; `ADDR` may have the `P` prefix with `--phys`.
 - Exit codes: 0 done, 1 bad command line or file, 2 refused (the reason is printed), 3 no answer from the machine.
-- **Typing** goes over the serial console (each machine's serial input). retro-z80 later adds key injection (its design plan, branch 15): `type --keys` will send key-down and key-up codes through control commands, so they look like a real keyboard to the program.
+- **Typing** goes over the serial console (each machine's serial input). retro-z80 also has key injection (its serial spec, section 4, the KEY command; ticket #44): the bridge's MCP tools `key_down`, `key_up` and `type_text`, and VS Code's Show Screen tab, send key-down and key-up codes, so they look like a real keyboard to the program.
 
 ### 8.2 Examples
 
