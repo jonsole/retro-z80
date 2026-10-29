@@ -542,7 +542,7 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 | # | Item |
 |---|------|
 | D1 | Check the engine fits and meets timing at 100 MHz, and uses back-to-back free cycles |
-| D2 | Measure the speed figures of section 7. Measured on the KS2 (ticket #63, guide chapter 6): 25–35% below section 7, and only 8–13% faster with the layers off. The cause is the engine's own pipeline, one group at a time, read then write with no overlap, not the scheduler (retro68k agrees: its dmx.v is the same). Overlapping a group's reads with the last one's writes would close most of the gap; decided with retro68k under its D2 |
+| D2 | Measure the speed figures of section 7. Measured on the KS2 (ticket #63, guide chapter 6): 25–35% below section 7, and only 8–13% faster with the layers off. The cause is the engine's own pipeline, one group at a time, read then write with no overlap, not the scheduler (retro68k agrees: its dmx.v is the same). Overlapping a group's reads with the last one's writes could close much of the gap, still to be measured; decided with retro68k under its D2 |
 | D3 | Line drawing, area fill, and scaling or rotating blits: later, as retro68k's D3 |
 | D4 | MIX (section 3.1): on hold until it has proper resampling, as retro68k's D4 |
 | D5 | A descriptor RAM, as retro68k's: 2 KB (64 descriptors) in one RAMB18, with no SRAM cycles to load a descriptor, for short frequent jobs. It needs a block RAM from the budget (spec 4 sets the video's share) and an address: an MMU page of its own (for example `0x3F9`), which the CPU could also map, rather than room in the register page. Not in version 1 (decided again on 28 October 2026, design plan branch 21; the KS3 has the block RAM for it later) |
