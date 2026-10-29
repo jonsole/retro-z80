@@ -1129,6 +1129,7 @@ There is no way to feed a sprite by hand: retro-z80 has no SPRxDAT, so only the 
 
 The limits below are explained through the chapter; this section gathers them in one place, each with the section that explains it.
 
+- **Only two sprites on the KS2.** The KS2's FPGA has room for sprites 0 and 1 only; the KS3 has all eight. On the KS2 the registers of sprites 2–7 do not answer. A program that uses more shows only sprites 0 and 1 there.
 - **No mirroring.** The hardware does not flip a sprite. For an object that faces either way, store both images and point SPRxPT at the one you want ("Scaling").
 - **No feeding by hand.** There is no SPRxDAT: only the DMA fills a sprite's FIFO ("Turning sprite DMA on and off").
 - **No collision interrupt.** Read SPRCOLL once a frame, in the vertical blank ("Collisions").

@@ -435,6 +435,8 @@ The sprite RTL is retro68k's `sprites.v` and `sprite_pix.v`, with a byte registe
 
 The per-sprite state lives in distributed RAM, worked on one sprite a clock, as in retro68k. The earlier draft's 4 RAMB18 for a row store are no longer needed.
 
+**Sprites built.** The RTL takes the number of sprites as a parameter (`NSPRITES`, 1–8). The KS2 build (`fpga/ks2/top_ks2.v`) has **2**, sprites 0 and 1, to fit the XC7A15T; the KS3 build has all 8. The registers of sprites not built do not answer (spec 3: they read `0xFF` and writes do nothing), and SPRDMA's bits for them have no effect.
+
 ## 9. Spectrum extras
 
 None. The Spectrum had no sprites; the attribute layer does not act on them.
