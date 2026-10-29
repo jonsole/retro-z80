@@ -14,7 +14,7 @@ With a few instructions in its list, the copper can:
 
 Because the copper's writes are tied to the beam, they happen at the same place on the screen in every frame, whatever the Z80 is doing. Effects that would be impossible for an interrupt handler, which can be up to 2 µs late, cost the Z80 nothing.
 
-The chapter covers:
+This chapter covers:
 
 - what a copper instruction is;
 - writing registers with MOVE and MOVEF, a byte at a time, and colours whole;
@@ -63,7 +63,9 @@ The **high byte of an instruction's first word says what it is**. Values `0x00`�
 
 So `CMOVE BGCOLOR0,0x80` is the single word `0x0480`: BGCOLOR's blue byte is offset `0x04`, and `0x80` is the data. `CSTOP` is the single word `0xF300`.
 
-These are the instructions, in code order:
+Table 5-1 lists the instructions, in code order.
+
+**Table 5-1: Copper Instructions**
 
 | Code | Instruction | Macros | Words | What it does |
 |------|-------------|--------|-------|--------------|
@@ -78,7 +80,7 @@ These are the instructions, in code order:
 | `0xFB` | CALL or RET | `CCALL address`, `CRET` | CALL 2, RET 1 | Calls a subroutine, or returns from one |
 | `0xFC` | MOVEF | `CMOVEF reg,value` | 2 | Writes a byte to any custom offset, `0x000`–`0x3FF` |
 
-The two kinds of write come first in this chapter: MOVE for the registers in reach of one word, and MOVEF, its two-word form, for the rest. Then WAIT, SKIP, JUMP and STOP, which follow the beam and steer the list. MOVR, ALU, SKIPC, CALL and RET work with the copper's own registers, and have their own section, "The Copper's Registers and Arithmetic". The full bit layout of every instruction is in "Summary of Copper Instructions" at the end of the chapter.
+The two kinds of write come first in this chapter: MOVE for the registers in reach of one word, and MOVEF, its two-word form, for the rest. Then WAIT, SKIP, JUMP and STOP, which follow the beam and steer the list. MOVR, ALU, SKIPC, CALL and RET work with the copper's own registers, and have their own section, "The Copper's Registers and Arithmetic". The full bit layout of every instruction is in Table 5-25, in "Summary of Copper Instructions" at the end of the chapter.
 
 Codes `0xFD`–`0xFF`, and an instruction with a bit set that must be 0, are **reserved**. The copper treats them as STOP and sets COPSTAT.ERR. So erased memory (`0xFFFF`) stops the copper, rather than letting it write registers at random.
 
@@ -88,7 +90,9 @@ Codes `0xFD`–`0xFF`, and an instruction with a bit set that must be 0, are **r
 
 MOVE writes its byte to the register at its offset, **at once**, by the same rule as the Z80's writes: each byte of a register is written on its own, and takes effect when it is written.
 
-MOVE is one word:
+MOVE is one word, laid out as in Table 5-2.
+
+**Table 5-2: MOVE Instruction Word**
 
 | Bits | Meaning |
 |------|---------|
@@ -104,7 +108,9 @@ To make the background's blue byte `0x80`, the word is `0x0480`: BGCOLOR's blue 
 
 ### What a MOVE reaches
 
-The code is the offset, so a one-word MOVE reaches offsets `0x000`–`0x0EF`. That is where the registers the copper writes most are:
+The code is the offset, so a one-word MOVE reaches offsets `0x000`–`0x0EF`. That is where the registers the copper writes most are (Table 5-3).
+
+**Table 5-3: Registers in Reach of a MOVE**
 
 | Offsets | Registers |
 |---------|-----------|
@@ -116,7 +122,9 @@ Everything above, `0x0F0`–`0x3FF`, needs **MOVEF**: the copper's own registers
 
 ### MOVEF: the whole custom block
 
-MOVEF does what MOVE does, for any offset, `0x000`–`0x3FF`, in two words:
+MOVEF does what MOVE does, for any offset, `0x000`–`0x3FF`, in two words (Table 5-4).
+
+**Table 5-4: MOVEF Instruction Words**
 
 | Word | Bits | Meaning |
 |------|------|---------|
@@ -137,7 +145,9 @@ A MOVEF costs a second word, so use MOVE wherever it reaches.
 
 ### Registers wider than a byte
 
-A register of 2, 3 or 4 bytes is that many consecutive offsets, **low byte first**. The macros write all its bytes, a MOVE (or MOVEF) each, low byte first:
+A register of 2, 3 or 4 bytes is that many consecutive offsets, **low byte first**. The macros write all its bytes, a MOVE (or MOVEF) each, low byte first (Table 5-5).
+
+**Table 5-5: Macros for Wide Registers**
 
 | Macro | Writes | Used for |
 |-------|--------|----------|
@@ -153,7 +163,15 @@ Each byte takes effect when it is written, so between the MOVEs the register hol
 **Colours are the exception.** A colour is 3 bytes: blue, green, red. A MOVE to a colour's blue or green byte goes into the copper's own **colour assembly buffer**, and the MOVE to its red byte writes the colour **whole**, with the blue and green from the buffer. So a colour never shows half changed.
 
 - **BGCOLOR**, the background colour, is at `BGCOLOR0` (blue), `BGCOLOR1` (green) and `BGCOLOR2` (red). `CMOVEA BGCOLOR,0x0000FF` makes it blue: blue `0xFF`, green 0, red 0.
-- **Palette entries** are reached through PALIDX and PALDAT, as the Z80 reaches them. PALIDX (2 bytes) chooses the entry: bits 7–0 the entry, bits 9–8 the palette (0–2 PALETTE0–2, 3 SPRPALETTE). Then three MOVEs to PALDAT write blue, green and red; the red changes the entry and moves PALIDX on to the next entry. Writing either byte of PALIDX starts again at blue.
+- **Palette entries** are reached through PALIDX and PALDAT, as the Z80 reaches them. PALIDX (2 bytes, Table 5-6) chooses the entry. Then three MOVEs to PALDAT write blue, green and red; the red changes the entry and moves PALIDX on to the next entry. Writing either byte of PALIDX starts again at blue.
+
+**Table 5-6: PALIDX Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 15–10 | – | Reserved: write 0 |
+| 9–8 | PAL | The palette: 0–2 PALETTE0–2, 3 SPRPALETTE |
+| 7–0 | ENTRY | The entry, 0–255 |
 
 ```asm
         CMOVE   PALIDX0,17              ; PALETTE0 entry 17
@@ -177,7 +195,9 @@ WAIT makes the copper wait until the beam reaches a position on the screen. Whil
 
 ### The beam position
 
-A WAIT gives a **line** and a **pixel** in beam coordinates: line 0 is the start of the vertical blank, and pixel 0 is the start of a line's horizontal blank. Each line has its blank first and then its picture. Both are 10 bits, so the copper can name every position in the frame, to the pixel:
+A WAIT gives a **line** and a **pixel** in beam coordinates: line 0 is the start of the vertical blank, and pixel 0 is the start of a line's horizontal blank. Each line has its blank first and then its picture. Both are 10 bits, so the copper can name every position in the frame, to the pixel (Table 5-7).
+
+**Table 5-7: Beam Positions in a Frame**
 
 | Part of the frame | Lines | Pixels |
 |-------------------|-------|--------|
@@ -189,7 +209,9 @@ The beam passes 864 pixels a line, 37 ns each, and 625 lines a frame, 50 frames 
 
 ### The WAIT instruction's words
 
-WAIT is two words. The line and pixel are 10 bits each: their top two bits go in the first word, the rest in the second.
+WAIT is two words. The line and pixel are 10 bits each: their top two bits go in the first word, the rest in the second (Table 5-8).
+
+**Table 5-8: WAIT Instruction Words**
 
 | Word | Bits | Meaning |
 |------|------|---------|
@@ -306,6 +328,8 @@ A write to COP1LC does not move the copper: the new address is used at the start
 
 **COPJMP1** and **COPJMP2** are **strobes**: writing them makes something happen, and the value written does not matter.
 
+**Table 5-9: Copper Jump Strobes**
+
 | Strobe | What it does |
 |--------|--------------|
 | COPJMP1 | The copper starts again at COP1LC, now |
@@ -322,24 +346,32 @@ Either the Z80 or the copper can write them. A strobe from the Z80 also wakes a 
 
 ### The control register: COPCON
 
-| Bits | Field | Meaning |
-|------|-------|---------|
-| 0 | EN | 1: the copper is on (DMACON.COPEN and DMACON.DMAEN must also be set) |
-| 1 | IRQEN | 1: a write to COPINT raises the copper interrupt |
-| 2 | RESUME | 1: a list 2 cut off by the frame restart carries on in the next frame ("Background lists") |
-| 3 | STKKEEP | 1: the frame restart keeps the copper's return stack |
+**COPCON** turns the copper on and sets how it behaves (Table 5-10).
+
+**Table 5-10: COPCON Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–6 | – | Reserved: read 0, write 0 |
 | 5–4 | PRI | Memory priority: 0 normal, 1 high; 2 and 3 act as 1 ("Copper Timing") |
+| 3 | STKKEEP | 1: the frame restart keeps the copper's return stack |
+| 2 | RESUME | 1: a list 2 cut off by the frame restart carries on in the next frame ("Background lists") |
+| 1 | IRQEN | 1: a write to COPINT raises the copper interrupt |
+| 0 | EN | 1: the copper is on (DMACON.COPEN and DMACON.DMAEN must also be set) |
 
 ### Status: COPSTAT and COPPC
 
-**COPSTAT** says what the copper is doing, and holds two sticky flags:
+**COPSTAT** says what the copper is doing, and holds two sticky flags (Table 5-11).
 
-| Bit | Flag | Meaning |
-|-----|------|---------|
-| 0 | WAITING | The copper is in a WAIT |
-| 1 | STOPPED | The copper is stopped: after a STOP, a reserved instruction or a stack error, while it is off, and after reset |
-| 2 | ERR | Sticky: a reserved instruction, or a CALL or RET the stack could not take. Write 1 to clear |
+**Table 5-11: COPSTAT Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | – | Reserved: read 0 |
 | 3 | IRQ | Sticky: a write to COPINT. Write 1 to clear |
+| 2 | ERR | Sticky: a reserved instruction, or a CALL or RET the stack could not take. Write 1 to clear |
+| 1 | STOPPED | The copper is stopped: after a STOP, a reserved instruction or a stack error, while it is off, and after reset |
+| 0 | WAITING | The copper is in a WAIT |
 
 **COPPC** (3 bytes) reads the address of the instruction the copper is running; when stopped, the STOP or reserved instruction that stopped it. Reading its low byte, `COPPC0`, captures all three. Together with COPSTAT it tells you, when a list misbehaves, whether it reached its STOP or which WAIT it is stuck on.
 
@@ -469,7 +501,20 @@ b = b + 1
         CSTOP
 ```
 
-DMACON is a set/clear register: written with bit 7 (SETCLR) set, it sets the bits written as 1; with bit 7 clear, it clears them. Bits written as 0 are left alone, so the layers' DMA (BPLEN) stays on throughout.
+DMACON is a set/clear register: written with bit 7 (SETCLR) set, it sets the bits written as 1; with bit 7 clear, it clears them. Bits written as 0 are left alone, so the layers' DMA (BPLEN) stays on throughout. Table 5-12 gives its bits; the copper needs DMAEN and COPEN.
+
+**Table 5-12: DMACON Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | SETCLR | Write: 1 sets the bits written as 1, 0 clears them. Reads 0 |
+| 6 | DMAEN | The master enable for bits 5–1 |
+| 5 | BPLEN | The layers' and the attribute layer's fetches |
+| 4 | COPEN | The copper |
+| 3 | BLTEN | The DMA engine |
+| 2 | SPREN | The sprites |
+| 1 | AUDEN | Audio: reserved |
+| 0 | – | Reserved |
 
 ### What happens in each frame
 
@@ -506,7 +551,9 @@ A program that ends, or is stopped by the debugger, is also tidied up by the boo
 
 SKIP compares the beam position as WAIT does, but does not wait. If the beam **has reached** the position in this frame, the copper skips the next instruction; if not, it runs it. A pixel-only SKIP, `CSKIPP pixel`, compares only the pixel position on the current line.
 
-SKIP's words are WAIT's, with code `0xF1` and no B bit:
+SKIP's words are WAIT's, with code `0xF1` and no B bit (Table 5-13).
+
+**Table 5-13: SKIP Instruction Words**
 
 | Word | Bits | Meaning |
 |------|------|---------|
@@ -524,7 +571,9 @@ The skipped instruction may be one word or two: the copper reads its first word 
 
 ### JUMP
 
-JUMP makes the copper continue at another address, at once: a 22-bit physical address, anywhere in the SRAM.
+JUMP makes the copper continue at another address, at once: a 22-bit physical address, anywhere in the SRAM (Table 5-14).
+
+**Table 5-14: JUMP Instruction Words**
 
 | Word | Bits | Meaning |
 |------|------|---------|
@@ -606,7 +655,9 @@ The colour goes back to grey in each horizontal blank, where nothing is shown, s
 
 ## The Copper's Registers and Arithmetic
 
-The copper also has a few registers of its own, and simple arithmetic on them, so that a short loop can do the work of a long list, and a list can count, compare, keep values from frame to frame and call subroutines.
+The copper also has a few registers of its own, and simple arithmetic on them, so that a short loop can do the work of a long list, and a list can count, compare, keep values from frame to frame and call subroutines. Table 5-15 lists them.
+
+**Table 5-15: The Copper's Own Registers**
 
 | Register | Size | Offset | Used for |
 |----------|------|--------|----------|
@@ -627,6 +678,10 @@ An ordinary MOVE has both the register and the data in the instruction. A **MOVR
 - **The data from X or Y**: the value written is whatever is in X or Y at the time.
 - **The register from X**: X holds a register's offset, `0x00`–`0xFF`, and the MOVE writes that register. Change X, and the same instruction writes somewhere else.
 
+Table 5-16 gives the forms.
+
+**Table 5-16: MOVR Instructions**
+
 | Macro | Writes | To |
 |-------|--------|----|
 | `CMOVR reg,CX` / `CMOVR reg,CY` | X or Y | reg (offset `0x000`–`0x0FF`) |
@@ -641,7 +696,9 @@ The forms ending in `P` add 1 to X after the write, as the Z80's `(HL)` with `IN
 
 Each ALU instruction does one operation on X or Y, with a **source**: a number in the instruction, or another copper register. The register being changed is written **first**, as in Z80 assembly: `CADDI CX,4` is X = X + 4, like `ADD A,4`.
 
-Every operation has a form for a number, with `I` (immediate) on the end of its name, two words, and a form for a register (`CX`, `CY` or `CR0`–`CR7`), one word:
+Every operation has a form for a number, with `I` (immediate) on the end of its name, two words, and a form for a register (`CX`, `CY` or `CR0`–`CR7`), one word (Table 5-17).
+
+**Table 5-17: ALU Instructions**
 
 | Macro | Means | Flags |
 |-------|-------|-------|
@@ -657,11 +714,22 @@ Here `d` is `CX` or `CY`. All arithmetic is 8 bits, and wraps: `0xFF` + 1 is 0, 
 
 There is no instruction to load a custom register or a memory byte into X or Y: the copper reads nothing but its list. Values come from numbers in the list, from the Z80 (which can write COPX, COPY and COPR0–7), or from earlier arithmetic.
 
-The flags themselves can be loaded and stored, as the register `CF` (Z in bit 0, N in bit 1, C in bit 2), so that a list can save them and put them back: `CST CR7,CF`, later `CLD CF,CR7`. `CF` can be used only with `CLD`, `CLDI` and `CST`.
+The flags themselves can be loaded and stored, as the register `CF`, so that a list can save them and put them back: `CST CR7,CF`, later `CLD CF,CR7`. `CF` can be used only with `CLD`, `CLDI` and `CST`. Its bits are those of COPFLAGS, the flags' register (Table 5-18).
+
+**Table 5-18: COPFLAGS Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–3 | – | Reserved: read 0 |
+| 2 | C | A carry out of an add, or a borrow from a subtract or compare |
+| 1 | N | Bit 7 of the result |
+| 0 | Z | The result was 0 |
 
 ### Testing the flags: SKIPC
 
-**SKIPC** skips the next instruction if a condition on the flags holds. They are easiest to read after a `CCMPI` or `CCMP`:
+**SKIPC** skips the next instruction if a condition on the flags holds. They are easiest to read after a `CCMPI` or `CCMP` (Table 5-19).
+
+**Table 5-19: SKIPC Conditions**
 
 | Macro | After `CCMPI CX,n`, skips if | Tests |
 |-------|------------------------------|-------|
@@ -1020,7 +1088,9 @@ A SKIP or SKIPC reads the first word of the instruction after it before it decid
 
 ### When the writes take effect
 
-The copper's writes take effect exactly as the Z80's do:
+The copper's writes take effect exactly as the Z80's do (Table 5-20).
+
+**Table 5-20: When the Copper's Writes Take Effect**
 
 | Registers | Take effect |
 |-----------|-------------|
@@ -1034,7 +1104,9 @@ A good rule: make changes for line L in its horizontal blank, after `CWAIT L,0`,
 
 ### How fast the copper runs
 
-The copper reads its list one 16-bit word per memory cycle, through its own channel in the memory scheduler (Chapter 1, "Sharing the Memory"). Every word of every instruction it passes is read once, so its speed is counted in words:
+The copper reads its list one 16-bit word per memory cycle, through its own channel in the memory scheduler (Chapter 1, "Sharing the Memory"). Every word of every instruction it passes is read once, so its speed is counted in words (Table 5-21).
+
+**Table 5-21: Words Read for Each Instruction**
 
 | Instruction | Words |
 |-------------|-------|
@@ -1042,7 +1114,9 @@ The copper reads its list one 16-bit word per memory cycle, through its own chan
 | WAIT, SKIP, JUMP, CALL, MOVEF, ALU with a number | 2 |
 | An instruction skipped by SKIP or SKIPC | Its words, as if run |
 
-At high priority (COPCON.PRI 1) the copper is sure of one word every 100 ns slot, on any screen within the display's budget, whatever the Z80, the sprites and the DMA engine are doing. One-word MOVEs then mean one MOVE every slot:
+At high priority (COPCON.PRI 1) the copper is sure of one word every 100 ns slot, on any screen within the display's budget, whatever the Z80, the sprites and the DMA engine are doing. One-word MOVEs then mean one MOVE every slot (Table 5-22).
+
+**Table 5-22: Copper Speed at High Priority**
 
 | At PRI 1 | Words (MOVEs) |
 |----------|---------------|
@@ -1055,6 +1129,10 @@ At high priority (COPCON.PRI 1) the copper is sure of one word every 100 ns slot
 While it waits, the copper uses no memory cycles, so a list that is mostly WAITs costs the rest of the machine almost nothing. A loop costs a read for every word in it, on every pass: use loops to make lists **short**, and unrolled MOVEs where the writes must be **fast**.
 
 ### Priority: COPCON.PRI
+
+COPCON.PRI sets where the copper stands among the memory's users (Table 5-23).
+
+**Table 5-23: COPCON.PRI Levels**
 
 | PRI | The copper gets |
 |-----|-----------------|
@@ -1086,6 +1164,10 @@ Both can write the same register, and the last write to each byte wins. A Z80 wr
 
 ## What the Copper Can Reach
 
+Table 5-24 shows what the copper can do in each part of the machine.
+
+**Table 5-24: What the Copper Can Reach**
+
 | Area | The copper can |
 |------|----------------|
 | SRAM | Read its list, by physical address, without the MMU. Nothing else: it cannot write memory or read tables from it |
@@ -1107,7 +1189,9 @@ Some consequences:
 
 ## Summary of Copper Instructions
 
-Each instruction is one or two 16-bit words, stored low byte first. The high byte of the first word is the code; the table gives the rest of each word, bit by bit. Bits shown as 0 must be 0.
+Each instruction is one or two 16-bit words, stored low byte first. The high byte of the first word is the code; Table 5-25 gives the rest of each word, bit by bit. Bits shown as 0 must be 0.
+
+**Table 5-25: Copper Instruction Bit Layouts**
 
 | Code | Instruction | Low byte of word 1 (bits 7–0) | Word 2 |
 |------|-------------|-------------------------------|--------|
@@ -1132,7 +1216,9 @@ Each instruction is one or two 16-bit words, stored low byte first. The high byt
 - **ALU:** fn 0 LD, 1 ST, 2 ADD, 3 SUB, 4 AND, 5 OR, 6 CMP, 7 the flags (d 0: load them, d 1: store them). Source 0–7 is R0–R7, 8 X, 9 Y, 10 the number in word 2; 11–15 are reserved.
 - **SKIPC:** cc 0 EQ, 1 NE, 2 LO, 3 HS, 4 MI, 5 PL, 6 HI, 7 LS; 8–15 are reserved.
 
-Some instructions as the assembler builds them:
+Table 5-26 shows some instructions as the assembler builds them.
+
+**Table 5-26: Sample Instruction Encodings**
 
 | Source | Words | Why |
 |--------|-------|-----|
@@ -1157,25 +1243,29 @@ Some instructions as the assembler builds them:
 
 Custom offsets; the Z80's port is (offset bits 7–0) × 256 + `0x11`. Access: R read only, W write only (a strobe), RW read and write, W1C sticky flags cleared by writing 1.
 
+**Table 5-27: Copper Registers**
+
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
-| COPCON | `0x100` | `0x0011` | RW | EN (0), IRQEN (1), RESUME (2), STKKEEP (3), PRI (5–4) |
+| COPCON | `0x100` | `0x0011` | RW | PRI (5–4), STKKEEP (3), RESUME (2), IRQEN (1), EN (0) |
 | COP1LC | `0x101`–`0x103` | `0x0111`–`0x0311` | RW | List 1's address (21–0, bit 0 ignored): restarted at the start of every frame |
 | COP2LC | `0x104`–`0x106` | `0x0411`–`0x0611` | RW | List 2's address. Written by the hardware only with COPCON.RESUME |
 | COPJMP1 | `0x107` | `0x0711` | W | Strobe: start again at COP1LC now |
 | COPJMP2 | `0x108` | `0x0811` | W | Strobe: carry on at COP2LC now |
 | COPINT | `0x109` | `0x0911` | W | Strobe: sets COPSTAT.IRQ |
 | COPPC | `0x10A`–`0x10C` | `0x0A11`–`0x0C11` | R | The instruction being run; reading `0x10A` captures all three bytes |
-| COPSTAT | `0x10D` | `0x0D11` | R, W1C | WAITING (0), STOPPED (1); ERR (2) and IRQ (3) sticky |
+| COPSTAT | `0x10D` | `0x0D11` | R, W1C | IRQ (3) and ERR (2) sticky; STOPPED (1), WAITING (0) |
 | COPX, COPY | `0x10E`, `0x10F` | `0x0E11`, `0x0F11` | RW | X and Y |
-| COPFLAGS | `0x110` | `0x1011` | RW | Z (0), N (1), C (2) |
+| COPFLAGS | `0x110` | `0x1011` | RW | C (2), N (1), Z (0) |
 | COPSP | `0x111` | `0x1111` | RW | Read: return addresses on the stack (0–8). Write: empties it |
 | COPR0–COPR7 | `0x118`–`0x11F` | `0x1811`–`0x1F11` | RW | Storage registers |
-| DMACON | `0x00C` | `0x0C10` | Set/clear | COPEN (4) and DMAEN (6) must be set for the copper to run |
+| DMACON | `0x00C` | `0x0C10` | Set/clear | DMAEN (6) and COPEN (4) must be set for the copper to run |
 
 The copper interrupt is source 2, COPPER: COPSTAT.IRQ with COPCON.IRQEN, at IM 2 table entry 2 (VECBASE + 4). It must also be enabled in INTENA, with INTCON.MASTER on.
 
 ### State after reset, and when a program starts
+
+**Table 5-28: Copper State After Reset and at Program Start**
 
 | Register | After reset | When a program starts |
 |----------|-------------|-----------------------|
@@ -1186,6 +1276,8 @@ The copper interrupt is source 2, COPPER: COPSTAT.IRQ with COPCON.IRQEN, at IM 2
 | X, Y, the flags, R0–R7, the stack | 0, empty | Whatever an earlier program left |
 
 ### Equates in hw.inc and copper.inc
+
+**Table 5-29: Copper Equates in hw.inc and copper.inc**
 
 | Name | Meaning |
 |------|---------|
