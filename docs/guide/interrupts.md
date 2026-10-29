@@ -6,7 +6,7 @@ An **interrupt** lets the hardware call your program when something happens: the
 
 retro-z80 uses the Z80's **IM 2**: each source of interrupts has its own handler, found through a table. One controller collects the requests of every unit, puts them in order and hands the Z80 the right entry.
 
-The chapter covers:
+This chapter covers:
 
 - how an interrupt reaches the Z80, and the four switches on its way;
 - the sources and their order;
@@ -22,11 +22,14 @@ The chapter covers:
 
 You should know how to reach the registers through ports (Chapter 1, "The Hardware Registers").
 
-### Conventions in this chapter
+---
+
+## Conventions in This Chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`. Numbers are hexadecimal when they start with `0x`.
 - Every register in this chapter is in the **system page**: port = register × 256 + `0x00`. So C stays `0x00`, and moving to another register is `LD B,register` or `INC B`.
-- The complete examples are in `examples/interrupts/`, loaded at `0x8000`.
+- Bit tables list the top bit first, bit 7 down to bit 0.
+- The complete examples are in `examples/interrupts/`, loaded at `0x8000`. They run in the boot ROM's program map, use its console calls (`RST 0x18` PUTS, `RST 0x20` POLLC, `RST 0x28` functions), and return to the monitor.
 
 ---
 
@@ -41,7 +44,27 @@ Take the vertical blank as the example:
 5. The controller picks the pending source with the **lowest number**, and gives the vector for it. In IM 2 the Z80 reads the handler's address from its table and jumps there.
 6. The handler **clears the cause in the unit**, by writing 1 to VIDSTAT.VBLANK, and the request goes away.
 
-So an interrupt needs four switches on: the **unit's enable**, the source's **INTENA** bit, **INTCON.MASTER**, and the Z80's own (`EI`).
+So an interrupt needs four switches on: the **unit's enable**, the source's **INTENA** bit, **INTCON.MASTER**, and the Z80's own (`EI`). Figure 2-1 shows them.
+
+```
+     VIDSTAT.VBLANK            VIDINTEN.VBLANK
+     (the unit's flag)         (the unit's enable)
+             |                         |
+             +---------> AND <---------+
+                          |
+                          |  the request
+                          v
+     INTENA bit -------> AND <------- INTCON.MASTER
+                          |
+                          |  pending: the controller holds /INT low
+                          v
+     EI ---------------> AND
+                          |
+                          v
+            the Z80 answers: pushes PC, reads the vector
+
+             Figure 2-1: The Four Switches of an Interrupt
+```
 
 ### Requests are levels
 
@@ -58,6 +81,10 @@ The Z80 finishes the instruction it is in (up to 23 T-states; `LDIR` and the oth
 ---
 
 ## The Sources
+
+Table 2-1 lists every source, in priority order.
+
+**Table 2-1: Interrupt Sources**
 
 | Number | Name | From | Cleared by writing 1 to |
 |--------|------|------|-------------------------|
@@ -86,7 +113,16 @@ In IM 2 the Z80 reads a handler's address from a **table** at **I × 256 + vecto
 
     vector = VECBASE + 2 × source number
 
-so the table is 24 entries of 2 bytes, 48 bytes in all, for sources 0–20, two entries never used, and NONE (23) last. I picks its 256-byte page and **VECBASE** (register `0x0A`) its place in the page, at an even address. With I = `0x9F` and VECBASE = `0xD0` the table is at `0x9FD0`–`0x9FFF`: VBLANK's handler address at `0x9FD0`, TIMER0's at `0x9FE6`, NONE's at `0x9FFE`.
+so the table is 24 entries of 2 bytes, 48 bytes in all, for sources 0–20, two entries never used, and NONE (23) last. I picks its 256-byte page and **VECBASE** (register `0x0A`) its place in the page, at an even address (Table 2-2).
+
+**Table 2-2: VECBASE Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–1 | VEC | The table's place in I's page, bits 7–1 of its address |
+| 0 | – | Reads 0: the table starts at an even address |
+
+With I = `0x9F` and VECBASE = `0xD0` the table is at `0x9FD0`–`0x9FFF`: VBLANK's handler address at `0x9FD0`, TIMER0's at `0x9FE6`, NONE's at `0x9FFE`.
 
 The boot ROM starts a program with its own table (in ROM) and every source off. **A program that wants interrupts builds its own table** in its memory and points I and VECBASE at it. Fill every entry, so that a source turned on by mistake, and NONE, have somewhere to go.
 
@@ -257,13 +293,67 @@ The border goes black, blue, red, magenta and on round the eight Spectrum colour
 
 ### INTENA is three set/clear bytes
 
-Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0x01`–`0x03`): source n is in byte n ÷ 7, bit n mod 7. `hw.inc` gives both: `INTR_name` is the byte (0, 1 or 2) and `INTB_name` the bit. Bit 7 of each byte is **SETCLR**:
+Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0x01`–`0x03`), seven sources to a byte (Tables 2-3 to 2-5). `hw.inc` gives both halves of a source's place: `INTR_name` is the byte (0, 1 or 2) and `INTB_name` the bit. Bit 7 of each byte is **SETCLR**. Reading a byte gives the enables, with bit 7 as 0.
+
+**Table 2-3: INTENA0 Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | SETCLR | Write: 1 sets, 0 clears the bits written as 1. Reads 0 |
+| 6 | DMA2 | Source 6 |
+| 5 | DMA1 | Source 5 |
+| 4 | DMA0 | Source 4 |
+| 3 | VIDERR | Source 3 |
+| 2 | COPPER | Source 2 |
+| 1 | LINE | Source 1 |
+| 0 | VBLANK | Source 0 |
+
+**Table 2-4: INTENA1 Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | SETCLR | As INTENA0 |
+| 6 | TIMER2 | Source 13 |
+| 5 | TIMER1 | Source 12 |
+| 4 | TIMER0 | Source 11 |
+| 3 | – | Source 10, not used |
+| 2 | AUDIO | Source 9, kept for sound |
+| 1 | – | Source 8, not used |
+| 0 | DMA3 | Source 7 |
+
+**Table 2-5: INTENA2 Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7 | SETCLR | As INTENA0 |
+| 6 | – | Source 20, kept for later |
+| 5 | GEOM | Source 19, kept for the geometry unit |
+| 4 | SOFT | Source 18 |
+| 3 | KEYB | Source 17 |
+| 2 | SD | Source 16, not used: the SD card is polled |
+| 1 | SERIAL | Source 15 |
+| 0 | TIMER3 | Source 14 |
+
+A write changes only the bits written as 1 (Table 2-6).
+
+**Table 2-6: Writing an INTENA Byte**
 
 | Write | Effect |
 |-------|--------|
 | SETCLR = 1, with bits set | Those sources on |
 | SETCLR = 0, with bits set | Those sources off |
 | Bits written as 0 | Left alone |
+
+TIMER0 is bit 4 of INTENA1, so turning it on is `0x90` to port `0x0200`, and off `0x10`. The assembler makes the same bytes from the names:
+
+```asm
+        db      0x90                            ; INTENA1: SETCLR and bit 4, TIMER0 on
+        db      INTENA_SETCLR_M|(1<<INTB_TIMER0) ; the same byte
+        db      0x10                            ; SETCLR 0 and bit 4: TIMER0 off
+        db      1<<INTB_TIMER0                  ; the same byte
+```
+
+In a program:
 
 ```asm
         ld      bc,INTENA0_P+(INTR_TIMER0<<8)   ; the byte that holds TIMER0
@@ -275,9 +365,18 @@ Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0
 
 Never read INTENA, change a bit and write it back: the main program and a handler can then each turn their own sources on and off without getting in each other's way.
 
-**INTCON.MASTER** (register `0x00`, bit 0) turns every source off at once, and back on, without touching INTENA. Requests that come meanwhile wait.
+**INTCON.MASTER** (register `0x00`, bit 0) turns every source off at once, and back on, without touching INTENA. Requests that come meanwhile wait. The NMI does not pass through it.
+
+**Table 2-7: INTCON Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–1 | – | Read 0 |
+| 0 | MASTER | 1: every source but the NMI on, as INTENA says. 0: all off |
 
 ### Seeing what is going on
+
+**Table 2-8: Interrupt Status Registers**
 
 | Register | Shows |
 |----------|-------|
@@ -285,7 +384,16 @@ Never read INTENA, change a bit and write it back: the main program and a handle
 | INTPEND0–2 (`0x04`–`0x06`) | Which are pending: asking, enabled, and MASTER on |
 | INTID (`0x0C`) | The source given at the last answer: 0–20, or 23 for NONE |
 
-INTRAW, INTPEND and INTENA use the same bit positions, so a mask made for one works for the others. A program can also **poll** without interrupts at all: leave the source off in INTENA and test the unit's flag, or INTRAW.
+INTRAW, INTPEND and INTENA use the same bit positions (Tables 2-3 to 2-5), so a mask made for one works for the others; bit 7 of INTRAW and INTPEND reads 0.
+
+**Table 2-9: INTID Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–5 | – | Read 0 |
+| 4–0 | SRC | The source given at the last answer: 0–20, or 23 (NONE). The NMI does not change it |
+
+A program can also **poll** without interrupts at all: leave the source off in INTENA and test the unit's flag, or INTRAW.
 
 ### Nesting
 
@@ -296,6 +404,14 @@ The controller has no "in service" state. A handler that does `EI` early can be 
 ## The Software Interrupt
 
 Writing **SOFTINT** (register `0x0B`) with SET (bit 0) raises source 18, SOFT; with CLR (bit 1) it clears it. It goes through INTENA and MASTER like any other source.
+
+**Table 2-10: SOFTINT Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Not used. The register reads `0x00` |
+| 1 | CLR | Write 1: clear SOFT |
+| 0 | SET | Write 1: raise SOFT |
 
 SOFT has the highest number, so it is taken only when nothing else is pending. That makes it the place for the slow part of a handler: the VBLANK handler does what must be done at once, raises SOFT and returns, and the rest runs in the SOFT handler, after every other source has been served. Example 2-1 does this. The SOFT handler clears SOFT first, so a new request made while it runs is kept.
 
@@ -311,7 +427,9 @@ In IM 1 every interrupt runs `RST 38h`. The controller still picks a source, and
 
 ## The Nonmaskable Interrupt
 
-The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it:
+The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it (Table 2-11):
+
+**Table 2-11: NMI Sources**
 
 | Source | Event | Allowed by | Seen in |
 |--------|-------|------------|---------|
@@ -320,6 +438,22 @@ The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler 
 | The debug unit | A step, a breakpoint or a watchpoint, from VS Code or the monitor | Its own settings | Its own status |
 
 Each press or BREAK gives exactly one NMI. **NMISTAT** (register `0x0E`, W1C) keeps which sources there have been since it was last cleared; **NMICON** (`0x0D`) allows each one, and both are on after reset.
+
+**Table 2-12: NMICON Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | USBEN | 1: BREAK from the PC gives an NMI |
+| 0 | BUTTONEN | 1: the Multiface button gives an NMI |
+
+**Table 2-13: NMISTAT Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | USB | BREAK from the PC gave an NMI. Write 1 to clear |
+| 0 | BUTTON | The button gave an NMI. Write 1 to clear |
 
 **The monitor owns the NMI.** By default, taking an NMI switches window 0 to the boot ROM's monitor page, and keeps the return address in registers instead of on the program's stack, so the program's memory and stack are not touched. `RETN` puts both back. This is how the Multiface button, BREAK from the PC and the debugger stop a program and let it carry on. A program that does not want to be stopped (a game, say, that must not be broken into) clears NMICON's bits:
 
@@ -339,7 +473,16 @@ An NMI never interrupts another NMI's handler: one that comes meanwhile is taken
 
 ## The Time Counter: TIME
 
-**TIME** counts microseconds from power-on, in 32 bits: it wraps after 71.6 minutes. Only power-on resets it; every other reset leaves it counting. It sits in TIME0–TIME3 (registers `0x20`–`0x23`), low byte first, and cannot be written.
+**TIME** counts microseconds from power-on, in 32 bits: it wraps after 71.6 minutes. Only power-on resets it; every other reset leaves it counting. It sits in TIME0–TIME3 (registers `0x20`–`0x23`), low byte first, and cannot be written (Table 2-14).
+
+**Table 2-14: TIME Registers**
+
+| Register | Name | Bits of TIME |
+|----------|------|--------------|
+| `0x20` | TIME0 | 7–0. Reading it captures all 32 bits |
+| `0x21` | TIME1 | 15–8, from the capture |
+| `0x22` | TIME2 | 23–16, from the capture |
+| `0x23` | TIME3 | 31–24, from the capture |
 
 **Reading TIME0 captures all 32 bits**, and TIME1–TIME3 then read from the capture, so a value read low byte first is whole. The capture is shared with every other counter that captures (a timer's COUNT, for one), so read with interrupts off if a handler reads counters too:
 
@@ -442,6 +585,10 @@ So a repeating timer with RELOAD = n underflows every n + 1 ticks.
 
 ### What a timer counts
 
+CTRL's SRC field picks what a tick is (Table 2-15).
+
+**Table 2-15: Timer Sources**
+
 | SRC (CTRL bits 3–2) | A tick is | Every |
 |---------------------|-----------|-------|
 | 0 | The 100 MHz system clock ÷ (PRESCALE + 1) | 10 ns × (PRESCALE + 1) |
@@ -449,7 +596,9 @@ So a repeating timer with RELOAD = n underflows every n + 1 ticks.
 | 2 | The start of a frame | 20 ms |
 | 3 | The previous timer's underflow (timer 0 counts timer 3) | – |
 
-At SRC 0 the period is (PRESCALE + 1) × (RELOAD + 1) × 10 ns. PRESCALE 99 gives a tick of exactly 1 µs. The line and frame ticks follow the beam whether or not anything is on the screen.
+At SRC 0 the period is (PRESCALE + 1) × (RELOAD + 1) × 10 ns. PRESCALE 99 gives a tick of exactly 1 µs. The line and frame ticks follow the beam whether or not anything is on the screen. Table 2-16 gives settings for common needs.
+
+**Table 2-16: Timer Settings for Common Rates**
 
 | Want | Settings |
 |------|----------|
@@ -463,15 +612,44 @@ At SRC 0 the period is (PRESCALE + 1) × (RELOAD + 1) × 10 ns. PRESCALE 99 give
 
 ### The registers
 
-Timer n is at register `0x28` + 8n: TMR0 at `0x28`, TMR1 `0x30`, TMR2 `0x38`, TMR3 `0x40`.
+Timer n is at register `0x28` + 8n: TMR0 at `0x28`, TMR1 `0x30`, TMR2 `0x38`, TMR3 `0x40`. Each has the eight registers of Table 2-17. The 16-bit values are low byte first.
+
+**Table 2-17: Timer Registers**
 
 | Offset | Name | Function |
 |--------|------|----------|
-| +0 | CTRL | EN (0), REPEAT (1), SRC (3–2), IRQ (4), DMA (5), DMACH (7–6) |
+| +0 | CTRL | Control (Table 2-18) |
 | +1, +2 | PRESCALE0, 1 | The SRC 0 divider, 16 bits |
 | +3, +4 | RELOAD0, 1 | Loaded into COUNT at each underflow, in REPEAT |
 | +5, +6 | COUNT0, 1 | The count. Writing sets it at once; reading COUNT0 captures it |
-| +7 | STAT | UNDER (0): underflowed, W1C |
+| +7 | STAT | Status (Table 2-19) |
+
+**Table 2-18: TMRn_CTRL Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–6 | DMACH | The DMA channel to start, 0–3 |
+| 5 | DMA | 1: start channel DMACH at each underflow (Chapter 6) |
+| 4 | IRQ | 1: the timer's interrupt asks while STAT.UNDER is set |
+| 3–2 | SRC | What a tick is, 0–3 (Table 2-15) |
+| 1 | REPEAT | 1: reload from RELOAD at underflow and go on. 0: one-shot |
+| 0 | EN | 1: running. A one-shot underflow clears it |
+
+**Table 2-19: TMRn_STAT Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–1 | – | Read 0 |
+| 0 | UNDER | The timer has underflowed. Write 1 to clear |
+
+Example 2-3 starts timer 0 repeating, with its interrupt, at SRC 0: CTRL is `0x13`. Counting frames instead (SRC 2) makes it `0x1B`. The assembler makes the same bytes from the names:
+
+```asm
+        db      0x13                            ; EN, REPEAT, IRQ; SRC 0
+        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|TMR_CTRL_IRQ_M ; the same byte
+        db      0x1B                            ; EN, REPEAT, IRQ; SRC 2
+        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|(2<<TMR_CTRL_SRC_B)|TMR_CTRL_IRQ_M ; the same byte
+```
 
 - **Writing COUNT** changes it at once, byte by byte, so stop the timer (CTRL = 0) first.
 - **Writing RELOAD** changes nothing until the next underflow, so a running timer's period can change without one odd period.
@@ -619,13 +797,30 @@ With SRC 3 a timer counts the underflows of the one before it (timer 1 counts ti
 
 The watchdog resets the computer if a program stops working. Once it is on, the program must **kick** it, writing `0x5A` to **WDKICK**, at least once every **WDTIME** milliseconds; if a kick is late, the computer gets a full reset, with RESETWHY.WATCHDOG set. A kick with any other value resets at once, so a program running wild through its memory is caught quickly.
 
+**Table 2-20: Watchdog Registers**
+
 | Register | Name | Function |
 |----------|------|----------|
-| `0x48` | WDCTRL | EN (0): on. LOCK (1): WDCTRL and WDTIME read only until reset. Writing it restarts the time |
+| `0x48` | WDCTRL | Control (Table 2-21). Writing it restarts the time |
 | `0x49`, `0x4A` | WDTIME0, 1 | Milliseconds allowed between kicks, 1–65,535 (1000 after reset) |
 | `0x4B` | WDKICK | `0x5A` (`WDKICK_MAGIC`) kicks; anything else resets (while on) |
 
 The watchdog is off after every reset, so simple programs need not know it is there. **Kick from the main loop, not from an interrupt handler**: interrupts usually keep running when the main program hangs, and a handler that kicks would hide the hang. Set LOCK in the same write as EN, so a fault cannot turn the watchdog off.
+
+**Table 2-21: WDCTRL Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | LOCK | 1: WDCTRL and WDTIME read only until the next reset |
+| 0 | EN | 1: on, and the time starts |
+
+EN and LOCK together are `0x03`:
+
+```asm
+        db      0x03                            ; WDCTRL: EN and LOCK
+        db      WDCTRL_EN_M|WDCTRL_LOCK_M       ; the same byte
+```
 
 ### Example 2-4: The watchdog
 
@@ -685,6 +880,8 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 
 ### Interrupt controller
 
+**Table 2-22: Interrupt Controller Registers**
+
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
 | `0x00` | `0x0000` | INTCON | RW | MASTER (0): every source but the NMI |
@@ -698,6 +895,8 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 | `0x0E` | `0x0E00` | NMISTAT | W1C | BUTTON (0), USB (1) |
 
 ### Time counter, timers and watchdog
+
+**Table 2-23: Time Counter, Timer and Watchdog Registers**
 
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
@@ -716,6 +915,8 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 After reset MASTER is off, every INTENA bit is off, VECBASE is 0, SOFT is clear, both NMI sources are allowed; every timer is stopped with its registers 0; the watchdog is off, WDTIME 1000; TIME counts on. When the boot ROM starts a program the Z80 is in IM 2 with interrupts disabled, I = `0x1F` and VECBASE = `0xD0` (the ROM's table), and every source still off: the program finds every interrupt and every timer free.
 
 ### Equates in hw.inc
+
+**Table 2-24: Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
