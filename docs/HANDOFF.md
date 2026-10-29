@@ -44,6 +44,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | Specs 13, 15 | Not written: sound (parked), geometry unit (branch 10, another session) |
 | `docs/guide/playfields.md` | Programmer's guide, chapter 3: playfields (the first chapter written) |
 | `docs/guide/sprites.md` | Programmer's guide, chapter 4: sprites and the sprite sequencer |
+| `docs/guide/serial.md` | Programmer's guide, chapter 7: the USB serial link and debugging, with examples in `examples/serial` tried on the KS2 (7-3 needs the serial interrupt fix, PR #60) |
 | `docs/guide/timing.md` | Programmer's guide, appendix A: timing and screen reference, figures to scale |
 | `docs/guide/img/`, `tools/guide_figures/` | The guide's SVG figures, and the scripts that draw the to-scale ones |
 
