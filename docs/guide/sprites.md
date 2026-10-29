@@ -6,7 +6,7 @@
 
 retro-z80 has eight sprites, SPR0 to SPR7. Each one is a little playfield of its own: an image in SRAM, which the hardware fetches by DMA while the beam sweeps the screen, and a **window** that says where on the screen the image goes. A sprite can be any size; it can have 3, 15 or 255 colours; it can be scaled, bigger or smaller, by any amount from 16 times bigger to 16 times smaller; and each sprite can be put in front of all the layers, between any two of them, or behind them all. The hardware also reports when sprites touch each other or the layers.
 
-The chapter covers:
+This chapter covers:
 
 - forming a sprite, step by step, ending with a complete program;
 - the image in memory: pixel formats, colours and transparency;
@@ -23,20 +23,23 @@ The chapter covers:
 
 You should have read the Playfield Hardware chapter, because sprites are mixed with the layers described there, and because it explains how the Z80 reaches the registers ("Reaching the registers from the Z80"). Some examples use the copper, which has its own chapter.
 
-### Conventions in this chapter
+### About this chapter
+
+"Forming a Sprite" goes through the registers in the order you set them and ends with a complete program: a ball bouncing round the screen. The sections after it explain each part in more depth: the image, the window and size, positioning and clipping, moving, scaling, and depth. Then come the techniques: reusing a sprite down the screen with the copper, the sprite sequencer, and collisions. "Sprite DMA" explains how the hardware fetches sprite images, how much it can fetch, and what happens when it cannot keep up. The chapter ends with a summary of the registers.
+
+---
+
+## Conventions in This Chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`; those that use the copper also `include "copper.inc"`. Numbers in the text are hexadecimal when they start with `0x`.
 - As in the Playfield Hardware chapter, **the register page is in window 7** (`REGS` = `0xE000`), and the examples write registers through it: `CREG` (`0xF000`) + custom offset, `SREG` + system register, `PREG` + palette offset. The sprite palette, SPRPALETTE, is at `PREG + 3 × REGS_PAL_SPAN` (`0xFD00`); this chapter calls it `SPRPAL`.
 - In `hw.inc`, `SPR0` … `SPR7` are the offsets of the eight sprites in the custom block (`0x010`, `0x020` … `0x080`: 16 bytes apart), and `SPR_PT`, `SPR_H`, `SPR_V`, `SPR_CTL` and `SPR_STEP` are the offsets of the registers inside a sprite (`0x0`, `0x3`, `0x7`, `0xB`, `0xC`). So sprite 3's window across is at `CREG+SPR3+SPR_H`. The same offset also has a ready-added name, `SPR3_H`, and a port, `SPR3_H_P`.
 - **IX points at a sprite** when code sets one up field by field: `ld ix,CREG+SPR0`, then `ld (ix+SPR_CTL),value`.
-- `hw.inc` has no `CPORT()`: sjasmplus has no function-like defines. Use the `_P` names, or write a computed port out as `((off & 0xFF) << 8) | 0x10 | (off >> 8)`.
+- `hw.inc` has no `CPORT()`: sjasmplus has no function-like defines. Use the `_P` names, or write a computed port out as `((off & 0xFF) << 8) | 0x10 | (off >> 8)` (Table 4-16).
 - Sprite positions are in **beam coordinates**, which count the blanking (see "Beam coordinates" in the Playfield Hardware chapter): the 720 × 576 picture is beam pixels 144–863 and beam lines 49–624. `hw.inc` gives the picture's top left corner as `VID_X0` (144) and `VID_Y0` (49), so picture position (x, y) is beam position (VID_X0 + x, VID_Y0 + y). In the text, "pixel 200, line 100" is a picture position unless it is called a beam pixel or beam line.
 - **Physical and Z80 addresses.** The sprites read SRAM by 22-bit physical address, not through the MMU. Physical addresses have names like `BALL` (`0x040000`), and the Z80 reaches them by mapping their 8 KB page into window 6 (`DRAWWIN`, `0xC000`). As in Chapter 3, the complete examples are loaded at `0x8000` with windows 2–6 still showing SRAM pages 0–4, so a Z80 address a in `0x4000`–`0xDFFF` is physical a − `RAMOFS` (`0x4000`).
 - Comments give T-states where they help. The CPU runs at 20 MHz: a line is 640 T-states, a frame 400,000.
-
-### About this chapter
-
-"Forming a Sprite" goes through the registers in the order you set them and ends with a complete program: a ball bouncing round the screen. The sections after it explain each part in more depth: the image, the window and size, positioning and clipping, moving, scaling, and depth. Then come the techniques: reusing a sprite down the screen with the copper, the sprite sequencer, and collisions. "Sprite DMA" explains how the hardware fetches sprite images, how much it can fetch, and what happens when it cannot keep up. The chapter ends with a summary of the registers.
+- Tables are numbered Table 4-1, 4-2 …, and figures Figure 4-1, 4-2 …, separately. Bit tables list the top bit first.
 
 ---
 
@@ -54,14 +57,33 @@ The image can be anywhere in SRAM, at an even address.
 
 ### Step 2: the window
 
-Two registers give the sprite's window, as WINX and WINY give a layer's. Each is two 2-byte values, low byte first:
+Two registers give the sprite's window, as WINX and WINY give a layer's. **SPRxH** gives its beam pixels across and **SPRxV** its beam lines down. Each is two 2-byte words, low byte first: word 0 is bytes 0–1, word 1 is bytes 2–3.
 
-- **SPRxH**: HSTART (bytes 0–1, bits 10–0), the first beam pixel of the sprite, then HSTOP (bytes 2–3), the beam pixel just after it.
-- **SPRxV**: VSTART (bytes 0–1), the first beam line, then VSTOP (bytes 2–3), the beam line just after it.
+**Table 4-1: SPRxH and SPRxV Words**
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| SPRxH 0 (bytes 0–1) | 15–11 | Not used: write 0, read 0 |
+| | 10–0 | HSTART: the first beam pixel of the sprite |
+| SPRxH 1 (bytes 2–3) | 15–11 | Not used: write 0, read 0 |
+| | 10–0 | HSTOP: the beam pixel just after it |
+| SPRxV 0 (bytes 0–1) | 15–11 | Not used: write 0, read 0 |
+| | 10–0 | VSTART: the first beam line of the sprite |
+| SPRxV 1 (bytes 2–3) | 15–11 | Not used: write 0, read 0 |
+| | 10–0 | VSTOP: the beam line just after it |
 
 Note the order: a sprite's start comes first, where a layer's WINX has its end first.
 
-So a 32 × 24 sprite with its top left corner at picture pixel 200, line 100 has HSTART = VID_X0 + 200 = 344, HSTOP = 376, VSTART = VID_Y0 + 100 = 149 and VSTOP = 173:
+So a 32 × 24 sprite with its top left corner at picture pixel 200, line 100 has HSTART = VID_X0 + 200 = 344, HSTOP = 376, VSTART = VID_Y0 + 100 = 149 and VSTOP = 173. As the four words of a record in memory (see "Setting up a sprite from a record"):
+
+```asm
+        DW      0x0158,0x0178               ; SPRxH: HSTART 344, HSTOP 376
+        DW      VID_X0+200,VID_X0+232       ; the same two words
+        DW      0x0095,0x00AD               ; SPRxV: VSTART 149, VSTOP 173
+        DW      VID_Y0+100,VID_Y0+124       ; the same two words
+```
+
+Written to the registers through IX:
 
 ```asm
         ld   ix,CREG+SPR0           ; IX = sprite 0
@@ -85,16 +107,21 @@ The window also sets the image's size: there is no separate width or height regi
 
 **SPRxCTL** holds the sprite's settings, in one byte:
 
-| Bits | Field | Meaning |
-|------|-------|---------|
-| 1–0 | BPP | Bits per pixel: 0 = 2, 1 = 4, 2 = 8 (3 is reserved, and counts as 8) |
-| 3–2 | DEPTH | 0 = in front of all layers … 3 = behind all layers |
-| 7–4 | PAL | 2 and 4 bpp: the 16-colour block of the sprite palette |
+**Table 4-2: SPRxCTL Bits**
 
-For a 4-bit sprite in colours 32–47 of the sprite palette (block 2), in front of everything:
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | PAL | 2 and 4 bpp: the 16-colour block of the sprite palette |
+| 3–2 | DEPTH | 0 = in front of all layers … 3 = behind all layers |
+| 1–0 | BPP | Bits per pixel: 0 = 2, 1 = 4, 2 = 8 (3 is reserved, and counts as 8) |
+
+For a 4-bit sprite in colours 32–47 of the sprite palette (block 2), in front of everything: PAL 2, DEPTH 0, BPP 1.
 
 ```asm
-CTL_SHIP    equ     (2<<SPR_CTL_PAL_B)|(0<<SPR_CTL_DEPTH_B)|(1<<SPR_CTL_BPP_B)   ; 0x21
+CTL_SHIP    equ     (2<<SPR_CTL_PAL_B)|(0<<SPR_CTL_DEPTH_B)|(1<<SPR_CTL_BPP_B)
+
+        DB      0x21                        ; PAL 2, DEPTH 0, BPP 1 (4 bpp)
+        DB      CTL_SHIP                    ; the same byte
 ```
 
 **Writing SPRxCTL starts the sprite**, so it is written last (step 4).
@@ -351,6 +378,8 @@ ship_rec:   d24     SHIP                    ; PT
 
 ### Pixels and colours
 
+**Table 4-3: Sprite Pixel Formats**
+
 | BPP | Pixels per byte | Pixels per word | Colours | Palette entries used |
 |-----|-----------------|-----------------|---------|----------------------|
 | 0: 2 bits | 4 | 8 | 3 + transparent | PAL × 16 + 1 to PAL × 16 + 3 |
@@ -380,6 +409,8 @@ The bytes of a line go left to right at rising addresses, and inside each byte t
 Each line of the image is a whole number of words. For a source width of w pixels:
 
 > words per line = ⌈w × bits per pixel ÷ 16⌉, bytes per line = twice that
+
+**Table 4-4: Image Line Lengths**
 
 | Width | 2 bpp | 4 bpp | 8 bpp |
 |-------|-------|-------|-------|
@@ -463,6 +494,10 @@ For a 24-line sprite whose top 10 lines are above the picture, the window starts
 - **The vertical blank stops every sprite** (beam line 0, pixel 0): its FIFO is emptied, and nothing more is fetched or shown until its CTL is written again. Nothing starts again by itself. So each frame, write each sprite's pointer (and its window and step if they change), then **CTL last**.
 - **SPRxPT, SPRxH, SPRxV and SPRxSTEP act from the next line.** On a running sprite, a write changes it from the next line that starts after the write, without starting it again. On a stopped sprite, they are taken when its CTL is written.
 - **SPRDMA** acts at once and does not start or stop a sprite: off pauses its fetching (see "Turning sprite DMA on and off").
+
+Table 4-5 sums these up.
+
+**Table 4-5: When Sprite Register Writes Take Effect**
 
 | Register | Takes effect |
 |----------|--------------|
@@ -577,6 +612,17 @@ This only works while the high bytes stay the same: here HSTART and HSTOP stay w
 
 Each sprite can be shown bigger or smaller than its image, across and down separately, by any amount from 16 times bigger to 16 times smaller. **SPRxSTEP** holds two steps: **XSTEP** (bytes 0–1) and **YSTEP** (bytes 2–3). A step is how far through the image the hardware moves for each screen pixel (or line), in 1/2048ths of a source pixel: 5.11 fixed point.
 
+**Table 4-6: SPRxSTEP Words**
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| XSTEP (bytes 0–1) | 15–11 | Whole source pixels per screen pixel |
+| | 10–0 | Fraction of a source pixel, in 1/2048ths |
+| YSTEP (bytes 2–3) | 15–11 | Whole source lines per screen line |
+| | 10–0 | Fraction of a source line, in 1/2048ths |
+
+**Table 4-7: Common Steps**
+
 | Step | Size | Step | Size |
 |------|------|------|------|
 | `0x0080` | 16× bigger (the most) | `0x0800` | Normal |
@@ -585,6 +631,13 @@ Each sprite can be shown bigger or smaller than its image, across and down separ
 | `0x0555` | 1.5× bigger | `0x8000` | 1/16 (the least) |
 
 For any other size the step is 2048 ÷ the scale: 1.25× bigger is 2048 ÷ 1.25 = 1638 = `0x0666`. Steps below `0x0080` count as `0x0080`, steps above `0x8000` as `0x8000`, and a step of 0 counts as `0x0800`, so a sprite whose SPRxSTEP was never written is normal size.
+
+So the two words for a sprite at 2/3 of its size across (1 whole source pixel and 1024/2048 per screen pixel) and twice its size down (0 and 1024/2048) are:
+
+```asm
+        DW      0x0C00,0x0400               ; SPRxSTEP: XSTEP 1.5, YSTEP 0.5
+        DW      2048*3/2,2048/2             ; the same two words
+```
 
 The hardware works out which source pixel each screen pixel shows: screen pixel i of the window (counting from 0 at HSTART) shows source pixel ⌊i × XSTEP ÷ 2048⌋, and screen line j of the sprite shows source line ⌊j × YSTEP ÷ 2048⌋. So the first pixel and line of the window always show the image's first, and every step works the same way, with no rounding to choose.
 
@@ -631,8 +684,10 @@ The hardware does not mirror sprites. For an object that faces either way, store
 
 Each sprite's **DEPTH** puts it among the three layers, in the order PRIO gives them (see "Priority and Transparency" in the Playfield Hardware chapter). Tile pixels whose map entry has PRI set have a place of their own. From the front of the screen to the back:
 
-| From the front | |
-|----------------|--|
+**Table 4-8: Sprites and Layers, from the Front**
+
+| Place | Source |
+|-------|--------|
 | 1 | Sprites with DEPTH 0 |
 | 2 | Tile pixels with PRI set, from any layer (among them, PRIO's order) |
 | 3 | The layer PRIO names FRONT |
@@ -722,6 +777,8 @@ The sequencer only writes sprite registers, the same ones the copper and the CPU
 
 The list is in SRAM at an even physical address, which **SEQLC** (3 bytes) holds. The sequencer takes SEQLC at every frame start, as the copper takes COP1LC. Each entry is 16 bytes: exactly a sprite's registers, a sprite record (see "Setting up a sprite from a record"):
 
+**Table 4-9: A Sequencer List Entry**
+
 | Bytes | Register | Meaning |
 |-------|----------|---------|
 | 0–2 | SPRxPT | The image's first line |
@@ -734,6 +791,22 @@ The list is in SRAM at an even physical address, which **SEQLC** (3 bytes) holds
 - **Sorted** by VSTART, smallest first; entries with the same VSTART are taken in list order. An unsorted list is not an error, but an entry whose start line has already passed is skipped, and one that starts later than those after it holds them back.
 - **HSTART must be 16 or more**, as for any sprite. The sequencer does not check.
 - **Cost:** 8 memory reads per entry, and 8 for the end entry. 20 uses cost 168 reads a frame.
+
+One entry worked out: Example 4-4's first alien, a 16 × 16 image at physical `0x040000`, at picture pixel 200, line 60, 4 bpp in colours 16–31 (PAL 1), normal size. The raw bytes, then the source form Example 4-4's `build` writes:
+
+```asm
+        DB      0x00,0x00,0x04              ; PT: 0x040000
+        DB      0x58,0x01,0x68,0x01         ; H: HSTART 344, HSTOP 360
+        DB      0x6D,0x00,0x7D,0x00         ; V: VSTART 109, VSTOP 125
+        DB      0x11                        ; CTL: PAL 1, DEPTH 0, BPP 1
+        DB      0x00,0x00,0x00,0x00         ; STEP: 0, normal size
+
+        D24     ALIEN                       ; the same 16 bytes
+        DW      VID_X0+200,VID_X0+216
+        DW      VID_Y0+60,VID_Y0+76
+        DB      CTL_ALIEN
+        DW      0,0
+```
 
 ### Which sprite, and when
 
@@ -911,23 +984,44 @@ SEQLC is written once the frame has started and long before the next one, so the
 
 ### Sequencer registers
 
+**Table 4-10: Sequencer Registers**
+
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
-| SEQCON | `0x300` | `0x0013` | RW | EN (0): on from the next frame start, with DMACON.SPREN and DMAEN. IRQEN (1): SEQSTAT.SKIP raises VIDERR |
+| SEQCON | `0x300` | `0x0013` | RW | IRQEN (1): SEQSTAT.SKIP raises VIDERR. EN (0): on from the next frame start, with DMACON.SPREN and DMAEN |
 | SEQLC | `0x301`–`0x303` | `0x0113`–`0x0313` | RW | The list's physical address (21–1). Taken at every frame start |
 | SEQMASK | `0x304` | `0x0413` | RW | Sprite n may be used (bit n). Acts at once |
-| SEQSTAT | `0x305` | `0x0513` | R, W1C | SKIP (0): sticky. END (1): the end entry reached this frame. RUN (2): working through this frame's list |
+| SEQSTAT | `0x305` | `0x0513` | R, W1C | RUN (2): working through this frame's list. END (1): the end entry reached this frame. SKIP (0): sticky |
 | SEQSKIP | `0x306` | `0x0613` | R | Entries skipped so far this frame (stops at 255) |
 | SEQSKIPL | `0x307` | `0x0713` | R | Entries skipped in the last whole frame |
 | SEQPT | `0x308`–`0x30A` | `0x0813`–`0x0A13` | R, CAP | The next entry to read. Reading `0x308` captures all three bytes |
 
 The copper writes them with `CMOVEF`. After reset they are all 0: the sequencer is off and may use no sprite.
 
+**Table 4-11: SEQCON Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Reserved: write 0 |
+| 1 | IRQEN | SEQSTAT.SKIP raises VIDERR |
+| 0 | EN | The sequencer runs from the next frame start, with DMACON.SPREN and DMAEN |
+
+**Table 4-12: SEQSTAT Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–3 | – | Reserved |
+| 2 | RUN | Working through this frame's list. Read only |
+| 1 | END | The end entry was reached this frame. Read only |
+| 0 | SKIP | An entry was skipped. Sticky: write 1 to clear |
+
 ---
 
 ## Collisions
 
 The hardware checks every picture pixel for sprites touching: **SPRCOLL** collects what it finds. It is four separate byte registers:
+
+**Table 4-13: SPRCOLL Registers**
 
 | Register | Bit n set when |
 |----------|----------------|
@@ -993,7 +1087,9 @@ At every point across the screen, the layers whose windows cover it and the spri
 
 *Figure 4-9: Sprites Stacked over the Same Pixels*
 
-How many sprites can be stacked over the same 16 screen pixels with only the certain cycles:
+Table 4-14 gives how many sprites can be stacked over the same 16 screen pixels with only the certain cycles.
+
+**Table 4-14: Sprites Stacked over the Same 16 Pixels**
 
 | Layers | Words per 16 pixels | 8 bpp | 8 bpp, 2× across | 4 bpp | 2 bpp |
 |--------|--------------------|-------|------------------|-------|-------|
@@ -1025,11 +1121,15 @@ An underrun means the screen asks too much of the memory at that point. Use fewe
 
 ### Turning sprite DMA on and off
 
-| Register | Bits | Function |
-|----------|------|----------|
-| DMACON | SPREN (2), DMAEN (6) | All sprite DMA, and the sequencer. Both must be set |
-| SPRDMA0 | SPR (7–0) | The sprites the next SPRDMA1 write acts on. Read: the enables. All on after reset |
-| SPRDMA1 | SETCLR (7) | Writing it acts: SETCLR = 1 sets the sprites' enables written as 1 in SPRDMA0, SETCLR = 0 clears them |
+**Table 4-15: Sprite DMA Enables**
+
+| Register | Bits | Name | Meaning |
+|----------|------|------|---------|
+| DMACON | 6 | DMAEN | The master DMA enable. Must be set, with SPREN |
+| | 2 | SPREN | All sprite DMA, and the sequencer |
+| SPRDMA0 | 7–0 | SPR | Bit n: sprite n. The sprites the next SPRDMA1 write acts on. Read: the enables. All on after reset |
+| SPRDMA1 | 7 | SETCLR | Writing it acts: SETCLR = 1 sets the sprites' enables written as 1 in SPRDMA0, SETCLR = 0 clears them. Reads 0 |
+| | 6–0 | – | Not used |
 
 A sprite fetches only while its SPRDMA bit, SPREN and DMAEN are all set. SPRDMA acts at once and does not start or stop a sprite: off **pauses** its fetching, and on lets it carry on.
 
@@ -1055,17 +1155,38 @@ There is no way to feed a sprite by hand: retro-z80 has no SPRxDAT, so only the 
 
 ## Summary of Sprite Registers
 
-All offsets are custom offsets. The port of offset k is `(k and 0xFF) << 8 | (0x10 + (k >> 8))`; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`). Sprite n's registers are at SPRn + offset, where SPRn = `0x010` + n × `0x10`; `hw.inc` also gives them ready-added, as `SPR3_H`, with `_P` for the port. Values wider than a byte are low byte first, and each byte is written at once. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures.
+All offsets are custom offsets. Table 4-16 gives the port of an offset; in the register page offset k is at `0x1000` + k, which this chapter's convention puts at `0xF000` + k (`CREG + k`).
+
+**Table 4-16: The Port of a Custom Offset**
+
+| Bits | Meaning |
+|------|---------|
+| 15–8 | Offset bits 7–0 |
+| 7–2 | `000100` |
+| 1–0 | Offset bits 9–8 |
+
+So SPR0CTL, offset `0x01B`, is port `0x1B10`, and SEQCON, offset `0x300`, is port `0x0013`:
+
+```asm
+        DW      0x1B10,0x0013               ; the ports of SPR0CTL and SEQCON
+        DW      SPR0_CTL_P,SEQCON_P         ; the same two words
+```
+
+Sprite n's registers are at SPRn + offset, where SPRn = `0x010` + n × `0x10`; `hw.inc` also gives them ready-added, as `SPR3_H`, with `_P` for the port. Values wider than a byte are low byte first, and each byte is written at once. Access: R read only, RW read and write, W1C sticky flags cleared by writing 1, SC set/clear, CAP reading the lowest byte captures.
 
 ### Sprite registers
+
+**Table 4-17: Sprite Registers**
 
 | Name | Offset | Bytes | Access | Function |
 |------|--------|-------|--------|----------|
 | SPRxPT | SPRn + `0x0` | 3 | RW, CAP | Where the next image line starts (21–1; bit 0 reads 0). Read: the next word of the image. Write it each frame, before CTL |
 | SPRxH | SPRn + `0x3` | 4 | RW | HSTART (bytes 0–1, 10–0), HSTOP (bytes 2–3, 10–0): unsigned beam pixels. HSTART 16 or more |
 | SPRxV | SPRn + `0x7` | 4 | RW | VSTART (bytes 0–1, 10–0), VSTOP (bytes 2–3, 10–0): unsigned beam lines |
-| SPRxCTL | SPRn + `0xB` | 1 | RW | BPP (1–0), DEPTH (3–2), PAL (7–4). Any write starts the sprite: write it each frame, last |
+| SPRxCTL | SPRn + `0xB` | 1 | RW | PAL (7–4), DEPTH (3–2), BPP (1–0). Any write starts the sprite: write it each frame, last |
 | SPRxSTEP | SPRn + `0xC` | 4 | RW | XSTEP (bytes 0–1), YSTEP (bytes 2–3): source pixels per screen pixel, 5.11 (`0x0800` normal, `0x0080`–`0x8000`; 0 counts as `0x0800`) |
+
+**Table 4-18: Each Sprite's Offsets and Ports**
 
 | Sprite | Offsets | Ports | Register page |
 |--------|---------|-------|---------------|
@@ -1076,15 +1197,19 @@ All offsets are custom offsets. The port of offset k is `(k and 0xFF) << 8 | (0x
 
 The copper writes them with one-word MOVEs.
 
-### SPRxCTL fields
+### SPRxCTL bits
 
-| Bits | Field | Values |
-|------|-------|--------|
-| 1–0 | BPP | 0 = 2, 1 = 4, 2 = 8 bits per pixel; 3 reserved (counts as 8) |
-| 3–2 | DEPTH | 0 = in front of all layers; 1 = behind FRONT; 2 = behind MIDDLE; 3 = behind BACK |
+**Table 4-19: SPRxCTL Bits in Full**
+
+| Bits | Name | Meaning |
+|------|------|---------|
 | 7–4 | PAL | 2 and 4 bpp: colour block of SPRPALETTE (colour = PAL × 16 + value) |
+| 3–2 | DEPTH | 0 = in front of all layers; 1 = behind FRONT; 2 = behind MIDDLE; 3 = behind BACK |
+| 1–0 | BPP | 0 = 2, 1 = 4, 2 = 8 bits per pixel; 3 reserved (counts as 8) |
 
 ### Sprite globals
+
+**Table 4-20: Sprite Global Registers**
 
 | Name | Offset | Port | Access | Function |
 |------|--------|------|--------|----------|
@@ -1097,11 +1222,14 @@ The copper writes them with one-word MOVEs.
 
 The copper reaches the sprite globals with `CMOVEF` only.
 
-Related bits elsewhere:
+Table 4-21 lists the related bits elsewhere.
+
+**Table 4-21: Related Bits in Other Registers**
 
 | Register | Bit | Function |
 |----------|-----|----------|
-| DMACON | SPREN (2) | Sprite DMA and the sequencer, with DMAEN (6) |
+| DMACON | DMAEN (6) | The master DMA enable: needed for sprite DMA, with SPREN |
+| DMACON | SPREN (2) | Sprite DMA and the sequencer |
 | VIDSTAT | SPRUNDER (7) | A sprite's FIFO ran dry. W1C |
 | VIDINTEN | SPRUNDER (7) | Raise VIDERR on SPRUNDER |
 | VIDCON | SHAREPAL (5) | Sprites use PALETTE0 |
@@ -1115,6 +1243,8 @@ The sequencer's registers are listed under "The Sprite Sequencer".
 DMACON.SPREN is clear, SPRDMA has all eight sprites on, and every sprite's PT, H, V, CTL and STEP are 0: empty windows, so nothing shows, and STEP 0 counts as normal size. SPRCOLL is 0, the FIFOs are empty, and every sprite is stopped: none fetches until its CTL is written. The sequencer is off.
 
 ### Equates in hw.inc
+
+**Table 4-22: Sprite Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|

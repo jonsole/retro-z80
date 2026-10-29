@@ -21,11 +21,13 @@ The blitter works like the Amiga's. Each job has up to three inputs and one outp
             │
             ▼
    D  the destination (the screen, or any memory)
+
+             Figure 6-1: The Blitter's Inputs and Output
 ```
 
 C and D are the same place: the blitter reads what is there, combines it, and writes the result back. A **minterm** is one byte that says how A, B and C combine. With the right minterm the same hardware copies, fills, draws with a transparent colour, sets, clears or flips bits, and inverts areas.
 
-The chapter covers:
+This chapter covers:
 
 - forming a job, step by step, with a first example;
 - minterms, and how to work one out;
@@ -47,7 +49,9 @@ You should have read the Playfield Hardware chapter: the blitter mostly draws in
 
 ### Comparison with the Amiga
 
-If you have used the Amiga's blitter, the ideas are the same. The differences:
+If you have used the Amiga's blitter, the ideas are the same. Table 6-1 lists the differences.
+
+**Table 6-1: The Blitter Compared with the Amiga's**
 
 | Feature | Amiga | retro-z80 |
 |---------|-------|-----------|
@@ -62,7 +66,9 @@ If you have used the Amiga's blitter, the ideas are the same. The differences:
 | Line and area fill modes | Yes | Not yet: they come with the 3D hardware |
 | ADD | No | Yes: per-pixel add, wrapping or saturating |
 
-### Conventions in this chapter
+---
+
+## Conventions in This Chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`. Numbers are hexadecimal when they start with `0x`.
 - As in the other chapters, **the register page is in window 7** (`REGS` = `0xE000`), and the examples write registers through it: `CREG` (`0xF000`) + custom offset. So channel 2's MINTERM is at `CREG+DMX2_MINTERM`, and `CREG+DMX2` is the first of its job registers.
@@ -105,7 +111,9 @@ Clearing BLTEN later holds every channel where it is; setting it again lets them
 
 ### Step 2: Describe the job
 
-A job is 32 bytes, which are also the first 32 registers of each channel, in the same order:
+A job is 32 bytes, which are also the first 32 registers of each channel, in the same order (Table 6-2).
+
+**Table 6-2: A Job's 32 Bytes**
 
 | Offset | Name | Bytes | What it holds |
 |--------|------|-------|---------------|
@@ -126,6 +134,25 @@ A job is 32 bytes, which are also the first 32 registers of each channel, in the
 Each value is stored low byte first, as the Z80 stores words. The easiest way to set a job is to keep it in memory as 32 bytes and copy it into the channel's registers with `LDIR`. The spare byte is ignored.
 
 The registers can only be written while the channel is idle; writes while it is busy are ignored. They keep their values after a job, so a second job that differs only in a few places needs only those written.
+
+CTRL's three bytes hold the operation and its options. Table 6-3 gives them byte by byte, top bit first. The names in brackets are the equates from the conventions above and from `hw.inc`.
+
+**Table 6-3: CTRL Bits**
+
+| Byte | Bits | Name | Meaning |
+|------|------|------|---------|
+| CTRL0 | 7–6 | – | Reserved, write 0 |
+| | 5 | SIGNED | ADD: pixels are signed numbers (`DMX_CTRL_SIGNED_M`) |
+| | 4 | SAT | ADD: stop at the limit instead of wrapping round (`DMX_CTRL_SAT_M`) |
+| | 3 | – | Reserved, write 0 |
+| | 2–0 | OP | 0 BLIT (`OP_BLIT`), 1 ADD (`OP_ADD`), 2–7 reserved: an error |
+| CTRL1 | 7 | – | Reserved, write 0 |
+| | 6–5 | MASK | Where A comes from: 0 none, 1 a mask image (`MASKIMG`), 2 the key colour (`MASKKEY`), 3 reserved: an error |
+| | 4 | BCONST | B is VALUE, not read from memory |
+| | 3 | IRQ | Set the channel's DMXINT bit when this job ends |
+| | 2 | DESC | Run backwards |
+| | 1–0 | BPP | Bits per pixel: 0 = 1 (`BPP1`), 1 = 2, 2 = 4, 3 = 8 (`BPP8`) |
+| CTRL2 | 7–0 | – | Reserved for the targets that come later, write 0: anything else is an error |
 
 ### Step 3: Start it
 
@@ -184,22 +211,48 @@ clearjob:
 
 The job "draws" B onto D, and B is the constant VALUE: so every pixel becomes colour 0. With a different VALUE it fills with that colour. Since the screen's rows follow each other with no gap, the same job could also be one row of 103,680 pixels and HEIGHT 1.
 
+### The clear job, byte by byte
+
+With `SCREEN` at physical `0x040000`, as in the Playfield Hardware chapter, the assembler turns `clearjob` into the 32 bytes below. Each raw line has the source form in its comment, and the two give the same job:
+
+```
+        db   0x00,0x13,0x00          ; CTRL: OP_BLIT; BPP8|BCONST; 0
+        db   0xCC                    ; MINTERM: D = B
+        db   0x00,0x00,0x00          ; APT: 0
+        db   0x00,0x00,0x00          ; BPT: 0
+        db   0x00,0x00,0x04          ; DPT: SCREEN, 0x040000, low byte first
+        db   0x68,0x01,0x00          ; WIDTH: 360 = 0x000168
+        db   0x20,0x01               ; HEIGHT: 288 = 0x0120
+        db   0x00,0x00               ; SHIFT: 0
+        db   0x00,0x00               ; ABSTRIDE: 0
+        db   0x68,0x01               ; CDSTRIDE: 360
+        db   0x00,0x00,0x00,0x00     ; VALUE: 0
+        db   0x00,0x00,0x00          ; NEXT: 0
+        db   0x00                    ; spare
+```
+
+CTRL1 is `0x13`: BCONST (bit 4) and BPP 3 (bits 1–0) in Table 6-3.
+
 ---
 
 ## Minterms
 
-For every bit of every pixel, the blitter takes the bits of A, B and C at that place and looks up the result in MINTERM:
+For every bit of every pixel, the blitter takes the bits of A, B and C at that place and looks up the result in MINTERM (Table 6-4).
 
-| A | B | C | D is MINTERM bit |
-|---|---|---|------------------|
-| 0 | 0 | 0 | 0 |
-| 0 | 0 | 1 | 1 |
-| 0 | 1 | 0 | 2 |
-| 0 | 1 | 1 | 3 |
-| 1 | 0 | 0 | 4 |
-| 1 | 0 | 1 | 5 |
-| 1 | 1 | 0 | 6 |
-| 1 | 1 | 1 | 7 |
+**Table 6-4: MINTERM Bits**
+
+| Bits | Name | Meaning: D when |
+|------|------|-----------------|
+| 7 | ABC | A = 1, B = 1, C = 1 |
+| 6 | ABc | A = 1, B = 1, C = 0 |
+| 5 | AbC | A = 1, B = 0, C = 1 |
+| 4 | Abc | A = 1, B = 0, C = 0 |
+| 3 | aBC | A = 0, B = 1, C = 1 |
+| 2 | aBc | A = 0, B = 1, C = 0 |
+| 1 | abC | A = 0, B = 0, C = 1 |
+| 0 | abc | A = 0, B = 0, C = 0 |
+
+(The names are the Amiga's: a capital letter for an input at 1, a small one for an input at 0.)
 
 So the minterm is a truth table of the function you want. There is a quick way to work one out, as on the Amiga: write the function you want with **A = `0xF0`, B = `0xCC`, C = `0xAA`**, and work it out with ordinary logic. The answer is the minterm.
 
@@ -208,7 +261,16 @@ So the minterm is a truth table of the function you want. There is a quick way t
 - D = B XOR C: `0xCC ^ 0xAA` = `0x66`.
 - D = A ? B : C, "B where the mask is set, otherwise C": `(0xF0 & 0xCC) | (~0xF0 & 0xAA)` = `0xC0 | 0x0A` = `0xCA`.
 
-The ones you will use most:
+The assembler can do the working for you. These two lines give the same byte:
+
+```
+        db   0xCA                            ; MINTERM: A ? B : C
+        db   (0xF0 & 0xCC) | (~0xF0 & 0xAA)  ; the same, worked out by sjasmplus
+```
+
+Table 6-5 lists the ones you will use most.
+
+**Table 6-5: Common Minterms**
 
 | MINTERM | D = | Use |
 |---------|-----|-----|
@@ -222,7 +284,9 @@ The ones you will use most:
 | `0x55` | NOT C | Invert an area |
 | `0x00` | 0 | Clear (but a fill with VALUE 0 is just as fast) |
 
-Common jobs as minterms:
+Table 6-6 gives common jobs as CTRL1 and MINTERM.
+
+**Table 6-6: Common Jobs as Minterms**
 
 | Job | CTRL1 | MINTERM |
 |-----|-------|---------|
@@ -237,13 +301,16 @@ Common jobs as minterms:
 
 ## Masks
 
-The mask, A, says which pixels to draw. It is one bit per pixel: where it is 1, the minterm sees A = 1 in all of that pixel's bits; where it is 0, A = 0. MASK in CTRL1 says where it comes from:
+The mask, A, says which pixels to draw. It is one bit per pixel: where it is 1, the minterm sees A = 1 in all of that pixel's bits; where it is 0, A = 0. MASK in CTRL1 says where it comes from (Table 6-7).
+
+**Table 6-7: MASK Values**
 
 | MASK | A comes from | Costs |
 |------|--------------|-------|
 | 0 (none) | Nothing: A is 1 everywhere | Nothing |
-| `MASKKEY` | Comparing each pixel of B with the **key colour** in VALUE: A is 0 where B is that colour, 1 elsewhere | Nothing: no memory is read |
-| `MASKIMG` | A **mask image** at APT: 1 bit per pixel, the leftmost pixel in bit 7 of each byte | One memory read per 16 pixels |
+| 1 (`MASKIMG`) | A **mask image** at APT: 1 bit per pixel, the leftmost pixel in bit 7 of each byte | One memory read per 16 pixels |
+| 2 (`MASKKEY`) | Comparing each pixel of B with the **key colour** in VALUE: A is 0 where B is that colour, 1 elsewhere | Nothing: no memory is read |
+| 3 | Reserved: the channel stops with an error | – |
 
 With no mask, a minterm that uses A sees A = 1, so `0xCA` is just a copy.
 
@@ -322,7 +389,9 @@ Note how the strides swap: when the screen is the source, its stride is ABSTRIDE
 
 BPP in CTRL1 sets the bits per pixel: 1, 2, 4 or 8. A job works on whole pixels at that depth. A, B and D are read and written at the same depth, apart from A, which is always 1 bit per pixel.
 
-Below 8 bpp, a byte holds several pixels, the leftmost in the most significant bits:
+Below 8 bpp, a byte holds several pixels, the leftmost in the most significant bits (Table 6-8).
+
+**Table 6-8: Pixels in a Byte**
 
 | BPP | Pixels per byte | Pixel x is in byte | At position |
 |-----|-----------------|--------------------|-------------|
@@ -331,7 +400,18 @@ Below 8 bpp, a byte holds several pixels, the leftmost in the most significant b
 | 4 | 2 | x / 2 | x mod 2 |
 | 8 | 1 | x | 0 |
 
-An image can start at any pixel. Give its byte address in BPT or DPT, and its position within that byte in **SHIFT**: ABIT (bits 2–0) for A, counted in 1-bit pixels; BBIT (bits 6–4) for B and DBIT (bits 10–8) for D, counted in pixels of the job's depth. The blitter shifts A and B into line with D, so an image stored at the start of its bytes can be drawn at any x.
+An image can start at any pixel. Give its byte address in APT, BPT or DPT, and its position within that byte in **SHIFT** (Table 6-9). Positions count pixels from the most significant end of the byte. The blitter shifts A and B into line with D, so an image stored at the start of its bytes can be drawn at any x.
+
+**Table 6-9: SHIFT Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 15–11 | – | Reserved, write 0 |
+| 10–8 | DBIT | D's first pixel in its byte, in pixels of the job's depth: 0–7 at 1 bpp, 0–3 at 2 bpp, 0–1 at 4 bpp, 0 at 8 bpp |
+| 7 | – | Reserved, write 0 |
+| 6–4 | BBIT | B's first pixel in its byte, counted as DBIT |
+| 3 | – | Reserved, write 0 |
+| 2–0 | ABIT | A's first pixel in its byte, in 1-bit pixels: 0–7 |
 
 ### Example 6-3: Placing an image at any x, at 4 bpp
 
@@ -351,6 +431,13 @@ y       equ  50
         dd   0
         d24  0
         db   0
+```
+
+For x = 101 the assembler makes SHIFT `0x0100`, DBIT 1 in Table 6-9, and CTRL1 `0x42`, MASKKEY and BPP 2 in Table 6-3:
+
+```
+        dw   0x0100                  ; SHIFT: the same as (x % 2) << 8
+        db   0x42                    ; CTRL1: the same as BPP4|MASKKEY
 ```
 
 The blitter handles the bytes at each end of every row that the image covers only in part: it reads them, changes only the image's pixels, and writes them back. You never set edge masks.
@@ -460,14 +547,44 @@ Lists are the quickest way to start a lot of work: the CPU writes four registers
 
 ## Status, Interrupts and Errors
 
-Each channel has:
+Each channel has four control registers besides its job:
 
-- **CHCTRL** (write): START (bit 0), RUN (bit 1), STOP (bit 2: end the list after the current group of at most 16 bytes), PAUSE (bit 3: hold until cleared).
-- **CHSTAT** (read): BUSY (bit 0), DONE (bit 1: a list ended or was stopped), ERR (bit 2), PAUSED (bit 3). Write 1 to DONE or ERR to clear it.
+- **CHCTRL** (write) starts and stops the channel (Table 6-10).
+- **CHSTAT** (read) says what it is doing (Table 6-11). Write 1 to DONE or ERR to clear it.
 - **CHDESC**: the descriptor START loads; while a list runs, the one now running.
 - **CHERR**: after an error, the address that caused it.
 
-**Interrupts.** A job with IRQ in CTRL1 sets its channel's bit in **DMXINT** when it ends. If the same bit is set in **DMXINTEN**, the channel interrupts the Z80: sources DMA0–DMA3 in the interrupt controller. The handler clears the bit by writing 1 to it in DMXINT. Put IRQ on the last job of a list to hear when the whole list is done, or on any job in it.
+**Table 6-10: CHCTRL Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | – | Reserved, write 0 |
+| 3 | PAUSE | While set, hold the list after its current group; clear it to carry on. Also readable |
+| 2 | STOP | End the list after the current group of at most 16 bytes |
+| 1 | RUN | Run the job already in the registers, then follow its NEXT |
+| 0 | START | Load the descriptor at CHDESC and run it |
+
+**Table 6-11: CHSTAT Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | – | Read 0 |
+| 3 | PAUSED | The list is held by CHCTRL.PAUSE |
+| 2 | ERR | A job stopped with an error. Write 1 to clear |
+| 1 | DONE | A list ended or was stopped. Write 1 to clear |
+| 0 | BUSY | A list is running, paused, or waiting for DMACON.BLTEN |
+
+**Interrupts.** A job with IRQ in CTRL1 sets its channel's bit in **DMXINT** when it ends. If the same bit is set in **DMXINTEN**, the channel interrupts the Z80: sources DMA0–DMA3 in the interrupt controller. The handler clears the bit by writing 1 to it in DMXINT. Put IRQ on the last job of a list to hear when the whole list is done, or on any job in it. DMXINT and DMXINTEN have the same bits (Table 6-12).
+
+**Table 6-12: DMXINT and DMXINTEN Bits**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–4 | – | Read 0 |
+| 3 | CH3 | Channel 3 (source DMA3) |
+| 2 | CH2 | Channel 2 (source DMA2) |
+| 1 | CH1 | Channel 1 (source DMA1) |
+| 0 | CH0 | Channel 0 (source DMA0) |
 
 **Errors** stop only that channel: an address outside SRAM (in version 1, the registers, palettes and ROM too), a reserved operation or MASK value, or a descriptor address that is not a multiple of 4. ERR is set, CHERR says where, and the channel's DMXINT bit is set. The other channels carry on.
 
@@ -487,7 +604,9 @@ The copper chapter and spec 14, section 9, have the details.
 
 ## Speed
 
-The blitter uses only memory cycles that nobody else wants: the Z80, the display, the sprites and the copper always come first. How fast it goes therefore depends on the screen and on what the CPU is doing. With a full-screen 8 bpp layer at 2×, 8 sprites and the CPU busy, it has about 1,190 memory cycles a line, which gives (figures worked out from the design; still to be measured):
+The blitter uses only memory cycles that nobody else wants: the Z80, the display, the sprites and the copper always come first. How fast it goes therefore depends on the screen and on what the CPU is doing. With a full-screen 8 bpp layer at 2×, 8 sprites and the CPU busy, it has about 1,190 memory cycles a line, which gives the times in Table 6-13 (figures worked out from the design; still to be measured).
+
+**Table 6-13: Times for Common Jobs**
 
 | Job | Time | With `LDIR` |
 |-----|------|-------------|
@@ -496,10 +615,12 @@ The blitter uses only memory cycles that nobody else wants: the Z80, the display
 | Draw a 32 × 32 object with a transparent colour | about 30 µs | about 1.1 ms (without transparency) |
 | Save, restore and draw one 32 × 32 object (Example 6-2) | about 90 µs | – |
 
-What a job costs, in memory cycles per 2 bytes of D:
+Table 6-14 gives what a job costs, in memory cycles per 2 bytes of D.
 
-| Job | Cycles | |
-|-----|--------|-|
+**Table 6-14: Memory Cycles per 2 Bytes of D**
+
+| Job | Cycles | Why |
+|-----|--------|-----|
 | Fill (BCONST, no C) | 1 | Only writes |
 | Copy, or draw with MASKKEY at 8 bpp | 2 | Read B, write D |
 | Draw with a mask image | 2 + 1 per 16 pixels | A is small |
@@ -516,27 +637,48 @@ Tips:
 
 ## Summary of Blitter Registers
 
-Channel n's registers are at custom offset `0x140 + n × 0x40` (`DMX0`–`DMX3` in `hw.inc`), ports named with `_P` (`DMX2_CTRL_P` and so on; spec 14, section 8, lists them), and register page offset `0x1000` + custom offset.
+Channel n's registers are at custom offset `0x140 + n × 0x40` (`DMX0`–`DMX3` in `hw.inc`), ports named with `_P` (`DMX2_CTRL_P` and so on; spec 14, section 8, lists them), and register page offset `0x1000` + custom offset. Table 6-15 lists them.
+
+**Table 6-15: Channel Registers**
 
 | Offset | Name | Bytes | Access | Bits |
 |--------|------|-------|--------|------|
-| `+0x00` | CTRL | 3 | RW | CTRL0: OP (2–0: 0 BLIT, 1 ADD, 2–7 reserved), SAT (4), SIGNED (5). CTRL1: BPP (1–0), DESC (2), IRQ (3), BCONST (4), MASK (6–5: 0 none, 1 image, 2 key). CTRL2: 0 |
-| `+0x03` | MINTERM | 1 | RW | Bit (A × 4 + B × 2 + C) is the result |
+| `+0x00` | CTRL | 3 | RW | CTRL0: SIGNED (5), SAT (4), OP (2–0: 0 BLIT, 1 ADD). CTRL1: MASK (6–5: 0 none, 1 image, 2 key), BCONST (4), IRQ (3), DESC (2), BPP (1–0). CTRL2: 0. Table 6-3 |
+| `+0x03` | MINTERM | 1 | RW | One result bit per combination of A, B and C: Table 6-4 |
 | `+0x04` | APT | 3 | RW | Mask image address |
 | `+0x07` | BPT | 3 | RW | Image address |
 | `+0x0A` | DPT | 3 | RW | Destination address |
 | `+0x0D` | WIDTH | 3 | RW | Pixels across |
 | `+0x10` | HEIGHT | 2 | RW | Rows |
-| `+0x12` | SHIFT | 2 | RW | ABIT (2–0), BBIT (6–4), DBIT (10–8) |
+| `+0x12` | SHIFT | 2 | RW | DBIT (10–8), BBIT (6–4), ABIT (2–0): Table 6-9 |
 | `+0x14` | ABSTRIDE | 2 | RW | Signed: A's and B's row to row |
 | `+0x16` | CDSTRIDE | 2 | RW | Signed: D's row to row |
 | `+0x18` | VALUE | 4 | RW | B's value with BCONST; the key colour with MASKKEY |
 | `+0x1C` | NEXT | 3 | RW | Next descriptor, or 0 |
 | `+0x20` | CHDESC | 3 | RW | First descriptor for START; the one running |
-| `+0x24` | CHCTRL | 1 | W | START (0), RUN (1), STOP (2), PAUSE (3, also readable) |
-| `+0x28` | CHSTAT | 1 | R, W1C | BUSY (0), DONE (1), ERR (2), PAUSED (3) |
+| `+0x24` | CHCTRL | 1 | W | PAUSE (3, also readable), STOP (2), RUN (1), START (0): Table 6-10 |
+| `+0x28` | CHSTAT | 1 | R, W1C | PAUSED (3), ERR (2), DONE (1), BUSY (0): Table 6-11 |
 | `+0x2C` | CHERR | 3 | R | Address of the last error |
 
-The job registers (`+0x00`–`+0x1E`) and CHDESC are ignored while the channel is busy. Global registers: **DMXINT** at `0x230` (port `0x3012`), one bit per channel, write 1 to clear; **DMXINTEN** at `0x234` (port `0x3412`), the interrupt enables. **DMACON**.BLTEN and DMAEN let the engine run.
+Writes to the job registers (`+0x00`–`+0x1E`) and CHDESC are ignored while the channel is busy. Table 6-16 gives the registers shared by all channels.
+
+**Table 6-16: Global DMA Registers**
+
+| Offset | Port | Name | Access | Bits |
+|--------|------|------|--------|------|
+| `0x230` | `0x3012` | DMXINT | W1C | CH3–CH0 (3–0): a channel's interrupt is pending. Table 6-12 |
+| `0x234` | `0x3412` | DMXINTEN | RW | CH3–CH0 (3–0): the interrupt enables. Table 6-12 |
+| `0x00C` | `0x0C10` | DMACON | Set/clear | SETCLR (7): a write sets (1) or clears (0) the bits written as 1. DMAEN (6) and BLTEN (3) let the engine run |
 
 The full definition is spec 14, `docs/spec/dma-engine.md`.
+
+### State after reset
+
+After reset every channel register is 0, and so are DMXINT and DMXINTEN. DMACON.DMAEN and DMACON.BLTEN are clear, so no channel runs until a program sets them (Step 1).
+
+### Names in `hw.inc`
+
+- `DMX0`–`DMX3`: each channel's first register, as a custom offset; `DMXn_name` for each register (`DMX2_CHSTAT`), and `DMXn_name_P` for its port.
+- `DMX_name`: a register's offset within a channel (`DMX_MINTERM` is 3).
+- `DMX_CTRL_name_M`, `DMX_SHIFT_name_M`, `DMX_CHCTRL_name_M` and `DMX_CHSTAT_name_M`: masks for the fields, with `_B` for the lowest bit and `_W` for the width. CTRL's masks are for the whole 3-byte register, so CTRL1's are shifted up by 8.
+- `DMXINT_CHn_M`, `DMXINTEN_CHn_M`: the channel bits of the global registers.

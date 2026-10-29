@@ -4,7 +4,7 @@
 
 This appendix collects the machine's timing and screen geometry in one place, mostly as pictures. It adds no new rules: everything here comes from the specs and is explained in the chapters. Use it when you plan a screen, time a raster effect, or work out whether a job fits in the vertical blank.
 
-It covers:
+This appendix covers:
 
 - the clocks, from a frame down to a memory cycle;
 - the frame and the line, to scale, with the events in each;
@@ -26,6 +26,8 @@ All figures are drawn to scale unless the caption says otherwise. Numbers are de
 ![From a frame down to a memory cycle](img/timing-A-1-scales.svg)
 
 *Figure A-1: From a Frame Down to a Memory Cycle*
+
+**Table A-1: Units of Time**
 
 | Unit | Length | System clocks (100 MHz) | Contains |
 |------|--------|-------------------------|----------|
@@ -49,6 +51,8 @@ The system clock and the pixel clock both come from the board's one oscillator, 
 
 A frame starts with its vertical blank, at beam line 0. The picture is lines 49–624.
 
+**Table A-2: The Lines of a Frame**
+
 | Beam lines | What | Length |
 |------------|------|--------|
 | 0–4 | Vertical front porch | 5 lines |
@@ -58,6 +62,8 @@ A frame starts with its vertical blank, at beam line 0. The picture is lines 49�
 | 49–624 | **The picture** | 576 lines, 18.43 ms |
 
 What happens at the start of the frame, beam (0, 0):
+
+**Table A-3: Events at the Start of a Frame**
 
 | Event | Notes |
 |-------|-------|
@@ -82,6 +88,8 @@ The sync positions matter only to the monitor; they are given for completeness. 
 
 A line starts with its horizontal blank, at beam pixel 0. The picture is pixels 144–863.
 
+**Table A-4: The Pixels of a Line**
+
 | Beam pixels | What | Length |
 |-------------|------|--------|
 | 0–11 | Horizontal front porch | 12 pixels, 0.44 µs |
@@ -91,6 +99,8 @@ A line starts with its horizontal blank, at beam pixel 0. The picture is pixels 
 | 144–863 | **The picture** | 720 pixels, 26.67 µs |
 
 Two points in each line matter to programs:
+
+**Table A-5: Events in a Line**
 
 | Beam pixel | What happens |
 |------------|--------------|
@@ -103,6 +113,8 @@ Two points in each line matter to programs:
 
 A beam pixel lasts 1 ÷ 27 MHz = 37.04 ns, so **27 beam pixels make 1 µs**. A slot is 2.7 beam pixels.
 
+**Table A-6: Converting Units**
+
 | From | To | Multiply by |
 |------|----|-------------|
 | Beam pixels | ns | 37.04 |
@@ -114,7 +126,9 @@ A beam pixel lasts 1 ÷ 27 MHz = 37.04 ns, so **27 beam pixels make 1 µs**. A s
 
 ### T-states at each CPU speed
 
-CPUSPEED, a system register, sets the Z80's speed. These are the T-states in each part of the frame:
+CPUSPEED, a system register, sets the Z80's speed. Table A-7 gives the T-states in each part of the frame.
+
+**Table A-7: T-States at Each CPU Speed**
 
 | CPUSPEED | Speed | T-state | Per beam pixel | Per line | Per horizontal blank | Per vertical blank | Per frame |
 |----------|-------|---------|----------------|----------|----------------------|--------------------|-----------|
@@ -134,8 +148,10 @@ At DIV 0–7 the T-states are locked to the slots: at 20 MHz every T-state start
 
 At 20 MHz, from the start of a line: **beam pixel = n × 1.35**. So:
 
-| T-states after pixel 0 | Beam pixel | |
-|------------------------|------------|--|
+**Table A-8: Where the Beam Is After n T-States at 20 MHz**
+
+| T-states after pixel 0 | Beam pixel | What |
+|------------------------|------------|------|
 | 42 | 57 | The latest a LINE handler starts (IM 2) |
 | 107 | 144 | The picture starts |
 | 320 | 432 | The middle of the line |
@@ -151,6 +167,8 @@ At 20 MHz, from the start of a line: **beam pixel = n × 1.35**. So:
 
 Each 100 ns slot has five memory cycles of 20 ns. Each cycle has an owner, who gets it whenever they want it:
 
+**Table A-9: The Owners of a Slot's Cycles**
+
 | Cycle | Starts | Owner | When the owner leaves it |
 |-------|--------|-------|--------------------------|
 | 0 | 0 ns | The Z80 | The free pool |
@@ -162,6 +180,8 @@ Each 100 ns slot has five memory cycles of 20 ns. Each cycle has an owner, who g
 The **free pool** goes, in order, to display fetches that want more, the sprite sequencer, the copper and the DMA engine. The copper at COPCON.PRI 1 goes first and owns cycle 4.
 
 **The Z80 never waits.** A read must be answered by the end of its T2, 100 ns after its address appears. A T-state at 20 MHz starts on slot edge 0 or 5, and either way a CPU cycle comes in time: cycle 2 of the same slot (20 ns to spare) or cycle 0 of the next (10 ns to spare). A write is posted: the Z80 goes on at once. The Z80 makes at most one memory access every 3 T-states, so it uses at most one of its two cycles in a slot; the other goes to the free pool.
+
+**Table A-10: Memory Bandwidth per Line**
 
 | Owner | Per line | Bandwidth |
 |-------|----------|-----------|
@@ -180,6 +200,8 @@ The **free pool** goes, in order, to display fetches that want more, the sprite 
 
 The vertical blank is 1.57 ms: 31,360 T-states at 20 MHz. The copper and the DMA engine work alongside the Z80 and do not take its time.
 
+**Table A-11: Z80 Jobs Against the Vertical Blank**
+
 | Job | Z80 T-states at 20 MHz | Share of the vertical blank |
 |-----|------------------------|-----------------------------|
 | Write a 1-byte register through the register page (`LD (nn),A`) | 13 | 0.04% |
@@ -190,6 +212,8 @@ The vertical blank is 1.57 ms: 31,360 T-states at 20 MHz. The copper and the DMA
 | Load 256 colours (`OUTI` loop) | 19,456 | 62% |
 | Copy 1 KB (`LDIR`, 21 T a byte) | 21,499 | 69% |
 | Clear 8 KB (unrolled `PUSH`, 11 T per 2 bytes) | 45,056 | 144%: does not fit |
+
+**Table A-12: Other Units in the Vertical Blank**
 
 | Other units in the vertical blank | Amount |
 |-----------------------------------|--------|
@@ -211,6 +235,8 @@ A job too big for the vertical blank can still be done safely if it changes only
 
 Every position the hardware uses (BEAMPOS, LINECMP, the copper's WAIT and SKIP, layer windows and sprite positions) is in **beam coordinates**, which count the blanking too.
 
+**Table A-13: Screen Geometry in hw.inc**
+
 | Name (`hw.inc`) | Value | Meaning |
 |-----------------|-------|---------|
 | VID_X0 | 144 | The picture's first beam pixel |
@@ -219,6 +245,8 @@ Every position the hardware uses (BEAMPOS, LINECMP, the copper's WAIT and SKIP, 
 | VID_H | 576 | The picture's height |
 | BEAM_W | 864 | Beam pixels per line |
 | BEAM_H | 625 | Beam lines per frame |
+
+**Table A-14: Finding Screen Positions**
 
 | To find | Formula |
 |---------|---------|
@@ -235,6 +263,8 @@ Pixels are not square: on a 4:3 screen each is 16/15 as wide as it is tall. A TV
 ![Common windows](img/timing-A-7-windows.svg)
 
 *Figure A-7: Common Windows*
+
+**Table A-15: Common Windows**
 
 | Screen | Source | Scale | XSTART–XEND | YSTART–YEND |
 |--------|--------|-------|-------------|-------------|
@@ -255,6 +285,8 @@ The window's end is the first pixel or line after it: XEND = XSTART + width.
 *Figure A-8: The Spectrum Screen in Beam Coordinates*
 
 A 256 × 192 screen at 2 × 2, centred, as the Playfields chapter's "Spectrum Extras" sets it up:
+
+**Table A-16: The Spectrum Screen in Beam Coordinates**
 
 | Item | Beam coordinates |
 |------|------------------|
@@ -280,6 +312,8 @@ A layer has no line buffer: it holds the group of 16 source pixels it is showing
 2. Each time the shifters take a group, the layer fetches the next one. It always has one group of time in hand: 16 source pixels × HSCALE beam pixels.
 3. The last group is fetched before the window's right edge (XEND).
 
+**Table A-17: Fetch Time per Group of 16 Pixels**
+
 | HSCALE | Beam pixels per group | Time per group |
 |--------|-----------------------|----------------|
 | 1× | 16 | 593 ns |
@@ -298,6 +332,8 @@ The cost of a screen is a **rate**: at every point across the screen, the layers
 ![When a write changes line L](img/timing-A-10-writes.svg)
 
 *Figure A-10: When a Write Changes Line L*
+
+**Table A-18: When Register Writes Take Effect**
 
 | Registers | Taken at | To change line L, write |
 |-----------|----------|-------------------------|
@@ -318,6 +354,8 @@ Every byte takes effect when it is written; there are no latches, except that a 
 
 *Figure A-11: A LINE Interrupt at 20 MHz, Worst Case*
 
+**Table A-19: Interrupt Response**
+
 | Step | T-states |
 |------|----------|
 | Finish the current instruction | Up to 23 (`INC (IX+d)`); block instructions such as `LDIR` take interrupts between iterations |
@@ -326,7 +364,9 @@ Every byte takes effect when it is written; there are no latches, except that a 
 | IM 1 acknowledge, push PC | 13 |
 | NMI, push PC | 11 |
 
-The worst case before the first instruction of an IM 2 handler is 23 + 19 = 42 T-states, if interrupts are enabled:
+The worst case before the first instruction of an IM 2 handler is 23 + 19 = 42 T-states, if interrupts are enabled. Table A-20 gives it at each CPU speed.
+
+**Table A-20: The Worst IM 2 Start at Each CPU Speed**
 
 | CPU speed | Worst IM 2 start | In beam pixels | A LINE handler starts |
 |-----------|------------------|----------------|-----------------------|
@@ -339,6 +379,8 @@ The worst case before the first instruction of an IM 2 handler is 23 + 19 = 42 T
 
 Code that runs with interrupts disabled adds its own time. A LINE handler's writes to the line settings land on the next line if they are made before its pixel 0: 640 T-states after the event at 20 MHz, less the start-up. Effects that must land on an exact pixel belong to the copper, whose first write after a WAIT lands within a pixel of its position.
 
+**Table A-21: Handler Deadlines**
+
 | Handler | Starts at | Must finish its screen writes by |
 |---------|-----------|----------------------------------|
 | VBLANK | Beam (0, 0) + up to 42 T | Beam (49, 0), the first picture line's fetch: 31,360 T at 20 MHz |
@@ -350,6 +392,8 @@ Interrupt sources are level-sensitive: a handler must clear its flag before `EI`
 
 ## Timers and Counters
 
+**Table A-22: Timers and Counters**
+
 | Counter | Counts | Period | Wraps after |
 |---------|--------|--------|-------------|
 | TIME (32 bits) | Every µs from power-on | 1 µs | 65.5 ms (low 16 bits); 71.6 minutes (all 32) |
@@ -359,10 +403,12 @@ Interrupt sources are level-sensitive: a handler must clear its flag before `EI`
 | A timer at SRC 1 | Every line (pixel 0) | 32 µs | – |
 | A timer at SRC 2 | Every frame (0, 0) | 20 ms | – |
 
-A repeating timer at SRC 0 underflows every (PRESCALE + 1) × (RELOAD + 1) × 10 ns:
+A repeating timer at SRC 0 underflows every (PRESCALE + 1) × (RELOAD + 1) × 10 ns. Table A-23 gives the settings for some common rates.
+
+**Table A-23: Timer Settings for Common Rates**
 
 | Rate | PRESCALE (or SRC) | RELOAD |
-|------|----------|--------|
+|------|-------------------|--------|
 | 1 µs ticks | 99 | – |
 | 1 kHz (1 ms) | 99 | 999 |
 | 100 Hz (10 ms) | 99 | 9,999 |
@@ -378,8 +424,10 @@ Reading the lowest byte of TIME, a timer's COUNT, BEAMPOS or FRAMECOUNT captures
 
 Programs ported from a Spectrum often count on its timing. This machine keeps the frame rate but not the rest. (A 128K Spectrum differs a little: 3.5469 MHz, 228 T a line, 70,908 T a frame.)
 
-| | 48K Spectrum | retro-z80 at 3.57 MHz | retro-z80 at 20 MHz |
-|--|--------------|-----------------------|---------------------|
+**Table A-24: Spectrum Timing Compared**
+
+| Item | 48K Spectrum | retro-z80 at 3.57 MHz | retro-z80 at 20 MHz |
+|------|--------------|-----------------------|---------------------|
 | CPU clock | 3.5 MHz | 3.571 MHz | 20 MHz |
 | Frame | 50.08 Hz, 69,888 T | 50 Hz, about 71,429 T | 50 Hz, 400,000 T |
 | Line | 64 µs, 224 T | 32 µs, about 114 T | 32 µs, 640 T |
