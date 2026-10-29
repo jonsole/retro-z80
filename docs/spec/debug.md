@@ -170,8 +170,14 @@ The names and arguments are `zx_server`'s where they mean the same, so a client 
 | `monitor(command)` | CONSOLE: a monitor command line while attached (section 5.9) | Own |
 | `send_console(text)` / `read_console(since, max)` | The console while not attached (section 3.6) | Own |
 | `server_info()` | The bridge's pid, version, ports, serial port, start time, program last launched, advert path | Same |
+| `screen_capture(save)` | The board's HDMI picture now, as a JPEG image, through a USB capture device (below); `save` also writes it to a file | Same name; from the capture device, not from memory |
+| `screen_record(seconds, frames, save)` | Some seconds of the picture (0.1–30, default 2), returned as a few frames spread over it (1–16, default 6), each with its time, and how many frames differed; `save` keeps the whole sequence (`.mjpeg`, `.avi`, `.mkv` as captured, `.mp4` or `.gif` re-encoded, or a folder of JPEGs) | Own |
+| `key_down(key)` / `key_up(key)` | A key down, held until `key_up`; `key_up` with no key lets go of every key held. Sent as a PS/2 keyboard's bytes through the KEY control command (serial spec, section 4), so they reach the board attached or not. `key` is a name (`A`, `5`, `ENTER`, `SPACE`, `SHIFT`, `CTRL`, `UP`, `F1`, `,`) or a browser KeyboardEvent.code (`KeyA`, `ArrowUp`) | Same names; PC keys, not Spectrum key names |
+| `type_text(text, hold_ms, gap_ms)` | Text typed on a US layout, each key held `hold_ms` (default 40, long enough for a program that reads the keys once a frame), `gap_ms` (20) between; `\n` is Enter | Own |
 
-No screen, video, audio, profile or rewind tools: the board cannot give them (screen capture is future, section 10).
+**The screen** comes from a USB capture device on the board's HDMI (design plan, branch 20), not from the link: VS Code's Show Screen tab and the screen tools share it. While the tab streams, the extension serves its frames on 127.0.0.1 port 4790 (`/frame.jpg`, `/record?ms=N`, `/device`) and the tools take them from there; otherwise the bridge runs ffmpeg itself (`tools/rz80bridge/screen.py`; `RZ80_FFMPEG`, `RZ80_SCREEN_DEVICE`, else the extension's device setting, else auto-detected). Section 10's capture over the link stays future: it would give exact pixels and no extra device.
+
+No video, audio, profile or rewind tools.
 
 ### 3.8 Build task and stub model
 

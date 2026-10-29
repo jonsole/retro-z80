@@ -39,7 +39,7 @@ Loading over JTAG changes only the FPGA, until the power goes off. The flash and
 
 ## The computer: what you should see
 
-On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it starts (`firmware/boot/boot.asm`, spec 16, section 4.4), then the boot console with the monitor:
+On an HDMI display and a VGA monitor at the same time, 720 × 576 at 50 Hz (both syncs negative). With the HDMI on a USB capture device instead, VS Code shows it (**retro-z80: Show Screen**), and keys typed in that tab reach the board as a PS/2 keyboard's would, through the link (`tools/vscode/README.md`): the monitor below can then be used with no keyboard or display on the board. The picture is the background colour (BGCOLOR, spec 4), which the boot ROM sets as it starts (`firmware/boot/boot.asm`, spec 16, section 4.4), then the boot console with the monitor:
 
 | Screen | Meaning |
 |--------|---------|
