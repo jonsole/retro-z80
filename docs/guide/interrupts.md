@@ -87,12 +87,12 @@ Table 2-1 lists every source, in priority order.
 | Number | Name | From | Cleared by writing 1 to |
 |--------|------|------|-------------------------|
 | 0 | VBLANK | The start of each frame (and of vertical blanking) | VIDSTAT.VBLANK |
-| 1 | LINE | The beam reaching line LINECMP (not built yet) | VIDSTAT.LINE |
+| 1 | LINE | The beam reaching line LINECMP (not built yet, ticket #53) | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ |
 | 3 | VIDERR | A layer fetched late, a sprite ran dry, the sprite sequencer skipped | VIDSTAT's error bits; SEQSTAT.SKIP |
 | 4–7 | DMA0–DMA3 | A DMA channel finished a job with IRQ set, or met an error | DMXINT.CHn |
 | 11–14 | TIMER0–TIMER3 | A timer underflowed | TMRn_STAT.UNDER |
-| 15 | SERIAL | The USB link: data received, room to send, a timeout (does not reach the controller yet, ticket #58) | SERIRQ, or by reading or filling its FIFO |
+| 15 | SERIAL | The USB link: data received, room to send, a timeout (from the fix in PR #60, ticket #58) | SERIRQ, or by reading or filling its FIFO |
 | 17 | KEYB | The PS/2 keyboard: bytes waiting, or an error | KBIRQ, or by reading the FIFO |
 | 18 | SOFT | The program itself, through SOFTINT | SOFTINT.CLR |
 | 23 | NONE | Not a source: the controller had nothing to give (below) | – |
@@ -966,8 +966,7 @@ So the worst case is 23 + 19 = 42 T-states in IM 2, and 36 in IM 1, before the f
 - **Change the screen at an exact pixel.** A line takes 32 µs, 640 T-states at 20 MHz, and a handler starts between about 20 and 42 T-states after its event, depending on the instruction it waited for. That is the copper's job (Chapter 5).
 - **IM 0.** It is not supported: the controller always gives an IM 2 vector, which the Z80 in IM 0 would run as an instruction. Choose IM 1 or IM 2 before the first `EI`.
 - **Switch pages for a maskable handler.** The interrupt pages are built for the NMI only ("Interrupt pages", in Advanced Topics). A maskable handler runs in whatever the program has mapped.
-- **The LINE interrupt.** It is not built yet: source 1 never asks.
-- **The SERIAL interrupt.** The USB link's request does not reach the controller yet (ticket #58), so source 15 never asks. Poll the link's status (SERSTAT0 and SERSTAT1) for now.
+- **The LINE interrupt.** It is not built yet (ticket #53): source 1 never asks.
 
 ---
 
