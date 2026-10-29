@@ -15,7 +15,7 @@
 
         include "hw.inc"
 
-PHYS    equ     0x4000 - 0x8000         ; add to a Z80 address in window 4 (page 2 after reset)
+PHYS    equ     0                       ; the program map: a Z80 address is its own physical address (boot ROM spec, section 5.1)
 SCREEN  equ     0x020000                ; physical
 W       equ     360
 H       equ     288
