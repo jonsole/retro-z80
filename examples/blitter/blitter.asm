@@ -54,7 +54,8 @@ start:  di
         dec     d
         jr      nz,.pal
 
-        ; L0: an 8 bpp bitmap, 2x across and down, the whole picture
+        ; L0: an 8 bpp bitmap, 2x across and down, in a window 32 pixels in
+        ; from each edge, so the background colour shows round it
         ld      hl,l0regs
 .l0:    ld      a,(hl)                  ; register port low byte (high byte), then the value
         or      a
@@ -118,13 +119,13 @@ l0regs: db      high L0_CTRL0_P, low L0_CTRL0_P, L_CTRL0_EN_M | (3 << L_CTRL0_BP
         db      high L0_CTRL1_P, low L0_CTRL1_P, 1 << L_CTRL1_VSCALE_B
         db      high L0_CTRL2_P, low L0_CTRL2_P, 0
         db      high L0_CTRL3_P, low L0_CTRL3_P, 0
-        db      high L0_WINX0_P, low L0_WINX0_P, 864 & 0xFF
-        db      high L0_WINX1_P, low L0_WINX1_P, 864 >> 8
-        db      high L0_WINX2_P, low L0_WINX2_P, 144
+        db      high L0_WINX0_P, low L0_WINX0_P, (864 - 32) & 0xFF
+        db      high L0_WINX1_P, low L0_WINX1_P, (864 - 32) >> 8
+        db      high L0_WINX2_P, low L0_WINX2_P, 144 + 32
         db      high L0_WINX3_P, low L0_WINX3_P, 0
-        db      high L0_WINY0_P, low L0_WINY0_P, 625 & 0xFF
-        db      high L0_WINY1_P, low L0_WINY1_P, 625 >> 8
-        db      high L0_WINY2_P, low L0_WINY2_P, 49
+        db      high L0_WINY0_P, low L0_WINY0_P, (625 - 32) & 0xFF
+        db      high L0_WINY1_P, low L0_WINY1_P, (625 - 32) >> 8
+        db      high L0_WINY2_P, low L0_WINY2_P, 49 + 32
         db      high L0_WINY3_P, low L0_WINY3_P, 0
         db      high L0_SCROLLX0_P, low L0_SCROLLX0_P, 0
         db      high L0_SCROLLX1_P, low L0_SCROLLX1_P, 0
