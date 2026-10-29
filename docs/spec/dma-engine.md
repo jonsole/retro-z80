@@ -134,14 +134,14 @@ Each bit of D is MINTERM's bit number A × 4 + B × 2 + C, as the Amiga's minter
 - a fill of 2-byte entries (a tile map, spec 4) puts the entry in bytes 0–1 and again in bytes 2–3, and starts at an even address;
 - a fill that starts on a multiple of 4 writes VALUE exactly, as a 4-byte pattern.
 
-The pattern goes by D's address, not by position in the row, so each row of a 2D fill with a stride that is not a multiple of 4 starts at another point of the pattern. At 1, 2 and 4 bpp every pixel gets VALUE's low BPP bits. A compare mask with BCONST compares VALUE with itself, so A is 0 everywhere.
+The pattern goes by D's address, not by position in the row, so each row of a 2D fill with a stride that is not a multiple of 4 starts at another point of the pattern. At 1, 2 and 4 bpp every pixel gets VALUE's low BPP bits. A compare mask with BCONST is allowed (not an error): it compares VALUE with itself, so A is 0 everywhere.
 
 ### 3.2 ADD
 
 - D = C + B, each pixel added separately, at the job's colour depth (1, 2, 4 or 8 bits). Carries never spill into the next pixel. MINTERM is ignored.
 - **Wrap** (SAT = 0): the result wraps round, e.g. 250 + 10 = 4 at 8 bpp.
 - **Saturate** (SAT = 1): the result sticks at the limit instead. Unsigned (SIGNED = 0): 0 to the top value, e.g. 250 + 10 = 255. Signed (SIGNED = 1): pixels are two's complement, e.g. −128 to +127 at 8 bpp.
-- B can be memory or VALUE (BCONST). The mask works as for BLIT: where A is 0, D keeps C.
+- B can be memory or VALUE (BCONST). A constant B repeats VALUE by address, as for a fill (section 3.1). The mask works as for BLIT: where A is 0, D keeps C.
 - Uses: shading with palettes laid out as ramps (add a constant to darken or brighten an area, or add a light map); moving an area to another palette block by adding 16, 32 and so on; additive effects such as glows; mixing 8-bit signed audio samples.
 - To subtract, add the two's complement, e.g. add `0xFF` to subtract 1 at 8 bpp with wrap.
 
@@ -552,5 +552,5 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 | D9 | Closed: no HIGH mode (design plan, branch 11). The Z80 never gives up its cycles |
 | D10 | Closed: DMXINT and DMXINTEN sit in channel 3's spare bytes at `0x230` and `0x234`, where retro68k has them relative to its channel 0, so the engine stays inside `0x140`–`0x23F` |
 | D11 | The engine has one tagged capture and one colour assembly buffer for all four channels (spec 3, rules 3 and 4; design plan, branch 11). Two channels that read capturing registers, or write palette entries, at the same time can disturb each other: one channel's capture is replaced, or blue and green bytes mix. Software keeps such jobs on one channel at a time. A buffer per channel would cost about 4 × 5 bytes more if this proves a problem |
-| D12 | Closed: retro68k adopts the Amiga-style BLIT (29 October 2026). Shared exactly: the op codes, the minterm numbering, MASK 0–2, BCONST, ABIT/BBIT/DBIT, the C read and skip rules, and the mask on ADD. retro68k keeps its long-word register grouping, and keeps registers, palettes, ROM and ports as targets, where only BLIT `0xCC` with MASK = 0 (a copy) is allowed. The retro68k session reworks `dmx.v`, its random-job test and model first; retro-z80 ports from that |
+| D12 | Closed: retro68k adopts the Amiga-style BLIT (29 October 2026). Shared exactly: the op codes, the minterm numbering, MASK 0–2, BCONST, ABIT/BBIT/DBIT, the C read and skip rules, and the mask on ADD. retro68k keeps its long-word register grouping, and keeps registers, palettes, ROM and ports as targets. Any job can use registers and palettes (a saturating ADD fade of a palette, for example); only port jobs must be BLIT `0xCC` with MASK = 0. The rework is on retro68k's branch `blitter` (ac7b75a, PR jonsole/retro68k#24): `dmx.v`, `dmodel.py`, `dgen.py` and `dtest.s`; retro-z80 ports from that |
 | D13 | The mask shares B's stride (ABSTRIDE), to keep descriptors at 32 bytes. A 1 bpp mask's rows are then padded to B's stride: at 8 bpp seven eighths of the mask sheet is unused. A stride of its own would need 2 more bytes (for example from a narrower WIDTH) |
