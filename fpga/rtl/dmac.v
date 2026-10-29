@@ -10,7 +10,7 @@
 //   SPR   sprites: hard deadline (later; tied off)
 //   AUD   audio (parked; tied off)
 //   COP   copper (later; tied off)
-//   BLT   DMA engine (later; tied off)
+//   BLT   DMA engine (dmx.v)
 //   PORT  the DMA port: a test channel, used by the simulation tests
 //
 // For each cycle of the 5 in a slot, the first rule that finds a request wins:

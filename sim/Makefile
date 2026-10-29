@@ -49,6 +49,10 @@
 #                   Verilator, about a minute)
 #   make coppal     the CPU's and the copper's PALDAT writes interleaved:
 #                   both colours whole (coppal/; seconds)
+#   make dmx        the DMA engine (ticket #39): fills, copies, cookie-cuts
+#                   with each mask, XOR, 4 bpp shifts, ADD, a backwards
+#                   copy, a chain with IRQ, errors and registers (dmx/;
+#                   seconds)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -76,8 +80,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -111,7 +115,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
@@ -262,6 +266,14 @@ $(BUILD)/coppal.bin: coppal/coppal.asm $(INC)/hw.inc $(INC)/copper.inc | $(BUILD
 coppal: $(BUILD)/tb.vvp $(BUILD)/coppal.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=coppal.hex +timeout=2000 | tee coppal.log
 	@grep -q "^TEST PASSED" $(BUILD)/coppal.log
+
+# The DMA engine (ticket #39)
+$(BUILD)/dmxtest.bin: dmx/dmxtest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxtest.hex +timeout=10000 | tee dmx.log
+	@grep -q "^TEST PASSED" $(BUILD)/dmx.log
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

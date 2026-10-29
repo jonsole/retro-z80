@@ -163,7 +163,7 @@ The pattern goes by D's address, not by position in the row, so each row of a 2D
 
 **Overlapping copies:** a job reads up to 16 bytes ahead of what it writes (section 6). If the destination is before the source, or the areas do not overlap, run forwards (DESC = 0). If the destination is after the source and the areas overlap, run backwards (DESC = 1); for a 2D job this holds for the whole rectangle (scrolling a screen down within itself is a backwards job). DESC = 1 starts at the last pixel of the last row and works back through A, B and D together; the addresses are still written as the first pixel, so the same job can run either way.
 
-**Errors:** a reserved OP, MIX, MASK = 3, or a non-zero CTRL2 stops the channel (section 8.5).
+**Errors:** a reserved OP, MIX, MASK = 3 (and MASK = 1 on the KS2, which has no mask image, section 11), or a non-zero CTRL2 stops the channel (section 8.5).
 
 ## 4. Where data can come from and go to
 
@@ -509,7 +509,7 @@ Software decides, but a sensible default, as retro68k's:
 | The shared datapath: 2D address units, byte and pixel shifter, edge masks, colour key compare, logic function, per-pixel adder | Estimate 1,500–2,500 LUTs, as retro68k's, to confirm by synthesis; pipelined from the start for 100 MHz |
 | Block RAM | None in version 1 (a descriptor RAM would be one RAMB18, open point D5) |
 
-retro68k's engine came to about 2,300 LUTs. The KS2 build is about 1,000 LUTs short with it, so the KS2 builds 2 sprites while the engine is in; the KS3 builds everything (design plan, branch 21).
+retro68k's engine came to about 2,300 LUTs. The port (ticket #39) came to about 2,550 logic LUTs and 400 LUTs of distributed RAM; of the logic, the 1 bpp mask image (MASK = 1) is about 400 and ADD about 125. With 2 sprites the KS2 was still 29 LUTs short, so **the KS2 builds 2 sprites and no mask image** (`DMX_MASKIMG = 0`: MASK = 1 is an error there, section 8.5); compare masks, every minterm and ADD work. It came to 9,773 logic LUTs (94%), timing met by 0.080 ns (29 October 2026). The KS3 builds everything (design plan, branch 21).
 
 The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is retro68k's random-job test against a Python model (design plan, branch 21; `fpga/rtl/PROVENANCE.md`).
 

@@ -22,12 +22,14 @@
 // sprite channel, and the VIDERR interrupt source. Ticket #32 adds the
 // copper (copper.v; spec 6) on the scheduler's copper channel, as the first
 // register bus master (its writes go first, the CPU's strobe moves a clock),
-// and the COPPER interrupt source.
+// and the COPPER interrupt source. Ticket #39 adds the DMA engine (dmx.v;
+// spec 14) on the scheduler's DMA engine channel, and DMA0-DMA3.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
     parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
-    parameter NSPRITES = 8             // sprites built, 1-8 (spec 5)
+    parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
+    parameter DMX_MASKIMG = 1          // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -177,8 +179,10 @@ module retroz80 #(
     wire [7:0]  rd_kb, rd_key, rd_joy; // input (#19)
     wire        hit_kb, hit_key, hit_joy;
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
+    wire [3:0]  tmr_dma;               // timers start DMA engine channels
+    wire        dmx_idle;
     wire [10:0] beam_v, beam_h;        // the beam, memory side (video.v), for the copper
-    wire        cop_on;
+    wire        cop_on, blt_on;
     wire [31:0] cd_tmr, cd_vid;
     wire        cap_vid;
     wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
@@ -195,9 +199,9 @@ module retroz80 #(
     assign rb_addr  = cw_req ? {3'b100, cw_off} : c_rb_addr;
     assign rb_hi    = cw_req ? 8'h00 : c_rb_hi;
     assign rb_wdata = cw_req ? cw_data : c_rb_wdata;
-    wire [7:0]  rd_cop;
-    wire        hit_cop, cap_cop;
-    wire [31:0] cd_cop;
+    wire [7:0]  rd_cop, rd_dmx;
+    wire        hit_cop, cap_cop, hit_dmx, cap_dmx;
+    wire [31:0] cd_cop, cd_dmx;
     wire        late;
     wire        int_vreq, int_ack;
     wire [7:0]  int_vec;
@@ -213,9 +217,9 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(c_rb_addr), .rb_hi(c_rb_hi), .rb_rd(c_rb_rd), .rb_wr(c_rb_wr), .rb_wdata(c_rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop),
-        .rb_cdata(cd_tmr | cd_vid | cd_cop), .rb_cap(cap_tmr | cap_vid | cap_cop), .cw_busy(cw_req),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop | rd_dmx),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop | hit_dmx),
+        .rb_cdata(cd_tmr | cd_vid | cd_cop | cd_dmx), .rb_cap(cap_tmr | cap_vid | cap_cop | cap_dmx), .cw_busy(cw_req),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
         .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .nmi_pd(cap_d),
@@ -274,6 +278,10 @@ module retroz80 #(
     wire        cop_req, cop_ack, cop_rvalid;
     wire [21:1] cop_addr;
     wire [1:0]  cop_pri;
+    wire        blt_req, blt_we, blt_ack, blt_rvalid;
+    wire [21:1] blt_addr;
+    wire [15:0] blt_wdata;
+    wire [1:0]  blt_be;
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
@@ -288,8 +296,8 @@ module retroz80 #(
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
         .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(1'b0), .blt_we(1'b0), .blt_addr(21'd0), .blt_wdata(16'd0), .blt_be(2'b00),
-        .blt_ack(), .blt_rvalid(),
+        .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be),
+        .blt_ack(blt_ack), .blt_rvalid(blt_rvalid),
         .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata),
         .port_be(dma_be), .port_ack(dma_ack), .port_rvalid(dma_rvalid),
         .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(go_wdata), .go_be(go_be),
@@ -339,14 +347,15 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- interrupts (spec 8)
-    // Sources so far: VBLANK (0), COPPER (2), VIDERR (3), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
+    // Sources so far: VBLANK (0), COPPER (2), VIDERR (3), DMA0-3 (4-7), TIMER0-3 (11-14), KEYB (17) and SOFT (18,
     // inside the controller). The other lines are tied off until their
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
     wire        irq_vid, irq_viderr, irq_cop;
+    wire [3:0]  irq_dmx;               // DMA0-3: sources 4-7
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 7'd0, irq_viderr, irq_cop, 1'b0, irq_vid};
+    wire [20:0] int_req = {3'd0, irq_kb, 2'd0, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, 1'b0, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -362,7 +371,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid), .rb_cop(cw_req),
         .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_err(irq_viderr),
-        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on),
+        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_deadline(bpl_deadline), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
@@ -373,7 +382,7 @@ module retroz80 #(
 
     // ---------------------------------------------------------------- copper (spec 6)
     // Its list through the scheduler's copper channel; its writes onto the
-    // register bus (above). No DMA engine yet, so it is always idle.
+    // register bus (above). WAIT with B waits for the DMA engine.
     copper cop (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
@@ -381,20 +390,32 @@ module retroz80 #(
         .cw_req(cw_req), .cw_off(cw_off), .cw_data(cw_data),
         .mem_req(cop_req), .mem_addr(cop_addr), .mem_pri(cop_pri), .mem_ack(cop_ack),
         .mem_rvalid(cop_rvalid), .mem_rdata(mem_rdata),
-        .beam_v(beam_v), .beam_h(beam_h), .vblank(frame_tick), .dma_on(cop_on), .blt_idle(1'b1),
+        .beam_v(beam_v), .beam_h(beam_h), .vblank(frame_tick), .dma_on(cop_on), .blt_idle(dmx_idle),
         .irq(irq_cop)
     );
 
     // ---------------------------------------------------------------- timers and watchdog (spec 9)
     // Line and frame ticks from the display beam (video.v); the DMA start
-    // lines wait for the DMA engine (spec 14). The capture path (rb_cdata,
+    // lines start the DMA engine's channels (spec 14). The capture path (rb_cdata,
     // rb_cap) goes to the bus interface, the CPU's one capture.
     timers tmr (
         .clk(clk), .por(por), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_tmr), .rb_hit(hit_tmr), .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
-        .irq(irq_tmr), .dma_start(), .wd_reset(wd_reset)
+        .irq(irq_tmr), .dma_start(tmr_dma), .wd_reset(wd_reset)
+    );
+
+    // ---------------------------------------------------------------- DMA engine (spec 14)
+    // The blitter, on the scheduler's DMA engine channel (free cycles only)
+    // and the register bus (custom 0x140-0x23F). Ticket #39.
+    dmx #(.CHIPMB(CHIPMB), .MASKIMG(DMX_MASKIMG)) dx (
+        .clk(clk), .rst(sys_rst),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_dmx), .rb_hit(hit_dmx), .rb_cdata(cd_dmx), .rb_cap(cap_dmx),
+        .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
+        .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
+        .tmr_start(tmr_dma), .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
     );
 
     // ---------------------------------------------------------------- input (spec 12)

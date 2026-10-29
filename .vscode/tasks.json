@@ -6,7 +6,19 @@
       "type": "retro-z80-build",
       "source": "examples/counter/counter.asm",
       "load": "8000",
-      "includes": ["firmware/include"],
+      "includes": [
+        "firmware/include"
+      ],
+      "problemMatcher": "$sjasmplus"
+    },
+    {
+      "label": "build blitter",
+      "type": "retro-z80-build",
+      "source": "examples/blitter/blitter.asm",
+      "load": "8000",
+      "includes": [
+        "firmware/include"
+      ],
       "problemMatcher": "$sjasmplus"
     }
   ]

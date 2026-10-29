@@ -18,6 +18,15 @@
       "program": "${workspaceFolder}/examples/counter/build/counter.rimg",
       "sld": "${workspaceFolder}/examples/counter/build/counter.sld",
       "preLaunchTask": "build counter"
+    },
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Run the blitter example on the board",
+      "port": "COM3",
+      "program": "${workspaceFolder}/examples/blitter/build/blitter.rimg",
+      "sld": "${workspaceFolder}/examples/blitter/build/blitter.sld",
+      "preLaunchTask": "build blitter"
     }
   ]
 }

@@ -122,7 +122,8 @@ module top_ks2 (
     wire [7:0]  row_low;
     wire        aud_l, aud_r, aud_m;
 
-    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2)) sys (
+    // 2 sprites and no DMA mask image, so the DMA engine fits (design plan, branch 21)
+    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0)) sys (
         .clk(clk100), .por(por),
         .btn_reset_n(!btn_q[0]), .buttons(btn_q[2:1]),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),

@@ -264,7 +264,7 @@ At 8 bpp this costs no more than a plain copy: where the mask is 0 the blitter s
 
 ### Drawing through a mask image
 
-When a shape uses every colour, or when the same image needs different shapes, keep a mask image: 1 bit per pixel, 1 where the image should show. Set MASK to MASKIMG and APT to the mask. The mask's rows are the same distance apart as the image's (ABSTRIDE serves both), so a row of an 8 bpp mask uses only one byte in eight of its row's space. Keeping the masks of a sprite sheet in their own sheet, with the same row length as the images, puts that space to use.
+When a shape uses every colour, or when the same image needs different shapes, keep a mask image: 1 bit per pixel, 1 where the image should show. Set MASK to MASKIMG and APT to the mask. (The KS2 has no room for mask images: there, MASKIMG stops the channel with an error. The KS3 has them.) The mask's rows are the same distance apart as the image's (ABSTRIDE serves both), so a row of an 8 bpp mask uses only one byte in eight of its row's space. Keeping the masks of a sprite sheet in their own sheet, with the same row length as the images, puts that space to use.
 
 ---
 

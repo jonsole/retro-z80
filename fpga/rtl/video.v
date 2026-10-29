@@ -91,6 +91,7 @@ module video #(
     output wire [10:0] beam_v,
     output wire [10:0] beam_h,
     output wire        cop_on,         // DMACON.DMAEN and COPEN
+    output wire        blt_on,         // DMACON.DMAEN and BLTEN (the DMA engine, spec 14)
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -221,6 +222,7 @@ module video #(
     // (open point V5), so with its fetch off it is off, with no OVERRUN
     wire fetch_en = vidcon[0] && dmacon[6] && dmacon[5];
     assign cop_on = dmacon[6] && dmacon[4];
+    assign blt_on = dmacon[6] && dmacon[3];
 
     wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) &&
                     (rb_addr != `RM_LINECMP0) && (rb_addr != `RM_LINECMP1) ||
