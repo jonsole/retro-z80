@@ -890,6 +890,12 @@
 `define RM_VID_H                          32'h00000240
 `define RM_BEAM_W                         32'h00000360
 `define RM_BEAM_H                         32'h00000271
+`define RM_ME_TILE8                       32'h00000001
+`define RM_ME_PAL_B                       32'h00000001
+`define RM_ME_PAL_M                       32'h0000001E
+`define RM_ME_XFLIP                       32'h00000020
+`define RM_ME_YFLIP                       32'h00000040
+`define RM_ME_PRI                         32'h00000080
 `define RM_SEQ_END                        32'h000007FF
 `define RM_SEQ_ENTRY                      32'h00000010
 `define RM_SYSRESET_MAGIC                 32'h000000A5

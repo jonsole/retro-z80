@@ -338,6 +338,14 @@ const VID_H  576 "Picture height"
 const BEAM_W 864 "Beam pixels per line"
 const BEAM_H 625 "Beam lines per frame"
 
+# Tile map entry, high byte (spec 4, section 4.3): written after the tile number's low byte
+const ME_TILE8 0x01 "Map entry high byte: TILE bit 8 (tiles 256-511)"
+const ME_PAL_B 1    "Map entry high byte: PAL is bits 4-1, (pal << ME_PAL_B)"
+const ME_PAL_M 0x1E "Map entry high byte: PAL's mask"
+const ME_XFLIP 0x20 "Map entry high byte: the tile mirrored left to right"
+const ME_YFLIP 0x40 "Map entry high byte: the tile upside down"
+const ME_PRI   0x80 "Map entry high byte: in front of all layers"
+
 # Sprite sequencer (spec 17)
 const SEQ_END   0x7FF "Sequencer: VSTART of the end-of-list entry"
 const SEQ_ENTRY 16    "Sequencer: bytes per list entry"
