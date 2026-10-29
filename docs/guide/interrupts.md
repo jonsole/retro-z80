@@ -11,13 +11,13 @@ This chapter covers:
 - how an interrupt reaches the Z80, and the four switches on its way;
 - the sources and their order;
 - setting up IM 2 and writing handlers, with a complete program;
-- enabling, disabling and clearing, and what to do about nesting;
+- enabling, disabling and clearing;
 - the software interrupt;
-- IM 1;
-- the nonmaskable interrupt;
 - TIME, the microsecond counter, with a program that times code;
 - the four general timers, with a timer interrupt;
-- the watchdog;
+- the watchdog, with a program that lets it reset the computer;
+- advanced topics: nesting, IM 1, the nonmaskable interrupt, interrupt pages, chaining timers;
+- timing, and what interrupts cannot do;
 - a summary of the registers.
 
 You should know how to reach the registers through ports (Chapter 1, "The Hardware Registers").
@@ -74,9 +74,7 @@ A request stays on until its flag is cleared in the unit. Nothing is lost while 
 
 Turning a source off in INTENA does not clear it either: the flag stays set, and turning the source on again gives the interrupt at once. To avoid an old event, clear the unit's flag before enabling the source.
 
-### How quickly
-
-The Z80 finishes the instruction it is in (up to 23 T-states; `LDIR` and the other repeats take interrupts between their steps), then takes 19 T-states to answer and jump. At 20 MHz the worst case is about 2 µs. A line takes 32 µs, so a handler can't change the screen at an exact pixel: that is the copper's job (Chapter 5).
+How long the Z80 takes to answer is in "Timing", near the end of the chapter.
 
 ---
 
@@ -94,7 +92,7 @@ Table 2-1 lists every source, in priority order.
 | 3 | VIDERR | A layer fetched late, a sprite ran dry, the sprite sequencer skipped | VIDSTAT's error bits; SEQSTAT.SKIP |
 | 4–7 | DMA0–DMA3 | A DMA channel finished a job with IRQ set, or met an error | DMXINT.CHn |
 | 11–14 | TIMER0–TIMER3 | A timer underflowed | TMRn_STAT.UNDER |
-| 15 | SERIAL | The USB link: data received, room to send, a timeout | SERIRQ, or by reading or filling its FIFO |
+| 15 | SERIAL | The USB link: data received, room to send, a timeout (does not reach the controller yet, ticket #58) | SERIRQ, or by reading or filling its FIFO |
 | 17 | KEYB | The PS/2 keyboard: bytes waiting, or an error | KBIRQ, or by reading the FIFO |
 | 18 | SOFT | The program itself, through SOFTINT | SOFTINT.CLR |
 | 23 | NONE | Not a source: the controller had nothing to give (below) | – |
@@ -122,7 +120,32 @@ so the table is 24 entries of 2 bytes, 48 bytes in all, for sources 0–20, two 
 | 7–1 | VEC | The table's place in I's page, bits 7–1 of its address |
 | 0 | – | Reads 0: the table starts at an even address |
 
-With I = `0x9F` and VECBASE = `0xD0` the table is at `0x9FD0`–`0x9FFF`: VBLANK's handler address at `0x9FD0`, TIMER0's at `0x9FE6`, NONE's at `0x9FFE`.
+With I = `0x9F` and VECBASE = `0xD0`, as the examples use, the table is at `0x9FD0`–`0x9FFF`: VBLANK's handler address at `0x9FD0`, TIMER0's at `0x9FE6`, NONE's at `0x9FFE`. Figure 2-2 shows how the Z80 makes each address, and where the entries lie. Each entry is a handler's address, low byte first, as `LD (nn),HL` writes it.
+
+```
+          I                  the vector, for source n
+     +----------+     +-----------------------------+
+     |   0x9F   |     |  VECBASE + 2n  =  0xD0 + 2n |
+     +----------+     +-----------------------------+
+      high byte                  low byte
+
+     entry n is at 0x9F00 + 0xD0 + 2n:
+
+                 +-----------+-----------+
+       0x9FD0    | low byte  | high byte |    0  VBLANK   vbl (Example 2-1)
+                 +-----------+-----------+
+       0x9FD2    |     entries 1-10      |
+                 +-----------+-----------+
+       0x9FE6    | low byte  | high byte |   11  TIMER0   tick (Example 2-3)
+                 +-----------+-----------+
+       0x9FE8    |     entries 12-22     |
+                 +-----------+-----------+
+       0x9FFE    | low byte  | high byte |   23  NONE     spurious
+                 +-----------+-----------+
+                                  0x9FFF: the table's last byte
+
+               Figure 2-2: The IM 2 Table at 0x9FD0
+```
 
 The boot ROM starts a program with its own table (in ROM) and every source off. **A program that wants interrupts builds its own table** in its memory and points I and VECBASE at it. Fill every entry, so that a source turned on by mistake, and NONE, have somewhere to go.
 
@@ -170,8 +193,15 @@ spurious:
 The program builds its table at `0x9FD0`, takes the vertical blank interrupt, and every 50th frame raises the software interrupt, whose handler steps the border colour. So the border changes once a second until a key is pressed; then everything is put back as the boot ROM left it.
 
 ```asm
-; Example 2-1: the vertical blank and the software interrupt (examples/interrupts/vblank.asm)
+; Example 2-1 (docs/guide/interrupts.md): the vertical blank interrupt,
+; and the software interrupt for the slow part. An IM 2 table in the
+; program's memory; the VBLANK handler counts frames and, every 50th,
+; raises SOFT; the SOFT handler steps the border colour. So the border
+; changes once a second. A key ends it, with everything put back.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
 TABLE   equ     0x9FD0                  ; the IM 2 table: I = 0x9F, VECBASE = 0xD0
@@ -395,10 +425,6 @@ INTRAW, INTPEND and INTENA use the same bit positions (Tables 2-3 to 2-5), so a 
 
 A program can also **poll** without interrupts at all: leave the source off in INTENA and test the unit's flag, or INTRAW.
 
-### Nesting
-
-The controller has no "in service" state. A handler that does `EI` early can be interrupted by any pending source, a higher number included. To let only more urgent ones in, a handler turns off the INTENA bits of the less urgent sources, does `EI`, and turns them back on before it returns. Most handlers are short enough not to bother.
-
 ---
 
 ## The Software Interrupt
@@ -417,65 +443,11 @@ SOFT has the highest number, so it is taken only when nothing else is pending. T
 
 ---
 
-## IM 1
-
-In IM 1 every interrupt runs `RST 38h`. The controller still picks a source, and writes it to **INTID**, so one handler can read INTID and jump through a table of its own. But **in the program map, `0x0038` is in the boot ROM**, where it is the trap that stops a runaway program. A program that wants IM 1 maps its own SRAM page into window 0, with its handler at `0x0038` (and an NMI handler at `0x0066`), and then makes no ROM calls. IM 2 needs none of this, and is the one to use.
-
-**IM 0 is not supported**: the controller always gives an IM 2 vector. Choose IM 1 or IM 2 before the first `EI`.
-
----
-
-## The Nonmaskable Interrupt
-
-The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it (Table 2-11):
-
-**Table 2-11: NMI Sources**
-
-| Source | Event | Allowed by | Seen in |
-|--------|-------|------------|---------|
-| The Multiface button | A press | NMICON.BUTTONEN (bit 0) | NMISTAT.BUTTON |
-| The PC | The BREAK control command on the USB link | NMICON.USBEN (bit 1) | NMISTAT.USB |
-| The debug unit | A step, a breakpoint or a watchpoint, from VS Code or the monitor | Its own settings | Its own status |
-
-Each press or BREAK gives exactly one NMI. **NMISTAT** (register `0x0E`, W1C) keeps which sources there have been since it was last cleared; **NMICON** (`0x0D`) allows each one, and both are on after reset.
-
-**Table 2-12: NMICON Register**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–2 | – | Read 0 |
-| 1 | USBEN | 1: BREAK from the PC gives an NMI |
-| 0 | BUTTONEN | 1: the Multiface button gives an NMI |
-
-**Table 2-13: NMISTAT Register**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–2 | – | Read 0 |
-| 1 | USB | BREAK from the PC gave an NMI. Write 1 to clear |
-| 0 | BUTTON | The button gave an NMI. Write 1 to clear |
-
-**The monitor owns the NMI.** By default, taking an NMI switches window 0 to the boot ROM's monitor page, and keeps the return address in registers instead of on the program's stack, so the program's memory and stack are not touched. `RETN` puts both back. This is how the Multiface button, BREAK from the PC and the debugger stop a program and let it carry on. A program that does not want to be stopped (a game, say, that must not be broken into) clears NMICON's bits:
-
-```asm
-        ld      bc,NMICON_P
-        xor     a
-        out     (c),a                   ; neither the button nor the PC can stop it now
-```
-
-That shuts out the debugger's pause too, which uses the PC's BREAK: clear only BUTTONEN to keep debugging.
-
-An NMI never interrupts another NMI's handler: one that comes meanwhile is taken straight after `RETN`.
-
-**Interrupt pages.** The same mechanism, switching chosen windows to pages of its own on the way in and back on the way out, is meant for maskable interrupts too, so that a handler can have its code, stack and data in a bank of its own whatever the program has mapped. That part is not built yet: maskable interrupts switch nothing.
-
----
-
 ## The Time Counter: TIME
 
-**TIME** counts microseconds from power-on, in 32 bits: it wraps after 71.6 minutes. Only power-on resets it; every other reset leaves it counting. It sits in TIME0–TIME3 (registers `0x20`–`0x23`), low byte first, and cannot be written (Table 2-14).
+**TIME** counts microseconds from power-on, in 32 bits: it wraps after 71.6 minutes. Only power-on resets it; every other reset leaves it counting. It sits in TIME0–TIME3 (registers `0x20`–`0x23`), low byte first, and cannot be written (Table 2-11).
 
-**Table 2-14: TIME Registers**
+**Table 2-11: TIME Registers**
 
 | Register | Name | Bits of TIME |
 |----------|------|--------------|
@@ -510,8 +482,14 @@ Subtracting two readings gives the time between them, right across a wrap, as lo
 The program times an 8 KB `LDIR` at 20 MHz and again at the Spectrum speed.
 
 ```asm
-; Example 2-2: timing code with TIME (examples/interrupts/timing.asm)
+; Example 2-2 (docs/guide/interrupts.md): timing code with TIME.
+; Copies 8 KB with LDIR and prints how many microseconds it took, at
+; 20 MHz and again at the Spectrum speed (3.57 MHz). TIME counts
+; microseconds; its low 16 bits are enough for anything under 65 ms.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
 PUTDEC  equ     0x08                    ; RST 28h function: HL in decimal
@@ -583,6 +561,52 @@ Four timers, **TMR0–TMR3**, make things happen at set times. Each is a 16-bit 
 
 So a repeating timer with RELOAD = n underflows every n + 1 ticks.
 
+### The registers
+
+Timer n is at register `0x28` + 8n: TMR0 at `0x28`, TMR1 `0x30`, TMR2 `0x38`, TMR3 `0x40`. Each has the eight registers of Table 2-12. The 16-bit values are low byte first.
+
+**Table 2-12: Timer Registers**
+
+| Offset | Name | Function |
+|--------|------|----------|
+| +0 | CTRL | Control (Table 2-13) |
+| +1, +2 | PRESCALE0, 1 | The system clock's divider, 16 bits |
+| +3, +4 | RELOAD0, 1 | Loaded into COUNT at each underflow, in REPEAT |
+| +5, +6 | COUNT0, 1 | The count. Writing sets it at once; reading COUNT0 captures it |
+| +7 | STAT | Status (Table 2-14) |
+
+**Table 2-13: TMRn_CTRL Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–6 | DMACH | The DMA channel to start, 0–3 |
+| 5 | DMA | 1: start channel DMACH at each underflow (Chapter 6) |
+| 4 | IRQ | 1: the timer's interrupt asks while STAT.UNDER is set |
+| 3–2 | SRC | What a tick is, 0–3 (Table 2-15) |
+| 1 | REPEAT | 1: reload from RELOAD at underflow and go on. 0: one-shot |
+| 0 | EN | 1: running. A one-shot underflow clears it |
+
+**Table 2-14: TMRn_STAT Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–1 | – | Read 0 |
+| 0 | UNDER | The timer has underflowed. Write 1 to clear |
+
+Example 2-3 starts timer 0 repeating, with its interrupt, at SRC 0: CTRL is `0x13`. Counting frames instead (SRC 2) makes it `0x1B`. The assembler makes the same bytes from the names:
+
+```asm
+        db      0x13                            ; EN, REPEAT, IRQ; SRC 0
+        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|TMR_CTRL_IRQ_M ; the same byte
+        db      0x1B                            ; EN, REPEAT, IRQ; SRC 2
+        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|(2<<TMR_CTRL_SRC_B)|TMR_CTRL_IRQ_M ; the same byte
+```
+
+- **Writing COUNT** changes it at once, byte by byte, so stop the timer (CTRL = 0) first.
+- **Writing RELOAD** changes nothing until the next underflow, so a running timer's period can change without one odd period.
+- **Starting** (EN from 0 to 1) starts the prescaler afresh, so the first period is as long as the others.
+- STAT.UNDER is set at every underflow, with IRQ or without, so a timer can be polled.
+
 ### What a timer counts
 
 CTRL's SRC field picks what a tick is (Table 2-15).
@@ -610,52 +634,6 @@ At SRC 0 the period is (PRESCALE + 1) × (RELOAD + 1) × 10 ns. PRESCALE 99 give
 | A 2-second timeout, polled | SRC 0, PRESCALE 49,999 (0.5 ms), COUNT 3,999, one-shot: test STAT.UNDER |
 | Once a second, from the 1000 Hz tick | Timer 1: SRC 3, RELOAD 999, REPEAT, IRQ |
 
-### The registers
-
-Timer n is at register `0x28` + 8n: TMR0 at `0x28`, TMR1 `0x30`, TMR2 `0x38`, TMR3 `0x40`. Each has the eight registers of Table 2-17. The 16-bit values are low byte first.
-
-**Table 2-17: Timer Registers**
-
-| Offset | Name | Function |
-|--------|------|----------|
-| +0 | CTRL | Control (Table 2-18) |
-| +1, +2 | PRESCALE0, 1 | The SRC 0 divider, 16 bits |
-| +3, +4 | RELOAD0, 1 | Loaded into COUNT at each underflow, in REPEAT |
-| +5, +6 | COUNT0, 1 | The count. Writing sets it at once; reading COUNT0 captures it |
-| +7 | STAT | Status (Table 2-19) |
-
-**Table 2-18: TMRn_CTRL Register**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–6 | DMACH | The DMA channel to start, 0–3 |
-| 5 | DMA | 1: start channel DMACH at each underflow (Chapter 6) |
-| 4 | IRQ | 1: the timer's interrupt asks while STAT.UNDER is set |
-| 3–2 | SRC | What a tick is, 0–3 (Table 2-15) |
-| 1 | REPEAT | 1: reload from RELOAD at underflow and go on. 0: one-shot |
-| 0 | EN | 1: running. A one-shot underflow clears it |
-
-**Table 2-19: TMRn_STAT Register**
-
-| Bits | Name | Meaning |
-|------|------|---------|
-| 7–1 | – | Read 0 |
-| 0 | UNDER | The timer has underflowed. Write 1 to clear |
-
-Example 2-3 starts timer 0 repeating, with its interrupt, at SRC 0: CTRL is `0x13`. Counting frames instead (SRC 2) makes it `0x1B`. The assembler makes the same bytes from the names:
-
-```asm
-        db      0x13                            ; EN, REPEAT, IRQ; SRC 0
-        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|TMR_CTRL_IRQ_M ; the same byte
-        db      0x1B                            ; EN, REPEAT, IRQ; SRC 2
-        db      TMR_CTRL_EN_M|TMR_CTRL_REPEAT_M|(2<<TMR_CTRL_SRC_B)|TMR_CTRL_IRQ_M ; the same byte
-```
-
-- **Writing COUNT** changes it at once, byte by byte, so stop the timer (CTRL = 0) first.
-- **Writing RELOAD** changes nothing until the next underflow, so a running timer's period can change without one odd period.
-- **Starting** (EN from 0 to 1) starts the prescaler afresh, so the first period is as long as the others.
-- STAT.UNDER is set at every underflow, with IRQ or without, so a timer can be polled.
-
 ### Setting up a timer
 
 1. Stop it: CTRL = 0.
@@ -669,8 +647,15 @@ Example 2-3 starts timer 0 repeating, with its interrupt, at SRC 0: CTRL is `0x1
 Timer 0 ticks at 10 Hz. Its handler only counts; the main program waits for ten counts, prints the second, and after five stops the timer and ends.
 
 ```asm
-; Example 2-3: a timer interrupt (examples/interrupts/tick.asm)
+; Example 2-3 (docs/guide/interrupts.md): a timer interrupt.
+; Timer 0 ticks at 10 Hz: 100 MHz / 10,000 (PRESCALE 9,999) is 10 kHz,
+; and RELOAD 999 underflows every 1,000 of those. Its handler only counts;
+; the main program waits for the count and prints the seconds, 1 to 5,
+; then stops the timer and ends.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
 PUTDEC  equ     0x08                    ; RST 28h function: HL in decimal
@@ -787,27 +772,23 @@ s_nl:   db      13, 10, 0
 
 It prints `Seconds: 1 2 3 4 5`, a number a second. The same program counting frames instead (SRC 2, RELOAD 4: every fifth frame is also 10 Hz) prints the same: change step 3's RELOAD and COUNT to 4 and step 5's CTRL to add `2<<TMR_CTRL_SRC_B`.
 
-### Chaining timers
-
-With SRC 3 a timer counts the underflows of the one before it (timer 1 counts timer 0, and timer 0 counts timer 3). Two chained timers make a 32-bit counter, or turn a fast tick into a slow one: timer 0 at 1000 Hz and timer 1 counting 1,000 of its underflows give one interrupt a second.
-
 ---
 
 ## The Watchdog
 
 The watchdog resets the computer if a program stops working. Once it is on, the program must **kick** it, writing `0x5A` to **WDKICK**, at least once every **WDTIME** milliseconds; if a kick is late, the computer gets a full reset, with RESETWHY.WATCHDOG set. A kick with any other value resets at once, so a program running wild through its memory is caught quickly.
 
-**Table 2-20: Watchdog Registers**
+**Table 2-17: Watchdog Registers**
 
 | Register | Name | Function |
 |----------|------|----------|
-| `0x48` | WDCTRL | Control (Table 2-21). Writing it restarts the time |
+| `0x48` | WDCTRL | Control (Table 2-18). Writing it restarts the time |
 | `0x49`, `0x4A` | WDTIME0, 1 | Milliseconds allowed between kicks, 1–65,535 (1000 after reset) |
 | `0x4B` | WDKICK | `0x5A` (`WDKICK_MAGIC`) kicks; anything else resets (while on) |
 
 The watchdog is off after every reset, so simple programs need not know it is there. **Kick from the main loop, not from an interrupt handler**: interrupts usually keep running when the main program hangs, and a handler that kicks would hide the hang. Set LOCK in the same write as EN, so a fault cannot turn the watchdog off.
 
-**Table 2-21: WDCTRL Register**
+**Table 2-18: WDCTRL Register**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -827,8 +808,15 @@ EN and LOCK together are `0x03`:
 The program turns the watchdog on with half a second's grace, kicks it every frame for two seconds, then stops, as a hung program would.
 
 ```asm
-; Example 2-4: the watchdog (examples/interrupts/watchdog.asm)
+; Example 2-4 (docs/guide/interrupts.md): the watchdog.
+; Turns the watchdog on with half a second's grace, kicks it every frame
+; for two seconds, then stops kicking, as a hung program would. Half a
+; second later the computer resets, and the boot ROM says
+; "Reset: watchdog."
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
+
         include "hw.inc"
 
 start:  ld      hl,title
@@ -874,13 +862,122 @@ Monitor.  H for help.
 
 ---
 
+## Advanced Topics
+
+Most programs need nothing more than the parts above. This section is for programs that want one handler to interrupt another, IM 1 instead of IM 2, the NMI for themselves, or a slower tick than one timer can give.
+
+### Nesting
+
+The controller has no "in service" state. A handler that does `EI` early can be interrupted by any pending source, a higher number included. To let only more urgent ones in, a handler turns off the INTENA bits of the less urgent sources, does `EI`, and turns them back on before it returns. Most handlers are short enough not to bother.
+
+### IM 1
+
+In IM 1 every interrupt runs `RST 38h`. The controller still picks a source, and writes it to **INTID**, so one handler can read INTID and jump through a table of its own. But **in the program map, `0x0038` is in the boot ROM**, where it is the trap that stops a runaway program. A program that wants IM 1 maps its own SRAM page into window 0, with its handler at `0x0038` (and an NMI handler at `0x0066`), and then makes no ROM calls. IM 2 needs none of this, and is the one to use.
+
+**IM 0 is not supported**: the controller always gives an IM 2 vector. Choose IM 1 or IM 2 before the first `EI`.
+
+### The nonmaskable interrupt
+
+The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it (Table 2-19):
+
+**Table 2-19: NMI Sources**
+
+| Source | Event | Allowed by | Seen in |
+|--------|-------|------------|---------|
+| The Multiface button | A press | NMICON.BUTTONEN (bit 0) | NMISTAT.BUTTON |
+| The PC | The BREAK control command on the USB link | NMICON.USBEN (bit 1) | NMISTAT.USB |
+| The debug unit | A step, a breakpoint or a watchpoint, from VS Code or the monitor | Its own settings | Its own status |
+
+Each press or BREAK gives exactly one NMI. **NMISTAT** (register `0x0E`, W1C) keeps which sources there have been since it was last cleared; **NMICON** (`0x0D`) allows each one, and both are on after reset.
+
+**Table 2-20: NMICON Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | USBEN | 1: BREAK from the PC gives an NMI |
+| 0 | BUTTONEN | 1: the Multiface button gives an NMI |
+
+**Table 2-21: NMISTAT Register**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 7–2 | – | Read 0 |
+| 1 | USB | BREAK from the PC gave an NMI. Write 1 to clear |
+| 0 | BUTTON | The button gave an NMI. Write 1 to clear |
+
+**The monitor owns the NMI.** By default, taking an NMI switches window 0 to the boot ROM's monitor page, and keeps the return address in registers instead of on the program's stack, so the program's memory and stack are not touched. `RETN` puts both back. This is how the Multiface button, BREAK from the PC and the debugger stop a program and let it carry on. A program that does not want to be stopped (a game, say, that must not be broken into) clears NMICON's bits:
+
+```asm
+        ld      bc,NMICON_P
+        xor     a
+        out     (c),a                   ; neither the button nor the PC can stop it now
+```
+
+That shuts out the debugger's pause too, which uses the PC's BREAK: clear only BUTTONEN to keep debugging.
+
+An NMI never interrupts another NMI's handler: one that comes meanwhile is taken straight after `RETN`.
+
+### Interrupt pages
+
+The NMI's switch to the monitor page is one use of the **interrupt pages**: chosen windows switched to pages of their own on the way into a handler, and back on the way out. The same is meant for maskable interrupts, so that a handler can have its code, stack and data in a bank of its own whatever the program has mapped. That part is not built yet: maskable interrupts switch nothing, and its registers do not answer. Only the NMI's set is built.
+
+### Chaining timers
+
+With SRC 3 a timer counts the underflows of the one before it (timer 1 counts timer 0, and timer 0 counts timer 3). Two chained timers make a 32-bit counter, or turn a fast tick into a slow one: timer 0 at 1000 Hz and timer 1 counting 1,000 of its underflows give one interrupt a second.
+
+---
+
+## Timing
+
+### How quickly
+
+When a request becomes pending, the Z80 first finishes the instruction it is in, then answers. Table 2-22 gives each step.
+
+**Table 2-22: Steps of an Interrupt Response**
+
+| Step | T-states |
+|------|----------|
+| Finish the current instruction | Up to 23 (`INC (IX+d)`, for one). `LDIR` and the other repeats take interrupts between their steps |
+| After `EI` | The next instruction always runs first |
+| IM 2: answer, push PC, read the table | 19 |
+| IM 1: answer, push PC | 13 |
+| NMI: push PC | 11 |
+| The controller | 1 system clock (10 ns), to pass the request on |
+
+So the worst case is 23 + 19 = 42 T-states in IM 2, and 36 in IM 1, before the first instruction of the handler. Table 2-23 gives them in time at each CPU speed (CPUSPEED). Code that runs with interrupts off adds its own time.
+
+**Table 2-23: Worst-Case Interrupt Latency**
+
+| CPU speed | IM 2 (42 T) | IM 1 (36 T), before its own dispatch |
+|-----------|-------------|--------------------------------------|
+| 20 MHz | 2.1 µs | 1.8 µs |
+| 10 MHz | 4.2 µs | 3.6 µs |
+| 6.67 MHz | 6.3 µs | 5.4 µs |
+| 5 MHz | 8.4 µs | 7.2 µs |
+| 4 MHz | 10.5 µs | 9.0 µs |
+| 3.57 MHz (SPECTRUM) | 11.8 µs | 10.1 µs |
+| 3.33 MHz | 12.6 µs | 10.8 µs |
+| 2.86 MHz | 14.7 µs | 12.6 µs |
+| 2.5 MHz | 16.8 µs | 14.4 µs |
+
+### What interrupts cannot do
+
+- **Change the screen at an exact pixel.** A line takes 32 µs, 640 T-states at 20 MHz, and a handler starts between about 20 and 42 T-states after its event, depending on the instruction it waited for. That is the copper's job (Chapter 5).
+- **IM 0.** It is not supported: the controller always gives an IM 2 vector, which the Z80 in IM 0 would run as an instruction. Choose IM 1 or IM 2 before the first `EI`.
+- **Switch pages for a maskable handler.** The interrupt pages are built for the NMI only ("Interrupt pages", in Advanced Topics). A maskable handler runs in whatever the program has mapped.
+- **The LINE interrupt.** It is not built yet: source 1 never asks.
+- **The SERIAL interrupt.** The USB link's request does not reach the controller yet (ticket #58), so source 15 never asks. Poll the link's status (SERSTAT0 and SERSTAT1) for now.
+
+---
+
 ## Summary of Registers
 
 All are registers of page `0x00`: port = (register << 8) | `0x00`, register page offset = register.
 
 ### Interrupt controller
 
-**Table 2-22: Interrupt Controller Registers**
+**Table 2-24: Interrupt Controller Registers**
 
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
@@ -896,7 +993,7 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 
 ### Time counter, timers and watchdog
 
-**Table 2-23: Time Counter, Timer and Watchdog Registers**
+**Table 2-25: Time Counter, Timer and Watchdog Registers**
 
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
@@ -916,7 +1013,7 @@ After reset MASTER is off, every INTENA bit is off, VECBASE is 0, SOFT is clear,
 
 ### Equates in hw.inc
 
-**Table 2-24: Equates in hw.inc**
+**Table 2-26: Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
