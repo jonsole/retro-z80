@@ -64,7 +64,7 @@ If you have used the Amiga's blitter, the ideas are the same. The differences:
 
 ### Comparison with retro68k
 
-retro68k's DMA engine has the same channels, lists and speed, but separate COPY, FILL, KEYCOPY and LOGIC jobs instead of the minterm. Each of them is one minterm here; the table in "Minterms" shows which. retro-z80's design has been proposed to retro68k, so the two may yet be the same again.
+retro68k's DMA engine has the same channels, lists and speed, but separate COPY, FILL, KEYCOPY and LOGIC jobs instead of the minterm. Each of them is one minterm here; the table in "Minterms" shows which. retro68k has adopted this design, so the two engines will be the same again once its rework is done.
 
 ### Conventions in this chapter
 

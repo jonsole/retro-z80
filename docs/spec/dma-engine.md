@@ -6,7 +6,7 @@ One engine moves data for the CPU: it copies and fills memory, feeds the SD card
 
 It is retro68k's DMA engine as decided for its version 1 (its spec 11), narrowed to 8-bit registers, with an Amiga-style blitter at its heart (design plan, branch 21): 4 channels and descriptor chains as retro68k's, but each blit combines up to three sources, a mask A, an image B and the background C, into the destination D through a minterm, any logic function of the three, as the Amiga's blitter does. Each source is shifted to the pixel at 1, 2, 4 and 8 bits per pixel. The engine uses only memory cycles that nobody else wants, so it never slows the Z80, which never waits for memory (design plan, branch 11).
 
-This version is a proposal to retro68k (open point D12); retro68k's spec 11 has the older COPY, FILL, KEYCOPY and LOGIC jobs.
+retro68k adopts this design (D12); until its rework lands, retro68k's spec 11 still has the older COPY, FILL, KEYCOPY and LOGIC jobs.
 
 ## 1. Summary
 
@@ -30,7 +30,7 @@ This version is a proposal to retro68k (open point D12); retro68k's spec 11 has 
 | Item | retro68k (spec 11) | retro-z80 | Why |
 |------|--------------------|-----------|-----|
 | Channels, descriptors, chains | 4 channels; 32-byte descriptors with NEXT; START, RUN, STOP, PAUSE | The same | – |
-| Jobs | COPY, FILL, KEYCOPY, LOGIC (FN of source and destination), ADD | **BLIT**, Amiga-style: D = minterm(A, B, C) with an 8-bit minterm; A a mask (a 1 bpp image or a colour-key compare of B), B an image or VALUE, C the destination. ADD kept, with the mask. COPY, FILL, KEYCOPY and LOGIC are BLITs (section 3.2) | Design plan, branch 21: the user wants the Amiga's blitter. Proposed to retro68k (D12) |
+| Jobs | COPY, FILL, KEYCOPY, LOGIC (FN of source and destination), ADD | **BLIT**, Amiga-style: D = minterm(A, B, C) with an 8-bit minterm; A a mask (a 1 bpp image or a colour-key compare of B), B an image or VALUE, C the destination. ADD kept, with the mask. COPY, FILL, KEYCOPY and LOGIC are BLITs (section 3.2) | Design plan, branch 21: the user wants the Amiga's blitter. retro68k adopts it (D12) |
 | Descriptor layout | CTRL, SRC, DST, WIDTH, HEIGHT with SRCBIT and DSTBIT, STRIDE, VALUE, NEXT | CTRL, MINTERM, A, B, D, WIDTH, HEIGHT, the three pixel offsets, A/B stride, C/D stride, VALUE, NEXT, still 32 bytes: C shares D's address and stride, A shares B's stride (section 3) | Three sources in the same 32 bytes |
 | Registers | 32-bit | 8-bit, low byte first, each written directly (spec 3, rule 2); packed with no gaps, so the job registers are 31 bytes in a row | Z80: 8-bit ports |
 | Register offsets | Channel n at `0x300 + n × 0x40`; DMXINT `0x3F0`, DMXINTEN `0x3F4` | Channel n at `0x140 + n × 0x40`; DMXINT `0x230`, DMXINTEN `0x234` (the same place after channel 3: base + `0xF0`, + `0xF4`) | The custom block is 1 KB (spec 3) |
@@ -552,5 +552,5 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 | D9 | Closed: no HIGH mode (design plan, branch 11). The Z80 never gives up its cycles |
 | D10 | Closed: DMXINT and DMXINTEN sit in channel 3's spare bytes at `0x230` and `0x234`, where retro68k has them relative to its channel 0, so the engine stays inside `0x140`–`0x23F` |
 | D11 | The engine has one tagged capture and one colour assembly buffer for all four channels (spec 3, rules 3 and 4; design plan, branch 11). Two channels that read capturing registers, or write palette entries, at the same time can disturb each other: one channel's capture is replaced, or blue and green bytes mix. Software keeps such jobs on one channel at a time. A buffer per channel would cost about 4 × 5 bytes more if this proves a problem |
-| D12 | The Amiga-style BLIT (design plan, branch 21) is proposed to retro68k, so both machines keep one engine. If retro68k adopts it, its `dmx.v` and random-job test are reworked once and ported here; if not, retro-z80 builds its own and records the difference in section 2 |
+| D12 | Closed: retro68k adopts the Amiga-style BLIT (29 October 2026). Shared exactly: the op codes, the minterm numbering, MASK 0–2, BCONST, ABIT/BBIT/DBIT, the C read and skip rules, and the mask on ADD. retro68k keeps its long-word register grouping, and keeps registers, palettes, ROM and ports as targets, where only BLIT `0xCC` with MASK = 0 (a copy) is allowed. The retro68k session reworks `dmx.v`, its random-job test and model first; retro-z80 ports from that |
 | D13 | The mask shares B's stride (ABSTRIDE), to keep descriptors at 32 bytes. A 1 bpp mask's rows are then padded to B's stride: at 8 bpp seven eighths of the mask sheet is unused. A stride of its own would need 2 more bytes (for example from a narrower WIDTH) |
