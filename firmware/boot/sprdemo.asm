@@ -44,30 +44,40 @@
 ; 5. On the way out the copper is stopped, the console rebuilt (conl0) and
 ; the ROM's interrupt table set again.
 
-BD_MAP  equ     0xC000                  ; window 6: SRAM page 0x0FC (0x1F8000): the tile map
-BD_PAT  equ     0xD000                  ; 0x1F9000: the tile patterns
+; The demo's two SRAM pages: 0x0FC-0x0FD in the ROM; a program can choose
+; others with DEFINE BD_PAGE first (examples/sprdemo does: the debug stub
+; uses page 0x0FC while the debugger has the program stopped)
+        IFDEF   BD_PAGE
+BD_PG   equ     BD_PAGE
+        ELSE
+BD_PG   equ     0x0FC
+        ENDIF
+BD_P    equ     BD_PG * 0x2000          ; its physical address (0x1F8000 in the ROM)
+
+BD_MAP  equ     0xC000                  ; window 6: SRAM page BD_PG (BD_P): the tile map
+BD_PAT  equ     0xD000                  ; BD_P + 0x1000: the tile patterns
 BD_STR8 equ     0xD100                  ; the 8 bpp balls' colours: 4 shades x 48 entries
 BD_BND  equ     0xD400                  ; 65: a row's longitude boundaries (+ 128)
 BD_SHAD equ     0xD500                  ; 128: the sprites' 16 registers each, for the next frame
 BD_BALL equ     0xD580                  ; 8 x 16: the balls
 BD_VAR  equ     0xD600                  ; variables
-BD_IMG  equ     0xE000                  ; window 7: SRAM page 0x0FD (0x1FA000): the images
+BD_IMG  equ     0xE000                  ; window 7: SRAM page BD_PG + 1 (BD_P + 0x2000): the images
 BD_PALS equ     0xF100                  ; 768: SPRPALETTE's entries 0-255 for the next frame
 BD_BAND equ     0xF400                  ; 144: the bands' colours (blue, green, red)
 LIST_A  equ     0xD800                  ; the copper's two lists, 2 KB each:
-LIST_B  equ     0xF800                  ; ... physical 0x1F9800 and 0x1FB800
-LIST_A_P equ    0x1F9800
-LIST_B_P equ    0x1FB800
+LIST_B  equ     0xF800                  ; ... physical BD_P + 0x1800 and + 0x3800
+LIST_A_P equ    BD_P + 0x1800
+LIST_B_P equ    BD_P + 0x3800
 BD_REGS equ     0xA000                  ; window 5: the register page
 BD_SPAL equ     BD_REGS + REGS_SPRPALETTE
 
-; Images: physical addresses (window 7 is 0x1FA000)
-IMG8    equ     0x1FA000                ; 48 x 48, 8 bpp: 2304 bytes
-IMG4L   equ     0x1FA900                ; 48 x 48, 4 bpp: 1152
-IMG4S   equ     0x1FAD80                ; 32 x 32, 4 bpp: 512
-IMG2L   equ     0x1FAF80                ; 32 x 32, 2 bpp: 256
-IMG2S   equ     0x1FB080                ; 16 x 16, 2 bpp: 64
-W7      equ     0xE000 - 0x1FA000       ; physical to window 7
+; Images: physical addresses (window 7 is BD_P + 0x2000)
+IMG8    equ     BD_P + 0x2000           ; 48 x 48, 8 bpp: 2304 bytes
+IMG4L   equ     BD_P + 0x2900           ; 48 x 48, 4 bpp: 1152
+IMG4S   equ     BD_P + 0x2D80           ; 32 x 32, 4 bpp: 512
+IMG2L   equ     BD_P + 0x2F80           ; 32 x 32, 2 bpp: 256
+IMG2S   equ     BD_P + 0x3080           ; 16 x 16, 2 bpp: 64
+W7      equ     0xE000 - (BD_P + 0x2000) ; physical to window 7
 
 ; Variables
 BV_FRAME equ    BD_VAR + 0              ; counted by the VBLANK handler
@@ -121,7 +131,7 @@ sprdemo:
         ld      a,b
         cp      MMU7W_1 + 1
         jr      nz,.svw
-        ld      hl,bdmap                ; the register page and pages 0x0FC-0x0FD
+        ld      hl,bdmap                ; the register page and the demo's two pages
         ld      bc,MMU5_0_P
 .map:   ld      a,(hl)
         out     (c),a
@@ -279,7 +289,7 @@ sprdemo:
         jr      nz,.rsw
         ret
 
-bdmap:  dw      PG_REGS, 0x0FC, 0x0FD   ; windows 5, 6, 7
+bdmap:  dw      PG_REGS, BD_PG, BD_PG + 1 ; windows 5, 6, 7
 bdback: db      0x50, 0x28, 0x28        ; the background: dark blue-grey
 bdfl:   db      0xFF, 0xC0, 0xA0        ; ... flashing: light blue
 
@@ -1376,8 +1386,8 @@ bdl0:   db      L0_CTRL1, 1 << L_CTRL1_VSCALE_B
         db      L0_WINY2, 49, L0_WINY3, 0
         db      L0_SCROLLX0, 0, L0_SCROLLX1, 0
         db      L0_SCROLLY0, 0, L0_SCROLLY1, 0
-        db      L0_MAPPT0, 0x00, L0_MAPPT1, 0x80, L0_MAPPT2, 0x1F       ; 0x1F8000
-        db      L0_PATPT0, 0x00, L0_PATPT1, 0x90, L0_PATPT2, 0x1F       ; 0x1F9000
+        db      L0_MAPPT0, low BD_P, L0_MAPPT1, high BD_P, L0_MAPPT2, BD_P >> 16      ; BD_P
+        db      L0_PATPT0, low (BD_P + 0x1000), L0_PATPT1, high (BD_P + 0x1000), L0_PATPT2, (BD_P + 0x1000) >> 16
         db      0xFF
 
 ; ================================================================ the scroller

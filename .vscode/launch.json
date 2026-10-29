@@ -27,6 +27,15 @@
       "program": "${workspaceFolder}/examples/blitter/build/blitter.rimg",
       "sld": "${workspaceFolder}/examples/blitter/build/blitter.sld",
       "preLaunchTask": "build blitter"
+    },
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Debug the sprite demo on the board",
+      "port": "COM3",
+      "program": "${workspaceFolder}/examples/sprdemo/build/boing.rimg",
+      "sld": "${workspaceFolder}/examples/sprdemo/build/boing.sld",
+      "preLaunchTask": "build sprite demo"
     }
   ]
 }

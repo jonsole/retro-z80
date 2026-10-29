@@ -20,6 +20,16 @@
         "firmware/include"
       ],
       "problemMatcher": "$sjasmplus"
+    },
+    {
+      "label": "build sprite demo",
+      "type": "retro-z80-build",
+      "source": "examples/sprdemo/boing.asm",
+      "load": "2000",
+      "includes": [
+        "firmware/include"
+      ],
+      "problemMatcher": "$sjasmplus"
     }
   ]
 }
