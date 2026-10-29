@@ -251,6 +251,12 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(ps2keys.type_text("a!")[1][:2], (b"\x12\x16", b"\xf0\x16\xf0\x12"))
         with self.assertRaises(ValueError):
             ps2keys.make("NOPE")
+        # the ROM's UK layout by default: " is Shift+2, @ Shift+', # the key by Enter; US on request
+        self.assertEqual(ps2keys.type_text('"')[0][0], b"\x12\x1e")
+        self.assertEqual(ps2keys.type_text("@")[0][0], b"\x12\x52")
+        self.assertEqual(ps2keys.type_text("#")[0][0], b"\x5d")
+        self.assertEqual(ps2keys.type_text("\\")[0][0], b"\x61")
+        self.assertEqual(ps2keys.type_text('"', "us")[0][0], b"\x12\x52")
 
     def test_image_header(self):
         img = rlink.Image(b"\x01\x02\x03", "z80", 0x8000, 0x8001)

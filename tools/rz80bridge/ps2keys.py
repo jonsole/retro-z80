@@ -7,7 +7,7 @@ A key is named by the browser's KeyboardEvent.code ("KeyA", "ShiftLeft",
 "ArrowUp"), which the Board Screen tab passes on as it is, or by a plain
 name: "A", "5", "ENTER", "SPACE", "SHIFT", "CTRL", "ALT", "ESC", "UP",
 "F1", "," and so on (case does not matter). type_text() turns text into
-key presses on a US layout.
+key presses on the boot ROM's UK layout (or a US one).
 """
 
 # KeyboardEvent.code -> (extended, code)
@@ -53,19 +53,30 @@ ALIASES.update({
     ";": "Semicolon", "'": "Quote", ",": "Comma", ".": "Period", "/": "Slash",
 })
 
-# text on a US layout: character -> (code, shifted)
-TYPED = {}
-for _c in "abcdefghijklmnopqrstuvwxyz":
-    TYPED[_c] = ("Key" + _c.upper(), False)
-    TYPED[_c.upper()] = ("Key" + _c.upper(), True)
-for _plain, _shifted, _code in zip("1234567890`-=[]\\;',./", "!@#$%^&*()~_+{}|:\"<>?",
-                                   ["Digit%s" % d for d in "1234567890"] +
-                                   ["Backquote", "Minus", "Equal", "BracketLeft", "BracketRight", "Backslash",
-                                    "Semicolon", "Quote", "Comma", "Period", "Slash"]):
-    TYPED[_plain] = (_code, False)
-    TYPED[_shifted] = (_code, True)
-TYPED.update({" ": ("Space", False), "\n": ("Enter", False), "\r": ("Enter", False), "\t": ("Tab", False),
+# text: character -> (code, shifted), per layout. "uk" is the boot ROM's
+# (firmware/boot/keys.asm, ps2tab): Shift+2 is ", Shift+' is @, the key by
+# Enter (Backslash, 0x5D) is # and ~, the key by left Shift (IntlBackslash,
+# 0x61) is \ and |. "us" for software that decodes a US layout.
+_PUNCT = ["Digit%s" % d for d in "1234567890"] + ["Backquote", "Minus", "Equal", "BracketLeft", "BracketRight",
+                                                  "Semicolon", "Quote", "Comma", "Period", "Slash", "Backslash"]
+_ROWS = {
+    "us": ("1234567890`-=[];',./\\", "!@#$%^&*()~_+{}:\"<>?|", {}),
+    "uk": ("1234567890`-=[];',./#", "!\"£$%^&*()¬_+{}:@<>?~", {"\\": ("IntlBackslash", False),
+                                                                          "|": ("IntlBackslash", True)}),
+}
+LAYOUTS = {}
+for _name, (_plain_row, _shift_row, _extra) in _ROWS.items():
+    t = {}
+    for _c in "abcdefghijklmnopqrstuvwxyz":
+        t[_c] = ("Key" + _c.upper(), False)
+        t[_c.upper()] = ("Key" + _c.upper(), True)
+    for _plain, _shifted, _code in zip(_plain_row, _shift_row, _PUNCT):
+        t[_plain] = (_code, False)
+        t[_shifted] = (_code, True)
+    t.update(_extra)
+    t.update({" ": ("Space", False), "\n": ("Enter", False), "\r": ("Enter", False), "\t": ("Tab", False),
               "\b": ("Backspace", False), "\x1b": ("Escape", False)})
+    LAYOUTS[_name] = t
 
 
 def lookup(name):
@@ -89,14 +100,17 @@ def brk(name):
     return bytes([0xE0, 0xF0, code]) if ext else bytes([0xF0, code])
 
 
-def type_text(text):
+def type_text(text, layout="uk"):
     """Typing text: per character, (down, up, character), the bytes for its
     keys going down (Shift first for a shifted one) and coming up."""
+    if layout not in LAYOUTS:
+        raise ValueError("no such layout: %r (uk or us)" % layout)
+    table = LAYOUTS[layout]
     steps = []
     for ch in text:
-        if ch not in TYPED:
-            raise ValueError("cannot type %r on a US layout" % ch)
-        code, shifted = TYPED[ch]
+        if ch not in table:
+            raise ValueError("cannot type %r on the %s layout" % (ch, layout.upper()))
+        code, shifted = table[ch]
         down = (make("ShiftLeft") if shifted else b"") + make(code)
         up = brk(code) + (brk("ShiftLeft") if shifted else b"")
         steps.append((down, up, ch))

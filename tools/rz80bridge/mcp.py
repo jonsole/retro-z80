@@ -135,9 +135,10 @@ TOOLS = [
          "sees it as the Spectrum key it maps to (SHIFT is CAPS SHIFT, CTRL is SYMBOL SHIFT).",
          {"key": {"type": "string"}}, ["key"]),
     tool("key_up", "Let a key go; with no key, every key held down.", {"key": {"type": "string"}}),
-    tool("type_text", "Type text on the board's keyboard, a US layout, each key held hold_ms (default 40, long "
+    tool("type_text", "Type text on the board's keyboard, on the boot ROM's UK layout (layout us for a US one), each key held hold_ms (default 40, long "
          "enough for a program that reads the keys once a frame) with gap_ms (default 20) between. \\n is Enter.",
-         {"text": {"type": "string"}, "hold_ms": {"type": "integer"}, "gap_ms": {"type": "integer"}}, ["text"]),
+         {"text": {"type": "string"}, "hold_ms": {"type": "integer"}, "gap_ms": {"type": "integer"},
+          "layout": {"type": "string", "enum": ["uk", "us"]}}, ["text"]),
     tool("server_info", "Which bridge this is: pid, version, ports, serial port, start time, the program last "
          "launched, the advert file."),
 ]
@@ -484,7 +485,8 @@ class Tools:
         return text_result("%s up%s" % (", ".join(codes) or "nothing held, nothing", held_text(self.s)))
 
     def t_type_text(self, a):
-        n = self.s.type_text(a["text"], int(a.get("hold_ms", 40)) / 1000.0, int(a.get("gap_ms", 20)) / 1000.0)
+        n = self.s.type_text(a["text"], int(a.get("hold_ms", 40)) / 1000.0, int(a.get("gap_ms", 20)) / 1000.0,
+                             a.get("layout", "uk"))
         return text_result("typed %d character%s" % (n, "" if n == 1 else "s"))
 
     def t_server_info(self, a):
