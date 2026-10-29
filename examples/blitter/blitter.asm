@@ -92,7 +92,17 @@ start:  di
         out     (c),d
         ld      bc,BGCOLOR2_P
         out     (c),e
-done:   jr      done
+        ; Each frame, in the vertical blank, point L0 at the screen again:
+        ; nothing resets BPL0PT at the frame start (spec 4, section 4.4)
+done:   ld      bc,VIDSTAT_P
+.vb:    in      a,(c)
+        and     VIDSTAT_VBLANK_M
+        jr      z,.vb
+        out     (c),a                   ; W1C
+        WREG    L0_BPL0PT0_P, SCREEN & 0xFF
+        WREG    L0_BPL0PT1_P, (SCREEN >> 8) & 0xFF
+        WREG    L0_BPL0PT2_P, SCREEN >> 16
+        jr      done
 
 colours:
         db      0x00, 0x00, 0x00        ; blue, green, red
