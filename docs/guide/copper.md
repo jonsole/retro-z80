@@ -46,36 +46,61 @@ You should have read Chapter 1 ("The Hardware Registers") and the Playfield Hard
 
 ## What Is a Copper Instruction?
 
-A copper instruction is one or two **16-bit words**, at an even address in SRAM. A word is stored low byte first, as the Z80 stores any 16-bit value, so `DW` builds them. The high byte of the first word is the instruction's **code**:
+A copper list is a run of **16-bit words**, at even addresses in SRAM. Each instruction is one word or two. A word is stored low byte first, as the Z80 stores any 16-bit value, so `DW` builds them; the macros in `copper.inc` write the words for you.
 
-- `0x00`–`0xEF`: **MOVE**. The code is the register's offset, and the low byte is the data. One word.
-- `0xF0`–`0xFC`: the other instructions.
+The **high byte of an instruction's first word says what it is**. Values `0x00`–`0xEF` are MOVE: the high byte is the register's offset, and the low byte the data to write. Values `0xF0`–`0xFC` are the other instructions; for them the high byte is just a code, and the low byte, and the second word if there is one, hold the operands.
 
-| Code | Instruction | Macro | Words | What it does |
-|------|-------------|-------|-------|--------------|
-| `0x00`–`0xEF` | MOVE | `CMOVE reg,value` | 1 | Writes a byte to a register at offset `0x000`–`0x0EF` |
-| `0xFC` | MOVEF | `CMOVEF reg,value` | 2 | Writes a byte to any custom offset, `0x000`–`0x3FF` |
-| `0xF0` | WAIT | `CWAIT line,pixel` | 2 | Waits until the beam reaches the position |
-| `0xF0`, P set | WAIT, pixel only | `CWAITP pixel` | 2 | Waits until the beam reaches the pixel, on this line or the next |
-| `0xF0`, B set | WAIT, and the DMA engine | `CWAITB line,pixel` | 2 | As WAIT, and also until the DMA engine is idle |
-| `0xF1` | SKIP | `CSKIP line,pixel` | 2 | Skips the next instruction if the beam has reached the position |
-| `0xF1`, P set | SKIP, pixel only | `CSKIPP pixel` | 2 | As SKIP, comparing the pixel only |
+```
+ first word:   15             8 7              0     second word (if any)
+              +----------------+----------------+   +----------------+----------------+
+ MOVE         | offset 00-EF   | data           |
+              +----------------+----------------+
+ the others   | code F0-FC     | operands       |   | more operands                   |
+              +----------------+----------------+   +----------------+----------------+
+
+             Figure 5-1: A Copper Instruction
+```
+
+So `CMOVE BGCOLOR0,0x80` is the single word `0x0480`: BGCOLOR's blue byte is offset `0x04`, and `0x80` is the data. `CSTOP` is the single word `0xF300`.
+
+These are the instructions, in code order:
+
+| Code | Instruction | Macros | Words | What it does |
+|------|-------------|--------|-------|--------------|
+| `0x00`–`0xEF` | MOVE | `CMOVE reg,value` | 1 | Writes a byte to the register at offset `0x000`–`0x0EF` |
+| `0xF0` | WAIT | `CWAIT line,pixel`, `CWAITP pixel`, `CWAITB line,pixel` | 2 | Waits until the beam reaches the position (and, with B, until the DMA engine is idle) |
+| `0xF1` | SKIP | `CSKIP line,pixel`, `CSKIPP pixel` | 2 | Skips the next instruction if the beam has reached the position |
 | `0xF2` | JUMP | `CJUMP address` | 2 | Continues at the address |
 | `0xF3` | STOP | `CSTOP` | 1 | Stops until the next frame |
-| `0xF4`–`0xF8` | MOVR | `CMOVX`, `CMOVR` … | 1 | A MOVE through the copper's registers X and Y |
-| `0xF9` | ALU | `CLDI`, `CADDI` … | 1 or 2 | Arithmetic on X and Y |
-| `0xFA` | SKIPC | `CSKIPEQ` … | 1 | Skips the next instruction if a condition holds |
-| `0xFB` | CALL, RET | `CCALL address`, `CRET` | 2, 1 | Subroutines |
+| `0xF4`–`0xF8` | MOVR | `CMOVX`, `CMOVXP`, `CMOVR`, `CMOVXR`, `CMOVXRP` | 1 | A MOVE whose register or data comes from the copper's registers X and Y |
+| `0xF9` | ALU | `CLD`, `CST`, `CADD`, `CSUB`, `CAND`, `COR`, `CCMP`, and `CLDI` … `CCMPI` | 1, or 2 with a number | Loads, stores, arithmetic and compares on X and Y |
+| `0xFA` | SKIPC | `CSKIPEQ` … `CSKIPLS` | 1 | Skips the next instruction if a condition on the flags holds |
+| `0xFB` | CALL or RET | `CCALL address`, `CRET` | CALL 2, RET 1 | Calls a subroutine, or returns from one |
+| `0xFC` | MOVEF | `CMOVEF reg,value` | 2 | Writes a byte to any custom offset, `0x000`–`0x3FF` |
 
-MOVR, ALU, SKIPC, CALL and RET work with the copper's own registers, and have their own section, "The Copper's Registers and Arithmetic". Codes `0xFD`–`0xFF`, and any bit that must be 0 but is set, are **reserved**. The copper treats them as STOP and sets COPSTAT.ERR. So erased memory (`0xFFFF`) stops the copper, rather than letting it write registers at random.
+The two kinds of write come first in this chapter: MOVE for the registers in reach of one word, and MOVEF, its two-word form, for the rest. Then WAIT, SKIP, JUMP and STOP, which follow the beam and steer the list. MOVR, ALU, SKIPC, CALL and RET work with the copper's own registers, and have their own section, "The Copper's Registers and Arithmetic". The full bit layout of every instruction is in "Summary of Copper Instructions" at the end of the chapter.
 
-`CMOVE BGCOLOR0,0x80` is the one word `0x0480`: code `0x04` (BGCOLOR's blue byte), data `0x80`. `CSTOP` is `0xF300`.
+Codes `0xFD`–`0xFF`, and an instruction with a bit set that must be 0, are **reserved**. The copper treats them as STOP and sets COPSTAT.ERR. So erased memory (`0xFFFF`) stops the copper, rather than letting it write registers at random.
 
 ---
 
 ## The MOVE Instruction
 
 MOVE writes its byte to the register at its offset, **at once**, by the same rule as the Z80's writes: each byte of a register is written on its own, and takes effect when it is written.
+
+MOVE is one word:
+
+| Bits | Meaning |
+|------|---------|
+| 15–8 | The register's custom offset, `0x00`–`0xEF` (this is also what makes the word a MOVE) |
+| 7–0 | The byte to write |
+
+To make the background's blue byte `0x80`, the word is `0x0480`: BGCOLOR's blue byte is at offset `0x04`. In a list you can write the word yourself, or let the macro do it:
+
+```asm
+        DW      0x0480                  ; MOVE 0x80 to offset 0x04, BGCOLOR0
+        CMOVE   BGCOLOR0,0x80           ; the same word
+```
 
 ### What a MOVE reaches
 
@@ -87,7 +112,28 @@ The code is the offset, so a one-word MOVE reaches offsets `0x000`–`0x0EF`. Th
 | `0x010`–`0x08F` | The 8 sprites, 16 bytes each |
 | `0x090`–`0x0EF` | The 3 layers, 32 bytes each: `L0_`, `L1_`, `L2_` |
 
-Everything above, `0x0F0`–`0x3FF`, needs **MOVEF**, two words: the copper's own registers (`0x100`–`0x11F`), the sprite globals, the attribute layer and the DMA engine. `CMOVE` with an offset of `0x0F0` or more is an assembly error; `CMOVEF` takes any offset.
+Everything above, `0x0F0`–`0x3FF`, needs **MOVEF**: the copper's own registers (`0x100`–`0x11F`), the sprite globals, the attribute layer and the DMA engine. `CMOVE` with an offset of `0x0F0` or more is an assembly error.
+
+### MOVEF: the whole custom block
+
+MOVEF does what MOVE does, for any offset, `0x000`–`0x3FF`, in two words:
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| First | 15–8 | `0xFC`: MOVEF |
+| | 7–2 | 0 |
+| | 1–0 | Offset bits 9–8 |
+| Second | 15–8 | Offset bits 7–0 |
+| | 7–0 | The byte to write |
+
+The second word looks just like a MOVE. To write COPINT (offset `0x109`):
+
+```asm
+        DW      0xFC01,0x0900           ; MOVEF 0x00 to offset 0x109, COPINT
+        CMOVEF  COPINT,0                ; the same two words
+```
+
+A MOVEF costs a second word, so use MOVE wherever it reaches.
 
 ### Registers wider than a byte
 
@@ -141,6 +187,28 @@ A WAIT gives a **line** and a **pixel** in beam coordinates: line 0 is the start
 
 The beam passes 864 pixels a line, 37 ns each, and 625 lines a frame, 50 frames a second. A position with a pixel of 864 or more, or a line of 625 or more, is never reached.
 
+### The WAIT instruction's words
+
+WAIT is two words. The line and pixel are 10 bits each: their top two bits go in the first word, the rest in the second.
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| First | 15–8 | `0xF0`: WAIT |
+| | 7 | P: compare the pixel only, and ignore the line ("The pixel-only WAIT") |
+| | 6 | B: wait for the DMA engine too ("Waiting for the DMA engine") |
+| | 5–4 | 0 |
+| | 3–2 | Line bits 9–8 |
+| | 1–0 | Pixel bits 9–8 |
+| Second | 15–8 | Line bits 7–0 |
+| | 7–0 | Pixel bits 7–0 |
+
+To wait for beam line 600, pixel 808: line 600 is `0x258` and pixel 808 is `0x328`, so the first word's low bits are 2 (line) and 3 (pixel), and the second word is `0x58`, `0x28`:
+
+```asm
+        DW      0xF00B,0x5828           ; WAIT for line 600, pixel 808
+        CWAIT   600,808                 ; the same two words
+```
+
 ```asm
         CWAIT   149,0                   ; the blank before picture line 100
         CWAIT   149,144                 ; picture line 100's first pixel
@@ -167,7 +235,7 @@ The copper starts its list again from COP1LC at the start of every frame, beam l
                                     +--> next frame: the list
                                          starts again from COP1LC
 
-                Figure 5-1: The Frame, as the Copper Sees It
+                Figure 5-2: The Frame, as the Copper Sees It
 ```
 
 Positions only go up through a frame, so:
@@ -417,7 +485,7 @@ DMACON is a set/clear register: written with bit 7 (SETCLR) set, it sets the bit
                        its writes there; then it reaches STOP and waits
  line 0                the next frame: the list starts again
 
-          Figure 5-2: The Copper's Frame
+          Figure 5-3: The Copper's Frame
 ```
 
 ### Starting at once: COPJMP1
@@ -438,9 +506,34 @@ A program that ends, or is stopped by the debugger, is also tidied up by the boo
 
 SKIP compares the beam position as WAIT does, but does not wait. If the beam **has reached** the position in this frame, the copper skips the next instruction; if not, it runs it. A pixel-only SKIP, `CSKIPP pixel`, compares only the pixel position on the current line.
 
+SKIP's words are WAIT's, with code `0xF1` and no B bit:
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| First | 15–8 | `0xF1`: SKIP |
+| | 7 | P: compare the pixel only |
+| | 6–4 | 0 |
+| | 3–2 | Line bits 9–8 |
+| | 1–0 | Pixel bits 9–8 |
+| Second | 15–8 | Line bits 7–0 |
+| | 7–0 | Pixel bits 7–0 |
+
+So `CSKIP 449,0` is `0xF104`, `0xC100`: line 449 is `0x1C1`, and its bits 9–8, 1, sit in bits 3–2 of the first word.
+
+The skipped instruction may be one word or two: the copper reads its first word to see which, and goes on after it.
+
 ### JUMP
 
 JUMP makes the copper continue at another address, at once: a 22-bit physical address, anywhere in the SRAM.
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| First | 15–8 | `0xF2`: JUMP |
+| | 7–6 | 0 |
+| | 5–0 | Address bits 21–16 |
+| Second | 15–0 | Address bits 15–0; bit 0 is 0, since instructions are at even addresses |
+
+`CJUMP 0x012346` is `0xF201`, `0x2346`. STOP is the single word `0xF300`.
 
 ### A loop that ends at a line
 
@@ -1014,30 +1107,49 @@ Some consequences:
 
 ## Summary of Copper Instructions
 
-A word is stored low byte first; its high byte is the code. Bits shown as 0 must be 0.
+Each instruction is one or two 16-bit words, stored low byte first. The high byte of the first word is the code; the table gives the rest of each word, bit by bit. Bits shown as 0 must be 0.
 
-| Instruction | Macro | Word 1 | Word 2 |
-|-------------|-------|--------|--------|
-| MOVE | `CMOVE reg,value` | reg (`0x00`–`0xEF`) << 8 \| value | – |
-| MOVEF | `CMOVEF reg,value` | `0xFC00` \| reg >> 8 | (reg & `0xFF`) << 8 \| value |
-| WAIT | `CWAIT line,pixel` | `0xF000` \| (line >> 8) << 2 \| pixel >> 8 | (line & `0xFF`) << 8 \| pixel & `0xFF` |
-| WAIT, pixel only | `CWAITP pixel` | As WAIT, line 0, with P (`0x0080`) | As WAIT |
-| WAIT and the DMA engine | `CWAITB line,pixel` | As WAIT, with B (`0x0040`) | As WAIT |
-| SKIP | `CSKIP line,pixel`, `CSKIPP pixel` | As WAIT and WAIT pixel only, code `0xF1` | As WAIT |
-| JUMP | `CJUMP address` | `0xF200` \| address >> 16 | address & `0xFFFE` |
-| STOP | `CSTOP` | `0xF300` | – |
-| MOVR | `CMOVX n`, `CMOVXP n` | `0xF400` \| n, `0xF500` \| n | – |
-| | `CMOVR reg,CX`, `CMOVR reg,CY` | `0xF600` \| reg, `0xF700` \| reg | – |
-| | `CMOVXR src`, `CMOVXRP src` | `0xF800` \| I << 1 \| R (R 1: X, 0: Y; I: X + 1) | – |
-| ALU | `CLD`, `CST`, `CADD`, `CSUB`, `CAND`, `COR`, `CCMP` and their `I` forms | `0xF900` \| fn << 5 \| d << 4 \| source | The number, for the `I` forms (source 10) |
-| SKIPC | `CSKIPEQ` … `CSKIPLS` | `0xFA00` \| cc | – |
-| CALL | `CCALL address` | `0xFB00` \| address >> 16 | address & `0xFFFE` |
-| RET | `CRET` | `0xFB80` | – |
-| (reserved) | | `0xFD00`–`0xFFFF`, and bits that must be 0 set | Act as STOP and set COPSTAT.ERR |
+| Code | Instruction | Low byte of word 1 (bits 7–0) | Word 2 |
+|------|-------------|-------------------------------|--------|
+| `0x00`–`0xEF` | MOVE | The data | – |
+| `0xF0` | WAIT | P (7), B (6), 0, 0, line bits 9–8 (3–2), pixel bits 9–8 (1–0) | Line bits 7–0 (15–8), pixel bits 7–0 (7–0) |
+| `0xF1` | SKIP | P (7), 0, 0, 0, line bits 9–8 (3–2), pixel bits 9–8 (1–0) | As WAIT |
+| `0xF2` | JUMP | 0, 0, address bits 21–16 (5–0) | Address bits 15–0 (bit 0 = 0) |
+| `0xF3` | STOP | 0 | – |
+| `0xF4` | MOVR: (X) = n | n | – |
+| `0xF5` | MOVR: (X) = n, X = X + 1 | n | – |
+| `0xF6` | MOVR: reg = X | reg's offset (`0x00`–`0xFF`) | – |
+| `0xF7` | MOVR: reg = Y | reg's offset | – |
+| `0xF8` | MOVR: (X) = X or Y | 0 0 0 0 0 0, I (1): X = X + 1 after, R (0): 1 X, 0 Y | – |
+| `0xF9` | ALU | fn (7–5), d (4): 0 X, 1 Y, source (3–0) | The number, only when source is 10 (bits 15–8 = 0) |
+| `0xFA` | SKIPC | 0 0 0 0, cc (3–0) | – |
+| `0xFB` | CALL | 0 (7), 0, address bits 21–16 (5–0) | Address bits 15–0 (bit 0 = 0) |
+| `0xFB` | RET | `0x80`: R (7) set | – |
+| `0xFC` | MOVEF | 0 0 0 0 0 0, offset bits 9–8 (1–0) | Offset bits 7–0 (15–8), the data (7–0) |
+| `0xFD`–`0xFF` | Reserved | | Act as STOP and set COPSTAT.ERR |
 
-ALU fields: fn 0 LD, 1 ST, 2 ADD, 3 SUB, 4 AND, 5 OR, 6 CMP, 7 the flags; d 0 X, 1 Y; source 0–7 R0–R7, 8 X, 9 Y, 10 the number in word 2. SKIPC cc: 0 EQ, 1 NE, 2 LO, 3 HS, 4 MI, 5 PL, 6 HI, 7 LS.
+- **WAIT and SKIP:** P set compares the pixel only (`CWAITP`, `CSKIPP`, which leave the line 0). B set (WAIT only, `CWAITB`) also waits for the DMA engine to be idle. Lines and pixels are 10 bits (0–1023), in beam coordinates: line 0 is the start of the vertical blank and the picture is lines 49–624; pixel 0 is the start of a line's horizontal blank and the picture is pixels 144–863.
+- **ALU:** fn 0 LD, 1 ST, 2 ADD, 3 SUB, 4 AND, 5 OR, 6 CMP, 7 the flags (d 0: load them, d 1: store them). Source 0–7 is R0–R7, 8 X, 9 Y, 10 the number in word 2; 11–15 are reserved.
+- **SKIPC:** cc 0 EQ, 1 NE, 2 LO, 3 HS, 4 MI, 5 PL, 6 HI, 7 LS; 8–15 are reserved.
 
-Lines and pixels are 10 bits (0–1023), in beam coordinates: line 0 is the start of the vertical blank and the picture is lines 49–624; pixel 0 is the start of a line's horizontal blank and the picture is pixels 144–863. The list starts at (0, 0), and positions only go up through a frame.
+Some instructions as the assembler builds them:
+
+| Source | Words | Why |
+|--------|-------|-----|
+| `CMOVE BGCOLOR0,0x80` | `0x0480` | Offset `0x04`, data `0x80` |
+| `CMOVEF COPINT,0` | `0xFC01`, `0x0900` | COPINT is offset `0x109`: bits 9–8 = 1 in word 1, bits 7–0 = `0x09` in word 2 |
+| `CWAIT 600,808` | `0xF00B`, `0x5828` | Line 600 = `0x258` and pixel 808 = `0x328`: their bits 9–8 (2 and 3) make the low byte `0x0B`; bits 7–0 make word 2 |
+| `CWAITP 504` | `0xF081`, `0x00F8` | P (`0x80`), pixel 504 = `0x1F8`; the line is 0 |
+| `CWAITB 349,0` | `0xF044`, `0x5D00` | B (`0x40`), line 349 = `0x15D` |
+| `CJUMP 0x012346` | `0xF201`, `0x2346` | Address bits 21–16, then 15–0 |
+| `CSTOP` | `0xF300` | |
+| `CMOVXRP CY` | `0xF802` | I set, R clear: (X) = Y, then X = X + 1 |
+| `CLD CY,CR0` | `0xF910` | fn 0, d 1 (Y), source 0 (R0) |
+| `CADDI CX,0x20` | `0xF94A`, `0x0020` | fn 2, d 0 (X), source 10: the number in word 2 |
+| `CST CR7,CF` | `0xF9F7` | fn 7 with d 1 (store the flags), into R7 |
+| `CSKIPEQ` | `0xFA00` | cc 0 |
+| `CCALL 0x008100` | `0xFB00`, `0x8100` | As JUMP |
+| `CRET` | `0xFB80` | |
 
 ---
 
