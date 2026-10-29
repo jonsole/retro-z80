@@ -3638,6 +3638,12 @@
 #define VID_H                        0x240u      /* Picture height */
 #define BEAM_W                       0x360u      /* Beam pixels per line */
 #define BEAM_H                       0x271u      /* Beam lines per frame */
+#define ME_TILE8                     0x1u        /* Map entry high byte: TILE bit 8 (tiles 256-511) */
+#define ME_PAL_B                     0x1u        /* Map entry high byte: PAL is bits 4-1, (pal << ME_PAL_B) */
+#define ME_PAL_M                     0x1Eu       /* Map entry high byte: PAL's mask */
+#define ME_XFLIP                     0x20u       /* Map entry high byte: the tile mirrored left to right */
+#define ME_YFLIP                     0x40u       /* Map entry high byte: the tile upside down */
+#define ME_PRI                       0x80u       /* Map entry high byte: in front of all layers */
 #define SEQ_END                      0x7FFu      /* Sequencer: VSTART of the end-of-list entry */
 #define SEQ_ENTRY                    0x10u       /* Sequencer: bytes per list entry */
 #define SYSRESET_MAGIC               0xA5u       /* SYSRESET: a full reset */

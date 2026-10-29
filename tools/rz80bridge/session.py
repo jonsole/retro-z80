@@ -910,10 +910,10 @@ class Session:
             self.held_keys.discard(code)
         return codes
 
-    def type_text(self, text, hold=0.04, gap=0.02):
+    def type_text(self, text, hold=0.04, gap=0.02, layout="uk"):
         """Each character down for hold seconds, then gap before the next:
         long enough for a program that polls the keys once a frame."""
-        steps = ps2keys.type_text(text)
+        steps = ps2keys.type_text(text, layout)
         for down, up, _ in steps:
             self.link.write(rlink.key(down))
             time.sleep(hold)

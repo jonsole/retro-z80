@@ -3644,6 +3644,12 @@ VID_W                        equ 0x2D0         ; Picture width
 VID_H                        equ 0x240         ; Picture height
 BEAM_W                       equ 0x360         ; Beam pixels per line
 BEAM_H                       equ 0x271         ; Beam lines per frame
+ME_TILE8                     equ 0x1           ; Map entry high byte: TILE bit 8 (tiles 256-511)
+ME_PAL_B                     equ 0x1           ; Map entry high byte: PAL is bits 4-1, (pal << ME_PAL_B)
+ME_PAL_M                     equ 0x1E          ; Map entry high byte: PAL's mask
+ME_XFLIP                     equ 0x20          ; Map entry high byte: the tile mirrored left to right
+ME_YFLIP                     equ 0x40          ; Map entry high byte: the tile upside down
+ME_PRI                       equ 0x80          ; Map entry high byte: in front of all layers
 SEQ_END                      equ 0x7FF         ; Sequencer: VSTART of the end-of-list entry
 SEQ_ENTRY                    equ 0x10          ; Sequencer: bytes per list entry
 SYSRESET_MAGIC               equ 0xA5          ; SYSRESET: a full reset

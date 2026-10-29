@@ -670,6 +670,8 @@ The boot ROM's text console is a layer in tile mode with 1-bit tiles (section 4.
 
 The sprites' FIFOs are spec 5's.
 
+**Layers built.** The RTL takes the number of layers as a parameter (`NLAYERS`, 1–3, in `retroz80.v`). The KS2 build (`fpga/ks2/top_ks2.v`) has **1**, L0, to fit the XC7A15T; the KS3 build is to have all three. The registers of layers not built do not answer (spec 3: they read `0xFF` and writes do nothing).
+
 ## 10. Test plan
 
 - **Timing:** sync positions, totals and the frame rate in simulation; real monitors and a TV lock on HDMI and VGA.
