@@ -39,7 +39,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/sprites.md` | Spec 5: retro68k's 8 sprites with fractional scaling |
 | `docs/spec/copper.md` | Spec 6: retro68k's copper in 16-bit words |
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
-| `docs/spec/dma-engine.md` | Spec 14: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm), adopted by retro68k, whose session reworks `dmx.v` and its tests first for us to port; guide chapter `docs/guide/blitter.md` |
+| `docs/spec/dma-engine.md` | Spec 14: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm), adopted by retro68k. Built (ticket #39, `fpga/rtl/dmx.v`, `make dmx`, `examples/blitter`) and tried on the KS2, which builds 2 sprites and no mask image; next #40 (random-job test), #41 to #43. Compare with retro68k's merged rework once its PR #24 is in; guide chapter `docs/guide/blitter.md` |
 | `docs/spec/boot-rom.md`, `monitor.md` | Spec 16: the boot ROM (draft); the shared spec "Monitor and upload protocol" (draft, for retro68k to adopt) |
 | Specs 13, 15 | Not written: sound (parked), geometry unit (branch 10, another session) |
 | `docs/guide/playfields.md` | Programmer's guide, chapter 3: playfields (the first chapter written) |
