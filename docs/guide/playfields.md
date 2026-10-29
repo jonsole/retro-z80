@@ -6,7 +6,7 @@ This chapter tells you how to put pictures on the screen. The retro-z80 display 
 
 Each layer is one of two kinds:
 
-- a **bitmap**: a chunky picture of 1, 2, 4 or 8 bits per pixel, read through a pointer that walks through memory, as on retro68k and the Amiga;
+- a **bitmap**: a chunky picture of 1, 2, 4 or 8 bits per pixel, read through a pointer that walks through memory, as on the Amiga;
 - a **tile map**: a map of 8 × 8 tiles, each named by a 2-byte entry, which the hardware scrolls round by itself in both directions.
 
 PRIO puts the three layers in any order, front to back. Each layer has its own palette of 256 colours of 24 bits, and a shallow layer picks a block of 16 of them.
@@ -31,28 +31,6 @@ The chapter covers:
 - the Spectrum extras: the Spectrum screen, the attribute layer and the port `0xFE` border.
 
 You should know Z80 assembly language. The Interrupts chapter explains interrupt handlers in full; this chapter uses them without repeating the details. The copper, which can change any of these registers at an exact beam position, has its own chapter.
-
-### Comparison with retro68k
-
-retro-z80's video is retro68k's, narrowed to 8-bit registers, with tile maps added. If you have programmed retro68k's layers, most of this chapter will be familiar. The differences:
-
-| Feature | retro68k | retro-z80 |
-|---------|----------|-----------|
-| Pixel formats | Planar (1–8 planes) or chunky (1, 2, 4, 8 bpp) | Chunky only (1, 2, 4, 8 bpp) |
-| Tile maps | – | Any layer can be a tile map (CTRL0.MODE) |
-| Pointers | BPL0PT–BPL7PT | BPL0PT only |
-| Data registers | BPL0DAT–BPL7DAT, BPLDMA: a layer can be fed by the CPU | Inside the hardware only. A layer cannot be fed by the CPU |
-| Registers | 32 bits, at `0xE00000` | Bytes, through I/O ports and the register page. Wider values low byte first, each byte written at once, with no latch |
-| CTRL | One 32-bit register | Four byte registers, CTRL0–CTRL3, each written on its own |
-| Layer blocks | `0x80` bytes from custom offset `0x100` | `0x20` bytes from custom offset `0x090` |
-| Fine scroll, chunky layers | SCROLLX taken modulo the pixels in a word | Any SCROLLX from 0 to 15 at any depth |
-| Palettes | Memory-mapped, 4-byte entries `0x00RRGGBB` | PALIDX and PALDAT ports, or the register page, 3-byte entries (blue, green, red) |
-| Palette contents at power-on | Undefined | The Spectrum's 16 colours in entries 0–15 |
-| Priority within a layer | – | A tile's PRI bit puts its pixels in front of all layers |
-| A late fetch | May take the CPU's memory cycle | Never: the Z80 never waits for the display |
-| Spectrum extras | – | The attribute layer and the port `0xFE` border |
-
-Everything else is retro68k's: the one video mode, beam coordinates, the windows, the live pointer with its stride and wrap, scaling, PALOFS, SHAREPAL, PRIO, direct colour, the fetch, the budget, OVERRUN and the rules for when writes take effect.
 
 ### Reaching the registers from the Z80
 
@@ -135,7 +113,7 @@ Two rules from the register map matter all through this chapter:
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`, the equates generated from the register map. Numbers in the text are hexadecimal when they start with `0x`.
 - A custom register's name in `hw.inc` is its custom offset (`PRIO` = `0x003`); a system register's name is its register number (`MMU6` = `0x8C`). `name_P` is the port. `L0`, `L1` and `L2` are the layers' offsets (`0x090`, `0x0B0`, `0x0D0`), `L_CTRL0` … `L_PATPT` the offsets inside a layer, and `L1_SCROLLY` the ready-added name. Each byte of a wider register has a name too, lowest first: `L0_BPL0PT0`, `L0_BPL0PT1`, `L0_BPL0PT2`; `MMU7_0`, `MMU7_1`. Fields give `name_FIELD_B` (first bit), `name_FIELD_M` (mask).
 - **The register page is in window 7, at `0xE000`–`0xFFFF`, all the time.** The examples call it `REGS` and write registers through it, because that is faster than ports and lets the Z80 use 16-bit loads, `LDIR`, `SET` and `RES` on registers. Interrupt handlers rely on it too, so window 7 never changes. Ports are used where the register page is not mapped yet, and they are the way for library code that cannot rely on window 7.
-- **IX points at a layer** when code sets up a layer field by field, as `a0` does in retro68k's examples: `ld (ix+L_CTRL1),value`. A whole layer is set up from a 32-byte table with `LDIR` (see "Setting up a layer from a table").
+- **IX points at a layer** when code sets up a layer field by field: `ld (ix+L_CTRL1),value`. A whole layer is set up from a 32-byte table with `LDIR` (see "Setting up a layer from a table").
 - These equates are at the top of every complete example:
 
   ```asm
@@ -1948,7 +1926,7 @@ So a 4 bpp layer with PALOFS 0 shows the Spectrum colours with no set-up, and en
 
 ### The background colour
 
-BGCOLOR is a 3-byte register (blue, green, red; red commits), not a palette entry. It shows wherever no layer and no sprite has a pixel. It is read at the start of each line's picture, so a write partway down the screen changes it from the next line on, which makes colour bars easy (Example 3-12). As on the Amiga and retro68k, the boot ROM shows its start-up progress as the background colour.
+BGCOLOR is a 3-byte register (blue, green, red; red commits), not a palette entry. It shows wherever no layer and no sprite has a pixel. It is read at the start of each line's picture, so a write partway down the screen changes it from the next line on, which makes colour bars easy (Example 3-12). As on the Amiga, the boot ROM shows its start-up progress as the background colour.
 
 On a Spectrum the border is set through port `0xFE`, and that works here too (see "Spectrum Extras").
 
@@ -2323,7 +2301,7 @@ Each byte of a value wider than a byte takes effect when it is written; only col
 
 ## Spectrum Extras
 
-These are not in retro68k. They are there for Spectrum screens and programs.
+These are there for Spectrum screens and programs.
 
 ### The attribute layer
 

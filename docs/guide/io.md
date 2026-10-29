@@ -26,21 +26,6 @@ The chapter covers:
 
 You should know how the Z80 reaches the registers through ports (see "Reaching the registers from the Z80" in the Playfield Hardware chapter). The keyboard's interrupt belongs to the Interrupts and Timers chapter; this chapter reads the keys by polling.
 
-### Comparison with retro68k
-
-retro68k's keyboard is a plain PS/2 receiver; retro-z80 has the same receiver, narrowed to byte registers, and a good deal more round it, because the KS3 is a Spectrum. The differences:
-
-| Feature | retro68k | retro-z80 |
-|---------|----------|-----------|
-| Registers | 32 bits, in the system block at `0xF00400` | Bytes, registers `0x60`–`0x65` of page `0x00` (ports `0x6000`–`0x6500`), in the same order |
-| KBSTAT.TXBUSY | Bit 8 | Bit 7 |
-| KBDATA | EMPTY in bit 8 | The byte alone: an empty FIFO reads `0x00`. Check KBSTAT.COUNT first |
-| KBDATA's port | – | Also port `0x62` with any high byte, so `INIR` reads the FIFO |
-| Membrane keyboard | Not yet | Scanned in hardware: KEYMAP0–6 |
-| Port `0xFE`, Kempston `0x1F` | – | The Spectrum's keyboard rows and joystick, with the PS/2 keys mapped on |
-| Joysticks | Not yet | Two ports: Atari sticks, Mega Drive 3- and 6-button pads |
-| Keys from the PC | KEY, `C0 04 b ~b` (planned, its #25) | KEY, the same command (built) |
-
 ### Conventions in this chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`. Numbers in the text are hexadecimal when they start with `0x`.

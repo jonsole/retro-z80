@@ -62,10 +62,6 @@ If you have used the Amiga's blitter, the ideas are the same. The differences:
 | Line and area fill modes | Yes | Not yet: they come with the 3D hardware |
 | ADD | No | Yes: per-pixel add, wrapping or saturating |
 
-### Comparison with retro68k
-
-retro68k's DMA engine has the same channels, lists and speed, but separate COPY, FILL, KEYCOPY and LOGIC jobs instead of the minterm. Each of them is one minterm here; the table in "Minterms" shows which. retro68k has adopted this design, so the two engines will be the same again once its rework is done.
-
 ### Conventions in this chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`. Numbers are hexadecimal when they start with `0x`.
@@ -226,14 +222,14 @@ The ones you will use most:
 | `0x55` | NOT C | Invert an area |
 | `0x00` | 0 | Clear (but a fill with VALUE 0 is just as fast) |
 
-retro68k's jobs as minterms:
+Common jobs as minterms:
 
-| retro68k job | CTRL1 | MINTERM |
-|--------------|-------|---------|
-| COPY | BPPn | `0xCC` |
-| FILL | BPPn + BCONST | `0xCC` |
-| KEYCOPY | BPPn + MASKKEY | `0xCA` |
-| LOGIC with function FN | BPPn | FN × `0x11` |
+| Job | CTRL1 | MINTERM |
+|-----|-------|---------|
+| Copy | BPPn | `0xCC` |
+| Fill | BPPn + BCONST | `0xCC` |
+| Copy with a transparent colour | BPPn + MASKKEY | `0xCA` |
+| Any function FN of B and C (4 bits, as a truth table) | BPPn | FN × `0x11` |
 
 **The minterm works on bits, not colours.** At 8 bpp, B XOR C flips the bits of each pixel's colour number, which gives another colour; it is drawing and undrawing that make XOR useful, not the colour you see. For colour arithmetic, use ADD.
 

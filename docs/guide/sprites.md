@@ -23,25 +23,6 @@ The chapter covers:
 
 You should have read the Playfield Hardware chapter, because sprites are mixed with the layers described there, and because it explains how the Z80 reaches the registers ("Reaching the registers from the Z80"). Some examples use the copper, which has its own chapter.
 
-### Comparison with retro68k
-
-retro-z80's sprites are retro68k's, narrowed to 8-bit registers. If you have programmed retro68k's sprites, most of this chapter will be familiar. The differences:
-
-| Feature | retro68k | retro-z80 |
-|---------|----------|-----------|
-| Registers | 32 bits, at `0xE00000` | Bytes, through I/O ports and the register page. Wider values low byte first, each byte written at once, with no latch |
-| Sprite blocks | 32 bytes each, from custom offset `0x520` | 16 bytes each, from custom offset `0x010`, in a copper MOVE's reach |
-| SPRxPT | 4 bytes, bits 22–1 | 3 bytes, bits 21–1 |
-| SPRxCTL | 32 bits: BPP (13–12), DEPTH (21–20), PAL (27–24) | One byte: BPP (1–0), DEPTH (3–2), PAL (7–4). The same fields and values |
-| Feeding a sprite by hand | SPRxDAT pushes words into the FIFO | None: no SPRxDAT. Only the DMA fills a FIFO |
-| SPRDMA | One 16-bit set/clear write | Two bytes: SPRDMA0 holds the sprite bits, and writing SPRDMA1 (SETCLR in bit 7) acts on them |
-| SPRCOLL | One 32-bit register | Four byte registers, SPRCOLL0–3, each read and cleared on its own |
-| A late sprite fetch | May take the CPU's memory cycle | Never: the Z80 never waits for the sprites |
-| Palette entries | 4 bytes, `0x00RRGGBB` | 3 bytes: blue, green, red |
-| Reuse down the screen | The copper | The copper, or the **sprite sequencer**, a retro-z80 extra |
-
-Everything else is retro68k's: eight sprites of any size, set by a window in beam coordinates; chunky 2, 4 and 8 bpp with value 0 transparent; SPRPALETTE, PAL and SHAREPAL; fractional scaling with XSTEP and YSTEP; DEPTH among the layers in PRIO order, then sprite number; clipping at all four edges, with HSTART 16 or more; no flips; a sprite started by a write to its CTL and stopped by the vertical blank; PT, H, V and STEP acting from the next line; 32-word FIFOs filled just in time; SPRUNDER; collisions; and reuse by the copper, CTL last.
-
 ### Conventions in this chapter
 
 - Examples are Z80 assembly language for sjasmplus and start with `include "hw.inc"`; those that use the copper also `include "copper.inc"`. Numbers in the text are hexadecimal when they start with `0x`.
@@ -733,7 +714,7 @@ Each start empties the FIFO; the sprite's DMA fetches each line's words during t
 
 ## The Sprite Sequencer
 
-The **sprite sequencer** is a retro-z80 extra (retro68k has no sequencer). It reuses the sprites down the screen without a copper list: the program keeps a **list of sprite uses** in SRAM, sorted by start line, and each frame the sequencer gives each use to a free sprite, in the gap line before it starts, CTL last. A Z80 has little time to spare for building copper lists; building this list is mostly copying 16 bytes per object.
+The **sprite sequencer** reuses the sprites down the screen without a copper list: the program keeps a **list of sprite uses** in SRAM, sorted by start line, and each frame the sequencer gives each use to a free sprite, in the gap line before it starts, CTL last. A Z80 has little time to spare for building copper lists; building this list is mostly copying 16 bytes per object.
 
 The sequencer only writes sprite registers, the same ones the copper and the CPU write, by the same rules. So everything in this chapter still holds, and the three can be mixed.
 
