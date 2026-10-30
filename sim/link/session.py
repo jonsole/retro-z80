@@ -65,8 +65,16 @@ class Run:
         self.log("  %-22s %s" % (name, fmt(value)))
 
     def drain(self):
-        while not self.events.empty():
-            self.events.get_nowait()
+        # The session hands events to listeners from its own thread, so an
+        # earlier stop (the launch's ENTRY) may not have reached our queue yet.
+        # Send a marker through the session's queue and drop all before it.
+        mark = object()
+        self.s._emit("drain", mark=mark)
+        deadline = time.monotonic() + WAIT
+        while True:
+            kind, data = self.events.get(timeout=max(0.1, deadline - time.monotonic()))
+            if kind == "drain" and data.get("mark") is mark:
+                return
 
     def stop_event(self):
         deadline = time.monotonic() + WAIT
