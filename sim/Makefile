@@ -119,7 +119,7 @@ RTL       := $(ROOT)/fpga/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
 SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
@@ -418,6 +418,23 @@ $(BUILD)/timertest.bin: timertest/timertest.asm $(INC)/hw.inc | $(BUILD)
 timertest: $(BUILD)/tb.vvp $(BUILD)/timertest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=timertest.hex +dma +timeout=40000 | tee timertest.log
 	@grep -q "^TEST PASSED" $(BUILD)/timertest.log
+
+# ---- Geometry unit (spec 15, ticket #67)
+#   make geom       the geometry unit on its own (sim/geom/tb_geom.v) against
+#                   its model (tools/geom_model.py): every job, the edges, the
+#                   product bank, results ready 24 clocks after the start
+.PHONY: geom
+all: geom
+
+$(BUILD)/tb_geom.vvp: geom/tb_geom.v $(RTL)/geom.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_geom -o $@ geom/tb_geom.v $(RTL)/geom.v
+
+$(BUILD)/geom_vec.txt: $(ROOT)/tools/geom_model.py | $(BUILD)
+	$(PYTHON) $(ROOT)/tools/geom_model.py --vectors $@
+
+geom: $(BUILD)/tb_geom.vvp $(BUILD)/geom_vec.txt
+	cd $(BUILD) && $(VVP) -n tb_geom.vvp | tee geom.log
+	@grep -q "^TEST PASSED" $(BUILD)/geom.log
 
 # ---- Input (ticket #19)
 #   make bootkeys   the monitor typed at on the keyboards (tb.v +keys): PS/2

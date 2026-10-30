@@ -376,7 +376,17 @@ n = 0–7: MMU0 at `0x80`, MMU7 at `0x8E`; MMU0W at `0x90`, MMU7W at `0x9E`. Whi
 
 ### 4.11 Geometry unit (`0xA0`–`0xBF`)
 
-The geometry unit (design plan branch 10, spec 15, section 5). `0xA0`–`0xB7` are a window onto one of four banks (camera, object, view, operands), picked by GEOCTL.BANK; `0xB8`–`0xBD` are the vertex (written) and the results (read); `0xBE` is GEOCTL and `0xBF` GEOSTAT. In a build without the unit (the KS2's default) they read `0xFF`. Its interrupt number, 19 (GEOM), stays reserved for a list mode (spec 15, G2; section 7).
+The geometry unit (design plan branch 10, spec 15, section 5). `0xA0`–`0xB7` are a window onto one of five banks (camera, object, view, operands, and the product, read only), picked by GEOCTL.BANK; `0xB8`–`0xBD` are the vertex (written) and the results (read); `0xBE` is GEOCTL and `0xBF` GEOSTAT. In a build without the unit (the KS2's default) they read `0xFF`. Its interrupt number, 19 (GEOM), stays reserved for a list mode (spec 15, G2; section 7).
+
+| Register | Port | Name | Width | Access | Meaning | Spec |
+|----------|------|------|-------|--------|---------|------|
+| `0xA0`–`0xB7` | `0xA000`–`0xB700` | GEOW0–GEOW11 | 2 each | RW | The window: twelve words of the bank GEOCTL.BANK picks | 15, 5.1 |
+| `0xB8`–`0xB9` | `0xB800`–`0xB900` | GEOVX | 2 | RW | Write: x. Read: RX | 15, 5.2 |
+| `0xBA`–`0xBB` | `0xBA00`–`0xBB00` | GEOVY | 2 | RW | Write: y. Read: RY | 15, 5.2 |
+| `0xBC`–`0xBD` | `0xBC00`–`0xBD00` | GEOVZ | 2 | RW | Write: z; GEOVZ1 starts a vertex. Read: RZ | 15, 5.2 |
+| `0xBE` | `0xBE00` | GEOCTL | 1 | RW | BANK, PROJ, CAM, INV | 15, 5.2 |
+| `0xBF` | `0xBF00` | GEOSTAT | 1 | R, W1C | BUSY, NEAR, SAT, DIVZ, FRONT; SATS sticky | 15, 5.3 |
+
 
 ### 4.12 Port `0xFE`, a Spectrum extra
 

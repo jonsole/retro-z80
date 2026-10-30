@@ -115,7 +115,14 @@ array MMUnW 8 0x90 2 2/9.2
   reg 0x0 -        2 RW,MMU  2/9.2  PAGE=9:0
 end
 
-# Geometry unit, 0xA0-0xBF: reserved for spec 15
+# Geometry unit (spec 15): a window of twelve words onto bank GEOCTL.BANK, the vertex and results
+regs GEOW 12 0xA0 2 RW       15/5.1
+reg  0xB8 GEOVX    2 RW      15/5.2
+reg  0xBA GEOVY    2 RW      15/5.2
+reg  0xBC GEOVZ    2 RW      15/5.2
+reg  0xBE GEOCTL   1 RW      15/5.2 BANK=2:0 PROJ=3 CAM=4 INV=5
+reg  0xBF GEOSTAT  1 RW1C    15/5.3 BUSY=0 NEAR=1 SAT=2 DIVZ=3 FRONT=4 SATS=7
+
 
 # Port 0xFE: keyboard rows, border, beeper (spec 12, a Spectrum extra)
 reg  0xFE ULA      1 RW      12/8   BORDER=2:0 BEEPER=4
@@ -349,6 +356,65 @@ const ME_PRI   0x80 "Map entry high byte: in front of all layers"
 # Sprite sequencer (spec 17)
 const SEQ_END   0x7FF "Sequencer: VSTART of the end-of-list entry"
 const SEQ_ENTRY 16    "Sequencer: bytes per list entry"
+
+# Geometry unit (spec 15, section 5.1): the banks, and each bank's words as register numbers
+const GEO_BANK_CAM  0 "GEOCTL.BANK: the camera"
+const GEO_BANK_OBJ  1 "GEOCTL.BANK: the object"
+const GEO_BANK_VIEW 2 "GEOCTL.BANK: the view"
+const GEO_BANK_OPS  3 "GEOCTL.BANK: the operands"
+const GEO_BANK_PROD 4 "GEOCTL.BANK: the product M and T (read only)"
+const GEO_CM11   0xA0 "Geometry, camera bank: CM11"
+const GEO_CM12   0xA2 "Geometry, camera bank: CM12"
+const GEO_CM13   0xA4 "Geometry, camera bank: CM13"
+const GEO_CM21   0xA6 "Geometry, camera bank: CM21"
+const GEO_CM22   0xA8 "Geometry, camera bank: CM22"
+const GEO_CM23   0xAA "Geometry, camera bank: CM23"
+const GEO_CM31   0xAC "Geometry, camera bank: CM31"
+const GEO_CM32   0xAE "Geometry, camera bank: CM32"
+const GEO_CM33   0xB0 "Geometry, camera bank: CM33"
+const GEO_CPX    0xB2 "Geometry, camera bank: CPX"
+const GEO_CPY    0xB4 "Geometry, camera bank: CPY"
+const GEO_CPZ    0xB6 "Geometry, camera bank: CPZ"
+const GEO_OM11   0xA0 "Geometry, object bank: OM11"
+const GEO_OM12   0xA2 "Geometry, object bank: OM12"
+const GEO_OM13   0xA4 "Geometry, object bank: OM13"
+const GEO_OM21   0xA6 "Geometry, object bank: OM21"
+const GEO_OM22   0xA8 "Geometry, object bank: OM22"
+const GEO_OM23   0xAA "Geometry, object bank: OM23"
+const GEO_OM31   0xAC "Geometry, object bank: OM31"
+const GEO_OM32   0xAE "Geometry, object bank: OM32"
+const GEO_OM33   0xB0 "Geometry, object bank: OM33"
+const GEO_OPX    0xB2 "Geometry, object bank: OPX"
+const GEO_OPY    0xB4 "Geometry, object bank: OPY"
+const GEO_OPZ    0xB6 "Geometry, object bank: OPZ"
+const GEO_DX     0xA0 "Geometry, view bank: DX"
+const GEO_DY     0xA2 "Geometry, view bank: DY"
+const GEO_SCX    0xA4 "Geometry, view bank: SCX"
+const GEO_SCY    0xA6 "Geometry, view bank: SCY"
+const GEO_ZMIN   0xA8 "Geometry, view bank: ZMIN"
+const GEO_F0X    0xA0 "Geometry, operands bank: F0X"
+const GEO_F0Y    0xA2 "Geometry, operands bank: F0Y"
+const GEO_F1X    0xA4 "Geometry, operands bank: F1X"
+const GEO_F1Y    0xA6 "Geometry, operands bank: F1Y"
+const GEO_F2X    0xA8 "Geometry, operands bank: F2X"
+const GEO_F2Y    0xAA "Geometry, operands bank: F2Y"
+const GEO_MA     0xAC "Geometry, operands bank: MA"
+const GEO_MB     0xAE "Geometry, operands bank: MB"
+const GEO_DVD    0xB0 "Geometry, operands bank: DVD"
+const GEO_DVDHI  0xB2 "Geometry, operands bank: DVDHI"
+const GEO_DVS    0xB4 "Geometry, operands bank: DVS"
+const GEO_M11    0xA0 "Geometry, product bank: M11"
+const GEO_M12    0xA2 "Geometry, product bank: M12"
+const GEO_M13    0xA4 "Geometry, product bank: M13"
+const GEO_M21    0xA6 "Geometry, product bank: M21"
+const GEO_M22    0xA8 "Geometry, product bank: M22"
+const GEO_M23    0xAA "Geometry, product bank: M23"
+const GEO_M31    0xAC "Geometry, product bank: M31"
+const GEO_M32    0xAE "Geometry, product bank: M32"
+const GEO_M33    0xB0 "Geometry, product bank: M33"
+const GEO_TX     0xB2 "Geometry, product bank: TX"
+const GEO_TY     0xB4 "Geometry, product bank: TY"
+const GEO_TZ     0xB6 "Geometry, product bank: TZ"
 
 # Magic values
 const SYSRESET_MAGIC 0xA5 "SYSRESET: a full reset"
