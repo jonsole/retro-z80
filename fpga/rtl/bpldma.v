@@ -55,9 +55,10 @@
 //   +0x1C-0x1E  PATPT      bits 21-1: tile 0's first byte
 // Each byte is written directly (spec 3, rule 2).
 //
-// The capture is kept here for now, as BPL0PT is the only capturing
-// register built: one for the CPU, tagged with the layer. It moves to the
-// bus interface's tagged capture when BEAMPOS and FRAMECOUNT come.
+// Reading BPL0PT's low byte hands the whole pointer to the CPU's one
+// capture in the bus interface (rb_cdata, rb_cap; spec 3, rule 4), shared
+// with BEAMPOS, FRAMECOUNT and the rest (ticket #53; until then this unit
+// kept a capture of its own).
 //
 // Changed from retro68k: no planar layers (one pointer per layer, so the
 // pointers and their saved starts are plain registers, not RAMs); no data
@@ -79,6 +80,8 @@ module bpldma #(
     input  wire [7:0]    rb_wdata,
     output reg  [7:0]    rb_rdata,
     output reg           rb_hit,
+    output reg  [31:0]   rb_cdata,     // with rb_rdata: BPL0PT whole, for the CPU's capture
+    output reg           rb_cap,
 
     // The next line, from the pixel domain (stable when line_t toggles)
     input  wire          line_t,
@@ -585,13 +588,11 @@ module bpldma #(
     end
 
     // ---------------------------------------------------------------- reads
-    reg        cap_v;                  // the CPU's capture of a BPL0PT ...
-    reg [1:0]  cap_l;                  // ... of this layer
-    reg [21:0] cap;
     always @(posedge clk) begin
         rb_rdata <= 8'd0;
         rb_hit   <= rb_rd && (sel_mod || sel_pt || sel_map || sel_pat);
-        if (rst) cap_v <= 1'b0;
+        rb_cdata <= 32'd0;
+        rb_cap   <= 1'b0;
         if (rb_rd && sel_mod) rb_rdata <= (off == 5'h10) ? mod[rn][7:0] : mod[rn][15:8];
         if (rb_rd && sel_map) case (off)
             5'h18:   rb_rdata <= mappt[rn][7:0];
@@ -606,12 +607,11 @@ module bpldma #(
         if (rb_rd && sel_pt) case (off)
             5'h14: begin
                 rb_rdata <= pt[rn][7:0];
-                cap_v    <= 1'b1;
-                cap_l    <= rn;
-                cap      <= pt[rn];
+                rb_cdata <= {10'd0, pt[rn]};
+                rb_cap   <= 1'b1;
             end
-            5'h15:   rb_rdata <= (cap_v && cap_l == rn) ? cap[15:8] : pt[rn][15:8];
-            default: rb_rdata <= {2'd0, (cap_v && cap_l == rn) ? cap[21:16] : pt[rn][21:16]};
+            5'h15:   rb_rdata <= pt[rn][15:8];
+            default: rb_rdata <= {2'd0, pt[rn][21:16]};
         endcase
     end
 endmodule
