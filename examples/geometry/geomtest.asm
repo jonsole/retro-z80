@@ -5,7 +5,8 @@
 ; answer, and for every job the first result read straight after the write
 ; that starts it (LD (HL),C then LD A,(DE), the soonest a Z80 can read
 ; after a write). Then it times 1,024 projected vertices with the loop of
-; spec 15, section 6.2, against TIME. Prints the cases run, the errors (the
+; spec 15, section 6.2, against TIME, and again with a tight loop that
+; reads the vertices with POP and keeps only sx and sy. Prints the cases run, the errors (the
 ; first eight in full) and the time, then returns to the monitor.
 ;
 ;   python3 tools/geom_model.py --board examples/geometry/build/geomvec.bin --count 120
@@ -130,6 +131,40 @@ done:   ld      a,GEO_BANK_OBJ | GEOCTL_PROJ_M
         sbc     hl,de                   ; microseconds (fits 16 bits)
         push    hl
 
+        ; ---- the same with a tight loop: POP the vertex, LD (nn),HL into the
+        ; unit, PUSH sx and sy back over it (z stays). Interrupts off: SP walks
+        ; the table. The table is overwritten, which does not change the time.
+        ld      hl,(SREG+TIME0)
+        ld      (t0),hl
+        di
+        ld      (savesp),sp
+        ld      a,8
+.r2:    ld      sp,verts
+        ld      b,NVERT
+.l2:    pop     hl                      ; 10
+        ld      (GEO_V),hl              ; 16
+        pop     hl
+        ld      (GEO_V+2),hl
+        pop     hl
+        ld      (GEO_V+4),hl            ; VZ1 last: starts the vertex
+        ld      hl,(GEO_V+2)            ; 16: sy
+        push    hl                      ; 11
+        ld      hl,(GEO_V)              ; sx
+        push    hl
+        ld      hl,4                    ; 10
+        add     hl,sp                   ; 11
+        ld      sp,hl                   ; 6: the next vertex
+        djnz    .l2                     ; 13
+        dec     a
+        jr      nz,.r2
+        ld      sp,(savesp)
+        ei
+        ld      hl,(SREG+TIME0)
+        ld      de,(t0)
+        or      a
+        sbc     hl,de
+        push    hl
+
         ; ---- the report
         ld      hl,s_cases
         rst     0x18
@@ -141,9 +176,17 @@ done:   ld      a,GEO_BANK_OBJ | GEOCTL_PROJ_M
         ld      hl,(errors)
         rst     0x28
         db      PUTDEC
+        pop     de                      ; the tight loop's time
         ld      hl,s_time
         rst     0x18
         pop     hl
+        rst     0x28
+        db      PUTDEC
+        ld      hl,s_us
+        rst     0x18
+        ld      hl,s_time2
+        rst     0x18
+        ex      de,hl
         rst     0x28
         db      PUTDEC
         ld      hl,s_us
@@ -201,6 +244,7 @@ bad:    push    af
 cases:  dw      0
 errors: dw      0
 t0:     dw      0, 0
+savesp: dw      0
 
 s_title: db     13, 10, "Geometry unit board test", 13, 10, 0
 s_case:  db     "  case ", 0
@@ -212,6 +256,7 @@ s_cases: db     "Cases: ", 0
 s_errs:  db     ", errors: ", 0
 s_time:  db     13, 10, "1024 projected vertices: ", 0
 s_us:    db     " us", 13, 10, 0
+s_time2: db     "The same, tight loop (sx, sy only): ", 0
 s_pass:  db     "PASS", 13, 10, 0
 s_fail:  db     "FAIL", 13, 10, 0
 

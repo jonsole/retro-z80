@@ -6,7 +6,7 @@ The geometry unit does a 3D engine's arithmetic for the Z80, which has no multip
 
 The target is flat-shaded polygons (one colour each), as in Elite or Starglider 2, at 25–50 frames a second. There is no Z-buffer: software sorts faces back to front. Drawing help (a span fill or a triangle job in the DMA engine) is decided later, from measurements of this unit (section 10, open point G1).
 
-The jobs were chosen by what a software engine spends its time on. In the fast3d engine (a Spectrum 128K, wireframe, 40 objects; [zx-spectrum-emulator/examples/fast3d](https://github.com/jonsole/zx-spectrum-emulator/tree/master/examples/fast3d)) an average frame of 468,000 T-states goes on culling (23%), objects' matrices (9%), vertices (28%, more than half of it projecting), lines (15%), clipping (6%) and clearing (8%). A vertex costs about 2,330 T-states there; here it costs 316 with the loop of section 6.2, measured on the KS2, and about 170 with a tighter one.
+The jobs were chosen by what a software engine spends its time on. In the fast3d engine (a Spectrum 128K, wireframe, 40 objects; [zx-spectrum-emulator/examples/fast3d](https://github.com/jonsole/zx-spectrum-emulator/tree/master/examples/fast3d)) an average frame of 468,000 T-states goes on culling (23%), objects' matrices (9%), vertices (28%, more than half of it projecting), lines (15%), clipping (6%) and clearing (8%). A vertex costs about 2,330 T-states there; here it costs 316 with the loop of section 6.2 and 172 with a tight one, both measured on the KS2.
 
 ## 1. Summary
 
@@ -252,7 +252,7 @@ vloop:  LD   DE,GEO_V
         JP   PE,vloop
 ```
 
-That is 316 T-states a vertex as written (1,024 vertices in 16,160 µs on the KS2). Reading the model with `POP` and writing each word with `LD (nn),HL`, then storing the results the same way, comes to about 170. fast3d's software vertex takes 2,330. The NEAR bit is worth reading only for objects that cull says reach the near plane.
+That is 316 T-states a vertex as written (1,024 vertices in 16,160 µs on the KS2). A tight loop that reads the model with `POP`, writes each word with `LD (nn),HL`, reads only sx and sy with `LD HL,(nn)` and `PUSH`es them back over the vertex (interrupts off) takes 172 (1,024 vertices in 8,821 µs on the KS2; `examples/geometry/geomtest.asm`). The unit's own 0.2 µs is a small part of either: the Z80's byte moves are the limit, about 16 T-states a byte. A list mode (open point G2) would remove them. fast3d's software vertex takes 2,330. The NEAR bit is worth reading only for objects that cull says reach the near plane.
 
 ### 6.3 Culling an object by its centre
 
