@@ -355,11 +355,11 @@ module retroz80 #(
     // inside the controller). The other lines are tied off until their
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
-    wire        irq_vid, irq_viderr, irq_cop;
+    wire        irq_vid, irq_line, irq_viderr, irq_cop;
     wire [3:0]  irq_dmx;               // DMA0-3: sources 4-7
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, 1'b0, irq_vid};
+    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -374,7 +374,7 @@ module retroz80 #(
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid), .rb_cop(cw_req),
-        .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_err(irq_viderr),
+        .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_line(irq_line), .irq_err(irq_viderr),
         .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_deadline(bpl_deadline), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
