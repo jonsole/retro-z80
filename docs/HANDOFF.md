@@ -41,7 +41,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
 | `docs/spec/dma-engine.md` | Spec 14: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm), adopted by retro68k. Built (ticket #39, `fpga/rtl/dmx.v`, `make dmx`, `examples/blitter`) and tried on the KS2, which builds 2 sprites and no mask image; next #40 (random-job test), #41 to #43. Compare with retro68k's merged rework once its PR #24 is in; guide chapter `docs/guide/blitter.md` |
 | `docs/spec/boot-rom.md`, `monitor.md` | Spec 16: the boot ROM (draft); the shared spec "Monitor and upload protocol" (draft, for retro68k to adopt) |
-| Specs 13, 15 | Not written: sound (parked), geometry unit (branch 10, another session) |
+| Spec 13 | Not written: sound (parked). Spec 15, the geometry unit, is a draft (branch 10, 30 October 2026) |
 | `docs/guide/` | The programmer's guide, chapters 1–8 and appendix A, in the Amiga Hardware Reference Manual's style (numbered tables, bit tables top bit first, worked encodings). Written and checked with the skill `.claude/skills/writing-programmer-guide`. Every complete example in `examples/<topic>/` was run on the KS2 (MCP `screen_capture`, `read_console`) except chapters 3 and 4's (#54) |
 | `docs/guide/system.md` | Chapter 1: introduction and system control: memory and the MMU, the registers (ports, the register page), sharing memory, the system registers, reset and the boot ROM, programs, and a program built step by step. `examples/system` (1-1 one page in two windows, 1-2 about the machine, 1-3 the register page) |
 | `docs/guide/interrupts.md` | Chapter 2: interrupts and timers: IM 2 and the table, handlers, INTENA, SOFT, TIME, the timers, the watchdog; advanced topics (nesting, IM 1, the NMI, interrupt pages); timing. `examples/interrupts` (2-1 VBLANK and SOFT, 2-2 timing with TIME, 2-3 a timer interrupt, 2-4 the watchdog, 2-5 LINE, BEAMPOS and FRAMECOUNT) |
@@ -82,7 +82,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - Byte names: L/H (MMUnL) or 0/1/2 (SPRxPT0)? Mixed today (spec 3, R10).
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
 2. **Programmer's guide:** chapters 1–8 and appendix A are written and in the manual's style. Still to do: chapters 3 and 4's examples as files run on the KS2 under the program map (#54); spec gaps: no generated names for WINX/WINY/BEAMPOS halves and MMU page numbers; level-sensitive VBLANK re-entering ported Spectrum handlers.
-3. **Geometry unit (spec 15)**, branch 10, in the other session, against the new register map.
+3. **Geometry unit (spec 15)**, branch 10: drafted. Next: the RTL with `GEOM = 1` on the KS2, then the fast3d benchmark.
 4. **Boot ROM (spec 16) and the shared monitor spec**, drafted (branch 16): `docs/spec/boot-rom.md` and `docs/spec/monitor.md`. The user confirmed the program map and ROMLOCK at power-on only; the retro68k session reviewed `monitor.md` (four changes applied) and adopts it word for word. Implementation: tickets #22–#26. Choices in the drafts:
    - CRC-32 (zlib's) for frames and images; big-endian header and frames; 4,096-byte frames with a reply each (`LR` + `K`/`C`/`F`/`R`).
    - Physical addresses with a `P` prefix: the MMU's page space, `P000000`–`P7FFFFF` (SRAM, register page `P7F0000`, ROM `P7F8000`); on retro68k the same as plain addresses.
@@ -112,7 +112,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
 | Q7 | KS3 pins for keyboard, joysticks, PS/2, `sd_miso` | Check against the Next's pin file before phase 3 |
 | Q8 | KS3 details shared with retro68k | SRAM size, accelerator pins, Next core format |
 | Q9 | Z80 faster than 20 MHz | Parked. 25 MHz needs the swap back; beyond that, block-RAM fast RAM |
-| Q10 | 3D filled polygons | Branch 10: flat-shaded; a geometry unit first (two matrices, camera × object, perspective, multiply and divide), retro-z80 only, specified after the DMA engine. Drawing help (span fill or triangle job) still open |
+| Q10 | 3D filled polygons | Branch 10: flat-shaded; a geometry unit first (two matrices, camera × object, perspective, multiply and divide), retro-z80 only, specified after the DMA engine. Spec 15 drafted. Drawing help (span fill or triangle job) decided after the fast3d benchmark |
 
 ## 7. Next phase: phase 1, the simulated CPU
 
