@@ -98,52 +98,60 @@ module geom (
 
     // ---------------------------------------------------------------- the pass's operands
     // What LOAD puts in the shift registers, for the job and pass in hand.
+    // Each row takes four products: its three entries times the vector, then
+    // (2T + 1) x 0x2000, which adds the translation T << 14 and the rounding
+    // constant 0x2000 together (1 x 0x2000 when there is no translation). So
+    // the accumulator starts from 0 and the whole row sum fits one DSP slice.
+    // One subtractor a row serves v - C, P - C (both wrapped to 16 bits) and
+    // v - T (17 bits, not wrapped).
     wire [15:0] vin [0:2];
     assign vin[0] = vx;
     assign vin[1] = vy;
     assign vin[2] = vz;
     reg  [15:0] ld_a [0:8];            // row r, entry k at 3r + k
+    reg  [17:0] ld_t [0:2];            // row r's fourth product: 2T + 1, or 1
     reg  [17:0] ld_b [0:2];
-    reg  [47:0] ld_i [0:2];
+    reg  [17:0] dif  [0:2];            // (P or v) - (T or C)
+    reg  [15:0] dmin, dsub;
     integer r, c;
     always @(*) begin
         for (r = 0; r < 3; r = r + 1) begin
+            dmin   = (job == J_COMB) ? ob[9+r] : vin[r];
+            dsub   = (job != J_COMB && m_inv) ? tw[r] : cm[9+r];
+            dif[r] = sx18(dmin) - sx18(dsub);
             for (c = 0; c < 3; c = c + 1) ld_a[3*r+c] = cm[3*r+c];
-            ld_b[r] = 18'd0;
-            ld_i[r] = 48'h2000;
+            ld_t[r] = 18'd1;
+            ld_b[r] = sx18(vin[r]);
         end
         if (job == J_COMB) begin
             for (c = 0; c < 3; c = c + 1)
-                ld_b[c] = (pass == 2'd3) ? sx18(ob[9+c] - cm[9+c]) : sx18(ob[3*c+pass]);
+                ld_b[c] = (pass == 2'd3) ? sx18(dif[c][15:0]) : sx18(ob[3*c+pass]);
         end else case ({m_cam, m_inv})
             2'b00: for (r = 0; r < 3; r = r + 1) begin
                 for (c = 0; c < 3; c = c + 1) ld_a[3*r+c] = mw[3*r+c];
-                ld_b[r] = sx18(vin[r]);
-                ld_i[r] = {{18{tw[r][15]}}, tw[r], 14'd0} + 48'h2000;
+                ld_t[r] = {tw[r][15], tw[r], 1'b1};
             end
             2'b10: for (r = 0; r < 3; r = r + 1)
-                ld_b[r] = sx18(vin[r] - cm[9+r]);
+                ld_b[r] = sx18(dif[r][15:0]);
             2'b01: for (r = 0; r < 3; r = r + 1) begin
                 for (c = 0; c < 3; c = c + 1) ld_a[3*r+c] = mw[3*c+r];
-                ld_b[r] = sx18(vin[r]) - sx18(tw[r]);
+                ld_b[r] = dif[r];
             end
-            default: for (r = 0; r < 3; r = r + 1) begin
+            default: for (r = 0; r < 3; r = r + 1)
                 for (c = 0; c < 3; c = c + 1) ld_a[3*r+c] = cm[3*c+r];
-                ld_b[r] = sx18(vin[r]);
-            end
         endcase
     end
 
     // ---------------------------------------------------------------- row MACs
-    reg  [15:0] a_sh [0:8];
-    reg  [17:0] b_sh [0:2];
-    reg  [47:0] init [0:2];
+    reg  [17:0] a_sh [0:11];           // row r: entries at 4r .. 4r + 2, then 2T + 1
+    reg  [17:0] b_sh [0:3];            // the vector, then 0x2000
     wire [47:0] acc  [0:2];
-    wire        mac_en = (state == S_MAC);
+    wire        mac_en  = (state == S_MAC);
+    wire        mac_clr = (state == S_LOAD);
     genvar gr;
     generate for (gr = 0; gr < 3; gr = gr + 1) begin : row
-        geom_mac mac (.clk(clk), .en(mac_en), .first(k == 2'd0), .init(init[gr]),
-                      .a(a_sh[3*gr]), .b(b_sh[0]), .acc(acc[gr]));
+        geom_mac mac (.clk(clk), .clr(mac_clr), .en(mac_en),
+                      .a(a_sh[4*gr]), .b(b_sh[0]), .acc(acc[gr]));
     end endgenerate
 
     wire [16:0] sr0 = sat_acc(acc[0]), sr1 = sat_acc(acc[1]), sr2 = sat_acc(acc[2]);
@@ -184,6 +192,13 @@ module geom (
     wire [15:0] dvs    = op[10];
     wire        dneg   = dvd[31] ^ dvs[15];
     wire [17:0] dq_lim = dneg ? 18'd32768 : 18'd32767;
+
+    // Divider X's inputs, made positive by one negator each: DX.X and Z for a
+    // vertex, DVD and DVS for the divide job
+    wire [31:0] xn_src = (job == J_DIV) ? dvd : px;
+    wire [15:0] xd_src = (job == J_DIV) ? dvs : zr;
+    wire [31:0] xn_abs = xn_src[31] ? -xn_src : xn_src;
+    wire [15:0] xd_abs = xd_src[15] ? -xd_src : xd_src;
 
     // ---------------------------------------------------------------- the sequencer and the registers
     integer i;
@@ -242,21 +257,29 @@ module geom (
                     default: state <= S_D1;
                     endcase
                 end
-            S_LOAD: begin
-                for (i = 0; i < 9; i = i + 1) a_sh[i] <= ld_a[i];
-                for (i = 0; i < 3; i = i + 1) begin b_sh[i] <= ld_b[i]; init[i] <= ld_i[i]; end
+            S_LOAD: begin                                 // (the accumulators clear)
+                for (i = 0; i < 3; i = i + 1) begin
+                    a_sh[4*i]   <= sx18(ld_a[3*i]);
+                    a_sh[4*i+1] <= sx18(ld_a[3*i+1]);
+                    a_sh[4*i+2] <= sx18(ld_a[3*i+2]);
+                    a_sh[4*i+3] <= ld_t[i];
+                    b_sh[i]     <= ld_b[i];
+                end
+                b_sh[3] <= 18'h02000;
                 k     <= 2'd0;
                 state <= S_MAC;
             end
             S_MAC: begin
                 for (i = 0; i < 3; i = i + 1) begin
-                    a_sh[3*i]   <= a_sh[3*i+1];
-                    a_sh[3*i+1] <= a_sh[3*i+2];
+                    a_sh[4*i]   <= a_sh[4*i+1];
+                    a_sh[4*i+1] <= a_sh[4*i+2];
+                    a_sh[4*i+2] <= a_sh[4*i+3];
                 end
                 b_sh[0] <= b_sh[1];
                 b_sh[1] <= b_sh[2];
+                b_sh[2] <= b_sh[3];
                 k <= k + 1'b1;
-                if (k == 2'd2) state <= S_SAT;
+                if (k == 2'd3) state <= S_SAT;
             end
             S_SAT:
                 if (job == J_COMB) begin
@@ -294,9 +317,9 @@ module geom (
             S_P1: begin
                 sgx   <= px[31];
                 sgy   <= py[31];
-                dvx_n <= px[31] ? -px : px;
+                dvx_n <= xn_abs;
                 dvy_n <= py[31] ? -py : py;
-                dvx_d <= zr;
+                dvx_d <= xd_abs;
                 dvy_d <= zr;
                 dv_start <= 1'b1;
                 state <= S_PDIV;
@@ -341,8 +364,8 @@ module geom (
                     ry <= 16'd0;
                     finish(1'b0, 1'b0, 1'b1, 1'b0);
                 end else begin
-                    dvx_n <= dvd[31] ? -dvd : dvd;
-                    dvx_d <= dvs[15] ? -dvs : dvs;
+                    dvx_n <= xn_abs;
+                    dvx_d <= xd_abs;
                     dv_start <= 1'b1;
                     state <= S_D2;
                 end
@@ -399,26 +422,31 @@ module geom (
     end
 
     // ---------------------------------------------------------------- reads
-    reg [15:0] wsel;
-    wire [3:0] wi9    = wi - 4'd9;
-    wire [1:0] wi4m9  = wi9[1:0];         // the product bank's T words
-    always @(*) begin
-        wsel = 16'd0;
-        case (ctl[2:0])
-            3'd0: wsel = cm[wi];
-            3'd1: wsel = ob[wi];
-            3'd2: if (wi < 4'd5)  wsel = vw[wi[2:0]];
-            3'd3: if (wi < 4'd11) wsel = op[wi];
-            3'd4: wsel = (wi < 4'd9) ? mw[wi] : tw[wi4m9];
-            default: ;
-        endcase
-    end
+    // Banks 0-3 read back from a shadow copy in distributed RAM, written with
+    // the registers, so the bus needs no multiplexer over 40 words. LUT RAM
+    // is not cleared by a reset, so a byte reads 0 until written after one
+    // (sh_ok). The product bank, written by the unit, reads its registers.
+    wire [6:0] sh_a  = {ctl[1:0], rn};
+    wire       sh_wr = rb_wr && hit && rn < 5'd24 && !ctl[2] &&
+                       (ctl[1:0] != 2'd2 || rn < 5'd10) && (ctl[1:0] != 2'd3 || rn < 5'd22);
+    reg  [7:0]   shadow [0:127];
+    reg  [127:0] sh_ok;
+    always @(posedge clk)
+        if (sh_wr) shadow[sh_a] <= rb_wdata;
+    always @(posedge clk)
+        if (rst)        sh_ok <= 128'd0;
+        else if (sh_wr) sh_ok[sh_a] <= 1'b1;
+
+    wire [3:0]  wi9   = wi - 4'd9;
+    wire [15:0] pword = (wi < 4'd9) ? mw[wi] : tw[wi9[1:0]];      // the product bank
     always @(posedge clk) begin
         rb_hit   <= rb_rd && hit;
         rb_rdata <= 8'd0;
         if (rb_rd && hit) begin
-            if (rn < 5'd24) rb_rdata <= hb ? wsel[15:8] : wsel[7:0];
-            else case (rn)
+            if (rn < 5'd24) begin
+                if (!ctl[2])                rb_rdata <= sh_ok[sh_a] ? shadow[sh_a] : 8'd0;
+                else if (ctl[1:0] == 2'd0)  rb_rdata <= hb ? pword[15:8] : pword[7:0];
+            end else case (rn)
                 5'h18: rb_rdata <= rx[7:0];
                 5'h19: rb_rdata <= rx[15:8];
                 5'h1A: rb_rdata <= ry[7:0];
@@ -432,19 +460,20 @@ module geom (
     end
 endmodule
 
-// One row's multiply-accumulate: one DSP48E1 (A 16 bits, B 18 bits, P 48 bits).
+// One row's multiply-accumulate: one DSP48E1 (A and B 18 bits, P 48 bits),
+// cleared by RSTP, accumulating with CEP.
 module geom_mac (
     input  wire        clk,
-    input  wire        en,
-    input  wire        first,          // start from init, not from acc
-    input  wire [47:0] init,
-    input  wire [15:0] a,
+    input  wire        clr,            // acc = 0
+    input  wire        en,             // acc += a * b
+    input  wire [17:0] a,
     input  wire [17:0] b,
     output reg  [47:0] acc
 );
-    wire signed [33:0] p = $signed(a) * $signed(b);
+    wire signed [35:0] p = $signed(a) * $signed(b);
     always @(posedge clk)
-        if (en) acc <= (first ? init : acc) + {{14{p[33]}}, p};
+        if (clr)     acc <= 48'd0;
+        else if (en) acc <= acc + {{12{p[35]}}, p};
 endmodule
 
 // Unsigned n / d by restoring division, two quotient bits a clock: 18 bits in

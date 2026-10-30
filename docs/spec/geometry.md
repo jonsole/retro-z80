@@ -20,7 +20,7 @@ The jobs were chosen by what a software engine spends its time on. In the fast3d
 | Other jobs | Face sign (back-face test of three screen points), 16 × 16 → 32 signed multiply, 32 ÷ 16 signed divide. A matrix product: load A as the camera and B as the object, then read A·B from the product bank |
 | Registers | System page `0x00`, registers `0xA0`–`0xBF`: port = register × 256. A 24-byte window (`0xA0`–`0xB7`) shows one of five banks: camera, object, view, operands, and the product (read only). Also at register page offsets `0x00A0`–`0x00BF` |
 | Starting a job | Writing the high byte of a job's last operand starts it: VZ1 a vertex, F2Y1 a face sign, MB1 a multiply, DVS1 a divide |
-| Speed | Every job is done within 24 clocks (240 ns) of its start, before the CPU can read the result (at most 21 measured). GEOSTAT.BUSY is kept for safety |
+| Speed | Every job is done within 24 clocks (240 ns) of its start, before the CPU can read the result (at most 22 measured). GEOSTAT.BUSY is kept for safety |
 | Who can reach it | The CPU only (ports and the register page). It is a system register block, out of the copper's and the DMA engine's reach |
 | Memory cycles | None |
 | Interrupt | None in this version. Interrupt 19 (GEOM) stays reserved for a list mode (open point G2) |
@@ -66,7 +66,7 @@ The unit keeps the product of the camera and the object, and recomputes it whene
 - M = Mc · Mo, each entry rounded to 2.14 and saturated to ±2.0.
 - T = Mc · (P − C), with P − C wrapped (section 3.1), rounded and saturated to 16 bits.
 
-This takes 20 clocks (four passes of 5). A write to the camera or the object restarts it. A start write comes at least one instruction after the last matrix byte (35 clocks or more), so the product is ready before the next job starts. A job started while the product is being worked out waits for it. If M or T saturated, every vertex that uses them sets SAT.
+This takes 24 clocks (four passes of 6). A write to the camera or the object restarts it. A start write comes at least one instruction after the last matrix byte (35 clocks or more), so the product is ready before the next job starts. A job started while the product is being worked out waits for it. If M or T saturated, every vertex that uses them sets SAT.
 
 The product bank (bank 4, section 5.1) shows M and T, read only. So the unit is also a **matrix multiplier**: load A as the camera and B as the object, wait for BUSY to clear (or about 20 clocks: one instruction), and read A·B with one `LDIR` of 18 bytes. With the object's position P = B's translation and the camera's C = 0, T = A·P as well. This gives a part's matrix in a model built of parts (a turret on a tank: tank × turret), or a camera's matrix from two turns.
 
@@ -118,7 +118,7 @@ For the near-plane cut, t = (ZMIN − az) ÷ (bz − az) as a 16-bit fraction is
 
 A job's operands are taken when it starts, so the next vertex's bytes can be written while one is running. The results (RX, RY, RZ) and GEOSTAT's job bits (NEAR, SAT, DIVZ, FRONT) change only when a job ends, and the next job replaces them. A job that doesn't write RZ (face sign, multiply, divide) leaves it unchanged.
 
-Every job is done within 24 clocks of its start write; the longest, a projected vertex, takes 21. The CPU cannot read sooner. The soonest read after a write is the next instruction's: `LD (HL),C` then `LD A,(DE)` through the register page, 7 T-states apart at 20 MHz, with the read about 25–30 clocks after the write. The board test reads every job's first result that way, so the CPU never sees BUSY at any speed. A start write that came while a job ran would be held and run after it. The CPU cannot make one; a list mode might (open point G2).
+Every job is done within 24 clocks of its start write; the longest, a projected vertex, takes 22. The CPU cannot read sooner. The soonest read after a write is the next instruction's: `LD (HL),C` then `LD A,(DE)` through the register page, 7 T-states apart at 20 MHz, with the read about 25–30 clocks after the write. The board test reads every job's first result that way, so the CPU never sees BUSY at any speed. A start write that came while a job ran would be held and run after it. The CPU cannot make one; a list mode might (open point G2).
 
 ## 5. Registers
 
@@ -273,18 +273,18 @@ That is 316 T-states a vertex as written (1,024 vertices in 16,160 µs on the KS
 
 | Part | How |
 |------|-----|
-| Banks | Four writable banks of twelve 16-bit words, and the product bank (M and T) in distributed RAM, written by the register bus, read by the bus and by the unit |
-| Multiplies | Three DSP48E1 slices, one per row, each doing its row's three products in turn into its 48-bit accumulator: a vertex's turn in about 4 clocks, the combined matrix in about 12 |
+| Banks | Four writable banks of twelve 16-bit words in flip-flops for the unit, with a shadow copy in distributed RAM for the bus to read back; the product bank (M and T) read from its flip-flops in distributed RAM, written by the register bus, read by the bus and by the unit |
+| Multiplies | Three DSP48E1 slices, one per row, each a whole multiply-accumulate (P + A×B, cleared at the start of a pass). A row takes four products: its three entries times the vector, then (2T + 1) × `0x2000`, which adds the translation and the rounding constant in one step. A pass is 6 clocks: load, 4 products, round and saturate |
 | Projection | Two dividers, one for X and one for Y, restoring, two quotient bits a clock: 18 bits in 9 clocks; DX·X and DY·Y on two more DSP slices |
 | Face sign, multiply | On the row slices |
 | Divide | One of the two dividers, 16 quotient bits plus a saturation check |
-| A vertex | 1 to take the start, 1 to load, 3 to turn, 1 to round and saturate, 1 to test NEAR and multiply by DX and DY, 1 to start the dividers, 10 to divide, 1 to add SCX and SCY: 19–21 clocks of the 24 allowed. Without PROJ, 7 |
+| A vertex | 1 to take the start, 1 to load, 4 to turn, 1 to round and saturate, 1 to test NEAR and multiply by DX and DY, 1 to start the dividers, 10 to divide, 1 to add SCX and SCY: 20–22 clocks of the 24 allowed. Without PROJ, 8 |
 
 ## 8. FPGA resources and builds
 
 | Item | Resource |
 |------|----------|
-| Banks, control, rounding and saturation, two dividers, the job sequencer | 1,793 LUTs and 1,441 flip-flops on the KS2 (30 October 2026), against an estimate of 500–700 LUTs: the three 48-bit accumulators are built in LUTs (about 110 each) rather than in their DSP slices, the first divider (also the divide job) is 287, and the banks, their read multiplexer and the load multiplexers about 1,000. Room to shrink (open point G7) |
+| Banks, control, rounding and saturation, two dividers, the job sequencer | 1,447 LUTs and 1,526 flip-flops on the KS2 (30 October 2026), against an estimate of 500–700 LUTs. The first build was 1,793; then the accumulators moved into their DSP slices, banks 0–3 read back from a 96-byte shadow copy in distributed RAM (16 LUTs) instead of a multiplexer over 40 words, and one subtractor a row serves v − C, P − C and v − T (open point G7) |
 | DSP | 8 (of 45 on the KS2, 90 on the KS3): 3 row MACs, DX·X and DY·Y, the face sign's two products, the multiply |
 | Block RAM | None |
 | Lines out | None (interrupt 19 reserved) |
@@ -312,4 +312,4 @@ The KS2 has no room for the unit beside the DMA engine: that build already has 2
 | G4 | A dot product (n·v of two 3-vectors) for testing faces against the eye in 3D and for lighting. Left out for now: the inverse turn and a few multiplies do it |
 | G5 | Closed (30 October 2026): the product bank (bank 4) reads M and T back, so the unit is also a 3×3 matrix multiplier; GEOCTL.BANK is 3 bits |
 | G6 | The test for a face against the eye in 3D (fast3d's `FACE_EYE`) uses INV with v = 0 and then three multiplies a face. A "plane test" job (n·U > D) may be worth it once faces are filled |
-| G7 | The unit is 1,793 LUTs, two and a half times the estimate (section 8). Accumulators inside the DSP slices (OPMODE choosing C or P), distributed RAM for the banks' read-back and one shared divider would bring it down. Matters on the KS2, which is 98.5% full with it |
+| G7 | Partly done (30 October 2026): 1,793 to 1,447 LUTs (section 8). What is left is mostly the operand multiplexers into the row slices and the two dividers; sharing one divider would save about 120 LUTs but put RY about 10 clocks past the soonest read. The KS2 build is 95% full with the unit |

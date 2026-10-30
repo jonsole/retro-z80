@@ -208,6 +208,11 @@ def write_vectors(path, seed, count, board=None):
         for i, w in enumerate(words):
             store[i] = s16(w)
             sc.word(W0 + 2 * i, w)
+        if rnd.random() < 0.3:  # read the bank back (the shadow copy), reserved words 0
+            for i in range(12):
+                w = store[i] if i < len(store) else 0
+                sc.read(W0 + 2 * i, w)
+                sc.read(W0 + 2 * i + 1, w >> 8)
         if bank in (BANK_CAM, BANK_OBJ):
             g.combine()
             sc.gap(0x28)  # the CPU cannot start a vertex sooner after a matrix byte
@@ -260,8 +265,23 @@ def write_vectors(path, seed, count, board=None):
     def rnd_pos():
         return [rnd16() for _ in range(3)]
 
-    # Reset state: everything 0, so a vertex gives 0
+    # Reset state: every bank reads 0, and a vertex gives 0
     sc.note("after reset")
+    for bank in (BANK_CAM, BANK_OBJ, BANK_VIEW, BANK_OPS, BANK_PROD, 5):
+        set_ctl(bank)
+        for reg in range(W0, W0 + 24):
+            sc.read(reg, 0)
+    sc.note("reserved words ignore writes")
+    set_ctl(BANK_VIEW)
+    sc.w(W0 + 10, 0x12)
+    sc.read(W0 + 10, 0)
+    set_ctl(BANK_OPS)
+    sc.w(W0 + 23, 0x34)
+    sc.read(W0 + 23, 0)
+    set_ctl(5)
+    sc.w(W0, 0x56)
+    sc.read(W0, 0)
+    sc.note("after reset: vertex")
     vertex([1000, -2000, 3000], 0)
 
     views = [[256, 256, 180, 144, 16], [256, 213, 128, 96, 1], [32767, -32768, 0, 0, 0],
