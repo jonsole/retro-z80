@@ -16,6 +16,7 @@ This chapter covers:
 - TIME, the microsecond counter, with a program that times code;
 - the four general timers, with a timer interrupt;
 - the watchdog, with a program that lets it reset the computer;
+- the LINE interrupt and the beam's position, with a program that changes the background partway down;
 - advanced topics: nesting, IM 1, the nonmaskable interrupt, interrupt pages, chaining timers;
 - timing, and what interrupts cannot do;
 - a summary of the registers.
@@ -87,7 +88,7 @@ Table 2-1 lists every source, in priority order.
 | Number | Name | From | Cleared by writing 1 to |
 |--------|------|------|-------------------------|
 | 0 | VBLANK | The start of each frame (and of vertical blanking) | VIDSTAT.VBLANK |
-| 1 | LINE | The beam reaching line LINECMP (not built yet, ticket #53) | VIDSTAT.LINE |
+| 1 | LINE | The start of beam line LINECMP | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ |
 | 3 | VIDERR | A layer fetched late, a sprite ran dry, the sprite sequencer skipped | VIDSTAT's error bits; SEQSTAT.SKIP |
 | 4–7 | DMA0–DMA3 | A DMA channel finished a job with IRQ set, or met an error | DMXINT.CHn |
@@ -862,6 +863,350 @@ Monitor.  H for help.
 
 ---
 
+## The LINE Interrupt
+
+LINE (source 1) comes at the start of one beam line in each frame, the line in **LINECMP**. A handler there can change the screen from the next line down, or do work at a set place in the frame. Two counters go with it: **BEAMPOS** tells you where the beam is, and **FRAMECOUNT** counts frames.
+
+Positions are in **beam coordinates**, which count the blanking too: line 0 is the start of the vertical blank, and the picture is lines 49–624 and pixels 144–863. Chapter 3 ("Beam coordinates") explains them.
+
+### The registers
+
+All three are video registers, in the custom block (Table 2-19). The flag and the enable are bit 1 of VIDSTAT and VIDINTEN, beside VBLANK's.
+
+**Table 2-19: Beam Registers**
+
+| Register | Custom offset | Port | Access | Contents |
+|----------|---------------|------|--------|----------|
+| LINECMP | `0x007`–`0x008` | `0x0710`–`0x0810` | RW | The beam line for LINE |
+| BEAMPOS | `0x0F0`–`0x0F3` | `0xF010`–`0xF310` | R, CAP | The beam's pixel (`0x0F0`) and line (`0x0F2`) |
+| FRAMECOUNT | `0x0F4`–`0x0F5` | `0xF410`–`0xF510` | R, CAP | Frames since reset |
+| VIDSTAT.LINE | `0x001`, bit 1 | `0x0110` | W1C | Set at the start of line LINECMP |
+| VIDINTEN.LINE | `0x002`, bit 1 | `0x0210` | RW | The flag raises source LINE |
+
+**Table 2-20: LINECMP, BEAMPOS and FRAMECOUNT Words**
+
+| Word | Bits | Meaning |
+|------|------|---------|
+| LINECMP (`0x007`) | 15–11 | Ignored; read 0 |
+| | 10–0 | Beam line, 0–624. A value above 624 never matches. 0 after reset |
+| BEAMPOS, pixel (`0x0F0`) | 15–11 | Read 0 |
+| | 10–0 | Beam pixel, 0–863 |
+| BEAMPOS, line (`0x0F2`) | 15–11 | Read 0 |
+| | 10–0 | Beam line, 0–624 |
+| FRAMECOUNT (`0x0F4`) | 15–0 | Goes up by one at the start of each frame; wraps after 65,535 (21.8 minutes) |
+
+### When LINE comes
+
+LINE comes at pixel 0 of line LINECMP: the start of the line's horizontal blank, 144 pixels (5.3 µs) before its picture. It comes once a frame. To have it on more lines, write the next line into LINECMP in the handler, as Example 2-5 does. The handler clears VIDSTAT.LINE first, as every handler clears its cause.
+
+```asm
+        ld      bc,LINECMP0_P           ; LINE at beam line 300
+        ld      a,low 300
+        out     (c),a
+        inc     b
+        ld      a,high 300
+        out     (c),a
+```
+
+Each layer's line settings are read at the start of a line, and the background, BGCOLOR, at the start of its picture (beam pixel 144). A handler starts after its line has begun and takes a while to write, so it changes the **next** line: for a change from line L, set LINECMP to L − 1. The border colour from port `0xFE` is different: it changes at once, wherever the beam is, so a LINE handler that writes it splits that line partway across.
+
+### Reading the beam
+
+Reading BEAMPOS's first byte, `0x0F0`, **captures** all four bytes: the next reads of `0x0F1`–`0x0F3` give the pixel and line from the same moment, however long after. FRAMECOUNT captures in the same way when its low byte is read. So read the low byte first.
+
+```asm
+        di
+        ld      bc,BEAMPOS0_P           ; captures
+        in      l,(c)
+        inc     b
+        in      h,(c)                   ; HL = the pixel
+        inc     b
+        in      e,(c)
+        inc     b
+        in      d,(c)                   ; DE = the line
+        ei
+```
+
+The CPU has one capture for all such registers (TIME and the timers' counts too). A handler that reads one of them between your reads replaces it, so read with interrupts off, as here, or in the handler.
+
+### Waiting outside the ROM's calls
+
+The boot ROM's calls (`RST 08h`, `RST 20h` and the rest) run with interrupts off while they use the console: a few hundred T-states each, and about 3,000, more than four lines, when the screen scrolls. A main loop that does nothing but call POLLC is inside a call nearly all the time, so its LINE handlers start late. On the board, with such a loop, 7,573 of 10,888 LINE interrupts came 1–3 lines late. Put `HALT` before the call: the Z80 waits for the next interrupt, and the call then runs just after it, done long before the next one.
+
+```asm
+.main:  halt                            ; wait for an interrupt ...
+        rst     0x20                    ; ... then POLLC: a key?
+        jr      z,.main
+```
+
+### Example 2-5: The LINE interrupt
+
+The handler sets the background every 32 lines, so the border shows 18 bands of the Spectrum's colours, and moves LINECMP on each time. It reads BEAMPOS first, and counts the times it was not on line LINECMP. Before that, the program reads FRAMECOUNT either side of 100 vertical blanks. The whole program is `examples/interrupts/line.asm`.
+
+```asm
+; Example 2-5 (docs/guide/interrupts.md): the LINE interrupt, BEAMPOS and
+; FRAMECOUNT. First FRAMECOUNT is read either side of 100 vertical blanks.
+; Then the LINE handler changes the background colour every 32 lines,
+; moving LINECMP on each time, so the border shows 18 bands. LINE comes on
+; the line before each band, and the handler writes BGCOLOR there: it is
+; read at the start of the next line's picture, so each band starts
+; cleanly on its first line. On entry the handler reads BEAMPOS, to check
+; it was called on line LINECMP and to note how far into the line it
+; started. A key ends it and prints what it saw. The main
+; loop waits with HALT before each ROM call, so the call never holds a LINE
+; back.
+
+        device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
+        org     0x8000
+
+        include "hw.inc"
+
+TABLE   equ     0x9FD0                  ; the IM 2 table: I = 0x9F, VECBASE = 0xD0
+FIRST   equ     VID_Y0-1                ; LINE on the line before the first band (the picture's first line)
+BAND    equ     32                      ; lines a band
+PUTDEC  equ     0x08                    ; RST 28h functions
+
+start:  ld      hl,title
+        rst     0x18                    ; PUTS
+
+        ; ---- FRAMECOUNT across 100 frames
+        di                              ; (no handler reads a capture now, but the habit is good)
+        ld      bc,FRAMECOUNT0_P
+        in      l,(c)                   ; captures both bytes
+        inc     b
+        in      h,(c)
+        ei
+        push    hl
+        ld      d,100
+        ld      bc,VIDSTAT_P
+.frame: ld      a,VIDSTAT_VBLANK_M      ; clear the flag, then wait for it
+        out     (c),a
+.vb:    in      a,(c)
+        and     VIDSTAT_VBLANK_M
+        jr      z,.vb
+        dec     d
+        jr      nz,.frame
+        di
+        ld      bc,FRAMECOUNT0_P
+        in      l,(c)
+        inc     b
+        in      h,(c)
+        ei
+        pop     de
+        or      a
+        sbc     hl,de                   ; frames counted
+        push    hl
+        ld      hl,fcmsg
+        rst     0x18
+        pop     hl
+        rst     0x28
+        db      PUTDEC
+        ld      hl,crlf
+        rst     0x18
+
+        ; ---- the LINE interrupt
+        di
+        ld      hl,TABLE                ; every entry to the spurious handler ...
+        ld      b,24
+.fill:  ld      (hl),low spurious
+        inc     hl
+        ld      (hl),high spurious
+        inc     hl
+        djnz    .fill
+        ld      hl,line                 ; ... but LINE's
+        ld      (TABLE+2*INT_LINE),hl
+        ld      a,high TABLE
+        ld      i,a
+        ld      bc,VECBASE_P
+        ld      a,low TABLE
+        out     (c),a
+        im      2
+
+        ld      bc,LINECMP0_P           ; the first band's line
+        ld      a,low FIRST
+        out     (c),a
+        inc     b
+        ld      a,high FIRST
+        out     (c),a
+        ld      bc,VIDSTAT_P            ; no old LINE
+        ld      a,VIDSTAT_LINE_M
+        out     (c),a
+        ld      bc,VIDINTEN_P           ; 1. the unit's enable
+        in      a,(c)
+        or      VIDINTEN_LINE_M
+        out     (c),a
+        ld      bc,INTENA0_P+(INTR_LINE<<8)
+        ld      a,INTENA_SETCLR_M|(1<<INTB_LINE)
+        out     (c),a                   ; 2. the controller's
+        ld      bc,INTCON_P
+        ld      a,INTCON_MASTER_M
+        out     (c),a                   ; 3. the master enable
+        ei                              ; 4. the CPU's
+
+        ld      hl,keymsg
+        rst     0x18
+.main:  halt                            ; wait for a LINE first: the ROM's calls run
+        rst     0x20                    ; with interrupts off, so a POLLC begun just
+        jr      z,.main                 ; after a LINE is done long before the next
+
+        di                              ; put everything back
+        ld      bc,INTCON_P
+        xor     a
+        out     (c),a
+        ld      bc,INTENA0_P+(INTR_LINE<<8)
+        ld      a,1<<INTB_LINE          ; SETCLR 0: clear
+        out     (c),a
+        ld      bc,VIDINTEN_P
+        in      a,(c)
+        and     ~VIDINTEN_LINE_M
+        out     (c),a
+        ld      bc,LINECMP0_P
+        xor     a
+        out     (c),a
+        inc     b
+        out     (c),a
+        ld      a,0x1F                  ; the ROM's table again
+        ld      i,a
+        ld      bc,VECBASE_P
+        ld      a,0xD0
+        out     (c),a
+        xor     a
+        out     (ULA_PORT),a            ; border (BGCOLOR) black
+        ei
+
+        ld      hl,cntmsg               ; what the handler saw
+        rst     0x18
+        ld      hl,(count)
+        rst     0x28
+        db      PUTDEC
+        ld      hl,badmsg
+        rst     0x18
+        ld      hl,(bad)
+        rst     0x28
+        db      PUTDEC
+        ld      hl,latemsg
+        rst     0x18
+        ld      hl,(latest)
+        rst     0x28
+        db      PUTDEC
+        ld      hl,endmsg
+        rst     0x18
+        ret
+
+; LINE: at the start of beam line LINECMP. Read where the beam is, set the
+; next line's background, and ask for the next band's line.
+line:   push    af
+        push    bc
+        push    de
+        push    hl
+        ld      bc,BEAMPOS0_P           ; captures all four bytes
+        in      e,(c)
+        inc     b
+        in      d,(c)                   ; DE = hpixel
+        inc     b
+        in      l,(c)
+        inc     b
+        in      h,(c)                   ; HL = vline
+        ld      bc,VIDSTAT_P
+        ld      a,VIDSTAT_LINE_M
+        out     (c),a                   ; clear the cause first
+
+        push    hl
+        ld      hl,(latest)             ; the latest start in a line so far
+        or      a
+        sbc     hl,de
+        jr      nc,.early
+        ld      (latest),de
+.early: ld      hl,(count)
+        inc     hl
+        ld      (count),hl
+        pop     hl
+        ld      de,(next)               ; was it the line asked for?
+        push    hl
+        or      a
+        sbc     hl,de
+        pop     hl
+        jr      z,.right
+        ld      de,(bad)
+        inc     de
+        ld      (bad),de
+.right: ld      a,(colour)              ; the next band's colour: 3 bytes in colours
+        ld      e,a
+        add     a,a
+        add     a,e
+        ld      e,a
+        ld      d,0
+        ld      hl,colours
+        add     hl,de
+        ld      bc,BGCOLOR0_P
+        ld      a,(hl)                  ; blue
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,(hl)                  ; green
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,(hl)                  ; red: the colour is complete, and shows
+        out     (c),a                   ; from the next line's picture
+        ld      a,(colour)
+        inc     a
+        and     7
+        ld      (colour),a
+        ld      hl,(next)               ; the next band, or the first again
+        ld      de,BAND
+        add     hl,de
+        ld      de,BEAM_H-1
+        or      a
+        sbc     hl,de                   ; the last line (624), or past it?
+        add     hl,de                   ; (HL back; ADD leaves Z and S as SBC set them)
+        jp      m,.set
+        ld      hl,FIRST                ; yes: next frame's first band
+        xor     a
+        ld      (colour),a
+.set:   ld      (next),hl
+        ld      bc,LINECMP0_P
+        out     (c),l
+        inc     b
+        out     (c),h
+        pop     hl
+        pop     de
+        pop     bc
+        pop     af
+        ei
+        reti
+
+spurious:
+        ei                              ; NONE, or a source nobody asked for
+        reti
+
+colours: db     0x00,0x00,0x00          ; blue, green, red: black,
+        db      0xD7,0x00,0x00          ; blue,
+        db      0x00,0x00,0xD7          ; red,
+        db      0xD7,0x00,0xD7          ; magenta,
+        db      0x00,0xD7,0x00          ; green,
+        db      0xD7,0xD7,0x00          ; cyan,
+        db      0x00,0xD7,0xD7          ; yellow,
+        db      0xD7,0xD7,0xD7          ; white
+next:   dw      FIRST                   ; the line LINECMP holds
+colour: db      0
+count:  dw      0                       ; LINE interrupts taken
+bad:    dw      0                       ; ... on a line other than LINECMP
+latest: dw      0                       ; the latest hpixel seen on entry
+title:  db      13, 10, "LINECMP, BEAMPOS and FRAMECOUNT.", 13, 10, 0
+fcmsg:  db      "Frames counted over 100 vertical blanks: ", 0
+keymsg: db      "Bands every 32 lines. A key ends it.", 13, 10, 0
+cntmsg: db      "LINE interrupts: ", 0
+badmsg: db      ", on the wrong line: ", 0
+latemsg: db     ", latest start: beam pixel ", 0
+endmsg: db      13, 10, 0
+crlf:   db      13, 10, 0
+```
+
+On the board FRAMECOUNT counted 100 frames over 100 vertical blanks. The bands start cleanly, each on its first line, right across the screen. In 5,005 LINE interrupts every handler found the beam on line LINECMP, and the latest one read it at beam pixel 120, 4.4 µs into the line after its four `PUSH`es: still in the horizontal blank.
+
+---
+
 ## Advanced Topics
 
 Most programs need nothing more than the parts above. This section is for programs that want one handler to interrupt another, IM 1 instead of IM 2, the NMI for themselves, or a slower tick than one timer can give.
@@ -878,9 +1223,9 @@ In IM 1 every interrupt runs `RST 38h`. The controller still picks a source, and
 
 ### The nonmaskable interrupt
 
-The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it (Table 2-19):
+The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler ends with `RETN`. Three things raise it (Table 2-21):
 
-**Table 2-19: NMI Sources**
+**Table 2-21: NMI Sources**
 
 | Source | Event | Allowed by | Seen in |
 |--------|-------|------------|---------|
@@ -890,7 +1235,7 @@ The NMI cannot be turned off by `DI`. The Z80 jumps to `0x0066` and the handler 
 
 Each press or BREAK gives exactly one NMI. **NMISTAT** (register `0x0E`, W1C) keeps which sources there have been since it was last cleared; **NMICON** (`0x0D`) allows each one, and both are on after reset.
 
-**Table 2-20: NMICON Register**
+**Table 2-22: NMICON Register**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -898,7 +1243,7 @@ Each press or BREAK gives exactly one NMI. **NMISTAT** (register `0x0E`, W1C) ke
 | 1 | USBEN | 1: BREAK from the PC gives an NMI |
 | 0 | BUTTONEN | 1: the Multiface button gives an NMI |
 
-**Table 2-21: NMISTAT Register**
+**Table 2-23: NMISTAT Register**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -932,9 +1277,9 @@ With SRC 3 a timer counts the underflows of the one before it (timer 1 counts ti
 
 ### How quickly
 
-When a request becomes pending, the Z80 first finishes the instruction it is in, then answers. Table 2-22 gives each step.
+When a request becomes pending, the Z80 first finishes the instruction it is in, then answers. Table 2-24 gives each step.
 
-**Table 2-22: Steps of an Interrupt Response**
+**Table 2-24: Steps of an Interrupt Response**
 
 | Step | T-states |
 |------|----------|
@@ -945,9 +1290,9 @@ When a request becomes pending, the Z80 first finishes the instruction it is in,
 | NMI: push PC | 11 |
 | The controller | 1 system clock (10 ns), to pass the request on |
 
-So the worst case is 23 + 19 = 42 T-states in IM 2, and 36 in IM 1, before the first instruction of the handler. Table 2-23 gives them in time at each CPU speed (CPUSPEED). Code that runs with interrupts off adds its own time.
+So the worst case is 23 + 19 = 42 T-states in IM 2, and 36 in IM 1, before the first instruction of the handler. Table 2-25 gives them in time at each CPU speed (CPUSPEED). Code that runs with interrupts off adds its own time. The boot ROM's calls are such code: each holds interrupts off for a few hundred T-states, and about 3,000 for a scroll ("Waiting outside the ROM's calls").
 
-**Table 2-23: Worst-Case Interrupt Latency**
+**Table 2-25: Worst-Case Interrupt Latency**
 
 | CPU speed | IM 2 (42 T) | IM 1 (36 T), before its own dispatch |
 |-----------|-------------|--------------------------------------|
@@ -966,7 +1311,6 @@ So the worst case is 23 + 19 = 42 T-states in IM 2, and 36 in IM 1, before the f
 - **Change the screen at an exact pixel.** A line takes 32 µs, 640 T-states at 20 MHz, and a handler starts between about 20 and 42 T-states after its event, depending on the instruction it waited for. That is the copper's job (Chapter 5).
 - **IM 0.** It is not supported: the controller always gives an IM 2 vector, which the Z80 in IM 0 would run as an instruction. Choose IM 1 or IM 2 before the first `EI`.
 - **Switch pages for a maskable handler.** The interrupt pages are built for the NMI only ("Interrupt pages", in Advanced Topics). A maskable handler runs in whatever the program has mapped.
-- **The LINE interrupt.** It is not built yet (ticket #53): source 1 never asks.
 
 ---
 
@@ -976,7 +1320,7 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 
 ### Interrupt controller
 
-**Table 2-24: Interrupt Controller Registers**
+**Table 2-26: Interrupt Controller Registers**
 
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
@@ -992,7 +1336,7 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 
 ### Time counter, timers and watchdog
 
-**Table 2-25: Time Counter, Timer and Watchdog Registers**
+**Table 2-27: Time Counter, Timer and Watchdog Registers**
 
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
@@ -1012,7 +1356,7 @@ After reset MASTER is off, every INTENA bit is off, VECBASE is 0, SOFT is clear,
 
 ### Equates in hw.inc
 
-**Table 2-26: Equates in hw.inc**
+**Table 2-28: Equates in hw.inc**
 
 | Equate | Value |
 |--------|-------|
@@ -1021,6 +1365,7 @@ After reset MASTER is off, every INTENA bit is off, VECBASE is 0, SOFT is clear,
 | `INTENA_SETCLR_M`, `INTCON_MASTER_M` | `0x80`, `0x01` |
 | `SOFTINT_SET_M`, `SOFTINT_CLR_M` | `0x01`, `0x02` |
 | `NMICON_BUTTONEN_M`, `NMICON_USBEN_M`, and `NMISTAT_` the same | `0x01`, `0x02` |
+| `LINECMP0_P`, `BEAMPOS0_P`, `FRAMECOUNT0_P`; `VIDSTAT_LINE_M`, `VIDINTEN_LINE_M` | `0x0710`, `0xF010`, `0xF410`; `0x02`, `0x02` |
 | `TMR0` … `TMR3`, `TMR_CTRL` … `TMR_STAT` | `0x28` … `0x40`, and the offsets 0–7 |
 | `TMR0_CTRL`, `TMR0_COUNT0` …, and `_P` | Each timer register's number and port |
 | `TMR_CTRL_EN_M`, `_REPEAT_M`, `_IRQ_M`, `_DMA_M`, `TMR_CTRL_SRC_B`, `TMR_STAT_UNDER_M` | Fields |

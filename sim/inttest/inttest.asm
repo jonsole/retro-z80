@@ -11,8 +11,11 @@
 ; taken once allowed; a handler that does not clear its source entered
 ; again; IM 1 with INTID; IM 2 at 3.57 MHz and at 2.5 MHz; VIDINTEN, and a
 ; real VBLANK taken before SOFT (priority). The VBLANK comes at the end of
-; the first frame, about 18 ms in. A spurious acknowledge and the frozen
-; choice cannot be made from software at this timing; sim/intc covers them.
+; the first frame, about 18 ms in. Then (ticket #53) FRAMECOUNT across that
+; VBLANK, LINECMP, the LINE flag at beam line 64 of the next frame, BEAMPOS
+; there and its capture, the LINE request, and BPL0PT in the same capture.
+; A spurious acknowledge and the frozen choice cannot be made from software
+; at this timing; sim/intc covers them.
 ;
 ; Every handler writes the source it was given (INTID, or 0xEE for a wrong
 ; vector) to a log in SRAM; each check compares the log with what it should
@@ -24,6 +27,7 @@
 LOG     equ     0x8000                  ; SRAM page 2 (window 4)
 LOGP    equ     0x80F0                  ; the next free byte of the log
 KEEP    equ     0x80F2                  ; SOFT handler: times to leave SOFT raised
+FC      equ     0x80F4                  ; FRAMECOUNT before the VBLANK
 TABLE   equ     0x8100                  ; IM 2 table: I = 0x81, VECBASE the low byte
 
     MACRO WREG xp, xv                   ; write xv to register port xp (A, B, C changed)
@@ -195,6 +199,9 @@ start:  ld      sp,0x0000
         RCHK    VIDINTEN_P, 0xF7
         WREG    VIDINTEN_P, 0
         ld      d,17                    ; check 17: the flag alone does not request
+        ld      bc,FRAMECOUNT0_P        ; (for check 21: captures both bytes)
+        in      a,(c)
+        ld      (FC),a
         ld      bc,VIDSTAT_P
 .vb:    in      a,(c)
         and     VIDSTAT_VBLANK_M
@@ -219,6 +226,76 @@ start:  ld      sp,0x0000
         in      a,(c)
         and     VIDSTAT_VBLANK_M        ; (INVBLANK is live, and set here)
         jp      nz,fail
+
+        ; ---- FRAMECOUNT, LINECMP, LINE and BEAMPOS (spec 4, 3.3-3.4; ticket #53)
+        ld      d,21                    ; check 21: FRAMECOUNT went up by one at that VBLANK
+        ld      a,(FC)
+        inc     a
+        ld      e,a
+        ld      bc,FRAMECOUNT0_P
+        in      a,(c)
+        cp      e
+        jp      nz,fail
+        RCHK    FRAMECOUNT1_P, 0
+        ld      d,22                    ; check 22: LINECMP at reset, and its 11 bits
+        RCHK    LINECMP0_P, 0
+        RCHK    LINECMP1_P, 0
+        WREG    LINECMP0_P, 0xFF
+        WREG    LINECMP1_P, 0xFF
+        RCHK    LINECMP0_P, 0xFF
+        RCHK    LINECMP1_P, 0x07
+        ld      d,23                    ; check 23: LINE at the start of beam line 64
+        WREG    LINECMP0_P, 64
+        WREG    LINECMP1_P, 0
+        WREG    VIDSTAT_P, VIDSTAT_LINE_M
+        RCHK    BEAMPOS3_P, 0           ; still above line 64, and the flag clear
+        ld      bc,BEAMPOS2_P
+        in      a,(c)
+        cp      64
+        jp      nc,fail
+        ld      bc,VIDSTAT_P
+        in      a,(c)
+        and     VIDSTAT_LINE_M
+        jp      nz,fail
+.ln:    in      a,(c)
+        and     VIDSTAT_LINE_M
+        jr      z,.ln
+        ld      bc,BEAMPOS0_P           ; captures all four bytes
+        in      e,(c)
+        RCHK    BEAMPOS1_P, 0           ; hpixel in the horizontal blank: below 144
+        ld      a,e
+        cp      144
+        jp      nc,fail
+        RCHK    BEAMPOS2_P, 64          ; vline 64
+        RCHK    BEAMPOS3_P, 0
+        RCHK    INTRAW0_P, 0            ; VIDINTEN.LINE off: no request
+        ld      d,24                    ; check 24: the capture holds while the beam moves on
+        ld      b,0                     ; 256 x 13 T-states: 166 us at 20 MHz, 5 lines
+.dl:    djnz    .dl
+        RCHK    BEAMPOS2_P, 64          ; from the capture
+        ld      bc,FRAMECOUNT0_P        ; another capture replaces it ...
+        in      a,(c)
+        ld      bc,BEAMPOS2_P           ; ... so BEAMPOS2 reads live: further down
+        in      a,(c)
+        cp      65
+        jp      c,fail
+        ld      d,25                    ; check 25: flag AND VIDINTEN.LINE requests source LINE
+        WREG    VIDINTEN_P, VIDINTEN_LINE_M
+        RCHK    INTRAW0_P, 1 << INTB_LINE
+        WREG    VIDSTAT_P, VIDSTAT_LINE_M
+        RCHK    INTRAW0_P, 0
+        WREG    VIDINTEN_P, 0
+        ld      d,26                    ; check 26: BPL0PT shares the one capture
+        WREG    L0_BPL0PT0_P, 0x56      ; (layer 0 is off: the pointer is only a register)
+        WREG    L0_BPL0PT1_P, 0x34
+        WREG    L0_BPL0PT2_P, 0x12
+        RCHK    L0_BPL0PT0_P, 0x56      ; captures 0x123456
+        WREG    L0_BPL0PT1_P, 0xAB
+        RCHK    L0_BPL0PT1_P, 0x34      ; the captured byte, not the new one
+        RCHK    L0_BPL0PT2_P, 0x12
+        ld      bc,BEAMPOS0_P           ; BEAMPOS replaces the capture ...
+        in      a,(c)
+        RCHK    L0_BPL0PT1_P, 0xAB      ; ... so the pointer reads live)
 
         ld      hl,pass
         call    puts
