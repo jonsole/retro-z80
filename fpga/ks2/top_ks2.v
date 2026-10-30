@@ -39,7 +39,9 @@
 // pattern build): flash and SD cards deselected, MIC low,
 // expansion bus RAMCS pulled down. Other pins are weakly pulled up
 // (ks2.xdc).
-module top_ks2 (
+module top_ks2 #(
+    parameter GEOM = 0                 // 1: the geometry unit in place of the DMA engine (spec 15, section 8)
+) (
     input  wire        clock_50_i,
 
     // SRAM
@@ -122,8 +124,10 @@ module top_ks2 (
     wire [7:0]  row_low;
     wire        aud_l, aud_r, aud_m;
 
-    // 2 sprites and no DMA mask image, so the DMA engine fits (design plan, branch 21)
-    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0)) sys (
+    // 2 sprites and no DMA mask image, so the DMA engine fits (design plan, branch 21).
+    // The XC7A15T has room for the DMA engine or the geometry unit, not both.
+    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0),
+               .DMX(GEOM ? 0 : 1), .GEOM(GEOM)) sys (
         .clk(clk100), .por(por),
         .btn_reset_n(!btn_q[0]), .buttons(btn_q[2:1]),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),

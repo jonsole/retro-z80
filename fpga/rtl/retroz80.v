@@ -23,13 +23,17 @@
 // copper (copper.v; spec 6) on the scheduler's copper channel, as the first
 // register bus master (its writes go first, the CPU's strobe moves a clock),
 // and the COPPER interrupt source. Ticket #39 adds the DMA engine (dmx.v;
-// spec 14) on the scheduler's DMA engine channel, and DMA0-DMA3.
+// spec 14) on the scheduler's DMA engine channel, and DMA0-DMA3. Ticket #67
+// adds the geometry unit (geom.v; spec 15) in the system page, and the
+// build options DMX and GEOM: the KS2 builds one or the other.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
     parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
     parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
-    parameter DMX_MASKIMG = 1          // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
+    parameter DMX_MASKIMG = 1,         // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
+    parameter DMX = 1,                 // build the DMA engine (spec 14)
+    parameter GEOM = 1                 // build the geometry unit (spec 15)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -199,8 +203,8 @@ module retroz80 #(
     assign rb_addr  = cw_req ? {3'b100, cw_off} : c_rb_addr;
     assign rb_hi    = cw_req ? 8'h00 : c_rb_hi;
     assign rb_wdata = cw_req ? cw_data : c_rb_wdata;
-    wire [7:0]  rd_cop, rd_dmx;
-    wire        hit_cop, cap_cop, hit_dmx, cap_dmx;
+    wire [7:0]  rd_cop, rd_dmx, rd_geo;
+    wire        hit_cop, cap_cop, hit_dmx, cap_dmx, hit_geo;
     wire [31:0] cd_cop, cd_dmx;
     wire        late;
     wire        int_vreq, int_ack;
@@ -217,8 +221,8 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(c_rb_addr), .rb_hi(c_rb_hi), .rb_rd(c_rb_rd), .rb_wr(c_rb_wr), .rb_wdata(c_rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop | rd_dmx),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop | hit_dmx),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop | rd_dmx | rd_geo),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop | hit_dmx | hit_geo),
         .rb_cdata(cd_tmr | cd_vid | cd_cop | cd_dmx), .rb_cap(cap_tmr | cap_vid | cap_cop | cap_dmx), .cw_busy(cw_req),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
@@ -413,14 +417,36 @@ module retroz80 #(
     // ---------------------------------------------------------------- DMA engine (spec 14)
     // The blitter, on the scheduler's DMA engine channel (free cycles only)
     // and the register bus (custom 0x140-0x23F). Ticket #39.
-    dmx #(.CHIPMB(CHIPMB), .MASKIMG(DMX_MASKIMG)) dx (
-        .clk(clk), .rst(sys_rst),
-        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(rd_dmx), .rb_hit(hit_dmx), .rb_cdata(cd_dmx), .rb_cap(cap_dmx),
-        .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
-        .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
-        .tmr_start(tmr_dma), .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
-    );
+    // Without it (DMX = 0) its registers are not answered (read 0xFF), it
+    // never asks for memory, and it counts as idle for the copper.
+    generate if (DMX) begin : g_dmx
+        dmx #(.CHIPMB(CHIPMB), .MASKIMG(DMX_MASKIMG)) dx (
+            .clk(clk), .rst(sys_rst),
+            .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+            .rb_rdata(rd_dmx), .rb_hit(hit_dmx), .rb_cdata(cd_dmx), .rb_cap(cap_dmx),
+            .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
+            .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
+            .tmr_start(tmr_dma), .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
+        );
+    end else begin : g_nodmx
+        assign {rd_dmx, hit_dmx, cd_dmx, cap_dmx} = 42'd0;
+        assign {blt_req, blt_we, blt_addr, blt_wdata, blt_be} = 41'd0;
+        assign dmx_idle = 1'b1;
+        assign irq_dmx  = 4'd0;
+    end endgenerate
+
+    // ---------------------------------------------------------------- geometry unit (spec 15)
+    // System page registers 0xA0-0xBF; the CPU only. Without it (GEOM = 0)
+    // they are not answered (read 0xFF).
+    generate if (GEOM) begin : g_geom
+        geom geo (
+            .clk(clk), .rst(sys_rst),
+            .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+            .rb_rdata(rd_geo), .rb_hit(hit_geo), .busy()
+        );
+    end else begin : g_nogeom
+        assign {rd_geo, hit_geo} = 9'd0;
+    end endgenerate
 
     // ---------------------------------------------------------------- input (spec 12)
     // The PS/2 keyboard, its mapper onto the Spectrum keys, the membrane
