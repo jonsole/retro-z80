@@ -246,7 +246,7 @@ Page `0x00`. The same registers are at register page offset = register number. T
 | `0x7C`–`0x7F` | Free (the NMI monitor registers moved to page `0x01`, section 4.13) | |
 | `0x80`–`0x8F` | MMU read pages | 2 |
 | `0x90`–`0x9F` | MMU write pages | 2 |
-| `0xA0`–`0xBF` | Geometry unit (reserved for spec 15) | 15 |
+| `0xA0`–`0xBF` | Geometry unit | 15 |
 | `0xC0`–`0xFD` | Free | |
 | `0xFE` | Keyboard rows, border, beeper (Spectrum extra; also low-byte-only port `0xFE`) | 12 |
 | `0xFF` | Free | |
@@ -376,7 +376,7 @@ n = 0–7: MMU0 at `0x80`, MMU7 at `0x8E`; MMU0W at `0x90`, MMU7W at `0x9E`. Whi
 
 ### 4.11 Geometry unit (`0xA0`–`0xBF`)
 
-Reserved for the geometry unit (design plan branch 10, spec 15, not yet written). Until then these registers read `0xFF`. Its interrupt number, 19 (GEOM), is reserved too (section 7).
+The geometry unit (design plan branch 10, spec 15, section 5). `0xA0`–`0xB7` are a window onto one of four banks (camera, object, view, operands), picked by GEOCTL.BANK; `0xB8`–`0xBD` are the vertex (written) and the results (read); `0xBE` is GEOCTL and `0xBF` GEOSTAT. In a build without the unit (the KS2's default) they read `0xFF`. Its interrupt number, 19 (GEOM), stays reserved for a list mode (spec 15, G2; section 7).
 
 ### 4.12 Port `0xFE`, a Spectrum extra
 
@@ -757,7 +757,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
 | R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
 | R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
-| R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) and interrupt 19 are reserved for spec 15; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
+| R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) are spec 15's, and interrupt 19 is reserved for its list mode; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |
 | R9 | COP2LC changes by itself only at a frame restart with COPCON.RESUME (spec 6, section 6.5), so it has no capture; a CPU that reads it while a background list runs may see a mixed value. Read it while the copper runs the idle list |
 | R10 | Closed: byte names are digits everywhere (design plan, branch 11). A multi-byte register's bytes are NAME0–NAME3, lowest first, with an underscore before the digit where the name ends in a digit or an index (`MMU0_0`, `MMU0W_1`); the L/H names of specs 2 and 9 are gone (section 8). The generator makes every byte name from the rule, so `regmap.def` has no `bytes` line |
