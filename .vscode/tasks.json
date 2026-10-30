@@ -30,6 +30,31 @@
         "firmware/include"
       ],
       "problemMatcher": "$sjasmplus"
+    },
+    {
+      "label": "build fast3d",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "examples/fast3d/build.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$sjasmplus"
+    },
+    {
+      "label": "build fast3d with the geometry unit",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "examples/fast3d/build.py",
+        "--geom"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$sjasmplus"
     }
   ]
 }

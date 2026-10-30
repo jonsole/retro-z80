@@ -300,14 +300,47 @@ The KS2 has no room for the unit beside the DMA engine: that build already has 2
 - **Timing:** every job is done within 24 clocks of its start write, with and without a combined matrix pending. GEOSTAT.BUSY is set while it runs. Operands written during a job don't change it.
 - **Bus:** every register through ports and through the register page; `LD (nn),HL` and `LDI` rising start a vertex after all six bytes; `PUSH` starts it after VZ1 alone (documented, not wanted); bank switching; reserved words read 0; with `GEOM = 0`, `0xFF`.
 - **On the KS2 (`GEOM = 1`):** a test program sends a few thousand vertices, faces, multiplies and divides and compares each result with tables from the model, then reports over serial.
-- **Benchmark:** fast3d's flight (40 objects, wireframe) ported to retro-z80 twice, the software path and the unit, timed in frames a second and T-states a frame against fast3d's 468,000. The time left in culling, line drawing and clipping answers open point G1.
+- **Benchmark:** fast3d's flight (40 objects, wireframe) ported to retro-z80 twice, the software path and the unit, timed in frames a second and T-states a frame against fast3d's 468,000. The time left in culling, line drawing and clipping answers open point G1. Done: section 10.
 
-## 10. Open points
+## 10. Benchmark: fast3d's flight
+
+`examples/fast3d` (ticket #68) is fast3d's demo moved to retro-z80: forty turning cubes and icosahedra round a circle the camera flies, wireframe, clipped to a window, double-buffered. The screen is 256 × 192 at 1 bit per pixel, 32 bytes a line, on L0 at 2 × 2. fast3d's engine is copied unchanged except for the line drawer's row step, as this screen's rows are 32 bytes apart (`INC H` on the Spectrum's). It times 256 pictures, a whole circle, on the KS2, at 20 MHz and at 3.57 MHz. A picture is `compute_frame` and `render_frame`, as fast3d's 468,000 is. The builds with `--phases` read timer 0 (2 T-states a tick) round each part and take each mark's own 330 T-states back out; their parts add up to within 0.3% of the plain builds.
+
+| Build (KS2, 30 October 2026) | T-states a picture (least, most) | Pictures a second |
+|---|---|---|
+| fast3d on a Spectrum 128K (its README) | 468,000 (154,000, 754,000) | about 7 |
+| Software, every edge | 472,907 (165,960, 760,600) | 39.1 |
+| Software, back faces removed | 541,942 | 35.1 |
+| The unit, every edge | 268,245 (80,420, 442,640) | 50 (every frame) |
+| The unit, back faces removed (face sign) | 278,338 | 50 |
+| Software at 3.57 MHz (CPUSPEED.SPECTRUM, the builds' default) | 474,395 | 7.5 |
+| The unit at 3.57 MHz | 269,244 | 13.1 |
+
+With the unit, the culling and the vertices go through it (CAM for each object's centre, PROJ for its vertices); fast3d's `compute_matrix` still makes each matrix from three angles, and the lines are drawn, clipped and cleared in software. 5.2 objects are drawn a picture on average (fast3d: 5.1; the unit's cull rounds in world units).
+
+Where the time goes, in T-states a picture:
+
+| Part | Software | The unit | The unit, back faces removed |
+|---|---|---|---|
+| Culling (40 objects) | 100,323 (21%) | 23,909 (9%) | 23,901 |
+| Camera | 9,826 (2%) | 4,672 (2%) | 4,670 |
+| Objects' matrices | 42,640 (9%) | 22,919 (9%) | 22,910 |
+| Vertices | 123,344 (26%) | 17,051 (6%) | 17,047 |
+| Back faces | – | – | 55,576 (20%) |
+| Lines | 74,289 (16%) | 75,283 (28%) | 49,183 |
+| Clipping | 31,903 (7%) | 32,208 (12%) | 21,179 |
+| Clearing | 40,682 (9%) | 41,393 (15%) | 41,393 |
+| Other (the loops, the boxes, the flip) | 50,856 (11%) | 51,757 (19%) | 43,391 |
+| Total | 473,866 | 269,195 | 279,254 |
+
+So the unit takes the geometry from 276,000 T-states a picture to 69,000, and the picture from 473,000 to 268,000, 1.76 times as fast. What is left is drawing: lines, clipping and clearing are 149,000, 55% of a picture, and most of "other" is the drawing loop's fetching of edge ends. A vertex costs about 320 T-states in the flight (six bytes in, four out, the NEAR test and the stores), 6% of a picture, so a list mode (G2) would save about 5%. Removing back faces with the face sign costs more than it saves here, as it does in software (fast3d: 539,000 against 468,000): copying the three points of each face into the unit is about 530 T-states a face, and these objects are small on the screen.
+
+## 11. Open points
 
 | # | Item |
 |---|------|
-| G1 | Drawing help for filled polygons (design plan, Q10): OP 6 span fill or OP 7 triangle in the DMA engine, codes agreed with retro68k (spec 14, D6). Decided after the benchmark (section 9) shows where the time goes once vertices are cheap. Amiga-style line drawing (branch 21) is part of the same choice |
-| G2 | A list mode: the unit as a bus master that turns a vertex list in SRAM and writes the screen points back, with interrupt 19 (GEOM) at the end. About 300–500 LUTs and a scheduler client. Decided after the benchmark |
+| G1 | Decided (30 October 2026), from the benchmark (section 10): drawing is most of a picture once vertices are cheap. First, clear with the DMA engine's BLIT fill (software only; the KS2's `GEOM = 1` build has no engine, the KS3 has both). Next, an Amiga-style line job in the DMA engine (spec 14, D3, shared with retro68k), for the lines and their clipping. OP 6 span fill and OP 7 triangle stay reserved for filled 3D (spec 14, D6). The line job and the triangle job are separate jobs of the one engine, each with its own layout, sharing the engine's address units, minterm and memory access: the line job is not shaped for triangle edges, nor the triangle built from line steps (30 October 2026) |
+| G2 | A list mode: the unit as a bus master that turns a vertex list in SRAM and writes the screen points back, with interrupt 19 (GEOM) at the end. About 300–500 LUTs and a scheduler client. Kept open (30 October 2026): in the wireframe flight it would save about 5% of a picture (section 10); to be looked at again with filled faces or bigger models |
 | G3 | The 30-clock limit is set by the fastest CPU read after a write (section 4.6). A faster CPU (design plan, Q9) would need a check again |
 | G4 | A dot product (n·v of two 3-vectors) for testing faces against the eye in 3D and for lighting. Left out for now: the inverse turn and a few multiplies do it |
 | G5 | Closed (30 October 2026): the product bank (bank 4) reads M and T back, so the unit is also a 3×3 matrix multiplier; GEOCTL.BANK is 3 bits |
