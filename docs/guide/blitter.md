@@ -296,7 +296,7 @@ A job in the registers is started and watched through two one-byte registers: **
 |------|------|---------|
 | 7–4 | – | Reserved, write 0 |
 | 3 | PAUSE | While set, hold the list after its current group; clear it to carry on. Also readable |
-| 2 | STOP | End the list after the current group of at most 16 bytes |
+| 2 | STOP | End the list after the current group of at most 32 bytes |
 | 1 | RUN | Run the job already in the registers, then follow its NEXT |
 | 0 | START | Load the descriptor at CHDESC and run it |
 
@@ -452,7 +452,7 @@ start2: ld      bc,DMX2_CHDESC0_P
         ret
 ```
 
-RUN follows NEXT too: a job written into the registers with a NEXT that is not 0 runs, and then the list at NEXT. While a list runs, CHDESC reads as the descriptor now running. STOP ends the list after the current group of at most 16 bytes, and PAUSE holds it there until PAUSE is cleared; both are in CHCTRL (Table 6-6).
+RUN follows NEXT too: a job written into the registers with a NEXT that is not 0 runs, and then the list at NEXT. While a list runs, CHDESC reads as the descriptor now running. STOP ends the list after the current group of at most 32 bytes, and PAUSE holds it there until PAUSE is cleared; both are in CHCTRL (Table 6-6).
 
 Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. The jobs must stay where they are while the channel uses them, and a program changes them only while the channel is idle. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 114 µs where the single draw job takes 39 µs (Table 6-21).
 
@@ -772,7 +772,7 @@ If WIDTH or HEIGHT comes to 0 or less, the object is off the screen: skip the jo
 
 ## Overlapping Copies and Scrolling
 
-A job reads up to 16 bytes ahead of where it writes. When the source and destination overlap, that matters:
+A job reads up to 32 bytes ahead of where it writes. When the source and destination overlap, that matters:
 
 - If the destination is **before** the source (scrolling up or left), run forwards, as usual.
 - If the destination is **after** the source (scrolling down or right), set **DESC** in CTRL1. The job then runs backwards, from the last pixel of the last row to the first. You still give the addresses of the first pixel: the blitter works out the end for itself.
@@ -1264,7 +1264,7 @@ loop:   call    frame                   ; the vertical blank has begun
 
 `examples/blitter/split.asm` is the whole program. It has the jobs for the eight balls made by a macro, the palette tables and the balls' pictures made by the assembler (a sphere lit from the upper left, in 24 or 4 shades), `prepare` for the positions, and the two LINE handlers above. The balls bounce off the edges of their halves: when a step would take one past an edge, `bounce` puts it on the edge and turns it round, so it never draws outside its half.
 
-On the board it ran at 50 frames a second. The longest list took 681 µs, about 21 lines, inside the 49 lines of the vertical blank, so no ball is half drawn when the picture starts; preparing the next frame took 885 µs of the Z80's time, including the LINE handlers. The top half showed the smooth sunset and shaded spheres; the bottom half the banded sea and balls of four shades, and the split stayed on one line for the whole run. Balls that overlapped came back whole.
+On the board it ran at 50 frames a second. The longest list took 518 µs, about 16 lines, inside the 49 lines of the vertical blank, so no ball is half drawn when the picture starts; preparing the next frame took 883 µs of the Z80's time, including the LINE handlers. (Before ticket #78's 16-word groups the list took 681 µs.) The top half showed the smooth sunset and shaded spheres; the bottom half the banded sea and balls of four shades, and the split stayed on one line for the whole run. Balls that overlapped came back whole.
 
 ---
 
@@ -1306,21 +1306,21 @@ Table 6-21 gives what the KS2 printed. **Screen on** is the examples' screen: L0
 
 | Job | Bytes of D | Screen on | Screen off | Worked out |
 |-----|------------|-----------|------------|------------|
-| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,695 µs (61 MB/s) | 1,519 µs (68 MB/s) | about 1.4 ms |
-| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,716 µs | 1,532 µs | about 1.4 ms |
-| Copy, one row | 103,680 | 3,382 µs (31 MB/s) | 3,030 µs (34 MB/s) | about 2.8 ms |
-| XOR with VALUE, which reads C | 103,680 | 3,382 µs | 3,031 µs | about 4.2 ms |
-| Draw a 32 × 32 object with a transparent colour | 1,024 | 39 µs | 36 µs | about 30 µs |
-| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 114 µs | 101 µs | about 90 µs |
+| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,416 µs (73 MB/s) | 1,252 µs (83 MB/s) | about 1.4 ms |
+| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,433 µs | 1,267 µs | about 1.4 ms |
+| Copy, one row | 103,680 | 2,688 µs (39 MB/s) | 2,359 µs (44 MB/s) | about 2.8 ms |
+| XOR with VALUE, which reads C | 103,680 | 2,922 µs | 2,582 µs | about 4.2 ms |
+| Draw a 32 × 32 object with a transparent colour | 1,024 | 33 µs | 31 µs | about 30 µs |
+| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 94 µs | 83 µs | about 90 µs |
 | `LDIR`, for comparison | 16,384 | 17,208 µs (0.95 MB/s) | 17,209 µs | 17,203 µs |
 | A 300-pixel dash-and-dot line (Example 6-5), about 190 pixels drawn | about 190 | 20 µs | – | 15–20 µs |
 | Erase and draw a 12-edge cube, two EDGES jobs in a list (Example 6-6) | about 2,350 pixels stepped | 82 µs | – | 120–160 µs |
 
-So on the board the blitter fills about 64 times as fast as `LDIR` copies, and copies about 32 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
+So on the board the blitter fills about 77 times as fast as `LDIR` copies, and copies about 41 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
 
-The fills take about a fifth longer than the worked-out figures, and the copies about a tenth. With the screen off, the engine has far more free cycles, yet it is only about 10% faster: the engine's own steps, not the free cycles, set most of the pace. It works in groups of up to 8 words, reading a group's words before it writes them. A job that reads C costs no more than a copy, since both read once and write once for each word.
+The fills and copies now take about as long as the worked-out figures. The engine works in groups of up to 16 words, and starts a group's writes while its last reads are still coming back, so it uses most of the free cycles it is given: with the screen off it has about 14% more of them, and it is about 13% faster. A job that reads C reads all of a group's C words before it writes, so it costs about a tenth more than a copy.
 
-The line and cube times were measured later, with the KS2's build without the copper, on the same screen. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
+The times were measured with the KS2's build without the copper (the jobs and lines on 31 October 2026, after ticket #78 made the groups 16 words), on the same screen. The line and cube times are from before #78, which does not change LINE or EDGES. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
 
 ### What a job costs
 

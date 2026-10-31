@@ -41,6 +41,7 @@
 //   +dumpram=FILE  with +frame: the SRAM's first 2 MB into FILE at the end
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
+//   +print       a test ROM may print lines of its own before PASS (dmxspeed)
 //
 // A test ROM asks for an NMI by writing reserved port 0x0003 (no unit
 // answers it): 1 presses the Multiface button for 0.5 us, 2 sends the
@@ -885,7 +886,7 @@ module tb #(
     // ---------------------------------------------------------------- finish
     integer hello = 0, nhello = 0, nself = 0, scan = 0, ls = 0, lk, done = 0, ok = 0, k;
     integer spd_hello [0:8];
-    integer speeds = 0, all_hello = 0, nline = 0;
+    integer speeds = 0, all_hello = 0, nline = 0, printok = 0;
     initial begin
         speeds = $test$plusargs("speeds");
         for (k = 0; k < 9; k = k + 1) spd_hello[k] = 0;
@@ -901,6 +902,7 @@ module tb #(
     initial begin
         bgcycle = $test$plusargs("bgcycle") || $test$plusargs("bgdim");
         hello = $test$plusargs("hello");
+        printok = $test$plusargs("print");
         keys = $test$plusargs("keys");
         if (!$value$plusargs("timeout=%d", timeout_us)) timeout_us = 2000;
     end
@@ -1038,6 +1040,8 @@ module tb #(
                 else if (!hello && is_line(ls, "FAIL", 4)) finish(0, "the test ROM failed");
                 else if ((grab >= 0 || boing) && !is_line(ls, "selftest FAIL", 13))
                     ;                                   // a video test: the frame is what counts
+                else if (printok)
+                    ;                                   // +print: a test's own results, shown above
                 else begin
                     $display("%t PC: unexpected line", $realtime);
                     finish(0, "unexpected output");
