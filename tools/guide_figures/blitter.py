@@ -38,7 +38,7 @@ def arrowhead(f, x1, y1, x2, y2, fill=LINE, size=8):
     f.poly([(x2, y2), p1, p2], fill=fill, stroke="none")
 
 
-# ---------------------------------------------------------------- 6-2: minterm
+# ---------------------------------------------------------------- 6-3: minterm
 def fig_minterm():
     f = Fig(760, 330)
     f.text(20, 22, "Each bit of MINTERM is one region: bit = A × 4 + B × 2 + C", bold=True)
@@ -130,10 +130,10 @@ def fig_minterm():
     f.text(SX - 80, yb + 15, "A, B and C bits say which circles it is inside.", size=11, fill=TXT2)
     f.text(SX - 80, yb + 37, "Shaded: the regions where A ? B : C (0xCA) gives 1.", size=11, fill=TXT2)
     f.text(SX - 80, yb + 52, "(0xF0 & 0xCC) | (~0xF0 & 0xAA) = 0xC0 | 0x0A = 0xCA", size=11, fill=TXT2)
-    return f.save("blitter-6-2-minterm.svg")
+    return f.save("blitter-6-3-minterm.svg")
 
 
-# ---------------------------------------------------------------- 6-3: cookie-cut
+# ---------------------------------------------------------------- 6-4: cookie-cut
 def fig_cookiecut():
     f = Fig(760, 300)
     add_hatch(f)
@@ -211,10 +211,10 @@ def fig_cookiecut():
     f.text(xs[1] + 80, yl, "A = 1", size=11)
     f.rect(xs[1] + 130, yl - 11, 14, 14, WHITE)
     f.text(xs[1] + 150, yl, "A = 0", size=11)
-    return f.save("blitter-6-3-cookiecut.svg")
+    return f.save("blitter-6-4-cookiecut.svg")
 
 
-# ---------------------------------------------------------------- 6-4: shift
+# ---------------------------------------------------------------- 6-5: shift
 def fig_shift():
     f = Fig(760, 372)
     BPP = 4
@@ -288,10 +288,10 @@ def fig_shift():
     f.text(DL + kf * BW - 30, DT - 70, f"DPT = byte {DPT}, DBIT = {DBIT}", size=13, anchor="middle", bold=True, halo=True)
     f.line(DL + kf * BW - 30, DT - 64, xd + 2, DT - 36, stroke=DIM, arrow="end")
     f.text(20, 362, f"x = {X}: DPT = SCREEN + {X} / 2, DBIT = {X} mod 2. WIDTH = {NPIX}. High nibble = left pixel.", size=11, fill=TXT2)
-    return f.save("blitter-6-4-shift.svg")
+    return f.save("blitter-6-5-shift.svg")
 
 
-# ---------------------------------------------------------------- 6-5: stride
+# ---------------------------------------------------------------- 6-6: stride
 def fig_stride():
     f = Fig(760, 420)
     f.text(20, 22, "8 bpp, drawn to scale: one square = one byte = one pixel", bold=True)
@@ -344,10 +344,10 @@ def fig_stride():
     f.text(L - 18, T + CY + 66, "BPT and DPT + k,", size=11, anchor="end")
     f.text(L - 18, T + CY + 80, "WIDTH − k", size=11, anchor="end")
     f.text(L + W + 6, T + H, "288", size=11, fill=TXT2)
-    return f.save("blitter-6-5-stride.svg")
+    return f.save("blitter-6-6-stride.svg")
 
 
-# ---------------------------------------------------------------- 6-6: DESC
+# ---------------------------------------------------------------- 6-7: DESC
 def fig_desc():
     f = Fig(760, 410)
     ROWS, SRC, DST, NR = 7, 0, 2, 4      # rows shown; source rows 0-3 copied to rows 2-5
@@ -417,10 +417,10 @@ def fig_desc():
     f.line(388, 40, 388, 370, stroke="#ccc")
     f.text(20, 22, "Copying rows 0–3 two rows down, onto themselves", bold=True)
     f.text(20, 398, "Within a row it is the same: a job reads up to 16 bytes ahead of what it writes.", size=11, fill=TXT2)
-    return f.save("blitter-6-6-desc.svg")
+    return f.save("blitter-6-7-desc.svg")
 
 
-# ---------------------------------------------------------------- 6-7: chain
+# ---------------------------------------------------------------- 6-2: chain
 def fig_chain():
     f = Fig(760, 400)
     f.text(20, 22, "A chain of descriptors (Example 6-2): restore, save, draw", bold=True)
@@ -465,7 +465,7 @@ def fig_chain():
     f.text(30, yb + 15, "loading one costs 16 memory reads.", size=11, fill=TXT2)
     f.text(30, yb + 37, "The channel loads each into its job registers, runs it,", size=11, fill=TXT2)
     f.text(30, yb + 52, "then loads the one at NEXT.", size=11, fill=TXT2)
-    return f.save("blitter-6-7-chain.svg")
+    return f.save("blitter-6-2-chain.svg")
 
 
 # ---------------------------------------------------------------- 6-8: octants
