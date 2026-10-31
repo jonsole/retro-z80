@@ -1,4 +1,4 @@
-; Example 6-7 (docs/guide/blitter.md): time blitter jobs with TIME.
+; Example 6-8 (docs/guide/blitter.md): time blitter jobs with TIME.
 ; Each job starts on the first visible line of a frame, and TIME (in us)
 ; is read before RUN and after BUSY clears. Every job is timed twice: with
 ; the 360 x 288 8 bpp screen showing (L0 at 2x, the only layer), and with

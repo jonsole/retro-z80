@@ -59,6 +59,7 @@ This chapter covers:
 - filling with a value or a pattern, and adding to pixels;
 - drawing lines, with patterns and a clip rectangle;
 - drawing wireframe objects with one job each;
+- moving objects over a screen split between two depths, with the LINE interrupt;
 - starting jobs from the copper and timers;
 - speed, measured on the board, and how to keep jobs fast;
 - what the blitter cannot do, and how it compares with the Amiga's;
@@ -1171,6 +1172,102 @@ On the board the cube turns smoothly and leaves no trace behind it. As it drifts
 
 ---
 
+## Objects on a Split Screen
+
+A layer's depth is one of its line settings, read at the start of each line, so a LINE interrupt can change it part-way down the picture (Playfield Hardware chapter, "Split Screens"). One layer then shows one part of the screen at 8 bpp, with all 256 colours, and the rest at 4 bpp, with 16 at a time, and uses memory for each part accordingly. The blitter only needs to know, for each job, which depth the pixels it touches are at. This section puts it together: eight balls, four in each half.
+
+### The two halves in memory
+
+The picture is 360 × 288 pixels, shown at 2× each way. Source lines 0–143 are the top half, at 8 bpp: 360 bytes a row, 51,840 bytes in all. Source lines 144–287 are the bottom half, at 4 bpp: 180 bytes a row, straight after the top half, at `BOT` = `SCREEN + 144 × 360`. The layer's pointer starts at `SCREEN` and the stride carries it on, so the bottom half needs no pointer of its own: it is only a change of depth and stride at the right line.
+
+### Changing depth at the split
+
+Source line 144 is shown on beam lines 337 and 338 (`VID_Y0 + 2 × 144`). A write to CTRL0 or CTRL1 during line 336 is used from line 337, so the LINE interrupt is asked for on line 336, `SPLIT`. The stride is used at the end of each line, so it cannot change in the same interrupt: line 336 must still step 360 bytes on, to the start of the bottom half. A second LINE, on line 337, writes the new stride, in time for the end of the last copy of source line 144. The handler tells the two apart with a flag, and moves LINECMP on by one line the first time (the high byte is the same, so one write does it):
+
+```
+line:   push    af
+        push    bc
+        ld      bc,VIDSTAT_P
+        ld      a,VIDSTAT_LINE_M
+        out     (c),a                   ; clear the cause first
+        ld      a,(phase)
+        or      a
+        jr      nz,.stride
+        ld      bc,L0_CTRL0_P
+        ld      a,CTRL0_4
+        out     (c),a                   ; 4 bpp from the next line
+        inc     b
+        ld      a,CTRL1_4
+        out     (c),a                   ; and the 4 bpp half's palette block
+        ld      bc,LINECMP0_P
+        ld      a,low (SPLIT + 1)
+        out     (c),a                   ; the second LINE: line 337
+        ld      a,1
+        ld      (phase),a
+        jr      .done
+.stride:
+        ld      bc,L0_BPLSTRIDE0_P
+        ld      a,low 180
+        out     (c),a
+        inc     b
+        xor     a
+        out     (c),a                   ; 180 bytes a row for the rest of the frame
+        ld      (phase),a
+.done:  pop     bc
+        pop     af
+        ei
+        reti
+```
+
+Nothing resets these settings at the start of a frame, so the program puts them back in every vertical blank: CTRL0 and CTRL1 for 8 bpp, the stride 360, LINECMP at `SPLIT` and the flag clear. That also puts right a handler that was held off for a whole frame.
+
+### Colours at two depths
+
+An 8 bpp pixel is a palette entry number, so the top half can use 256 colours. A 4 bpp pixel is an entry within a block of 16, chosen by PALOFS in CTRL1 (Table 3-35), so the same interrupt that changes the depth also changes PALOFS, and the bottom half has a block to itself. The example loads 110 entries into palette 0 before it starts:
+
+- entries 18 up, 14 to a block, for the top half: a sunset of 48 shades for the background and 24 shades for each of two balls;
+- colours 2–15 of block 9 (entries 144–159) for the bottom half: a sea of 6 shades and 4 shades for each of two balls.
+
+The boot ROM's console keeps its colours in entries 16 and 17 of each block, so the example leaves those alone, and puts all it loaded back to black before it returns. At 4 bpp the sea shows its 6 steps and the balls their 4 shades, where the top half's gradient is smooth: that is the difference the two depths make.
+
+### One list for all the balls
+
+Each ball has the three jobs of Example 6-2: restore, save and draw. The jobs differ with the half the ball is in (Table 6-4's fields):
+
+- **CTRL1** has BPP8 or BPP4, and the draw job adds MASKKEY, with colour 0 as the key.
+- **WIDTH** is 32 pixels in both halves, and HEIGHT is 32.
+- **CDSTRIDE** (the screen's rows) is 360 or 180, and **ABSTRIDE** (the ball's and the save area's rows) is 32 or 16 bytes.
+- **SHIFT** is 0 at 8 bpp. At 4 bpp a ball at an odd x starts at the second pixel of its byte: DBIT is 1 in the draw and restore jobs, BBIT is 1 in the save job.
+
+All the balls' jobs go in one list. The restores come first, last ball first, so that balls that overlap are put back in the opposite order to the one they were drawn in; then each ball's save and draw, in turn (Figure 6-12). The first frame starts the list at the first save, since there is nothing to restore yet.
+
+```
+   restore 7 → restore 6 → ... → restore 0 → save 0 → draw 0 → save 1 → draw 1 → ... → draw 7 → end
+
+                      Figure 6-12: The Order of the Jobs in the List
+```
+
+Each frame the program writes only the addresses and shifts into the jobs: the restore's DPT from where the ball was drawn last, the save's BPT and the draw's DPT from where it goes next. For a ball at (x, y), the address is the half's base + y × row length + x at 8 bpp, or + x ÷ 2 at 4 bpp, with x mod 2 as the shift. The Z80 does this in the picture, while the display is drawing, and starts the list in the vertical blank:
+
+```
+loop:   call    frame                   ; the vertical blank has begun
+        ...                             ; the 8 bpp settings back, LINE at the split
+        ld      hl,(first)
+        call    start2                  ; the list: restores, then saves and draws
+        call    wait2
+        call    prepare                 ; the balls' next places, into the jobs
+        rst     20h                     ; POLLC: a key ends it
+        jr      z,loop
+```
+
+### Example 6-7: Four balls at 8 bpp and four at 4 bpp
+
+`examples/blitter/split.asm` is the whole program. It has the jobs for the eight balls made by a macro, the palette tables and the balls' pictures made by the assembler (a sphere lit from the upper left, in 24 or 4 shades), `prepare` for the positions, and the two LINE handlers above. The balls bounce off the edges of their halves: when a step would take one past an edge, `bounce` puts it on the edge and turns it round, so it never draws outside its half.
+
+On the board it ran at 50 frames a second. The longest list took 681 µs, about 21 lines, inside the 49 lines of the vertical blank, so no ball is half drawn when the picture starts; preparing the next frame took 885 µs of the Z80's time, including the LINE handlers. The top half showed the smooth sunset and shaded spheres; the bottom half the banded sea and balls of four shades, and the split stayed on one line for the whole run. Balls that overlapped came back whole.
+
+---
+
 ## Starting Jobs from the Copper and Timers
 
 The **copper** can start jobs at a chosen place on the screen. The channel registers are beyond a copper MOVE's reach, so it uses MOVEF, one byte per instruction: four MOVEFs write CHDESC and START. With the **B** bit, a copper WAIT also waits until every channel is idle, so a copper list can start a job and wait for it.
@@ -1185,7 +1282,7 @@ Both are built; the Copper chapter and spec 14, section 9, have the details.
 
 The blitter uses only memory cycles that nobody else wants: the Z80, the display, the sprites and the copper always come first. How fast it goes therefore depends on the screen and on what the CPU is doing.
 
-### Example 6-7: Timing jobs with TIME
+### Example 6-8: Timing jobs with TIME
 
 `examples/blitter/speed.asm` times seven jobs with TIME, which counts microseconds. Each job starts on the first visible line of a frame, so it runs while the display is fetching. Every job is timed twice: with the 360 × 288 8 bpp screen showing, and with the layers' fetches off (DMACON.BPLEN clear). Then the program puts the console back and prints the results. This is how one job is timed: TIME's low 16 bits before RUN and after `wait2`, which is enough for anything up to 65 ms:
 
