@@ -36,6 +36,7 @@ class Fig:
     def __init__(self, w, h):
         self.w, self.h = w, h
         self.parts = []
+        self.defs = []
 
     def _attrs(self, **kw):
         out = []
@@ -65,6 +66,15 @@ class Fig:
             f'<{tag} points="{p}" {self._attrs(fill=fill, stroke=stroke, stroke_width=sw, stroke_dasharray=dash)}/>'
         )
 
+    def circle(self, cx, cy, r, fill=WHITE, stroke=LINE, sw=1, dash=None, extra=""):
+        self.parts.append(
+            f"<circle {self._attrs(cx=cx, cy=cy, r=r, fill=fill, stroke=stroke, stroke_width=sw if stroke != 'none' else None, stroke_dasharray=dash)}{extra}/>"
+        )
+
+    def raw(self, s):
+        """Any SVG element, written as given."""
+        self.parts.append(s)
+
     def text(self, x, y, s, size=13, anchor="start", fill=TXT, bold=False, italic=False, rotate=None, halo=False):
         if not s:
             return
@@ -92,7 +102,8 @@ class Fig:
             f'<path d="M0,0 L10,5 L0,10 z" fill="{DIM}"/></marker>'
             '<marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
             f'<path d="M10,0 L0,5 L10,10 z" fill="{DIM}"/></marker>'
-            "</defs>\n"
+            + "".join(self.defs)
+            + "</defs>\n"
             f'<rect width="{self.w}" height="{self.h}" fill="{WHITE}"/>\n'
         )
         return head + "\n".join(self.parts) + "\n</svg>\n"

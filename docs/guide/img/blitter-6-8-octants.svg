@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="470" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">The octant bits for a line from the centre, screen coordinates (y grows down)</text>
+<line x1="50" y1="250" x2="444" y2="250" stroke="#333" stroke-width="1.5" marker-end="url(#ah)"/>
+<line x1="240" y1="60" x2="240" y2="454" stroke="#333" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="444" y="242" font-size="15" text-anchor="end" fill="#1a1a1a" font-weight="bold">x</text>
+<text x="250" y="452" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">y</text>
+<line x1="240" y1="250" x2="374.35" y2="384.35" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="240" y1="250" x2="105.65" y2="384.35" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="240" y1="250" x2="105.65" y2="115.65" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="240" y1="250" x2="374.35" y2="115.65" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="380.9" y="394.9" font-size="11" text-anchor="start" fill="#555" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">|dy| = |dx|: YMAJOR = 0</text>
+<text x="234" y="70" font-size="11" text-anchor="end" fill="#555">up the screen</text>
+<text x="234" y="436" font-size="11" text-anchor="end" fill="#555">down the screen</text>
+<rect x="317.95" y="274.51" width="88" height="50" rx="6" fill="#cfe2f3" stroke="none"/>
+<text x="361.95" y="289.51" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 0</text>
+<text x="361.95" y="304.51" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 0</text>
+<text x="361.95" y="319.51" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 0</text>
+<rect x="246.51" y="345.95" width="88" height="50" rx="6" fill="#f4b183" stroke="none"/>
+<text x="290.51" y="360.95" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 1</text>
+<text x="290.51" y="375.95" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 0</text>
+<text x="290.51" y="390.95" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 0</text>
+<rect x="145.49" y="345.95" width="88" height="50" rx="6" fill="#f4b183" stroke="none"/>
+<text x="189.49" y="360.95" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 1</text>
+<text x="189.49" y="375.95" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 1</text>
+<text x="189.49" y="390.95" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 0</text>
+<rect x="74.05" y="274.51" width="88" height="50" rx="6" fill="#cfe2f3" stroke="none"/>
+<text x="118.05" y="289.51" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 0</text>
+<text x="118.05" y="304.51" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 1</text>
+<text x="118.05" y="319.51" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 0</text>
+<rect x="74.05" y="173.49" width="88" height="50" rx="6" fill="#cfe2f3" stroke="none"/>
+<text x="118.05" y="188.49" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 0</text>
+<text x="118.05" y="203.49" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 1</text>
+<text x="118.05" y="218.49" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 1</text>
+<rect x="145.49" y="102.05" width="88" height="50" rx="6" fill="#f4b183" stroke="none"/>
+<text x="189.49" y="117.05" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 1</text>
+<text x="189.49" y="132.05" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 1</text>
+<text x="189.49" y="147.05" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 1</text>
+<rect x="246.51" y="102.05" width="88" height="50" rx="6" fill="#f4b183" stroke="none"/>
+<text x="290.51" y="117.05" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 1</text>
+<text x="290.51" y="132.05" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 0</text>
+<text x="290.51" y="147.05" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 1</text>
+<rect x="317.95" y="173.49" width="88" height="50" rx="6" fill="#cfe2f3" stroke="none"/>
+<text x="361.95" y="188.49" font-size="11" text-anchor="middle" fill="#1a1a1a">YMAJOR 0</text>
+<text x="361.95" y="203.49" font-size="11" text-anchor="middle" fill="#1a1a1a">XNEG 0</text>
+<text x="361.95" y="218.49" font-size="11" text-anchor="middle" fill="#1a1a1a">YNEG 1</text>
+<line x1="240" y1="250" x2="320" y2="218" stroke="#d70000" stroke-width="2"/>
+<polygon points="320,218 314.32,223.63 312,217.84" fill="#d70000" stroke="none" stroke-width="1"/>
+<circle cx="240" cy="250" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="486" y="80" font-size="13" text-anchor="start" fill="#1a1a1a">YMAJOR = |dy| &gt; |dx|</text>
+<text x="486" y="97" font-size="11" text-anchor="start" fill="#555">the line is longer in y</text>
+<text x="486" y="124" font-size="13" text-anchor="start" fill="#1a1a1a">XNEG = dx &lt; 0</text>
+<text x="486" y="141" font-size="11" text-anchor="start" fill="#555">the line goes left</text>
+<text x="486" y="168" font-size="13" text-anchor="start" fill="#1a1a1a">YNEG = dy &lt; 0</text>
+<text x="486" y="185" font-size="11" text-anchor="start" fill="#555">the line goes up the screen</text>
+<text x="486" y="212" font-size="13" text-anchor="start" fill="#1a1a1a">A tie, |dy| = |dx| (a diagonal),</text>
+<text x="486" y="229" font-size="11" text-anchor="start" fill="#555">counts as YMAJOR = 0.</text>
+<text x="486" y="246" font-size="11" text-anchor="start" fill="#555">On an axis, dx = 0 or dy = 0</text>
+<text x="486" y="263" font-size="11" text-anchor="start" fill="#555">gives XNEG = 0 or YNEG = 0.</text>
+<text x="486" y="290" font-size="13" text-anchor="start" fill="#1a1a1a">The red line: dx = 5, dy = −2</text>
+<text x="486" y="307" font-size="11" text-anchor="start" fill="#555">YMAJOR 0, XNEG 0, YNEG 1</text>
+<text x="486" y="324" font-size="11" text-anchor="start" fill="#555">WIDTH 6, HEIGHT 2</text>
+<rect x="486" y="344" width="14" height="14" fill="#f4b183" stroke="none"/>
+<text x="506" y="355" font-size="11" text-anchor="start" fill="#1a1a1a">YMAJOR = 1</text>
+<rect x="596" y="344" width="14" height="14" fill="#cfe2f3" stroke="none"/>
+<text x="616" y="355" font-size="11" text-anchor="start" fill="#1a1a1a">YMAJOR = 0</text>
+</svg>

@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker><clipPath id="inA"><circle cx="118" cy="128" r="78"/></clipPath><clipPath id="inB"><circle cx="212" cy="128" r="78"/></clipPath><clipPath id="inC"><circle cx="165" cy="208" r="78"/></clipPath><clipPath id="r1c0"><circle cx="165" cy="208" r="78"/></clipPath><mask id="r1m"><rect x="10" y="40" width="310" height="280" fill="#fff"/><circle cx="118" cy="128" r="78" fill="#000"/><circle cx="212" cy="128" r="78" fill="#000"/></mask><clipPath id="r3c0"><circle cx="212" cy="128" r="78"/></clipPath><clipPath id="r3c1" clip-path="url(#r3c0)"><circle cx="165" cy="208" r="78"/></clipPath><mask id="r3m"><rect x="10" y="40" width="310" height="280" fill="#fff"/><circle cx="118" cy="128" r="78" fill="#000"/></mask><clipPath id="r6c0"><circle cx="118" cy="128" r="78"/></clipPath><clipPath id="r6c1" clip-path="url(#r6c0)"><circle cx="212" cy="128" r="78"/></clipPath><mask id="r6m"><rect x="10" y="40" width="310" height="280" fill="#fff"/><circle cx="165" cy="208" r="78" fill="#000"/></mask><clipPath id="r7c0"><circle cx="118" cy="128" r="78"/></clipPath><clipPath id="r7c1" clip-path="url(#r7c0)"><circle cx="212" cy="128" r="78"/></clipPath><clipPath id="r7c2" clip-path="url(#r7c1)"><circle cx="165" cy="208" r="78"/></clipPath><mask id="r7m"><rect x="10" y="40" width="310" height="280" fill="#fff"/></mask></defs>
+<rect width="760" height="330" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">Each bit of MINTERM is one region: bit = A × 4 + B × 2 + C</text>
+<rect x="10" y="40" width="310" height="280" fill="#f4b183" mask="url(#r1m)" clip-path="url(#r1c0)"/>
+<rect x="10" y="40" width="310" height="280" fill="#f4b183" mask="url(#r3m)" clip-path="url(#r3c1)"/>
+<rect x="10" y="40" width="310" height="280" fill="#f4b183" mask="url(#r6m)" clip-path="url(#r6c1)"/>
+<rect x="10" y="40" width="310" height="280" fill="#f4b183" mask="url(#r7m)" clip-path="url(#r7c2)"/>
+<rect x="10" y="40" width="310" height="280" fill="none" stroke="#333" stroke-width="1"/>
+<circle cx="118" cy="128" r="78" fill="none" stroke="#333" stroke-width="1.5"/>
+<circle cx="212" cy="128" r="78" fill="none" stroke="#333" stroke-width="1.5"/>
+<circle cx="165" cy="208" r="78" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="50" y="66" font-size="17" text-anchor="middle" fill="#1a1a1a" font-weight="bold">A</text>
+<text x="280" y="66" font-size="17" text-anchor="middle" fill="#1a1a1a" font-weight="bold">B</text>
+<text x="165" y="302" font-size="17" text-anchor="middle" fill="#1a1a1a" font-weight="bold">C</text>
+<text x="44" y="293" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">0</text>
+<text x="44" y="307" font-size="11" text-anchor="middle" fill="#555">abc</text>
+<text x="165" y="236.64" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">1</text>
+<text x="165" y="250.64" font-size="11" text-anchor="middle" fill="#555">abC</text>
+<text x="237.23" y="112.3" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">2</text>
+<text x="237.23" y="126.3" font-size="11" text-anchor="middle" fill="#555">aBc</text>
+<text x="206.99" y="177.64" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">3</text>
+<text x="206.99" y="191.64" font-size="11" text-anchor="middle" fill="#555">aBC</text>
+<text x="92.77" y="112.3" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">4</text>
+<text x="92.77" y="126.3" font-size="11" text-anchor="middle" fill="#555">Abc</text>
+<text x="123.01" y="177.64" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">5</text>
+<text x="123.01" y="191.64" font-size="11" text-anchor="middle" fill="#555">AbC</text>
+<text x="165" y="105.01" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">6</text>
+<text x="165" y="119.01" font-size="11" text-anchor="middle" fill="#555">ABc</text>
+<text x="165" y="153.55" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">7</text>
+<text x="165" y="167.55" font-size="11" text-anchor="middle" fill="#555">ABC</text>
+<text x="334" y="48" font-size="13" text-anchor="start" fill="#1a1a1a">The quick rule, bit 7 on the left:</text>
+<text x="422" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">7</text>
+<text x="422" y="92" font-size="11" text-anchor="middle" fill="#555">ABC</text>
+<text x="458" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">6</text>
+<text x="458" y="92" font-size="11" text-anchor="middle" fill="#555">ABc</text>
+<text x="494" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">5</text>
+<text x="494" y="92" font-size="11" text-anchor="middle" fill="#555">AbC</text>
+<text x="530" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">4</text>
+<text x="530" y="92" font-size="11" text-anchor="middle" fill="#555">Abc</text>
+<text x="566" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">3</text>
+<text x="566" y="92" font-size="11" text-anchor="middle" fill="#555">aBC</text>
+<text x="602" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">2</text>
+<text x="602" y="92" font-size="11" text-anchor="middle" fill="#555">aBc</text>
+<text x="638" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">1</text>
+<text x="638" y="92" font-size="11" text-anchor="middle" fill="#555">abC</text>
+<text x="674" y="74" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">0</text>
+<text x="674" y="92" font-size="11" text-anchor="middle" fill="#555">abc</text>
+<text x="396" y="122" font-size="13" text-anchor="end" fill="#1a1a1a">A</text>
+<rect x="404" y="104" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="422" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="440" y="104" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="458" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="476" y="104" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="494" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="512" y="104" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="530" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="548" y="104" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="566" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="584" y="104" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="602" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="620" y="104" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="638" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="656" y="104" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="674" y="122" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<text x="700" y="122" font-size="13" text-anchor="start" fill="#1a1a1a">0xF0</text>
+<text x="396" y="148" font-size="13" text-anchor="end" fill="#1a1a1a">B</text>
+<rect x="404" y="130" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="422" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="440" y="130" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="458" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="476" y="130" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="494" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="512" y="130" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="530" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="548" y="130" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="566" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="584" y="130" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="602" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="620" y="130" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="638" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="656" y="130" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="674" y="148" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<text x="700" y="148" font-size="13" text-anchor="start" fill="#1a1a1a">0xCC</text>
+<text x="396" y="174" font-size="13" text-anchor="end" fill="#1a1a1a">C</text>
+<rect x="404" y="156" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="422" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="440" y="156" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="458" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="476" y="156" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="494" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="512" y="156" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="530" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="548" y="156" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="566" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="584" y="156" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="602" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="620" y="156" width="36" height="26" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<text x="638" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="656" y="156" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="674" y="174" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<text x="700" y="174" font-size="13" text-anchor="start" fill="#1a1a1a">0xAA</text>
+<text x="396" y="210" font-size="13" text-anchor="end" fill="#1a1a1a" font-weight="bold">A ? B : C</text>
+<rect x="404" y="192" width="36" height="26" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="422" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="440" y="192" width="36" height="26" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="458" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="476" y="192" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="494" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="512" y="192" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="530" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="548" y="192" width="36" height="26" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="566" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="584" y="192" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="602" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="620" y="192" width="36" height="26" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="638" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="656" y="192" width="36" height="26" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="674" y="210" font-size="13" text-anchor="middle" fill="#1a1a1a">0</text>
+<text x="700" y="210" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">0xCA</text>
+<line x1="334" y1="187" x2="738" y2="187" stroke="#777" stroke-width="1"/>
+<text x="324" y="238" font-size="11" text-anchor="start" fill="#555">Each column is one region of the circles: the column's</text>
+<text x="324" y="253" font-size="11" text-anchor="start" fill="#555">A, B and C bits say which circles it is inside.</text>
+<text x="324" y="275" font-size="11" text-anchor="start" fill="#555">Shaded: the regions where A ? B : C (0xCA) gives 1.</text>
+<text x="324" y="290" font-size="11" text-anchor="start" fill="#555">(0xF0 &amp; 0xCC) | (~0xF0 &amp; 0xAA) = 0xC0 | 0x0A = 0xCA</text>
+</svg>
