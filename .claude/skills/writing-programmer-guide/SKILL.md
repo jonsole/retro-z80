@@ -13,8 +13,8 @@ The guide (`docs/guide/`) teaches a Z80 programmer to use the hardware, chapter 
 2. **Plan** the chapter in the manual's shape (below): its sections and its complete examples. Done when every register of the unit has a home and every example has a purpose a reader would want.
 3. **Write and try the examples** in `examples/<topic>/`. Assemble each with sjasmplus (`--sld`), wrap it with `rlink.py image`, run it on the KS2 through the MCP tools (`launch`, `screen_capture`, `screen_record`, `read_console`, `type_text`), and check it does what the text will say. Measure what can be measured (times, rates) and quote the board's figures. Anything that misbehaves gets a GitHub ticket, and the chapter says what is not built. Done when every complete example has run on the board, and the result is seen in a capture or the console.
 4. **Write the chapter** to the rules below.
-5. **Check it**, rule by rule, against the whole file: every bit table top bit first, every table numbered, every encoding worked from the assembler's output (assemble the instructions and read the words back), no retro68k, British spelling. Done when every rule has been applied to every section.
-6. **Land it.** A line for the chapter in `docs/HANDOFF.md`'s file table; a branch `guide-<topic>` from `origin/main`; a commit and a PR that says what was tried on the board and closes the ticket.
+5. **Check it**, rule by rule, against the whole file: every term and register used by an example introduced in an earlier section (read the chapter in order, as a newcomer would); every bit table top bit first, every table numbered, every encoding worked from the assembler's output (assemble the instructions and read the words back), no retro68k, British spelling. Done when every rule has been applied to every section.
+6. **Land it.** If figures were renumbered, rename the SVGs and the generator in `tools/guide_figures/` together, and grep the specs for `Table n-m` references. A line for the chapter in `docs/HANDOFF.md`'s file table; a branch `guide-<topic>` from `origin/main`; a commit and a PR that says what was tried on the board and closes the ticket.
 
 ## The chapter's shape
 
@@ -22,11 +22,12 @@ As the manual's chapters:
 
 1. **Introduction**: what the hardware does for the programmer, in a paragraph; a bullet list "This chapter covers"; what to read first.
 2. **Conventions in this chapter**: the assembler, the include files, how the registers are reached (page, port form), where the examples are and what they assume (the program map, the boot ROM's console).
-3. **The parts, one by one**, each under its own heading (for the copper: the instruction format, MOVE, WAIT, the registers). Each part: what it does, its bits, a short fragment.
-4. **A working program built step by step**: a numbered list of steps ("Step 1: …" or 1–4), then the complete example.
-5. **Advanced topics**, each with its example.
-6. **Timing**, and **what it cannot do**, where they matter.
-7. **Summary** sections: the instructions or registers, the state after reset and when a program starts, the equates in `hw.inc`.
+3. **The unit itself, before any example**: how it is turned on, its parts (channels, units) and how its registers are reached; then its registers or its data structure, field by field, in the order they are laid out. Each field: what it does, its bits, and what a first simple use puts in it; one worked encoding at the end (for the blitter: the engine and its channels, then a job's 32 bytes, then the screen fill as 32 raw bytes).
+4. **A working program built step by step**: a numbered list of steps ("Step 1: …" or 1–4), with a fragment for each, then the first complete example. Nothing in the example may rely on a part of the unit the reader has not yet met: if an example uses a list, lists come before it.
+5. **The rest of the parts, one by one**, each under its own heading, each with what it does, its bits and a short fragment, and an example where one earns its place.
+6. **Advanced topics**, each with its example.
+7. **Timing**, **what it cannot do**, and the **comparison with the Amiga** (at the end, where the reader knows the terms), where they matter.
+8. **Summary** sections: the instructions or registers, the state after reset and when a program starts, the equates in `hw.inc`.
 
 Headings in Title Case for sections (`## Putting Together a Copper List`), sentence case below them. Sections separated by `---`.
 
@@ -62,6 +63,7 @@ Headings in Title Case for sections (`## Putting Together a Copper List`), sente
 - Each complete example is a file in `examples/<topic>/`, named in the chapter (`examples/copper/bars.asm`), numbered "Example 5-2" with a heading of its own and a one-line purpose in its opening comment.
 - It starts with `device zxspectrum48`, `org 0x8000` and `include "hw.inc"`; it runs in the boot ROM's program map (a Z80 address is a physical address); it ends by putting back everything it changed (layers, copper, interrupts, the IM 2 table, CONMODE) and returning to the monitor.
 - The chapter shows the complete program the first time, from its opening comment and `device` line as in the file; later examples may show only what is new, and name the file for the rest.
+- **Keep the code shown to the minimum that shows the unit.** A shared include (a screen, a console, timing helpers) is described in a list of its routines, not listed; a frame loop or a calculation is summarised in prose unless the point of the section is in it; a snippet of the lines that touch the registers is enough for most sections. A reader should be able to tell which lines are the unit's and which are scaffolding.
 - Every fragment assembles. Comments explain why, at the line they belong to.
 - The text quotes what the board showed: "on the board the change lands on the character boundary", "it took 45,366 µs".
 
