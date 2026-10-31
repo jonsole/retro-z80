@@ -1264,7 +1264,7 @@ loop:   call    frame                   ; the vertical blank has begun
 
 `examples/blitter/split.asm` is the whole program. It has the jobs for the eight balls made by a macro, the palette tables and the balls' pictures made by the assembler (a sphere lit from the upper left, in 24 or 4 shades), `prepare` for the positions, and the two LINE handlers above. The balls bounce off the edges of their halves: when a step would take one past an edge, `bounce` puts it on the edge and turns it round, so it never draws outside its half.
 
-On the board it ran at 50 frames a second. The longest list took 681 µs, about 21 lines, inside the 49 lines of the vertical blank, so no ball is half drawn when the picture starts; preparing the next frame took 885 µs of the Z80's time, including the LINE handlers. The top half showed the smooth sunset and shaded spheres; the bottom half the banded sea and balls of four shades, and the split stayed on one line for the whole run. Balls that overlapped came back whole.
+On the board it ran at 50 frames a second. The longest list took 518 µs, about 16 lines, inside the 49 lines of the vertical blank, so no ball is half drawn when the picture starts; preparing the next frame took 883 µs of the Z80's time, including the LINE handlers. (Before ticket #78's 16-word groups the list took 681 µs.) The top half showed the smooth sunset and shaded spheres; the bottom half the banded sea and balls of four shades, and the split stayed on one line for the whole run. Balls that overlapped came back whole.
 
 ---
 
