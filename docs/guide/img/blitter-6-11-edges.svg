@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="440" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">An EDGES job: a table of points, a table of edges, one job</text>
+<text x="20" y="50" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">POINTS (APT)</text>
+<text x="20" y="68" font-size="11" text-anchor="start" fill="#555">point n at POINTS + 4n</text>
+<text x="86" y="94" font-size="11" text-anchor="middle" fill="#555">n</text>
+<text x="138" y="94" font-size="11" text-anchor="middle" fill="#555">x</text>
+<text x="188" y="94" font-size="11" text-anchor="middle" fill="#555">y</text>
+<text x="60" y="115" font-size="11" text-anchor="end" fill="#555">+0</text>
+<text x="86" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="114" y="100" width="50" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="139" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">98</text>
+<rect x="164" y="100" width="50" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="189" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">61</text>
+<text x="60" y="137" font-size="11" text-anchor="end" fill="#555">+4</text>
+<text x="86" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="114" y="122" width="50" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="139" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">208</text>
+<rect x="164" y="122" width="50" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="189" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">74</text>
+<text x="60" y="159" font-size="11" text-anchor="end" fill="#555">+8</text>
+<text x="86" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">2</text>
+<rect x="114" y="144" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">109</text>
+<rect x="164" y="144" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">165</text>
+<text x="60" y="181" font-size="11" text-anchor="end" fill="#555">+12</text>
+<text x="86" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">3</text>
+<rect x="114" y="166" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">203</text>
+<rect x="164" y="166" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">200</text>
+<text x="60" y="203" font-size="11" text-anchor="end" fill="#555">+16</text>
+<text x="86" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">4</text>
+<rect x="114" y="188" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">164</text>
+<rect x="164" y="188" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">48</text>
+<text x="60" y="225" font-size="11" text-anchor="end" fill="#555">+20</text>
+<text x="86" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">5</text>
+<rect x="114" y="210" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">251</text>
+<rect x="164" y="210" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">55</text>
+<text x="60" y="247" font-size="11" text-anchor="end" fill="#555">+24</text>
+<text x="86" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">6</text>
+<rect x="114" y="232" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">166</text>
+<rect x="164" y="232" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">129</text>
+<text x="60" y="269" font-size="11" text-anchor="end" fill="#555">+28</text>
+<text x="86" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">7</text>
+<rect x="114" y="254" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="139" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">242</text>
+<rect x="164" y="254" width="50" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="189" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">147</text>
+<text x="60" y="291" font-size="11" text-anchor="end" fill="#555">+32</text>
+<text x="86" y="291" font-size="11" text-anchor="middle" fill="#555">8</text>
+<rect x="114" y="276" width="50" height="22" fill="#f3f3f3" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="139" y="291" font-size="11" text-anchor="middle" fill="#555">0x8000</text>
+<rect x="164" y="276" width="50" height="22" fill="#f3f3f3" stroke="#777" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="189" y="291" font-size="11" text-anchor="middle" fill="#555">…</text>
+<text x="114" y="314" font-size="11" text-anchor="start" fill="#555">x and y: 2 bytes each, signed</text>
+<text x="30" y="334" font-size="11" text-anchor="start" fill="#555">point 8: x = 0x8000, behind the eye:</text>
+<text x="30" y="348" font-size="11" text-anchor="start" fill="#555">edges to it are left out</text>
+<text x="260" y="50" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">EDGES (BPT)</text>
+<text x="260" y="68" font-size="11" text-anchor="start" fill="#555">edge k at EDGES + 2k</text>
+<text x="326" y="94" font-size="11" text-anchor="middle" fill="#555">k</text>
+<text x="365" y="94" font-size="11" text-anchor="middle" fill="#555">a</text>
+<text x="405" y="94" font-size="11" text-anchor="middle" fill="#555">b</text>
+<text x="304" y="115" font-size="11" text-anchor="end" fill="#555">+0</text>
+<text x="326" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="345" y="100" width="40" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="365" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="385" y="100" width="40" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="405" y="115" font-size="11" text-anchor="middle" fill="#1a1a1a">1</text>
+<text x="304" y="137" font-size="11" text-anchor="end" fill="#555">+2</text>
+<text x="326" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="345" y="122" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="385" y="122" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="137" font-size="11" text-anchor="middle" fill="#1a1a1a">3</text>
+<text x="304" y="159" font-size="11" text-anchor="end" fill="#555">+4</text>
+<text x="326" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">2</text>
+<rect x="345" y="144" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">3</text>
+<rect x="385" y="144" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="159" font-size="11" text-anchor="middle" fill="#1a1a1a">2</text>
+<text x="304" y="181" font-size="11" text-anchor="end" fill="#555">+6</text>
+<text x="326" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">3</text>
+<rect x="345" y="166" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">2</text>
+<rect x="385" y="166" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="181" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
+<text x="304" y="203" font-size="11" text-anchor="end" fill="#555">+8</text>
+<text x="326" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">4</text>
+<rect x="345" y="188" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">4</text>
+<rect x="385" y="188" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="203" font-size="11" text-anchor="middle" fill="#1a1a1a">5</text>
+<text x="304" y="225" font-size="11" text-anchor="end" fill="#555">+10</text>
+<text x="326" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">5</text>
+<rect x="345" y="210" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">5</text>
+<rect x="385" y="210" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="225" font-size="11" text-anchor="middle" fill="#1a1a1a">7</text>
+<text x="304" y="247" font-size="11" text-anchor="end" fill="#555">+12</text>
+<text x="326" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">6</text>
+<rect x="345" y="232" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">7</text>
+<rect x="385" y="232" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="247" font-size="11" text-anchor="middle" fill="#1a1a1a">6</text>
+<text x="304" y="269" font-size="11" text-anchor="end" fill="#555">+14</text>
+<text x="326" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">7</text>
+<rect x="345" y="254" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">6</text>
+<rect x="385" y="254" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="269" font-size="11" text-anchor="middle" fill="#1a1a1a">4</text>
+<text x="304" y="291" font-size="11" text-anchor="end" fill="#555">+16</text>
+<text x="326" y="291" font-size="11" text-anchor="middle" fill="#1a1a1a">8</text>
+<rect x="345" y="276" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="291" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
+<rect x="385" y="276" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="291" font-size="11" text-anchor="middle" fill="#1a1a1a">4</text>
+<text x="304" y="313" font-size="11" text-anchor="end" fill="#555">+18</text>
+<text x="326" y="313" font-size="11" text-anchor="middle" fill="#1a1a1a">9</text>
+<rect x="345" y="298" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="313" font-size="11" text-anchor="middle" fill="#1a1a1a">1</text>
+<rect x="385" y="298" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="313" font-size="11" text-anchor="middle" fill="#1a1a1a">5</text>
+<text x="304" y="335" font-size="11" text-anchor="end" fill="#555">+20</text>
+<text x="326" y="335" font-size="11" text-anchor="middle" fill="#1a1a1a">10</text>
+<rect x="345" y="320" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="335" font-size="11" text-anchor="middle" fill="#1a1a1a">2</text>
+<rect x="385" y="320" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="335" font-size="11" text-anchor="middle" fill="#1a1a1a">6</text>
+<text x="304" y="357" font-size="11" text-anchor="end" fill="#555">+22</text>
+<text x="326" y="357" font-size="11" text-anchor="middle" fill="#1a1a1a">11</text>
+<rect x="345" y="342" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="365" y="357" font-size="11" text-anchor="middle" fill="#1a1a1a">3</text>
+<rect x="385" y="342" width="40" height="22" fill="#ffffff" stroke="#333" stroke-width="1"/>
+<text x="405" y="357" font-size="11" text-anchor="middle" fill="#1a1a1a">7</text>
+<text x="345" y="380" font-size="11" text-anchor="start" fill="#555">1 byte each</text>
+<rect x="460" y="70" width="290" height="260" fill="#cfe2f3" stroke="#333" stroke-width="1"/>
+<circle cx="460" cy="70" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="466" y="84" font-size="11" text-anchor="start" fill="#1a1a1a">(0, 0): DPT, the origin</text>
+<line x1="518" y1="131" x2="628" y2="144" stroke="#d70000" stroke-width="2.5"/>
+<line x1="628" y1="144" x2="623" y2="270" stroke="#333" stroke-width="1.5"/>
+<line x1="623" y1="270" x2="529" y2="235" stroke="#333" stroke-width="1.5"/>
+<line x1="529" y1="235" x2="518" y2="131" stroke="#333" stroke-width="1.5"/>
+<line x1="584" y1="118" x2="671" y2="125" stroke="#333" stroke-width="1.5"/>
+<line x1="671" y1="125" x2="662" y2="217" stroke="#333" stroke-width="1.5"/>
+<line x1="662" y1="217" x2="586" y2="199" stroke="#333" stroke-width="1.5"/>
+<line x1="586" y1="199" x2="584" y2="118" stroke="#333" stroke-width="1.5"/>
+<line x1="518" y1="131" x2="584" y2="118" stroke="#333" stroke-width="1.5"/>
+<line x1="628" y1="144" x2="671" y2="125" stroke="#333" stroke-width="1.5"/>
+<line x1="529" y1="235" x2="586" y2="199" stroke="#333" stroke-width="1.5"/>
+<line x1="623" y1="270" x2="662" y2="217" stroke="#333" stroke-width="1.5"/>
+<polygon points="578.96,138.2 567.43,141.55 568.53,132.27" fill="#d70000" stroke="none" stroke-width="1"/>
+<circle cx="518" cy="131" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="628" cy="144" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="529" cy="235" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="623" cy="270" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="584" cy="118" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="671" cy="125" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="586" cy="199" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<circle cx="662" cy="217" r="3" fill="#333" stroke="#333" stroke-width="1"/>
+<text x="506.83" y="128.35" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">0</text>
+<text x="635.98" y="137.73" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">1</text>
+<text x="518.72" y="246.96" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">2</text>
+<text x="626.2" y="286.6" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">3</text>
+<text x="580.72" y="109.42" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">4</text>
+<text x="681.28" y="121.04" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">5</text>
+<text x="578.28" y="213.46" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">6</text>
+<text x="673.15" y="227.69" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">7</text>
+<text x="460" y="350" font-size="11" text-anchor="start" fill="#d70000">edge 0 is drawn from a = 0 to b = 1</text>
+<text x="460" y="370" font-size="13" text-anchor="start" fill="#1a1a1a">WIDTH = 12 edges; DPT = the origin, pixel (0, 0)</text>
+<text x="460" y="386" font-size="11" text-anchor="start" fill="#555">x grows right, y grows down</text>
+</svg>

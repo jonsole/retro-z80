@@ -14,7 +14,7 @@ retro68k adopts this design (D12); until its rework lands, retro68k's spec 11 st
 |------|-------|
 | Channels | 4, running at the same time and taking turns, a group of memory cycles each |
 | Programming | A job written straight into a channel's registers, or chains of 32-byte **descriptors** (job descriptions, laid out as those registers) in SRAM |
-| Jobs | **BLIT**: D = minterm(A, B, C), bit by bit, with an 8-bit minterm as the Amiga's. A is a mask (a 1 bpp image, a colour-key compare of B, or none), B an image or the constant VALUE, C the destination's old contents. Copy, fill, transparent copy (cookie-cut), AND, OR, XOR and the rest are all BLITs. **ADD**: D = C + B per pixel, wrapping or saturating. In 1D (a run of bytes) or 2D (rectangles with a stride). MIX on hold, as in retro68k. OP 6 (span fill) and OP 7 (triangle) reserved for 3D, agreed with retro68k |
+| Jobs | **BLIT**: D = minterm(A, B, C), bit by bit, with an 8-bit minterm as the Amiga's. A is a mask (a 1 bpp image, a colour-key compare of B, or none), B an image or the constant VALUE, C the destination's old contents. Copy, fill, transparent copy (cookie-cut), AND, OR, XOR and the rest are all BLITs. **ADD**: D = C + B per pixel, wrapping or saturating. In 1D (a run of bytes) or 2D (rectangles with a stride). **LINE**: a Bresenham line, each pixel through the same minterm, with a 16-bit pattern and a clip rectangle (section 3.4). **EDGES**: every edge of a wireframe object from its points and edge list in SRAM, each drawn as a LINE (section 3.5). MIX on hold, as in retro68k. OP 6 (span fill) and OP 7 (triangle) reserved for 3D, agreed with retro68k |
 | Pixel formats | 1, 2, 4 or 8 bits per pixel; A, B and D each start at their own pixel within a byte, and the engine shifts each source into line with D |
 | Sources and destinations | **Version 1: SRAM only** (design plan, branch 21). Later: the custom registers, the palettes, the boot ROM (read only) and the peripheral ports (section 4) |
 | Addresses | Physical: MMU page × `0x2000` + offset (section 4). Not through the MMU windows |
@@ -22,7 +22,7 @@ retro68k adopts this design (D12); until its rework lands, retro68k's spec 11 st
 | Speed at 576p | Copy about 21–45 MB/s, fill about 42–89 MB/s, depending on the screen and the CPU (section 7). The Z80's `LDIR` copies about 0.95 MB/s at 20 MHz |
 | Starting | The CPU (ports or the register page), the copper (MOVEF), a timer, or (later, with register targets) another channel through a copy into CHCTRL (spec 9) |
 | Finishing | An interrupt per descriptor if asked (DMA0–DMA3), status flags per channel, an idle signal for the copper's WAIT B |
-| Registers | Custom block offsets `0x140`–`0x23F` (spec 3): channel n at `0x140 + n × 0x40`; DMXINT and DMXINTEN at `0x230` and `0x234` |
+| Registers | Custom block offsets `0x140`–`0x23F` (spec 3): channel n at `0x140 + n × 0x40`; DMXINT and DMXINTEN at `0x230` and `0x234`; the line clip rectangle at `0x238`–`0x23F` |
 | Enable | DMACON.BLTEN with DMACON.DMAEN (spec 4) |
 
 ## 2. Comparison with retro68k
@@ -47,6 +47,7 @@ retro68k adopts this design (D12); until its rework lands, retro68k's spec 11 st
 | Interrupts | DMA0–DMA3, sources 4–7, a level each | DMA0–DMA3, sources 4–7, fixed priority (spec 8) | IM 2 on one /INT line |
 | Copper start | A MOVE | MOVEF, one byte per instruction (section 9.2) | Copper MOVE reaches offsets `0x000`–`0x0EF` only (spec 6) |
 | OP 6 and 7 | Reserved (an error) | Reserved (an error): OP 6 span fill, OP 7 triangle, agreed with retro68k (open point D6) | Design plan, branches 10 and 21 |
+| Line drawing | Its D3: a line job, separate from the triangle job, with retro68k's sketch as the start (30 October 2026) | **LINE, OP 2** (section 3.4): software gives the octant, the two lengths and the first pixel; the engine derives the Bresenham terms, writes each pixel through the minterm with a 16-bit pattern as A, and skips pixels outside a global clip rectangle | The fast3d benchmark (spec 15, section 10): lines and clipping are 40% of a picture once the geometry unit does the vertices. To be agreed with retro68k (open point D3) |
 | Version 1 targets | SRAM, registers, palettes, descriptor RAM, boot ROM, ports | SRAM only; the rest decided later (section 4) | Design plan, branch 21 |
 
 ## 3. Descriptors
@@ -76,11 +77,12 @@ A WIDTH or HEIGHT of 0 makes the job do nothing; the chain carries on with NEXT.
 
 | Byte | Bits | Name | Meaning |
 |------|------|------|---------|
-| CTRL0 | 2–0 | OP | 0 BLIT, 1 ADD, 2–4 reserved (an error), 5 MIX (on hold: an error), 6 span fill and 7 triangle (reserved for 3D: an error) |
-| CTRL0 | 3 | – | Reserved, write 0 |
+| CTRL0 | 2–0 | OP | 0 BLIT, 1 ADD, 2 LINE, 3 EDGES, 4 reserved (an error), 5 MIX (on hold: an error), 6 span fill and 7 triangle (reserved for 3D: an error) |
+| CTRL0 | 3 | YMAJOR | LINE: the line steps along y (it is longer in y); 0: along x. Other jobs: reserved, write 0 |
 | CTRL0 | 4 | SAT | ADD: saturate instead of wrapping |
 | CTRL0 | 5 | SIGNED | ADD: pixels are two's complement |
-| CTRL0 | 7–6 | – | Reserved, write 0 |
+| CTRL0 | 6 | XNEG | LINE: x goes down (to the left). Other jobs: reserved, write 0 |
+| CTRL0 | 7 | YNEG | LINE: y goes down (up the screen, D moves back by CDSTRIDE). Other jobs: reserved, write 0 |
 | CTRL1 | 1–0 | BPP | 0 = 1, 1 = 2, 2 = 4, 3 = 8 bits per pixel |
 | CTRL1 | 2 | DESC | Run backwards: from the last pixel of the last row to the first pixel of the first row, for overlapping copies where the destination is after the source. The addresses still give the first pixel |
 | CTRL1 | 3 | IRQ | Set the channel's DMXINT bit when this descriptor finishes |
@@ -164,6 +166,105 @@ The pattern goes by D's address, not by position in the row, so each row of a 2D
 **Overlapping copies:** a job reads up to 16 bytes ahead of what it writes (section 6). If the destination is before the source, or the areas do not overlap, run forwards (DESC = 0). If the destination is after the source and the areas overlap, run backwards (DESC = 1); for a 2D job this holds for the whole rectangle (scrolling a screen down within itself is a backwards job). DESC = 1 starts at the last pixel of the last row and works back through A, B and D together; the addresses are still written as the first pixel, so the same job can run either way.
 
 **Errors:** a reserved OP, MIX, MASK = 3 (and MASK = 1 on the KS2, which has no mask image, section 11), or a non-zero CTRL2 stops the channel (section 8.5).
+
+### 3.4 LINE
+
+A LINE job draws one straight line of WIDTH pixels by Bresenham's rule, from the first pixel at DPT. Software works out which way the line goes and how long it is on each axis; the engine works out the rest, steps along the line and writes each pixel through the minterm, as BLIT does, skipping pixels outside the clip rectangle (section 8.4).
+
+**Fields:**
+
+| Field | In a LINE job |
+|-------|---------------|
+| CTRL0 | OP = 2; YMAJOR, XNEG, YNEG: the octant (above). SAT and SIGNED are ignored |
+| CTRL1 | BPP and IRQ as for any job. BCONST is ignored: B is always VALUE. DESC and MASK must be 0 (an error otherwise) |
+| MINTERM | D = MINTERM(A, B, C) for each pixel, as BLIT (section 3.1): `0xCA` draws the colour where the pattern is 1 and leaves the rest; `0xEA` sets bits; `0x6A` XORs, so the same job draws and undraws |
+| APT | Bits 15–0: **LX**, the first pixel's x, signed, for the clip test only. Bits 22–16 ignored |
+| BPT | Bits 15–0: **LY**, the first pixel's y, signed, for the clip test only (y grows down the screen). Bits 22–16 ignored |
+| DPT, SHIFT.DBIT | The first pixel's address and its position in the byte, as for BLIT. ABIT and BBIT are ignored |
+| WIDTH | The pixels drawn: the longer axis's length + 1, so both ends are drawn. 1 to 32,768; bits 23–16 must be 0 and WIDTH no more than 32,768 (an error otherwise). 0 does nothing |
+| HEIGHT | The shorter axis's length (|dy| with YMAJOR clear, |dx| with it set): 0 to WIDTH − 1. More is an error |
+| ABSTRIDE | Ignored |
+| CDSTRIDE | Bytes from one row of the screen to the next, signed. YNEG steps back by it |
+| VALUE | Bits 7–0: the colour, B (its low BPP bits). Bits 31–16: the **pattern**, A. Bits 15–8 ignored |
+| NEXT | As for any job |
+
+**Stepping.** With M = WIDTH − 1 (the longer length) and N = HEIGHT (the shorter), the engine keeps an error term E, starting at E = 2N − M. For each of the WIDTH pixels, in order from the first:
+
+1. The pixel at (x, y) is drawn, unless it is outside the clip rectangle.
+2. Unless it was the last: if E > 0, the line steps along the shorter axis as well, and E becomes E + 2(N − M); otherwise E becomes E + 2N. Then it steps along the longer axis.
+
+A step along x moves one pixel to the right (XNEG: the left) through the bytes at the job's BPP, as DBIT counts; a step along y moves D by CDSTRIDE (YNEG: back by it). x and y start at LX and LY and move with the steps. So a line from (x0, y0) to (x1, y1) is: YMAJOR = |y1 − y0| > |x1 − x0|, XNEG = x1 < x0, YNEG = y1 < y0, WIDTH = the larger of the two lengths + 1, HEIGHT = the smaller. A tie (E = 0) goes straight, so a line drawn from the other end can differ by a pixel at each tie: draw a line that is to be undrawn with XOR the same way both times.
+
+**The pattern.** A is VALUE's bit 31 for the first pixel, bit 30 for the second, and so on round the 16 bits: bit 31 again for the 17th. The pattern moves on for every pixel, drawn or clipped, so a dashed line keeps its dashes where the clip rectangle cuts it. All ones (`0xFFFF`) is a solid line. Each job starts the pattern at bit 31 again; the job registers keep VALUE.
+
+**Each pixel** is a read of the byte holding it (C) and a write, as a BLIT's partial bytes are (section 6). At 8 bpp with a minterm that does not use C (for that pixel's A), the read is left out. Where A is 0 and MINTERM's low four bits are `0xA` (D = C, as in `0xCA`), the pixel is neither read nor written, so the gaps of a dashed line cost nothing. A clipped pixel is neither read nor written either: it costs the engine a step, about 10 ns, and no memory cycle.
+
+**Clipping.** A pixel is drawn only if CLIPXMIN ≤ x ≤ CLIPXMAX and CLIPYMIN ≤ y ≤ CLIPYMAX (section 8.4). DPT is only stepped, never checked against the screen, and its address is checked (section 4) only for pixels that are drawn: a line may start off the screen, with DPT = S + stride × y0 + x0 ÷ p and DBIT = x0 mod p, p the pixels a byte holds, rounded down so DBIT is never negative, worked out in 23 bits, wrapping. Software keeps the rectangle inside the screen and leaves out lines that cannot reach it. After reset the rectangle is the whole range, −32,768 to 32,767, so nothing is clipped.
+
+**A line in fast3d's terms:** from (x0, y0) to (x1, y1) on a 1 bpp screen 32 bytes a line at physical S, with the window as the clip rectangle:
+
+```
+        ; HL = x0, DE = y0 (on or off the screen; the rectangle clips)
+        ; the octant, WIDTH and HEIGHT worked out as above
+        LD   (REGS+DMX2_APT),HL       ; LX
+        LD   (REGS+DMX2_BPT),DE       ; LY
+        ...                           ; DPT = S + 32 y0 + x0 / 8, DBIT = x0 mod 8
+        LD   A,DMX_CHCTRL_RUN_M
+        LD   (REGS+DMX2_CHCTRL),A     ; draws; CHSTAT.BUSY clears at the end
+```
+
+The fields that are the same for every line (CTRL1, MINTERM, CDSTRIDE, VALUE, NEXT = 0) are written once: the job registers keep them.
+
+**What it is not:** the Amiga's one-pixel-per-row mode for area fills, a line that starts part-way through its first step (a sub-pixel start), and lines wider than one pixel are not part of LINE (open point D3).
+
+### 3.5 EDGES
+
+An EDGES job draws every edge of a wireframe object: the engine reads the object's projected points and its list of edges from SRAM and draws each edge as a LINE, working out the octant, the lengths and the first pixel's address itself. So the CPU sets up one job an object, not one a line. Measured with LINE alone, the Z80's setup of each line cost as much as drawing it in software (spec 15, section 10); EDGES was added for that (30 October 2026, ticket #75).
+
+**In memory:**
+
+- **Points:** point n is 4 bytes at POINTS + 4n: x, then y, each signed 16-bit, low byte first, in pixels from the origin, y growing down the screen. This is how the geometry unit's RX and RY come out (spec 15). An x of `0x8000` marks a point behind the eye: edges to it are not drawn.
+- **Edges:** edge k is 2 bytes at EDGES + 2k: the numbers of its two points, 0–255, drawn from the first to the second.
+
+**Fields:**
+
+| Field | In an EDGES job |
+|-------|-----------------|
+| CTRL0 | OP = 3. YMAJOR, XNEG, YNEG, SAT and SIGNED are ignored |
+| CTRL1 | BPP and IRQ as for any job. BCONST is ignored. DESC and MASK must be 0 (an error otherwise) |
+| MINTERM | As LINE: `0xCA` draws the colour where the pattern is 1 |
+| APT | POINTS: the first point's address. Even (an error otherwise) |
+| BPT | EDGES: the first edge's address. Even (an error otherwise) |
+| DPT, SHIFT.DBIT | The **origin**: the address of pixel (0, 0) and its position in the byte. Pixel (x, y) is at bit 8 × DPT + DBIT × BPP + 8 × y × CDSTRIDE + x × BPP from the start of memory, in 23-bit byte addresses, wrapping |
+| WIDTH | The number of edges, 0 to 65,535. Bits 23–16 must be 0 (an error otherwise) |
+| HEIGHT, ABSTRIDE | Ignored |
+| CDSTRIDE | Bytes from one row of the screen to the next, signed |
+| VALUE | As LINE: bits 7–0 the colour, bits 31–16 the pattern |
+| NEXT | As for any job |
+
+**Each edge**, from point a to point b:
+
+1. It is left out if either x is `0x8000` (behind the eye), if either point is outside −16,384 to 16,383 on either axis (software holds its points to that, as fast3d does), or if both ends are beyond the same side of the clip rectangle (both x below CLIPXMIN, both above CLIPXMAX, and so on).
+2. Otherwise it is drawn exactly as a LINE job (section 3.4) from (xa, ya) to (xb, yb): YMAJOR = \|yb − ya\| > \|xb − xa\|, XNEG = xb < xa, YNEG = yb < ya, WIDTH = the longer length + 1, HEIGHT = the shorter, the first pixel at (xa, ya), clipped pixel by pixel. The pattern starts at bit 31 for each edge.
+
+Edges that share a point both draw it: with a minterm that uses C (XOR), a shared point is drawn twice.
+
+**Memory cycles:** each edge reads its 2 bytes (one word) and its two points (four words), then two cycles a pixel drawn, as LINE. An edge left out costs its five reads.
+
+**A wireframe object in fast3d's terms:** the geometry unit's projected points are written as records, then one EDGES job draws the object:
+
+```
+        ; channel 0 holds CTRL (EDGES, 1 bpp), MINTERM, DPT (the screen's
+        ; origin), CDSTRIDE and VALUE from before: only these change
+        LD   HL,points_phys & 0xFFFF
+        LD   (REGS+DMX0_APT),HL       ; POINTS (and APT2 if it changes)
+        LD   HL,edges_phys & 0xFFFF
+        LD   (REGS+DMX0_BPT),HL       ; EDGES
+        LD   HL,12
+        LD   (REGS+DMX0_WIDTH),HL     ; a cube's 12 edges
+        LD   A,DMX_CHCTRL_RUN_M
+        LD   (REGS+DMX0_CHCTRL),A
+```
 
 ## 4. Where data can come from and go to
 
@@ -274,7 +375,9 @@ Examples, with one full-screen 8 bpp layer at 2×, 8 sprites and the CPU busy:
 | Draw a 32 × 32 8 bpp sprite with a key colour (cookie-cut, compare mask) | 1,024 | about 30 µs | – |
 | Load a 256-entry palette (768 bytes) from SRAM (later: palettes are not a target in version 1) | 768 | about 25 µs | 0.8 ms |
 
-These figures are worked out from the slot rules; open point D2 is to measure them in simulation. Making the CPU wait for the engine in a polling loop or in `HALT` frees few of its cycles; slowing the CPU (spec 7) does.
+These figures are worked out from the slot rules; open point D2 is to measure them in simulation.
+
+**LINE** takes two memory cycles a pixel (a read and a write; one at 8 bpp when the minterm does not use C): with the free cycles of the table above, about 1,000–1,400 a line, that is roughly 15–20 million pixels a second, shared between the channels. fast3d's flight (spec 15, section 10) draws about 1,500 pixels a picture (75,000 T-states at about 50 a pixel in software), well under a millisecond's work for the engine. A clipped pixel costs a step and no memory cycle. Making the CPU wait for the engine in a polling loop or in `HALT` frees few of its cycles; slowing the CPU (spec 7) does.
 
 ## 8. Channels and registers
 
@@ -352,7 +455,14 @@ In channel 3's spare bytes, where retro68k has them (after its channel 3):
 | `0x230` | `0x3012` | `0x1230` | DMXINT | W1C | CH3–CH0 (3–0) | A channel's interrupt is pending: a job with IRQ finished, or an error. Bits 7–4 read 0 | 0 |
 | `0x234` | `0x3412` | `0x1234` | DMXINTEN | RW | CH3–CH0 (3–0) | Interrupt enables per channel. Bits 7–4 read 0 | 0 |
 
-`0x231`–`0x233` and `0x235`–`0x23F` are reserved.
+| `0x238`–`0x239` | `0x3812`–`0x3912` | `0x1238` | CLIPXMIN | RW | 15–0, signed | LINE's clip rectangle: the least x drawn | `0x8000` |
+| `0x23A`–`0x23B` | `0x3A12`–`0x3B12` | `0x123A` | CLIPXMAX | RW | 15–0, signed | The most x drawn | `0x7FFF` |
+| `0x23C`–`0x23D` | `0x3C12`–`0x3D12` | `0x123C` | CLIPYMIN | RW | 15–0, signed | The least y drawn | `0x8000` |
+| `0x23E`–`0x23F` | `0x3E12`–`0x3F12` | `0x123E` | CLIPYMAX | RW | 15–0, signed | The most y drawn | `0x7FFF` |
+
+`0x231`–`0x233` and `0x235`–`0x237` are reserved.
+
+**The clip rectangle** is one for all four channels, inclusive at both ends, in the same coordinates as a LINE job's LX and LY (section 3.4). It is read as each pixel is stepped, so set it while no LINE job runs: once a picture, typically. Each byte takes effect when written (spec 3, rule 2). Only LINE uses it.
 
 **DMACON** (spec 4): **BLTEN**, with DMAEN, lets the engine run. Both are clear after reset.
 
@@ -360,7 +470,7 @@ In channel 3's spare bytes, where retro68k has them (after its channel 3):
 
 ### 8.5 Errors
 
-A bad address (section 4), a register or palette access breaking the rules, a bad OP, a bad combination of kinds or a reserved port (section 3), a CHDESC or NEXT that is not a multiple of 4 or not in SRAM, stops the channel: ERR is set, BUSY clears, CHERR holds the address (or the descriptor's address), CHDESC the descriptor, and the channel's DMXINT bit is set. The other channels carry on. A job written directly and started with RUN that is bad stops in the same way, with CHDESC unchanged; a bad CTRL (OP, MASK, CTRL2) has no address of its own, so CHERR holds CHDESC (0 after reset). DONE is set only at the end of a chain or on STOP, never after an error. Both seen on the KS2 and agreed with retro68k (its spec 11).
+A bad address (section 4), a register or palette access breaking the rules, a bad OP, a LINE job with DESC or MASK set, WIDTH over 32,768 or HEIGHT over WIDTH − 1, an EDGES job with DESC or MASK set, an odd APT or BPT, or WIDTH over 65,535, a bad combination of kinds or a reserved port (section 3), a CHDESC or NEXT that is not a multiple of 4 or not in SRAM, stops the channel: ERR is set, BUSY clears, CHERR holds the address (or the descriptor's address), CHDESC the descriptor, and the channel's DMXINT bit is set. The other channels carry on. A job written directly and started with RUN that is bad stops in the same way, with CHDESC unchanged; a bad CTRL (OP, MASK, CTRL2) has no address of its own, so CHERR holds CHDESC (0 after reset). DONE is set only at the end of a chain or on STOP, never after an error. Both seen on the KS2 and agreed with retro68k (its spec 11).
 
 ## 9. Starting and waiting
 
@@ -507,6 +617,8 @@ Software decides, but a sensible default, as retro68k's:
 | Per-channel state (the running job's positions) | Distributed RAM, one channel worked on at a time (as retro68k's `bpldma.v` and `sprites.v`) |
 | Data buffer between reads and writes (16 bytes and the shifter's carry) | Logic |
 | The shared datapath: 2D address units, byte and pixel shifter, edge masks, colour key compare, logic function, per-pixel adder | Estimate 1,500–2,500 LUTs, as retro68k's, to confirm by synthesis; pipelined from the start for 100 MHz |
+| EDGES | Reading each edge and its two points, the octant, the lengths and the first pixel's address (y × CDSTRIDE in a DSP slice), the trivial rejection against the clip rectangle; the stepping is LINE's. Estimate 300–500 LUTs more, and a DSP |
+| LINE | The octant, the error term and its two increments (derived from WIDTH and HEIGHT), x and y counters and four comparators against the clip rectangle, the pattern's rotation, and a one-pixel step through D's address unit. Estimate 300–500 LUTs. The clip rectangle is 64 flip-flops |
 | Block RAM | None in version 1 (a descriptor RAM would be one RAMB18, open point D5) |
 
 retro68k's engine came to about 2,300 LUTs. The port (ticket #39) came to about 2,550 logic LUTs and 400 LUTs of distributed RAM; of the logic, the 1 bpp mask image (MASK = 1) is about 400 and ADD about 125. With 2 sprites the KS2 was still 29 LUTs short, so **the KS2 builds 2 sprites and no mask image** (`DMX_MASKIMG = 0`: MASK = 1 is an error there, section 8.5); compare masks, every minterm and ADD work. It came to 9,773 logic LUTs (94%), timing met by 0.080 ns (29 October 2026). The KS3 builds everything (design plan, branch 21).
@@ -520,6 +632,8 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 - **Masks:** a 1 bpp mask at every ABIT against every DBIT and BPP; a compare mask with key pixels at the row edges; cookie-cut at 8 bpp writes no byte where the mask is 0 and reads no C.
 - **Reads only when needed:** count the memory cycles of a copy, a fill, a cookie-cut with each mask, and a minterm using C.
 - **A fill's value:** the 4-byte pattern by address, least significant byte first, at every starting address mod 4; a tile map fill with 2-byte entries.
+- **EDGES:** random objects of random points (some behind the eye, some outside ±16,384, some wholly beyond one side of the clip rectangle) and edges, against the same model; the per-edge reads; an odd APT or BPT and WIDTH over 65,535 give an error. On the KS2, fast3d's flight with an EDGES job an object.
+- **LINE:** every octant, every BPP, every DBIT, WIDTH 1 (one pixel), HEIGHT 0 and WIDTH − 1 (straight and 45°), positive and negative CDSTRIDE, a random MINTERM, patterns, lines crossing every edge of the clip rectangle and wholly outside it, against a Python model of section 3.4; the pattern's phase where a line enters the rectangle; memory cycles: two a pixel, one at 8 bpp without C, none for a clipped pixel; WIDTH over 32,768, HEIGHT over WIDTH − 1, DESC and MASK give an error. On the KS2, fast3d's flight with LINE against its software lines (spec 15, section 10).
 - **ADD:** every BPP, wrap and saturate, signed and unsigned, memory and constant sources, with and without a mask; carries never cross pixels.
 - **Chains:** a chain of mixed jobs in SRAM; IRQ only on the marked ones; jobs of zero width or height; a CHDESC or NEXT not a multiple of 4.
 - **Direct jobs:** a job written into the job registers and started with RUN, with and without a NEXT chain after it; job register and CHDESC writes ignored while BUSY; the job registers read back as loaded; `LDIR` of a 32-byte image through the register page sets a job.
@@ -527,7 +641,7 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 - **Channels:** all 4 running at once, taking turns; a stalled port channel does not hold up the others; STOP and PAUSE, and a START or RUN while PAUSE is set.
 - **Free cycles only:** with the CPU at 20 MHz, 2.5 MHz and 3.57 MHz, the display, copper and sprites busy, the engine never takes a cycle another user wanted: CPU accesses, layer and sprite fetches (no OVERRUN or SPRUNDER on a screen within budget) and copper reads are exactly the same with and without jobs running.
 - **Later (not in version 1), boot ROM:** a copy from the boot ROM to SRAM (the console font) gives the ROM's bytes, with no SRAM read cycles.
-- **Errors:** an address outside SRAM (in version 1 also the registers, palettes and boot ROM), past the end of a 2 MB board, a reserved OP, MIX, MASK = 3 and a non-zero CTRL2 each stop only that channel, set ERR and CHERR, and raise its interrupt.
+- **Errors:** an address outside SRAM (in version 1 also the registers, palettes and boot ROM), past the end of a 2 MB board, a reserved OP, MIX, MASK = 3, a non-zero CTRL2 and a bad LINE job each stop only that channel, set ERR and CHERR, and raise its interrupt.
 - **Later, register targets:** a block copy into a layer's registers gives exactly the same result as CPU writes; a copy into CHCTRL starts another channel; a CPU write between two of a job's bytes lands at once and the last write to each byte wins; register reads into SRAM, with a captured register read consistently by one channel; a CPU register access is never delayed by the engine.
 - **Later, palettes:** a copy into a palette changes entries as their red bytes arrive, through the engine's own assembly buffer, separate from the CPU's and the copper's; a saturating ADD fades a palette.
 - **Later, ports:** an SD card read of a block through port 0 with SDCOUNT (with the SD model in `sim/`); a USB serial transfer each way through port 1, paced by the FIFOs.
@@ -543,7 +657,7 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 |---|------|
 | D1 | Check the engine fits and meets timing at 100 MHz, and uses back-to-back free cycles |
 | D2 | Measure the speed figures of section 7. Measured on the KS2 (ticket #63, guide chapter 6): 25–35% below section 7, and only 8–13% faster with the layers off. The cause is the engine's own pipeline, one group at a time, read then write with no overlap, not the scheduler (retro68k agrees: its dmx.v is the same). Overlapping a group's reads with the last one's writes could close much of the gap, still to be measured; decided with retro68k under its D2 |
-| D3 | Line drawing, area fill, and scaling or rotating blits: later, as retro68k's D3 |
+| D3 | Line drawing: **LINE, OP 2** (section 3.4) and **EDGES, OP 3** (section 3.5, decided 30 October 2026 when LINE alone left the Z80's per-line setup as the cost), decided 30 October 2026 from the fast3d benchmark (spec 15, G1; ticket #75): software gives the octant and the two lengths, the engine derives the Bresenham terms; each pixel through the minterm with a 16-bit pattern as A; one read and one write a pixel; a global clip rectangle at `0x238`–`0x23F`. A job of its own, separate from OP 7 triangle. To be agreed with retro68k, whose sketch it follows. Still later: merging the pixels that share a byte into one read and write (up to 8 times fewer cycles on shallow 1 bpp lines), the Amiga's one-pixel-per-row mode for area fill, sub-pixel starts, and scaling or rotating blits, as retro68k's D3 |
 | D4 | MIX (section 3.1): on hold until it has proper resampling, as retro68k's D4 |
 | D5 | A descriptor RAM, as retro68k's: 2 KB (64 descriptors) in one RAMB18, with no SRAM cycles to load a descriptor, for short frequent jobs. It needs a block RAM from the budget (spec 4 sets the video's share) and an address: an MMU page of its own (for example `0x3F9`), which the CPU could also map, rather than room in the register page. Not in version 1 (decided again on 28 October 2026, design plan branch 21; the KS3 has the block RAM for it later) |
 | D6 | OP 6 span fill and OP 7 triangle, for flat-shaded 3D (design plan, branch 10): the codes are agreed with retro68k (28 October 2026), and neither project gives them another meaning without asking the other. Their layouts come with the 3D design (spec 15); CTRL2, `+0x1F` and the reserved bytes `+0x2F`–`+0x3F` of each channel give room |

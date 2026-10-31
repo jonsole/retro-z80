@@ -16,15 +16,18 @@ Used two ways:
     7-0). Exits 1 on any difference.
 
 A job is a dict with the descriptor's fields, decoded:
-  op ('BLIT', 'ADD'), minterm, mask (0 none, 1 image at apt, 2 key compare),
-  sat, signed (ADD), bpp (1, 2, 4, 8), desc, bkind ('mem', 'value': BCONST),
-  apt, abit, bpt, bbit, dpt, dbit, width, height, abstride, cdstride
-  (signed), value.
+  op ('BLIT', 'ADD', 'LINE'), minterm, mask (0 none, 1 image at apt, 2 key
+  compare), sat, signed (ADD), bpp (1, 2, 4, 8), desc, bkind ('mem',
+  'value': BCONST), apt, abit, bpt, bbit, dpt, dbit, width, height,
+  abstride, cdstride (signed), value. A LINE job (section 3.4) has ymaj,
+  xneg, yneg, lx, ly (the first pixel's x and y) and uses the clip
+  rectangle given to run_job.
 """
 import json
 import sys
 
-OPS = {"BLIT": 0, "ADD": 1}
+OPS = {"BLIT": 0, "ADD": 1, "LINE": 2, "EDGES": 3}
+FULL = (-32768, 32767, -32768, 32767)   # the clip rectangle after reset
 
 
 def get_pix(mem, addr, pos, b):
@@ -75,7 +78,81 @@ def minterm_pix(m, a, bv, c, b):
     return r
 
 
-def run_job(mem, j):
+def run_line(mem, j, clip=FULL):
+    """A LINE job (spec 14, section 3.4): WIDTH pixels by Bresenham's rule
+    from (lx, ly) at (dpt, dbit), each through the minterm with the pattern
+    as A and the colour as B, unless outside the clip rectangle or left
+    alone (A = 0 with D = C)."""
+    b, w, n = j["bpp"], j["width"], j["height"]
+    m = w - 1
+    e = 2 * n - m
+    x, y = j["lx"], j["ly"]
+    wrap = (1 << 26) - 1                               # 23-bit byte addresses, wrapping
+    bit = ((j["dpt"] & 0x7FFFFF) * 8 + j["dbit"] * b) & wrap
+    xs = -b if j["xneg"] else b
+    ys = -8 * j["cdstride"] if j["yneg"] else 8 * j["cdstride"]
+    dx, dy = (-1 if j["xneg"] else 1), (-1 if j["yneg"] else 1)
+    xmin, xmax, ymin, ymax = clip
+    colour = j["value"] & ((1 << b) - 1)
+    for i in range(w):
+        a = (j["value"] >> (31 - i % 16)) & 1
+        if xmin <= x <= xmax and ymin <= y <= ymax and not (a == 0 and j["minterm"] & 15 == 0xA):
+            addr, pos = bit >> 3, (bit & 7) // b
+            put_pix(mem, addr, pos, b, minterm_pix(j["minterm"], a, colour, get_pix(mem, addr, pos, b), b))
+        if i == w - 1:
+            break
+        minor = e > 0
+        e += 2 * (n - m) if minor else 2 * n
+        if j["ymaj"]:
+            y, bit = y + dy, bit + ys
+            if minor:
+                x, bit = x + dx, bit + xs
+        else:
+            x, bit = x + dx, bit + xs
+            if minor:
+                y, bit = y + dy, bit + ys
+        bit &= wrap
+
+
+def s16(v):
+    return v - 0x10000 if v & 0x8000 else v
+
+
+def run_edges(mem, j, clip=FULL):
+    """An EDGES job (spec 14, section 3.5): each edge's two point numbers
+    at EDGES (bpt) + 2k, the points' x and y words at POINTS (apt) + 4n,
+    each edge a LINE from the first to the second, left out if an end is
+    outside -16384..16383 (x = 0x8000 among them) or both ends are beyond
+    the same side of the clip rectangle."""
+    b = j["bpp"]
+    xmin, xmax, ymin, ymax = clip
+    origin = (j["dpt"] & 0x7FFFFF) * 8 + j["dbit"] * b
+    word = lambda a: s16(mem[a] | mem[a + 1] << 8)
+    for k in range(j["width"]):
+        e = j["bpt"] + 2 * k
+        pa, pb = mem[e], mem[e + 1]
+        x0, y0 = word(j["apt"] + 4 * pa), word(j["apt"] + 4 * pa + 2)
+        x1, y1 = word(j["apt"] + 4 * pb), word(j["apt"] + 4 * pb + 2)
+        if any(not -16384 <= v <= 16383 for v in (x0, y0, x1, y1)):
+            continue
+        if ((x0 < xmin and x1 < xmin) or (x0 > xmax and x1 > xmax)
+                or (y0 < ymin and y1 < ymin) or (y0 > ymax and y1 > ymax)):
+            continue
+        ax, ay = abs(x1 - x0), abs(y1 - y0)
+        bit = (origin + 8 * y0 * j["cdstride"] + x0 * b) & ((1 << 26) - 1)
+        run_line(mem, {"bpp": b, "width": max(ax, ay) + 1, "height": min(ax, ay),
+                       "ymaj": int(ay > ax), "xneg": int(x1 < x0), "yneg": int(y1 < y0),
+                       "lx": x0, "ly": y0, "dpt": bit >> 3, "dbit": (bit & 7) // b,
+                       "cdstride": j["cdstride"], "minterm": j["minterm"], "value": j["value"]}, clip)
+
+
+def run_job(mem, j, clip=FULL):
+    if j["op"] == "LINE":
+        run_line(mem, j, clip)
+        return
+    if j["op"] == "EDGES":
+        run_edges(mem, j, clip)
+        return
     """Apply one job to mem (a bytearray of the SRAM), in the engine's order:
     forwards, or with DESC from the last pixel of the last row back to the
     first. Each source pixel is read just before its destination pixel is
@@ -117,6 +194,22 @@ def run_job(mem, j):
 def encode(j, nxt=0, irq=0):
     """The job as a 32-byte descriptor (spec 14, section 3), low bytes first."""
     bppc = {1: 0, 2: 1, 4: 2, 8: 3}[j["bpp"]]
+    le = lambda v, n: (v & ((1 << 8 * n) - 1)).to_bytes(n, "little")
+    if j["op"] == "EDGES":
+        ctrl1 = bppc | (irq << 3)
+        d = (bytes([3, ctrl1, 0, j["minterm"]]) + le(j["apt"], 3) + le(j["bpt"], 3) + le(j["dpt"], 3)
+             + le(j["width"], 3) + le(0, 2) + le(j["dbit"] << 8, 2) + le(0, 2)
+             + le(j["cdstride"], 2) + le(j["value"], 4) + le(nxt, 3) + b"\0")
+        assert len(d) == 32
+        return d
+    if j["op"] == "LINE":
+        ctrl0 = 2 | (j["ymaj"] << 3) | (j["xneg"] << 6) | (j["yneg"] << 7)
+        ctrl1 = bppc | (irq << 3) | (j.get("bconst", 0) << 4)
+        d = (bytes([ctrl0, ctrl1, 0, j["minterm"]]) + le(j["lx"], 3) + le(j["ly"], 3) + le(j["dpt"], 3)
+             + le(j["width"], 3) + le(j["height"], 2) + le(j["dbit"] << 8, 2) + le(0, 2)
+             + le(j["cdstride"], 2) + le(j["value"], 4) + le(nxt, 3) + b"\0")
+        assert len(d) == 32
+        return d
     bconst = int(j["bkind"] == "value")
     ctrl0 = OPS[j["op"]] | (j.get("sat", 0) << 4) | (j.get("signed", 0) << 5)
     ctrl1 = bppc | (j["desc"] << 2) | (irq << 3) | (bconst << 4) | (j["mask"] << 5)
@@ -153,9 +246,10 @@ def main():
     jobs = json.load(open(sys.argv[1]))
     mem = load_hex(sys.argv[2])
     got = load_hex(sys.argv[3])
+    clip = tuple(jobs.get("clip", FULL))
     for ch in jobs["channels"]:
         for j in ch:
-            run_job(mem, j)
+            run_job(mem, j, clip)
     lo, hi = jobs.get("check", [0, len(mem)])
     errors = 0
     for a in range(lo, hi):

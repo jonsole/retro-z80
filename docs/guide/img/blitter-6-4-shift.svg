@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="372" viewBox="0 0 760 372" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="372" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">An image of 8 pixels drawn at x = 101, at 4 bpp (two pixels a byte)</text>
+<text x="188" y="90" font-size="13" text-anchor="end" fill="#1a1a1a">the image:</text>
+<text x="188" y="105" font-size="11" text-anchor="end" fill="#555">BPT, BBIT = 0</text>
+<rect x="200" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="221" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i0</text>
+<rect x="242" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="263" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i1</text>
+<rect x="200" y="66" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="242" y="60" font-size="11" text-anchor="middle" fill="#555">BPT + 0</text>
+<rect x="284" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="305" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i2</text>
+<rect x="326" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="347" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i3</text>
+<rect x="284" y="66" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="326" y="60" font-size="11" text-anchor="middle" fill="#555">BPT + 1</text>
+<rect x="368" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="389" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i4</text>
+<rect x="410" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="431" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i5</text>
+<rect x="368" y="66" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="410" y="60" font-size="11" text-anchor="middle" fill="#555">BPT + 2</text>
+<rect x="452" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="473" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i6</text>
+<rect x="494" y="66" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="515" y="88" font-size="13" text-anchor="middle" fill="#1a1a1a">i7</text>
+<rect x="452" y="66" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="494" y="60" font-size="11" text-anchor="middle" fill="#555">BPT + 3</text>
+<rect x="40" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="61" y="206" font-size="11" text-anchor="middle" fill="#555">98</text>
+<rect x="82" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="103" y="206" font-size="11" text-anchor="middle" fill="#555">99</text>
+<rect x="40" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="82" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 49</text>
+<text x="82" y="282" font-size="11" text-anchor="middle" fill="#555">untouched</text>
+<rect x="124" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="145" y="206" font-size="11" text-anchor="middle" fill="#555">100</text>
+<rect x="166" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="187" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i0</text>
+<text x="187" y="206" font-size="11" text-anchor="middle" fill="#555">101</text>
+<rect x="124" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="166" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 50</text>
+<rect x="208" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="229" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i1</text>
+<text x="229" y="206" font-size="11" text-anchor="middle" fill="#555">102</text>
+<rect x="250" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="271" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i2</text>
+<text x="271" y="206" font-size="11" text-anchor="middle" fill="#555">103</text>
+<rect x="208" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="250" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 51</text>
+<rect x="292" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="313" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i3</text>
+<text x="313" y="206" font-size="11" text-anchor="middle" fill="#555">104</text>
+<rect x="334" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="355" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i4</text>
+<text x="355" y="206" font-size="11" text-anchor="middle" fill="#555">105</text>
+<rect x="292" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="334" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 52</text>
+<rect x="376" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="397" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i5</text>
+<text x="397" y="206" font-size="11" text-anchor="middle" fill="#555">106</text>
+<rect x="418" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="439" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i6</text>
+<text x="439" y="206" font-size="11" text-anchor="middle" fill="#555">107</text>
+<rect x="376" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="418" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 53</text>
+<rect x="460" y="214" width="42" height="34" fill="#f4b183" stroke="#999" stroke-width="0.5"/>
+<text x="481" y="236" font-size="13" text-anchor="middle" fill="#1a1a1a">i7</text>
+<text x="481" y="206" font-size="11" text-anchor="middle" fill="#555">108</text>
+<rect x="502" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="523" y="206" font-size="11" text-anchor="middle" fill="#555">109</text>
+<rect x="460" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="502" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 54</text>
+<rect x="544" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="565" y="206" font-size="11" text-anchor="middle" fill="#555">110</text>
+<rect x="586" y="214" width="42" height="34" fill="#cfe2f3" stroke="#999" stroke-width="0.5"/>
+<text x="607" y="206" font-size="11" text-anchor="middle" fill="#555">111</text>
+<rect x="544" y="214" width="84" height="34" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="586" y="266" font-size="11" text-anchor="middle" fill="#1a1a1a">byte 55</text>
+<text x="586" y="282" font-size="11" text-anchor="middle" fill="#555">untouched</text>
+<text x="36" y="190" font-size="11" text-anchor="start" fill="#555">pixel x:</text>
+<line x1="221" y1="102" x2="187" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="263" y1="102" x2="229" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="305" y1="102" x2="271" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="347" y1="102" x2="313" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="389" y1="102" x2="355" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="431" y1="102" x2="397" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="473" y1="102" x2="439" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="515" y1="102" x2="481" y2="194" stroke="#777" stroke-width="0.8"/>
+<line x1="126" y1="294" x2="206" y2="294" stroke="#d70000" stroke-width="2"/>
+<line x1="462" y1="294" x2="542" y2="294" stroke="#d70000" stroke-width="2"/>
+<line x1="210" y1="294" x2="458" y2="294" stroke="#333" stroke-width="2"/>
+<text x="166" y="311" font-size="11" text-anchor="middle" fill="#1a1a1a">read, merged,</text>
+<text x="166" y="325" font-size="11" text-anchor="middle" fill="#1a1a1a">written back</text>
+<text x="502" y="311" font-size="11" text-anchor="middle" fill="#1a1a1a">read, merged,</text>
+<text x="502" y="325" font-size="11" text-anchor="middle" fill="#1a1a1a">written back</text>
+<text x="334" y="311" font-size="11" text-anchor="middle" fill="#1a1a1a">written whole</text>
+<text x="334" y="325" font-size="11" text-anchor="middle" fill="#555">(not read)</text>
+<text x="94" y="144" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">DPT = byte 50, DBIT = 1</text>
+<line x1="94" y1="150" x2="168" y2="178" stroke="#777" stroke-width="1" marker-end="url(#ah)"/>
+<text x="20" y="362" font-size="11" text-anchor="start" fill="#555">x = 101: DPT = SCREEN + 101 / 2, DBIT = 101 mod 2. WIDTH = 8. High nibble = left pixel.</text>
+</svg>

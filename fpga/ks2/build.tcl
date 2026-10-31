@@ -3,12 +3,14 @@
 #   vivado -mode batch -source build.tcl -tclargs <repo root> <build dir> <what>
 # <what> is "machine" (the computer, top_ks2; build.sh has put boot.hex in
 # the build folder) or "pattern" (the test pattern, top_ks2_pattern), and
-# an optional 1 to build the geometry unit in place of the DMA engine (GEOM).
+# an optional 1 to build the geometry unit in place of the DMA engine (GEOM),
+# then an optional 0 to leave the copper out (COPPER).
 
 set root   [file normalize [lindex $argv 0]]
 set out    [file normalize [lindex $argv 1]]
 set what   [lindex $argv 2]
 set geom   [expr {[llength $argv] > 3 ? [lindex $argv 3] : 0}]
+set copper [expr {[llength $argv] > 4 ? [lindex $argv 4] : 1}]
 set part   xc7a15tcsg324-1
 set rtl    $root/fpga/rtl
 
@@ -42,7 +44,7 @@ if {$what eq "pattern"} {
 if {$what eq "pattern"} {
     synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
 } else {
-    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom
+    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom -generic COPPER=$copper
 }
 write_checkpoint -force post_synth.dcp
 report_utilization -file utilization_synth.txt

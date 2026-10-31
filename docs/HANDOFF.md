@@ -48,7 +48,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/guide/playfields.md` | Chapter 3: playfields: bitmaps, tile maps, scaling, scrolling, split screens, priority, palettes, the fetch budget, the Spectrum extras, the limits. Its examples are still fragments under the reset map (#54) |
 | `docs/guide/sprites.md` | Chapter 4: sprites and the sprite sequencer; the KS2 builds 2 sprites. Examples still fragments (#54) |
 | `docs/guide/copper.md` | Chapter 5: the copper: instructions as bit tables, WAIT, loops, mid-line colours, its registers and ALU, the copper interrupt, two lists, timing. `examples/copper` (5-2 bars, 5-3 scan lines, 5-4 mid-line ink, 5-5 a split screen, 5-6 a raster bar from COPINT) |
-| `docs/guide/blitter.md` | Chapter 6: the blitter and DMA engine, jobs, lists, errors, speed measured on the KS2 (#63). `examples/blitter` (6-1 clear, 6-2 bob, 6-3 shift, 6-4 scroll, 6-5 speed; `blitter.asm` the older demo) |
+| `docs/guide/blitter.md` | Chapter 6: the blitter and DMA engine, the four job types (BLIT, ADD, LINE, EDGES), lists, errors, speed measured on the KS2 (#63); figures 6-2 to 6-11 drawn by `tools/guide_figures/blitter.py`. `examples/blitter` (6-1 clear, 6-2 bob, 6-3 shift, 6-4 scroll, 6-5 line, 6-6 edges with `cube.py`, 6-7 speed; `blitter.asm` the older demo). 6-5 and 6-6 need LINE and EDGES: the KS2's `--no-copper` build |
 | `docs/guide/serial.md` | Chapter 7: the USB serial link and debugging: bytes, OTIR/INIR, flow control, interrupts, the PC's commands and escapes, uploading, VS Code and MCP. `examples/serial` (7-1 echo, 7-2 16 KB with OTIR, 7-3 interrupt-driven; 7-3 needs the serial interrupt fix, #58) |
 | `docs/guide/io.md` | Chapter 8: keyboards and joysticks: port 0xFE and the membrane, KEYMAP, the PS/2 keyboard and mapper, keys from the PC, the joysticks. `examples/io` (8-1 the border, 8-2 PS/2 scan codes) |
 | `docs/guide/timing.md` | Appendix A: timing and screen reference, figures to scale |
@@ -82,7 +82,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
    - Byte names: L/H (MMUnL) or 0/1/2 (SPRxPT0)? Mixed today (spec 3, R10).
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
 2. **Programmer's guide:** chapters 1–8 and appendix A are written and in the manual's style. Still to do: chapters 3 and 4's examples as files run on the KS2 under the program map (#54); spec gaps: no generated names for WINX/WINY/BEAMPOS halves and MMU page numbers; level-sensitive VBLANK re-entering ported Spectrum handlers.
-3. **Geometry unit (spec 15)**, branch 10: drafted. Next: the RTL with `GEOM = 1` on the KS2, then the fast3d benchmark.
+3. **Geometry unit (spec 15)**, branch 10: RTL done (`GEOM = 1` on the KS2, #67). The fast3d benchmark (#68, `examples/fast3d`): 268,245 T-states a picture with the unit against 472,907 in software; drawing is now most of it (spec 15, section 10). G1 done in software on the KS2: the EDGES job (#75; 351,912) and the DMA clear (#74; 433,002 alone, 311,801 with EDGES); the unit and the engine together wait for the KS3. List mode (G2) kept open.
 4. **Boot ROM (spec 16) and the shared monitor spec**, drafted (branch 16): `docs/spec/boot-rom.md` and `docs/spec/monitor.md`. The user confirmed the program map and ROMLOCK at power-on only; the retro68k session reviewed `monitor.md` (four changes applied) and adopts it word for word. Implementation: tickets #22–#26. Choices in the drafts:
    - CRC-32 (zlib's) for frames and images; big-endian header and frames; 4,096-byte frames with a reply each (`LR` + `K`/`C`/`F`/`R`).
    - Physical addresses with a `P` prefix: the MMU's page space, `P000000`–`P7FFFFF` (SRAM, register page `P7F0000`, ROM `P7F8000`); on retro68k the same as plain addresses.
@@ -112,7 +112,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
 | Q7 | KS3 pins for keyboard, joysticks, PS/2, `sd_miso` | Check against the Next's pin file before phase 3 |
 | Q8 | KS3 details shared with retro68k | SRAM size, accelerator pins, Next core format |
 | Q9 | Z80 faster than 20 MHz | Parked. 25 MHz needs the swap back; beyond that, block-RAM fast RAM |
-| Q10 | 3D filled polygons | Branch 10: flat-shaded; a geometry unit first (two matrices, camera × object, perspective, multiply and divide), retro-z80 only, specified after the DMA engine. Spec 15 drafted. Drawing help (span fill or triangle job) decided after the fast3d benchmark |
+| Q10 | 3D filled polygons | Branch 10: flat-shaded; a geometry unit first (two matrices, camera × object, perspective, multiply and divide), retro-z80 only, specified after the DMA engine. Spec 15 drafted. Benchmark done (#68): drawing help next is a DMA clear, then a line job (spec 14, D3); span fill or triangle job waits for filled 3D |
 
 ## 7. Next phase: phase 1, the simulated CPU
 

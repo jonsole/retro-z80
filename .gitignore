@@ -17,3 +17,6 @@ __pycache__/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# fast3d benchmark: generated tables and code
+examples/fast3d/output/

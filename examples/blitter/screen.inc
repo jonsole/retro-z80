@@ -19,6 +19,8 @@ MASKIMG equ     1 << 5                  ; 0x20  A is a 1 bpp mask image
 MASKKEY equ     2 << 5                  ; 0x40  A is "B is not the key colour"
 OP_BLIT equ     0                       ; CTRL0
 OP_ADD  equ     1
+OP_LINE equ     2
+OP_EDGES equ    3
 
 ; scr_on: show L0 as a bitmap of A bits per pixel (0-3), HL bytes a row
 scr_on: push    af

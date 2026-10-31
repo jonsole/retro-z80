@@ -40,7 +40,8 @@
 // expansion bus RAMCS pulled down. Other pins are weakly pulled up
 // (ks2.xdc).
 module top_ks2 #(
-    parameter GEOM = 0                 // 1: the geometry unit in place of the DMA engine (spec 15, section 8)
+    parameter GEOM = 0,                // 1: the geometry unit in place of the DMA engine (spec 15, section 8)
+    parameter COPPER = 1               // 0: no copper, for room (build.sh --no-copper)
 ) (
     input  wire        clock_50_i,
 
@@ -127,7 +128,7 @@ module top_ks2 #(
     // 2 sprites and no DMA mask image, so the DMA engine fits (design plan, branch 21).
     // The XC7A15T has room for the DMA engine or the geometry unit, not both.
     retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0),
-               .DMX(GEOM ? 0 : 1), .GEOM(GEOM)) sys (
+               .DMX(GEOM ? 0 : 1), .GEOM(GEOM), .COPPER(COPPER)) sys (
         .clk(clk100), .por(por),
         .btn_reset_n(!btn_q[0]), .buttons(btn_q[2:1]),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),

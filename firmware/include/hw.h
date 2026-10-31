@@ -2195,6 +2195,34 @@
 #define DMXINTEN_CH3_B               0x3u
 #define DMXINTEN_CH3_W               0x1u
 #define DMXINTEN_CH3_M               0x8u
+#define CLIPXMIN                     0x238u      /* RW, spec 14/8.4 */
+#define CLIPXMIN_N                   0x2u
+#define CLIPXMIN_P                   0x3812u
+#define CLIPXMIN0                    0x238u
+#define CLIPXMIN0_P                  0x3812u
+#define CLIPXMIN1                    0x239u
+#define CLIPXMIN1_P                  0x3912u
+#define CLIPXMAX                     0x23Au      /* RW, spec 14/8.4 */
+#define CLIPXMAX_N                   0x2u
+#define CLIPXMAX_P                   0x3A12u
+#define CLIPXMAX0                    0x23Au
+#define CLIPXMAX0_P                  0x3A12u
+#define CLIPXMAX1                    0x23Bu
+#define CLIPXMAX1_P                  0x3B12u
+#define CLIPYMIN                     0x23Cu      /* RW, spec 14/8.4 */
+#define CLIPYMIN_N                   0x2u
+#define CLIPYMIN_P                   0x3C12u
+#define CLIPYMIN0                    0x23Cu
+#define CLIPYMIN0_P                  0x3C12u
+#define CLIPYMIN1                    0x23Du
+#define CLIPYMIN1_P                  0x3D12u
+#define CLIPYMAX                     0x23Eu      /* RW, spec 14/8.4 */
+#define CLIPYMAX_N                   0x2u
+#define CLIPYMAX_P                   0x3E12u
+#define CLIPYMAX0                    0x23Eu
+#define CLIPYMAX0_P                  0x3E12u
+#define CLIPYMAX1                    0x23Fu
+#define CLIPYMAX1_P                  0x3F12u
 #define SEQCON                       0x300u      /* RW, spec 17/8 */
 #define SEQCON_N                     0x1u
 #define SEQCON_P                     0x13u
@@ -3099,12 +3127,21 @@
 #define DMX_CTRL_OP_B                0x0u
 #define DMX_CTRL_OP_W                0x3u
 #define DMX_CTRL_OP_M                0x7u
+#define DMX_CTRL_YMAJOR_B            0x3u
+#define DMX_CTRL_YMAJOR_W            0x1u
+#define DMX_CTRL_YMAJOR_M            0x8u
 #define DMX_CTRL_SAT_B               0x4u
 #define DMX_CTRL_SAT_W               0x1u
 #define DMX_CTRL_SAT_M               0x10u
 #define DMX_CTRL_SIGNED_B            0x5u
 #define DMX_CTRL_SIGNED_W            0x1u
 #define DMX_CTRL_SIGNED_M            0x20u
+#define DMX_CTRL_XNEG_B              0x6u
+#define DMX_CTRL_XNEG_W              0x1u
+#define DMX_CTRL_XNEG_M              0x40u
+#define DMX_CTRL_YNEG_B              0x7u
+#define DMX_CTRL_YNEG_W              0x1u
+#define DMX_CTRL_YNEG_M              0x80u
 #define DMX_CTRL_BPP_B               0x8u
 #define DMX_CTRL_BPP_W               0x2u
 #define DMX_CTRL_BPP_M               0x300u

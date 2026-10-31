@@ -7,6 +7,8 @@
 #   fpga/ks2/build.sh --program-only  just load the last build
 #   fpga/ks2/build.sh --geom ...      the geometry unit in place of the DMA engine
 #                                     (fpga/ks2/build/geom/retroz80_ks2.bit; spec 15)
+#   fpga/ks2/build.sh --no-copper ... no copper, for room (build/nocopper/; with
+#                                     --geom, build/geom-nocopper/)
 #   fpga/ks2/build.sh --pattern ...   the same for the test pattern
 #                                     (fpga/ks2/build/pattern/ks2_pattern.bit)
 #
@@ -27,14 +29,16 @@ what=machine
 do_build=1
 do_program=0
 geom=0
+copper=1
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --pattern)      what=pattern ;;
         --geom)         geom=1 ;;
+        --no-copper)    copper=0 ;;
         --program)      do_program=1 ;;
         --program-only) do_program=1; do_build=0 ;;
-        -h|--help)      sed -n '2,20p' "$0"; exit 0 ;;
+        -h|--help)      sed -n '2,22p' "$0"; exit 0 ;;
         *)              echo "build.sh: unknown option $1 (try --help)" >&2; exit 1 ;;
     esac
     shift
@@ -46,6 +50,8 @@ if [ "$what" = pattern ]; then
 else
     out="$here/build"
     [ "$geom" = 1 ] && out="$here/build/geom"
+    [ "$copper" = 0 ] && out="$here/build/nocopper"
+    [ "$geom" = 1 ] && [ "$copper" = 0 ] && out="$here/build/geom-nocopper"
     bit="$out/retroz80_ks2.bit"
 fi
 
@@ -72,7 +78,7 @@ if [ "$do_build" = 1 ]; then
     say "Running Vivado (synthesis, place and route, bitstream): a few minutes"
     set +e
     (cd "$out" && "$vivado" -mode batch -nojournal -log vivado.log \
-        -source "$here/build.tcl" -tclargs "$root" "$out" "$what" "$geom")
+        -source "$here/build.tcl" -tclargs "$root" "$out" "$what" "$geom" "$copper")
     status=$?
     set -e
     grep -h "^retro-z80:" "$out/vivado.log" || true

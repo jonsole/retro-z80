@@ -33,7 +33,8 @@ module retroz80 #(
     parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
     parameter DMX_MASKIMG = 1,         // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
     parameter DMX = 1,                 // build the DMA engine (spec 14)
-    parameter GEOM = 1                 // build the geometry unit (spec 15)
+    parameter GEOM = 1,                // build the geometry unit (spec 15)
+    parameter COPPER = 1               // build the copper (spec 6; 0 frees its LUTs on the KS2)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -391,6 +392,9 @@ module retroz80 #(
     // ---------------------------------------------------------------- copper (spec 6)
     // Its list through the scheduler's copper channel; its writes onto the
     // register bus (above). WAIT with B waits for the DMA engine.
+    // Without it (COPPER = 0) its registers are not answered (read 0xFF), it
+    // never asks for memory or writes, and it never interrupts.
+    generate if (COPPER) begin : g_cop
     copper cop (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
@@ -401,6 +405,12 @@ module retroz80 #(
         .beam_v(beam_v), .beam_h(beam_h), .vblank(frame_tick), .dma_on(cop_on), .blt_idle(dmx_idle),
         .irq(irq_cop)
     );
+    end else begin : g_nocop
+        assign {rd_cop, hit_cop, cd_cop, cap_cop} = 42'd0;
+        assign {cw_req, cw_off, cw_data} = 19'd0;
+        assign {cop_req, cop_addr, cop_pri} = 24'd0;
+        assign irq_cop = 1'b0;
+    end endgenerate
 
     // ---------------------------------------------------------------- timers and watchdog (spec 9)
     // Line and frame ticks from the display beam (video.v); the DMA start

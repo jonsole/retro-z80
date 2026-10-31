@@ -36,6 +36,28 @@
       "program": "${workspaceFolder}/examples/sprdemo/build/boing.rimg",
       "sld": "${workspaceFolder}/examples/sprdemo/build/boing.sld",
       "preLaunchTask": "build sprite demo"
+    },
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Debug fast3d on the board",
+      "port": "COM3",
+      "program": "${workspaceFolder}/examples/fast3d/build/fast3d.bin",
+      "load": "8000",
+      "entry": "8000",
+      "sld": "${workspaceFolder}/examples/fast3d/build/fast3d.sld",
+      "preLaunchTask": "build fast3d"
+    },
+    {
+      "type": "retro-z80",
+      "request": "launch",
+      "name": "Debug fast3d with the geometry unit on the board (GEOM bitstream)",
+      "port": "COM3",
+      "program": "${workspaceFolder}/examples/fast3d/build/fast3d_geom.bin",
+      "load": "8000",
+      "entry": "8000",
+      "sld": "${workspaceFolder}/examples/fast3d/build/fast3d_geom.sld",
+      "preLaunchTask": "build fast3d with the geometry unit"
     }
   ]
 }

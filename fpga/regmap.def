@@ -264,7 +264,7 @@ reg  0x135 ATSCROLL 1 RW      4/7.1  FINEX=3:0 FINEY=6:4
 
 # DMA engine channels 0-3 (spec 14)
 array DMX 4 0x140 0x40 14/8.1
-  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 SAT=4 SIGNED=5 BPP=9:8 DESC=10 IRQ=11 BCONST=12 MASK=14:13
+  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 YMAJOR=3 SAT=4 SIGNED=5 XNEG=6 YNEG=7 BPP=9:8 DESC=10 IRQ=11 BCONST=12 MASK=14:13
   reg 0x03 MINTERM   1 RW,BUSY     14/3.1
   reg 0x04 APT       3 RW,BUSY     14/3
   reg 0x07 BPT       3 RW,BUSY     14/3
@@ -283,6 +283,10 @@ array DMX 4 0x140 0x40 14/8.1
 end
 reg  0x230 DMXINT   1 W1C     14/8.4 CH0=0 CH1=1 CH2=2 CH3=3
 reg  0x234 DMXINTEN 1 RW      14/8.4 fields=DMXINT
+reg  0x238 CLIPXMIN 2 RW      14/8.4
+reg  0x23A CLIPXMAX 2 RW      14/8.4
+reg  0x23C CLIPYMIN 2 RW      14/8.4
+reg  0x23E CLIPYMAX 2 RW      14/8.4
 
 # Audio 0x240-0x2FF: reserved for spec 13.
 

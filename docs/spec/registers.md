@@ -470,7 +470,7 @@ Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at 
 | `0x100`–`0x11F` | `0x0011`–`0x1F11` | Copper control and state | MOVEF | 6, 6 |
 | `0x120`–`0x12F` | `0x2011`–`0x2F11` | Sprite globals: SPRDMA, SPRCOLL | MOVEF | 5, 6 |
 | `0x130`–`0x13F` | `0x3011`–`0x3F11` | Attribute layer (Spectrum extra) | MOVEF | 4, 7.1 |
-| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | DMA engine: 4 channels of `0x40`; DMXINT, DMXINTEN | MOVEF | 14, 8 |
+| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | DMA engine: 4 channels of `0x40`; DMXINT, DMXINTEN, the line clip rectangle | MOVEF | 14, 8 |
 | `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio, reserved (design plan Q1) | MOVEF (no effect) | 13 |
 | `0x300`–`0x30F` | `0x0013`–`0x0F13` | Sprite sequencer (retro-z80 extra) | MOVEF | 17, 8 |
 | `0x310`–`0x3FF` | `0x1013`–`0xFF13` | Free | MOVEF (no effect) | |
@@ -608,12 +608,16 @@ Channel n (0–3) at `0x140` + n × `0x40`:
 | `+0x28` | CHSTAT | 1 | R, W1C | 14, 8.3 |
 | `+0x2C`–`+0x2E` | CHERR | 3 | R | 14, 8.1 |
 
-`+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except two bytes in channel 3:
+`+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except these in channel 3:
 
 | Offset | Port | Name | Width | Access | Spec |
 |--------|------|------|-------|--------|------|
 | `0x230` | `0x3012` | DMXINT | 1 | W1C | 14, 8.4 |
 | `0x234` | `0x3412` | DMXINTEN | 1 | RW | 14, 8.4 |
+| `0x238`–`0x239` | `0x3812`–`0x3912` | CLIPXMIN | 2 | RW | 14, 8.4 |
+| `0x23A`–`0x23B` | `0x3A12`–`0x3B12` | CLIPXMAX | 2 | RW | 14, 8.4 |
+| `0x23C`–`0x23D` | `0x3C12`–`0x3D12` | CLIPYMIN | 2 | RW | 14, 8.4 |
+| `0x23E`–`0x23F` | `0x3E12`–`0x3F12` | CLIPYMAX | 2 | RW | 14, 8.4 |
 
 ### 5.10 Audio (`0x240`–`0x2FF`)
 
