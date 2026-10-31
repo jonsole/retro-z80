@@ -1436,21 +1436,21 @@ Table 6-20 gives what the KS2 printed. **Screen on** is the examples' screen: L0
 
 | Job | Bytes of D | Screen on | Screen off | Worked out |
 |-----|------------|-----------|------------|------------|
-| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,695 µs (61 MB/s) | 1,519 µs (68 MB/s) | about 1.4 ms |
-| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,716 µs | 1,532 µs | about 1.4 ms |
-| Copy, one row | 103,680 | 3,382 µs (31 MB/s) | 3,030 µs (34 MB/s) | about 2.8 ms |
-| XOR with VALUE, which reads C | 103,680 | 3,382 µs | 3,031 µs | about 4.2 ms |
-| Draw a 32 × 32 object with a transparent colour | 1,024 | 39 µs | 36 µs | about 30 µs |
-| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 114 µs | 101 µs | about 90 µs |
+| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,416 µs (73 MB/s) | 1,252 µs (83 MB/s) | about 1.4 ms |
+| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,433 µs | 1,267 µs | about 1.4 ms |
+| Copy, one row | 103,680 | 2,688 µs (39 MB/s) | 2,359 µs (44 MB/s) | about 2.8 ms |
+| XOR with VALUE, which reads C | 103,680 | 2,922 µs | 2,582 µs | about 4.2 ms |
+| Draw a 32 × 32 object with a transparent colour | 1,024 | 33 µs | 31 µs | about 30 µs |
+| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 94 µs | 83 µs | about 90 µs |
 | `LDIR`, for comparison | 16,384 | 17,208 µs (0.95 MB/s) | 17,209 µs | 17,203 µs |
 | A 300-pixel dash-and-dot line (Example 6-5), about 190 pixels drawn | about 190 | 20 µs | – | 15–20 µs |
 | Erase and draw a 12-edge cube, two EDGES jobs in a list (Example 6-6) | about 2,350 pixels stepped | 82 µs | – | 120–160 µs |
 
-So on the board the blitter fills about 64 times as fast as `LDIR` copies, and copies about 32 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
+So on the board the blitter fills about 77 times as fast as `LDIR` copies, and copies about 41 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
 
-The fills take about a fifth longer than the worked-out figures, and the copies about a tenth. With the screen off, the engine has far more free cycles, yet it is only about 10% faster: the engine's own steps, not the free cycles, set most of the pace. It works in groups of up to 8 words, reading a group's words before it writes them. A job that reads C costs no more than a copy, since both read once and write once for each word.
+The fills and copies now take about as long as the worked-out figures. The engine works in groups of up to 16 words, and starts a group's writes while its last reads are still coming back, so it uses most of the free cycles it is given: with the screen off it has about 14% more of them, and it is about 13% faster. A job that reads C reads all of a group's C words before it writes, so it costs about a tenth more than a copy.
 
-The line and cube times were measured later, with the KS2's build without the copper, on the same screen. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
+The times were measured with the KS2's build without the copper (the jobs and lines on 31 October 2026, after ticket #78 made the groups 16 words), on the same screen. The line and cube times are from before #78, which does not change LINE or EDGES. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
 
 ### What a job costs
 

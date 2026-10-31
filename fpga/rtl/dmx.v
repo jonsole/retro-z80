@@ -367,6 +367,7 @@ module dmx #(
     reg  [4:0]  g_nr;                  // source words to read
     reg  [15:0] g_dneed;               // destination words to read
     reg  [4:0]  g_last;                // the row's last word in this group (16: none)
+    reg  [15:0] s_0;                   // sbuf[0] kept apart, so sbuf has one read port (distributed RAM)
     reg  [4:0]  s_have;                // source words back in sbuf: the writes may start before the last
                                        // ones are back (section 6.2, A)
     // Known contents from the start: a C word not read still goes through
@@ -554,7 +555,7 @@ module dmx #(
         begin
             wj   <= 5'd0;
             sptr <= w_pre ? 5'd1 : 5'd0;
-            if (w_pre) w_carry <= sbuf[0];
+            if (w_pre) w_carry <= s_0;
             // the row's first mask word: its first bit lined up with the
             // destination's first pixel
             aptr <= 5'd0;
@@ -605,6 +606,7 @@ module dmx #(
             // S_WR: one write port, so sbuf can be distributed RAM
             if (x_rv && (es == S_RD || es == S_WR)) begin
                 sbuf[s_have] <= w_desc ? rev16(x_rd) : x_rd;
+                if (s_have == 5'd0) s_0 <= w_desc ? rev16(x_rd) : x_rd;
                 s_have <= s_have + 1'b1;
             end
 
