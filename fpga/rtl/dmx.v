@@ -358,19 +358,22 @@ module dmx #(
     endfunction
 
     // ================================================================ group buffers
-    reg  [15:0] sbuf [0:8];            // source words, in the order read
-    reg  [15:0] abuf [0:8];            // mask words, in the order read
-    reg  [3:0]  g_na;                  // mask words to read
-    reg  [15:0] dbuf [0:7];            // destination words, by position in the group
-    reg  [3:0]  g_n;                   // destination words in this group (1-8)
-    reg  [3:0]  g_nr;                  // source words to read
-    reg  [7:0]  g_dneed;               // destination words to read
-    reg  [3:0]  g_last;                // the row's last word in this group (8: none)
+    // A group is up to 16 destination words (spec 14, section 6.2, B; ticket #78)
+    reg  [15:0] sbuf [0:16];           // source words, in the order read
+    reg  [15:0] abuf [0:16];           // mask words, in the order read
+    reg  [4:0]  g_na;                  // mask words to read
+    reg  [15:0] dbuf [0:15];           // destination words, by position in the group
+    reg  [4:0]  g_n;                   // destination words in this group (1-16)
+    reg  [4:0]  g_nr;                  // source words to read
+    reg  [15:0] g_dneed;               // destination words to read
+    reg  [4:0]  g_last;                // the row's last word in this group (16: none)
+    reg  [4:0]  s_have;                // source words back in sbuf: the writes may start before the last
+                                       // ones are back (section 6.2, A)
     // Known contents from the start: a C word not read still goes through
     // the minterm (its result does not depend on it), and the simulator
     // would carry the unknown bits through
-    initial for (k = 0; k < 9; k = k + 1) begin sbuf[k] = 16'd0; abuf[k] = 16'd0; end
-    initial for (k = 0; k < 8; k = k + 1) dbuf[k] = 16'd0;
+    initial for (k = 0; k < 17; k = k + 1) begin sbuf[k] = 16'd0; abuf[k] = 16'd0; end
+    initial for (k = 0; k < 16; k = k + 1) dbuf[k] = 16'd0;
 
     // ================================================================ engine state
     localparam S_IDLE = 5'd0, S_REST = 5'd1, S_DESC = 5'd2, S_SETUP = 5'd3, S_CHECK = 5'd4,
@@ -385,24 +388,24 @@ module dmx #(
 
     reg  [4:0]  r_tot, r_iss, r_got;   // reads to make, made, back
     reg  [22:0] r_a;                   // the next address (S_RD, S_RA, S_DESC)
-    reg  [2:0]  q_j [0:7];             // S_DR: each read's place in the group
+    reg  [3:0]  q_j [0:15];            // S_DR: each read's place in the group
     reg  [15:0] d_lo;                  // S_DESC: the low half of a long word
     reg         e_bad;                 // stop: an error
     reg  [23:0] e_addr;
     reg  [2:0]  su_i;                  // S_SETUP: job register long word being read
 
     // S_DR: the next destination word to read
-    reg  [2:0]  dr_j;
+    reg  [3:0]  dr_j;
     always @(*) begin : drpick
         integer i;
-        dr_j = 3'd0;
-        for (i = 7; i >= 0; i = i - 1) if (g_dneed[i]) dr_j = i[2:0];
+        dr_j = 4'd0;
+        for (i = 15; i >= 0; i = i - 1) if (g_dneed[i]) dr_j = i[3:0];
     end
     wire [22:0] dr_a = w_desc ? w_dw - dr_j : w_dw + dr_j;
 
     // S_WR pipeline: stage A (line up), stage B (combine), then the request
-    reg  [3:0]  wj;                    // next word to start
-    reg  [3:0]  sptr, aptr;
+    reg  [4:0]  wj;                    // next word to start
+    reg  [4:0]  sptr, aptr;
     reg         a_v, b_v;
     reg  [15:0] a_s, a_m, a_d, a_a;
     reg  [22:0] a_w, b_w;
@@ -423,7 +426,7 @@ module dmx #(
         case (es)
             S_DESC:     xq_v = (r_iss < 5'd16) && !e_bad;
             S_RD, S_RA: xq_v = (r_iss < r_tot) && !e_bad;
-            S_DR:       begin xq_v = (g_dneed != 8'd0) && !e_bad; xq_w = dr_a; end
+            S_DR:       begin xq_v = (g_dneed != 16'd0) && !e_bad; xq_w = dr_a; end
             S_WR:       begin xq_v = b_v && !b_skip && !e_bad; xq_we = 1'b1; xq_w = b_w; end
             S_LRD:      begin xq_v = (r_iss == 5'd0) && !e_bad; xq_w = w_dw; end
             S_LWR:      begin xq_v = (r_iss == 5'd0) && !e_bad; xq_we = 1'b1; xq_w = w_dw; end
@@ -444,14 +447,18 @@ module dmx #(
     // ================================================================ the write pipeline
     wire        b_take   = b_v && (b_skip || xq_take);
     wire        a_move   = a_v && (!b_v || b_take);
-    wire        a_new    = (wj < g_n) && (!a_v || a_move) && !e_bad;
 
-    // Stage A for word wj
+    // At the end of a group: carry on with the same channel (#63)
+    wire        wr_on    = (runnable == (4'd1 << cur)) && !stopreq[cur]
+                        && !(w_dleft == {19'd0, g_n} && w_rows == 16'd1);
+
+    // Stage A for word wj: its source word must be back (section 6.2, A)
     wire        a_hasn   = srcmem && (sptr < g_nr);
+    wire        a_new    = (wj < g_n) && (!a_v || a_move) && !e_bad && (!a_hasn || sptr < s_have);
     wire [15:0] a_B      = a_hasn ? sbuf[sptr] : 16'd0;
     wire [31:0] a_cat    = {w_carry, a_B} << w_t;
     wire [15:0] a_shp    = a_cat[31:16];
-    wire [15:0] m_first  = (w_first && wj == 4'd0) ? (16'hFFFF >> w_od) : 16'hFFFF;
+    wire [15:0] m_first  = (w_first && wj == 5'd0) ? (16'hFFFF >> w_od) : 16'hFFFF;
     wire [15:0] m_last   = (wj == g_last) ? ((w_le == 4'd0) ? 16'hFFFF : ~(16'hFFFF >> w_le)) : 16'hFFFF;
     wire [15:0] a_mp     = m_first & m_last;
     wire [22:0] a_wa     = w_desc ? w_dw - wj : w_dw + wj;
@@ -540,6 +547,27 @@ module dmx #(
     end
 `endif
 
+    // Into S_WR: the write pipeline from the group's first word. From S_DR,
+    // and (section 6.2, A) straight from S_GRP, S_RD or S_RA when there is
+    // nothing more to read before the writes.
+    task go_wr;
+        begin
+            wj   <= 5'd0;
+            sptr <= w_pre ? 5'd1 : 5'd0;
+            if (w_pre) w_carry <= sbuf[0];
+            // the row's first mask word: its first bit lined up with the
+            // destination's first pixel
+            aptr <= 5'd0;
+            if (w_first && maskimg) begin
+                w_areg <= ({abuf[0], 16'd0} << w_ao) >> (w_od >> w_lb);
+                w_acnt <= 5'd16 + {1'b0, w_od >> w_lb} - {1'b0, w_ao};
+                aptr   <= 5'd1;
+            end
+            a_v <= 1'b0; b_v <= 1'b0;
+            es  <= S_WR;
+        end
+    endtask
+
     integer i;
     always @(posedge clk) begin
         if (eng_jw && !cpu_jw) eng_jw <= 1'b0;    // a job register write waits for a clock the bus leaves
@@ -573,6 +601,12 @@ module dmx #(
                 mem_req <= 1'b0;
             chip_out <= chip_out + ((xq_take && !xq_we) ? 5'd1 : 5'd0)
                                  - (mem_rvalid ? 5'd1 : 5'd0);
+            // Source words, in S_RD and (section 6.2, A) still coming back in
+            // S_WR: one write port, so sbuf can be distributed RAM
+            if (x_rv && (es == S_RD || es == S_WR)) begin
+                sbuf[s_have] <= w_desc ? rev16(x_rd) : x_rd;
+                s_have <= s_have + 1'b1;
+            end
 
             case (es)
             // ---------------------------------------------------- pick a channel
@@ -782,30 +816,37 @@ module dmx #(
 
             // ---------------------------------------------------- a group
             S_GRP: begin : grp
-                reg [3:0] n, nr, ga;
+                reg [4:0] n, nr, ga;
                 reg [24:0] want;
-                reg [7:0] need, avail, extra, na;
+                reg [8:0] need, avail, extra, na;
+                reg [15:0] dn;
+                reg [23:0] lw;
                 integer j;
-                n    = (w_dleft > 24'd8) ? 4'd8 : w_dleft[3:0];
+                n    = (w_dleft > 24'd16) ? 5'd16 : w_dleft[4:0];
                 want = n + w_pre;
-                nr   = (want > w_sleft) ? w_sleft[3:0] : want[3:0];
+                nr   = (want > w_sleft) ? w_sleft[4:0] : want[4:0];
                 // mask words: the row's first, then enough for n words of pixels
                 need  = {4'd0, n} << (3'd4 - {1'b0, w_lb});
-                avail = w_first ? {4'd0, w_od >> w_lb} + 8'd16 - {4'd0, w_ao} : {3'd0, w_acnt};
-                extra = (need > avail) ? (need - avail + 8'd15) >> 4 : 8'd0;
-                na    = extra + (w_first ? 8'd1 : 8'd0);
-                ga    = !maskimg ? 4'd0 : ({16'd0, na} > w_aleft) ? w_aleft[3:0] : na[3:0];
+                avail = w_first ? {5'd0, w_od >> w_lb} + 9'd16 - {5'd0, w_ao} : {4'd0, w_acnt};
+                extra = (need > avail) ? (need - avail + 9'd15) >> 4 : 9'd0;
+                na    = extra + (w_first ? 9'd1 : 9'd0);
+                ga    = !maskimg ? 5'd0 : ({15'd0, na} > w_aleft) ? w_aleft[4:0] : na[4:0];
+                // the row's last word, when it is in this group and covered in part
+                lw = w_dleft - 1'b1;
+                for (j = 0; j < 16; j = j + 1)
+                    dn[j] = (j < n) && (op_rd || (w_first && j == 0 && w_od[2:0] != 3'd0)
+                                        || (w_dleft <= 24'd16 && lw[3:0] == j[3:0] && w_le[2:0] != 3'd0));
                 g_na  <= ga;
                 g_n  <= n;
                 g_nr <= nr;
-                g_last <= (w_dleft > 24'd8) ? 4'd8 : w_dleft[3:0] - 1'b1;
-                for (j = 0; j < 8; j = j + 1)
-                    g_dneed[j] <= (j < n) && (op_rd || (w_first && j == 0 && w_od[2:0] != 3'd0)
-                                              || (j == w_dleft - 1 && w_le[2:0] != 3'd0));
-                r_tot <= {1'b0, nr}; r_iss <= 5'd0; r_got <= 5'd0;
+                g_last <= (w_dleft > 24'd16) ? 5'd16 : w_dleft[4:0] - 1'b1;
+                g_dneed <= dn;
+                r_tot <= nr; r_iss <= 5'd0; r_got <= 5'd0;
+                s_have <= 5'd0;
                 r_a   <= w_sw;
-                // nothing to read (a fill): straight to the C reads
-                es    <= (nr == 4'd0 && ga == 4'd0) ? S_DR : S_RD;
+                // nothing to read before the writes (a fill): straight to them
+                if (nr == 5'd0 && ga == 5'd0 && dn == 16'd0) go_wr;
+                else es <= (nr == 5'd0 && ga == 5'd0) ? S_DR : S_RD;
             end
 
             S_RD: begin
@@ -813,10 +854,16 @@ module dmx #(
                     r_a   <= w_desc ? r_a - 1'b1 : r_a + 1'b1;
                     r_iss <= r_iss + 1'b1;
                 end
-                if (x_rv) begin
-                    sbuf[r_got[3:0]] <= w_desc ? rev16(x_rd) : x_rd;
-                    r_got <= r_got + 1'b1;
-                end
+                if (x_rv) r_got <= r_got + 1'b1;   // the word itself: sbuf, above
+                // Every source read made, and nothing else to read: the
+                // writes start while the last reads come back (section 6.2,
+                // A). The first word is needed now when it is carried in.
+                if (r_iss == r_tot && g_na == 5'd0 && g_dneed == 16'd0 && !e_bad
+                    && (!w_pre || s_have != 5'd0)) begin
+                    w_sw    <= r_a;
+                    w_sleft <= w_sleft - g_nr;
+                    go_wr;
+                end else
                 // (a bad access sets e_bad the clock it is seen, so only
                 // "nothing left" or e_bad need looking at here: short paths)
                 if (r_got == r_iss && (r_iss == r_tot || e_bad) && !mem_req) begin
@@ -825,9 +872,9 @@ module dmx #(
                         w_sw    <= r_a;
                         w_sleft <= w_sleft - g_nr;
                         r_iss <= 5'd0; r_got <= 5'd0;
-                        r_tot <= {1'b0, g_na};
+                        r_tot <= g_na;
                         r_a   <= w_aw;
-                        es    <= (g_na != 4'd0) ? S_RA : S_DR;
+                        es    <= (g_na != 5'd0) ? S_RA : S_DR;
                     end
                 end
             end
@@ -839,7 +886,7 @@ module dmx #(
                     r_iss <= r_iss + 1'b1;
                 end
                 if (x_rv) begin
-                    abuf[r_got[3:0]] <= w_desc ? rev16(x_rd) : x_rd;
+                    abuf[r_got] <= w_desc ? rev16(x_rd) : x_rd;
                     r_got <= r_got + 1'b1;
                 end
                 if (r_got == r_iss && (r_iss == r_tot || e_bad) && !mem_req) begin
@@ -848,40 +895,25 @@ module dmx #(
                         w_aw    <= r_a;
                         w_aleft <= w_aleft - g_na;
                         r_tot <= 5'd0; r_iss <= 5'd0; r_got <= 5'd0;
-                        es <= S_DR;
+                        if (g_dneed != 16'd0) es <= S_DR;
+                        else go_wr;
                     end
                 end
             end
 
             S_DR: begin
                 if (xq_take) begin
-                    q_j[r_iss[2:0]] <= dr_j;
+                    q_j[r_iss[3:0]] <= dr_j;
                     g_dneed[dr_j] <= 1'b0;
                     r_iss <= r_iss + 1'b1;
                 end
                 if (x_rv) begin
-                    dbuf[q_j[r_got[2:0]]] <= x_rd;
+                    dbuf[q_j[r_got[3:0]]] <= x_rd;
                     r_got <= r_got + 1'b1;
                 end
-                if (r_got == r_iss && (g_dneed == 8'd0 || e_bad) && !mem_req) begin
+                if (r_got == r_iss && (g_dneed == 16'd0 || e_bad) && !mem_req) begin
                     if (e_bad) es <= S_DRAIN;
-                    else begin
-                        wj <= 4'd0;
-                        sptr <= w_pre ? 4'd1 : 4'd0;
-                        if (w_pre) w_carry <= sbuf[0];
-                        // the row's first mask word: its first bit lined up
-                        // with the destination's first pixel
-                        aptr <= 4'd0;
-                        if (w_first && maskimg) begin : apre
-                            reg [3:0] pd;
-                            pd = w_od >> w_lb;
-                            w_areg <= ({abuf[0], 16'd0} << w_ao) >> pd;
-                            w_acnt <= 5'd16 + pd - w_ao;
-                            aptr   <= 4'd1;
-                        end
-                        a_v <= 1'b0; b_v <= 1'b0;
-                        es <= S_WR;
-                    end
+                    else go_wr;
                 end
             end
 
@@ -901,7 +933,7 @@ module dmx #(
                     a_v <= 1'b1;
                     a_s <= a_st;
                     a_m <= a_mt;
-                    a_d <= dbuf[wj[2:0]];
+                    a_d <= dbuf[wj[3:0]];
                     a_a <= a_at;
                     a_w <= a_wa;
                     if (maskimg) begin
@@ -918,13 +950,17 @@ module dmx #(
                 if (e_bad) begin
                     a_v <= 1'b0; b_v <= 1'b0;
                     if (!mem_req) es <= S_DRAIN;
-                end else if (!a_v && !b_v && !mem_req && wj == g_n) begin
-                    // the group is done
+                end else if (!a_v && !b_v && wj == g_n && chip_out == 5'd0
+                             && (wr_on || !mem_req)) begin
+                    // the group is done. On to the same channel's next group
+                    // with the last write still waiting for its cycle (section
+                    // 6.2, A): the access unit holds the next request until
+                    // it is taken. Anywhere else, the write is taken first.
                     w_dw    <= w_desc ? w_dw - g_n : w_dw + g_n;
                     w_dleft <= w_dleft - g_n;
                     w_first <= 1'b0;
                     w_pre   <= 1'b0;
-                    if (w_dleft == {20'd0, g_n}) begin
+                    if (w_dleft == {19'd0, g_n}) begin
                         // the row is done
                         w_rows <= w_rows - 1'b1;
                         w_srow <= w_desc ? w_srow - {{8{w_sstr[15]}}, w_sstr} : w_srow + {{8{w_sstr[15]}}, w_sstr};
@@ -938,9 +974,8 @@ module dmx #(
                     // (S_SAVE, S_IDLE, S_REST) are left out. They are still
                     // taken at the end of the job, for a STOP or a pause, and
                     // when another channel waits (round robin).
-                    if (runnable == (4'd1 << cur) && !stopreq[cur]
-                        && !(w_dleft == {20'd0, g_n} && w_rows == 16'd1))
-                        es <= (w_dleft == {20'd0, g_n}) ? S_ROW1 : S_GRP;
+                    if (wr_on)
+                        es <= (w_dleft == {19'd0, g_n}) ? S_ROW1 : S_GRP;
                     else
                         es <= S_SAVE;
                 end

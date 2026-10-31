@@ -84,7 +84,7 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxspeed dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
 all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dtest zexhello zexsyshello
 
 $(BUILD):
@@ -278,6 +278,15 @@ $(BUILD)/dmxtest.bin: dmx/dmxtest.asm $(INC)/hw.inc | $(BUILD)
 dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxtest.hex +timeout=10000 | tee dmx.log
 	@grep -q "^TEST PASSED" $(BUILD)/dmx.log
+
+# The DMA engine's speed (spec 14, section 6.3; ticket #78): each job's time
+# in microseconds, from RUN to BUSY clear, printed before PASS. Not a check:
+# compare the figures with section 6.3 by hand
+$(BUILD)/dmxspeed.bin: dmx/dmxspeed.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+dmxspeed: $(BUILD)/tb.vvp $(BUILD)/dmxspeed.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxspeed.hex +print +timeout=20000 | tee dmxspeed.log
+	@grep -q "^TEST PASSED" $(BUILD)/dmxspeed.log
 
 # The DMA engine's random test (ticket #40): dgen.py writes the SRAM and the
 # jobs, dtest.asm starts them, dmodel.py checks the SRAM dumped at the end

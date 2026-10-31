@@ -485,7 +485,7 @@ Each channel has four control registers besides its job:
 |------|------|---------|
 | 7–4 | – | Reserved, write 0 |
 | 3 | PAUSE | While set, hold the list after its current group; clear it to carry on. Also readable |
-| 2 | STOP | End the list after the current group of at most 16 bytes |
+| 2 | STOP | End the list after the current group of at most 32 bytes |
 | 1 | RUN | Run the job already in the registers, then follow its NEXT |
 | 0 | START | Load the descriptor at CHDESC and run it |
 
@@ -832,7 +832,7 @@ If WIDTH or HEIGHT comes to 0 or less, the object is off the screen: skip the jo
 
 ## Overlapping Copies and Scrolling
 
-A job reads up to 16 bytes ahead of where it writes. When the source and destination overlap, that matters:
+A job reads up to 32 bytes ahead of where it writes. When the source and destination overlap, that matters:
 
 - If the destination is **before** the source (scrolling up or left), run forwards, as usual.
 - If the destination is **after** the source (scrolling down or right), set **DESC** in CTRL1. The job then runs backwards, from the last pixel of the last row to the first. You still give the addresses of the first pixel: the blitter works out the end for itself.

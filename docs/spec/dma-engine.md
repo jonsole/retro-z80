@@ -163,7 +163,7 @@ The pattern goes by D's address, not by position in the row, so each row of a 2D
 - **Bottom edge:** subtract the rows past the edge from HEIGHT.
 - If WIDTH or HEIGHT reaches 0, the object is off the screen: the job does nothing.
 
-**Overlapping copies:** a job reads up to 16 bytes ahead of what it writes (section 6). If the destination is before the source, or the areas do not overlap, run forwards (DESC = 0). If the destination is after the source and the areas overlap, run backwards (DESC = 1); for a 2D job this holds for the whole rectangle (scrolling a screen down within itself is a backwards job). DESC = 1 starts at the last pixel of the last row and works back through A, B and D together; the addresses are still written as the first pixel, so the same job can run either way.
+**Overlapping copies:** a job reads up to 32 bytes ahead of what it writes (section 6). If the destination is before the source, or the areas do not overlap, run forwards (DESC = 0). If the destination is after the source and the areas overlap, run backwards (DESC = 1); for a 2D job this holds for the whole rectangle (scrolling a screen down within itself is a backwards job). DESC = 1 starts at the last pixel of the last row and works back through A, B and D together; the addresses are still written as the first pixel, so the same job can run either way.
 
 **Errors:** a reserved OP, MIX, MASK = 3 (and MASK = 1 on the KS2, which has no mask image, section 11), or a non-zero CTRL2 stops the channel (section 8.5).
 
@@ -315,13 +315,13 @@ The engine is the DMA engine channel of the memory scheduler, as in retro68k (sp
 - **The free pool** is cycle 4 and every cycle its owner leaves: cycles 0 and 2 the Z80 does not use (it makes a memory access at most every 3 T-states, and none in I/O and register page accesses or internal T-states), cycles 1 and 3 no layer or sprite needs (all of them in the vertical blank), and cycle 4 while audio is parked. The free order is retro68k's: hard-deadline users (display, sprites), audio, the copper, **the DMA engine**, the DMA port. So the engine never delays anyone, and gets whatever is left.
 - **No HIGH mode:** the engine never takes a cycle from the CPU. The Z80 never waits for SRAM.
 - **One memory cycle** reads or writes 2 bytes at an even address, with byte selects for single bytes (spec 2, section 8.4). A copy costs 2 cycles per 2 bytes (one read, one write); a fill 1; a job that reads C 3. A 1 bpp mask from memory adds one cycle per 16 pixels; a compare mask adds none.
-- **Between channels:** channels with work to do take turns, a group of up to 8 destination words (or 8 bytes of a port job) each, so a long blit can't hold up a peripheral transfer for more than a fraction of a microsecond. A channel waiting for its port gives up its turn.
+- **Between channels:** channels with work to do take turns, a group of up to 16 destination words (or 8 bytes of a port job) each, so a long blit can't hold up a peripheral transfer for more than a fraction of a microsecond. A channel waiting for its port gives up its turn.
 - **Descriptors** in SRAM take 16 read cycles (32 bytes) to load.
 - While DMACON.BLTEN or DMACON.DMAEN is clear (spec 4), running channels wait and CHSTAT.BUSY stays set. Register and port transfers, which need no memory cycles, also wait, so clearing BLTEN holds the whole engine.
 
 ## 6. How a blit works
 
-The engine works through each row of D in groups of up to 8 words (16 bytes). Each group goes through the same five steps:
+The engine works through each row of D in groups of up to 16 words (32 bytes; 8 words until ticket #78). Each group goes through the same five steps:
 
 1. **Read:** the group's pixels of B (unless BCONST), the matching bits of A (MASK = 1) and the matching words of C (when needed, section 3.1) into the engine's buffers, one word per memory cycle.
 2. **Shift:** each source is shifted into line with D: by a byte when its address and DPT have different parity, and by pixels when its bit offset differs from DBIT (A by bits, as a 1 bpp image, then widened to the pixel depth). Bits carry from one word into the next. The engine treats data as a stream of bytes in address order (the low byte of a word first, as the SRAM is little-endian), with pixels from the most significant end of each byte.
@@ -333,11 +333,13 @@ The engine works through each row of D in groups of up to 8 words (16 bytes). Ea
 
 **Read-modify-write:** the SRAM can only skip whole bytes when writing. When a write would change only some pixels in a byte, the engine reads C, merges, and writes it back. This happens at the row edges of 1, 2 and 4 bpp jobs that don't start or end on a byte, inside bytes where the mask is partly 0 at 1, 2 and 4 bpp, and for every minterm that uses C. At 8 bpp, a copy, a fill and a cookie-cut never need it: a pixel the mask leaves alone is a byte not written. **8 bpp is the fastest format for game graphics.**
 
-Between groups, and at the end of each row, the engine works out the next addresses from the strides. That takes no memory cycles. Within a step the engine uses back-to-back free cycles (all five cycles of a slot in the vertical blank with the CPU slowed, for example), but between the steps it waits: section 6.1.
+Between groups, and at the end of each row, the engine works out the next addresses from the strides. That takes no memory cycles. Within a step the engine uses back-to-back free cycles (all five cycles of a slot in the vertical blank with the CPU slowed, for example). Between the steps it waited, before ticket #78 (section 6.1); since then the writes start while the last reads come back (section 6.2).
 
 **At the end of a job** its last write has reached the SRAM or the register. Then, if CTRL.IRQ is set, the channel's DMXINT bit is set; the channel loads the descriptor at NEXT and runs it, or, if NEXT is 0, BUSY clears and DONE is set.
 
 ### 6.1 Where the time goes
+
+This section describes the engine before ticket #78, which built changes A and B of section 6.2.
 
 A group's steps run one after another: all its reads, then all its writes. The engine has one request with the scheduler at a time, granted at the start of a memory cycle (every 2 clocks at most), and a read's data comes back 40 ns, 4 clocks, after its cycle (spec 2, section 5). Before each step the engine waits until the last one's requests are done. So every group has clocks in which the engine asks for no memory cycle, and a free cycle that comes then is lost.
 
@@ -397,6 +399,26 @@ On the KS2, with the guide's screen, the speed would grow with the share of cycl
 **Taking the CPU's cycles** instead, as retro68k's HIGH mode does, was weighed against these (31 October 2026). The Z80 uses only 116–213 of its 640 cycles a line; the rest already go to the engine. So priority over the CPU would add at most 9–16% more free cycles, and the Z80 would have to wait for memory, which design plan branch 11 rules out. Slowing the CPU with CPUSPEED gives about as much today. Left out.
 
 **Decided (31 October 2026): A and B now** (ticket #78), small enough for the KS2, measured on the board; **C later**, on the KS3 (ticket #79). retro68k agrees on A and B; it would skip C, its KS3 build being at 80% of its LUTs, and keeps its HIGH mode, since the 68000 uses more of its cycles.
+
+### 6.3 A and B, as built
+
+Built by ticket #78 (31 October 2026):
+
+- **B:** a group is up to 16 destination words. The buffers hold 17 source words, 16 destination words and 17 mask words.
+- **A:** when a group has no C or mask words to read, the writes start as soon as every source read has been made, not when the last one is back. Stage A waits for each source word it needs. A group with nothing to read at all (a fill) goes straight from its set-up to the writes. On the way to the same channel's next group, a group ends when its last write is taken, not when its cycle is granted: the access unit holds the next request until then.
+- Not built: setting up the next group during the last writes. Groups that read C or a mask image still read everything first.
+
+The simulation (`sim/dmx/dmxspeed.asm`, the layers off, timed from RUN to BUSY clear):
+
+| Job | Before (µs) | After (µs) | Clocks per 8 words, after | Memory cycles used, after |
+|-----|-------------|------------|---------------------------|---------------------------|
+| Fill, 16,384 bytes in one row | 232 | 192 | 18.8 | 85% |
+| Copy, 16,384 bytes | 458 | 356 | 34.8 | 92% |
+| XOR with VALUE (reads C), 16,384 bytes | 458 | 385 | 37.6 | 85% |
+| Copy at 4 bpp, a pixel apart, 64 rows of 256 bytes | 475 | 375 | 36.6 | – |
+| Cookie-cut, 2,048 rows of 32 pixels at 8 bpp | 1,481 | 1,225 | 0.60 µs a row, one group (was 0.72, two) | – |
+
+The fill is a little under section 6.2's estimate (85% against 91%): a 16-word group still has about 5 idle clocks, its set-up, the pipeline's fill and its end. The copy is over it.
 
 ## 7. Speed
 
@@ -488,7 +510,7 @@ Channel n at `0x140 + n × 0x40`. The first 32 bytes are the **job registers**, 
 |-----|------|--------|---------|
 | 0 | START | S | Load the descriptor at CHDESC into the job registers and run it. Ignored while BUSY. Reads 0 |
 | 1 | RUN | S | Run the job already in the job registers. Ignored while BUSY. Reads 0 |
-| 2 | STOP | S | End the chain after the current group (at most 16 bytes later). DONE is set; DMXINT is not. Reads 0 |
+| 2 | STOP | S | End the chain after the current group (at most 32 bytes later). DONE is set; DMXINT is not. Reads 0 |
 | 3 | PAUSE | RW | While set, the chain holds after its current group; BUSY stays set and PAUSED is set. Clearing it lets the chain carry on |
 | 5–4 | – | – | Reserved (retro68k's CPUSHARE). Write 0 |
 | 7–6 | – | – | Reserved. Write 0 |
@@ -676,7 +698,7 @@ Software decides, but a sensible default, as retro68k's:
 |------|----------|
 | Job registers and CHDESC, 4 channels; one capture and one colour assembly buffer | Flip-flops, or distributed RAM (about 4 × 40 bytes) |
 | Per-channel state (the running job's positions) | Distributed RAM, one channel worked on at a time (as retro68k's `bpldma.v` and `sprites.v`) |
-| Data buffer between reads and writes (16 bytes and the shifter's carry) | Logic |
+| Data buffer between reads and writes (32 bytes of B, 32 of C and 34 of mask, and the shifter's carry) | Logic or distributed RAM |
 | The shared datapath: 2D address units, byte and pixel shifter, edge masks, colour key compare, logic function, per-pixel adder | Estimate 1,500–2,500 LUTs, as retro68k's, to confirm by synthesis; pipelined from the start for 100 MHz |
 | EDGES | Reading each edge and its two points, the octant, the lengths and the first pixel's address (y × CDSTRIDE in a DSP slice), the trivial rejection against the clip rectangle; the stepping is LINE's. Estimate 300–500 LUTs more, and a DSP |
 | LINE | The octant, the error term and its two increments (derived from WIDTH and HEIGHT), x and y counters and four comparators against the clip rectangle, the pattern's rotation, and a one-pixel step through D's address unit. Estimate 300–500 LUTs. The clip rectangle is 64 flip-flops |
