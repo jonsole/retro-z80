@@ -246,7 +246,7 @@ Page `0x00`. The same registers are at register page offset = register number. T
 | `0x7C`–`0x7F` | Free (the NMI monitor registers moved to page `0x01`, section 4.13) | |
 | `0x80`–`0x8F` | MMU read pages | 2 |
 | `0x90`–`0x9F` | MMU write pages | 2 |
-| `0xA0`–`0xBF` | Geometry unit (reserved for spec 15) | 15 |
+| `0xA0`–`0xBF` | Geometry unit | 15 |
 | `0xC0`–`0xFD` | Free | |
 | `0xFE` | Keyboard rows, border, beeper (Spectrum extra; also low-byte-only port `0xFE`) | 12 |
 | `0xFF` | Free | |
@@ -376,7 +376,17 @@ n = 0–7: MMU0 at `0x80`, MMU7 at `0x8E`; MMU0W at `0x90`, MMU7W at `0x9E`. Whi
 
 ### 4.11 Geometry unit (`0xA0`–`0xBF`)
 
-Reserved for the geometry unit (design plan branch 10, spec 15, not yet written). Until then these registers read `0xFF`. Its interrupt number, 19 (GEOM), is reserved too (section 7).
+The geometry unit (design plan branch 10, spec 15, section 5). `0xA0`–`0xB7` are a window onto one of five banks (camera, object, view, operands, and the product, read only), picked by GEOCTL.BANK; `0xB8`–`0xBD` are the vertex (written) and the results (read); `0xBE` is GEOCTL and `0xBF` GEOSTAT. In a build without the unit (the KS2's default) they read `0xFF`. Its interrupt number, 19 (GEOM), stays reserved for a list mode (spec 15, G2; section 7).
+
+| Register | Port | Name | Width | Access | Meaning | Spec |
+|----------|------|------|-------|--------|---------|------|
+| `0xA0`–`0xB7` | `0xA000`–`0xB700` | GEOW0–GEOW11 | 2 each | RW | The window: twelve words of the bank GEOCTL.BANK picks | 15, 5.1 |
+| `0xB8`–`0xB9` | `0xB800`–`0xB900` | GEOVX | 2 | RW | Write: x. Read: RX | 15, 5.2 |
+| `0xBA`–`0xBB` | `0xBA00`–`0xBB00` | GEOVY | 2 | RW | Write: y. Read: RY | 15, 5.2 |
+| `0xBC`–`0xBD` | `0xBC00`–`0xBD00` | GEOVZ | 2 | RW | Write: z; GEOVZ1 starts a vertex. Read: RZ | 15, 5.2 |
+| `0xBE` | `0xBE00` | GEOCTL | 1 | RW | BANK, PROJ, CAM, INV | 15, 5.2 |
+| `0xBF` | `0xBF00` | GEOSTAT | 1 | R, W1C | BUSY, NEAR, SAT, DIVZ, FRONT; SATS sticky | 15, 5.3 |
+
 
 ### 4.12 Port `0xFE`, a Spectrum extra
 
@@ -460,7 +470,7 @@ Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at 
 | `0x100`–`0x11F` | `0x0011`–`0x1F11` | Copper control and state | MOVEF | 6, 6 |
 | `0x120`–`0x12F` | `0x2011`–`0x2F11` | Sprite globals: SPRDMA, SPRCOLL | MOVEF | 5, 6 |
 | `0x130`–`0x13F` | `0x3011`–`0x3F11` | Attribute layer (Spectrum extra) | MOVEF | 4, 7.1 |
-| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | DMA engine: 4 channels of `0x40`; DMXINT, DMXINTEN | MOVEF | 14, 8 |
+| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | DMA engine: 4 channels of `0x40`; DMXINT, DMXINTEN, the line clip rectangle | MOVEF | 14, 8 |
 | `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio, reserved (design plan Q1) | MOVEF (no effect) | 13 |
 | `0x300`–`0x30F` | `0x0013`–`0x0F13` | Sprite sequencer (retro-z80 extra) | MOVEF | 17, 8 |
 | `0x310`–`0x3FF` | `0x1013`–`0xFF13` | Free | MOVEF (no effect) | |
@@ -598,12 +608,16 @@ Channel n (0–3) at `0x140` + n × `0x40`:
 | `+0x28` | CHSTAT | 1 | R, W1C | 14, 8.3 |
 | `+0x2C`–`+0x2E` | CHERR | 3 | R | 14, 8.1 |
 
-`+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except two bytes in channel 3:
+`+0x1F`, `+0x23`, `+0x25`–`+0x27`, `+0x29`–`+0x2B` and `+0x2F`–`+0x3F` are reserved, except these in channel 3:
 
 | Offset | Port | Name | Width | Access | Spec |
 |--------|------|------|-------|--------|------|
 | `0x230` | `0x3012` | DMXINT | 1 | W1C | 14, 8.4 |
 | `0x234` | `0x3412` | DMXINTEN | 1 | RW | 14, 8.4 |
+| `0x238`–`0x239` | `0x3812`–`0x3912` | CLIPXMIN | 2 | RW | 14, 8.4 |
+| `0x23A`–`0x23B` | `0x3A12`–`0x3B12` | CLIPXMAX | 2 | RW | 14, 8.4 |
+| `0x23C`–`0x23D` | `0x3C12`–`0x3D12` | CLIPYMIN | 2 | RW | 14, 8.4 |
+| `0x23E`–`0x23F` | `0x3E12`–`0x3F12` | CLIPYMAX | 2 | RW | 14, 8.4 |
 
 ### 5.10 Audio (`0x240`–`0x2FF`)
 
@@ -757,7 +771,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
 | R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the DMA channels' reserved bytes, `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
 | R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
-| R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) and interrupt 19 are reserved for spec 15; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
+| R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) are spec 15's, and interrupt 19 is reserved for its list mode; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |
 | R9 | COP2LC changes by itself only at a frame restart with COPCON.RESUME (spec 6, section 6.5), so it has no capture; a CPU that reads it while a background list runs may see a mixed value. Read it while the copper runs the idle list |
 | R10 | Closed: byte names are digits everywhere (design plan, branch 11). A multi-byte register's bytes are NAME0–NAME3, lowest first, with an underscore before the digit where the name ends in a digit or an index (`MMU0_0`, `MMU0W_1`); the L/H names of specs 2 and 9 are gone (section 8). The generator makes every byte name from the rule, so `regmap.def` has no `bytes` line |

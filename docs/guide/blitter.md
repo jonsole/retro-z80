@@ -27,8 +27,25 @@ The blitter works like the Amiga's. Each job has up to three inputs and one outp
 
 C and D are the same place: the blitter reads what is there, combines it, and writes the result back. A **minterm** is one byte that says how A, B and C combine. With the right minterm the same hardware copies, fills, draws with a transparent colour, sets, clears or flips bits, and inverts areas.
 
+### The four job types
+
+Every job has an operation, OP, in the low bits of its first byte. There are four (Table 6-1). All four channels can run all four, and they share the same 32-byte layout; only the meaning of some fields changes.
+
+**Table 6-1: Job Types**
+
+| OP | Name | What it does | Shape | Section |
+|----|------|--------------|-------|---------|
+| 0 | BLIT | D = MINTERM(A, B, C) for every pixel: copy, fill, draw with a mask, any logic of image and screen | A rectangle, or one long row | "Forming a Job" to "Filling and Adding" |
+| 1 | ADD | D = C + B for every pixel, wrapping or saturating; the mask still chooses which pixels | A rectangle, or one long row | "Filling and Adding" |
+| 2 | LINE | One straight line, each pixel through the minterm, with a 16-bit pattern, cut by a clip rectangle | WIDTH pixels along the line | "Drawing Lines" |
+| 3 | EDGES | Every edge of a wireframe object, from a table of points and a table of edges in memory, each drawn as a LINE | WIDTH edges | "Drawing Wireframe Objects" |
+| 4–7 | – | Reserved: 5 is MIX (on hold), 6 and 7 are kept for 3D. All stop the channel with an error | – | – |
+
+BLIT and ADD work on rows of pixels and are what most programs use. LINE and EDGES step through single pixels for vector graphics: lines, outlines and 3D wireframes.
+
 This chapter covers:
 
+- the four job types;
 - forming a job, step by step, with a first example;
 - status, interrupts and errors;
 - minterms, and how to work one out;
@@ -39,6 +56,8 @@ This chapter covers:
 - overlapping copies, and scrolling;
 - filling with a value or a pattern, and adding to pixels;
 - lists of jobs (descriptors and chains);
+- drawing lines, with patterns and a clip rectangle;
+- drawing wireframe objects with one job each;
 - starting jobs from the copper and timers;
 - speed, measured on the board, and how to keep jobs fast;
 - what the blitter cannot do;
@@ -48,11 +67,13 @@ You should have read the Playfield Hardware chapter: the blitter mostly draws in
 
 **Version 1 works on SRAM only.** Copying into the hardware registers, the palettes, from the boot ROM, and to and from the SD card and USB serial link are planned for later (spec 14, section 4). Until then, a job that names one of them stops with an error. "What the Blitter Cannot Do" lists the rest.
 
+**LINE and EDGES need room on the FPGA.** The KS3 has them. On the KS2 they fit only in the build without the copper (`fpga/ks2/build.sh --no-copper`); in the KS2's usual build, with the copper, OP 2 and 3 stop the channel with an error (ticket #75).
+
 ### Comparison with the Amiga
 
-If you have used the Amiga's blitter, the ideas are the same. Table 6-1 lists the differences.
+If you have used the Amiga's blitter, the ideas are the same. Table 6-2 lists the differences.
 
-**Table 6-1: The Blitter Compared with the Amiga's**
+**Table 6-2: The Blitter Compared with the Amiga's**
 
 | Feature | Amiga | retro-z80 |
 |---------|-------|-----------|
@@ -64,7 +85,9 @@ If you have used the Amiga's blitter, the ideas are the same. Table 6-1 lists th
 | Channels | One blit at a time | Four channels, running at once, each working through its own list of jobs |
 | Starting | Writing BLTSIZE | RUN or START in a channel's CHCTRL; also the copper, a timer, or a list |
 | CPU | The blitter can hold up the CPU ("blitter nasty") | Never: the blitter only uses memory cycles nobody else wants |
-| Line and area fill modes | Yes | Not yet: they come with the 3D hardware |
+| Line mode | Software works out the octant and Bresenham terms; one bitplane per line | LINE: software gives the octant and the two lengths, the blitter does the rest, at any depth, with a pattern and a clip rectangle |
+| Wireframe objects | One line at a time | EDGES: a whole object from its points and edges in memory, in one job |
+| Area fill mode | Yes | No: span fill and triangles are kept for the 3D hardware |
 | ADD | No | Yes: per-pixel add, wrapping or saturating |
 
 ---
@@ -92,7 +115,11 @@ MASKIMG equ     1 << 5                  ; 0x20  A is a 1 bpp mask image
 MASKKEY equ     2 << 5                  ; 0x40  A is "B is not the key colour"
 OP_BLIT equ     0                       ; CTRL0
 OP_ADD  equ     1
+OP_LINE equ     2
+OP_EDGES equ    3
 ```
+
+- Examples 6-5 and 6-6 draw lines and need a bitstream with LINE and EDGES: on the KS2, the build without the copper.
 
 ---
 
@@ -114,13 +141,13 @@ Clearing BLTEN later holds every channel where it is; setting it again lets them
 
 ### Step 2: Describe the job
 
-A job is 32 bytes, which are also the first 32 registers of each channel, in the same order (Table 6-2).
+A job is 32 bytes, which are also the first 32 registers of each channel, in the same order (Table 6-3).
 
-**Table 6-2: A Job's 32 Bytes**
+**Table 6-3: A Job's 32 Bytes**
 
 | Offset | Name | Bytes | What it holds |
 |--------|------|-------|---------------|
-| `+0x00` | CTRL | 3 | CTRL0: the operation (BLIT or ADD). CTRL1: bits per pixel, DESC, IRQ, BCONST, MASK. CTRL2: 0 |
+| `+0x00` | CTRL | 3 | CTRL0: the operation (Table 6-1) and its options. CTRL1: bits per pixel, DESC, IRQ, BCONST, MASK. CTRL2: 0 |
 | `+0x03` | MINTERM | 1 | How A, B and C combine |
 | `+0x04` | APT | 3 | Where the mask A starts (if MASK says it is an image) |
 | `+0x07` | BPT | 3 | Where the image B starts |
@@ -150,17 +177,20 @@ load2:  ld      bc,DMX2_P               ; B = the first register, C = page 0x11
 
 The spare byte is ignored. The registers can only be written while the channel is idle; writes while it is busy are ignored. They keep their values after a job, so a second job that differs only in a few places needs only those written.
 
-CTRL's three bytes hold the operation and its options. Table 6-3 gives them byte by byte, top bit first. The names in brackets are the equates from the conventions above and from `hw.inc`.
+CTRL's three bytes hold the operation and its options. Table 6-4 gives them byte by byte, top bit first. The names in brackets are the equates from the conventions above and from `hw.inc`.
 
-**Table 6-3: CTRL Bits**
+Table 6-3 describes a BLIT or ADD job. LINE and EDGES use the same 32 bytes, but some fields mean something else there: Tables 6-15 and 6-19 give them.
+
+**Table 6-4: CTRL Bits**
 
 | Byte | Bits | Name | Meaning |
 |------|------|------|---------|
-| CTRL0 | 7–6 | – | Reserved, write 0 |
+| CTRL0 | 7 | YNEG | LINE: the line goes up the screen (`DMX_CTRL_YNEG_M`). Other jobs: write 0 |
+| | 6 | XNEG | LINE: the line goes left (`DMX_CTRL_XNEG_M`). Other jobs: write 0 |
 | | 5 | SIGNED | ADD: pixels are signed numbers (`DMX_CTRL_SIGNED_M`) |
 | | 4 | SAT | ADD: stop at the limit instead of wrapping round (`DMX_CTRL_SAT_M`) |
-| | 3 | – | Reserved, write 0 |
-| | 2–0 | OP | 0 BLIT (`OP_BLIT`), 1 ADD (`OP_ADD`), 2–7 reserved: an error |
+| | 3 | YMAJOR | LINE: the line is longer in y than in x (`DMX_CTRL_YMAJOR_M`). Other jobs: write 0 |
+| | 2–0 | OP | 0 BLIT (`OP_BLIT`), 1 ADD (`OP_ADD`), 2 LINE (`OP_LINE`), 3 EDGES (`OP_EDGES`), 4–7 reserved: an error |
 | CTRL1 | 7 | – | Reserved, write 0 |
 | | 6–5 | MASK | Where A comes from: 0 none, 1 a mask image (`MASKIMG`), 2 the key colour (`MASKKEY`), 3 reserved: an error |
 | | 4 | BCONST | B is VALUE, not read from memory |
@@ -436,7 +466,7 @@ With `SCREEN` at physical `0x040000`, the assembler turns `clearjob` into the 32
         db      0x00                    ; spare
 ```
 
-CTRL1 is `0x13`: BCONST (bit 4) and BPP 3 (bits 1–0) in Table 6-3.
+CTRL1 is `0x13`: BCONST (bit 4) and BPP 3 (bits 1–0) in Table 6-4.
 
 ---
 
@@ -444,12 +474,12 @@ CTRL1 is `0x13`: BCONST (bit 4) and BPP 3 (bits 1–0) in Table 6-3.
 
 Each channel has four control registers besides its job:
 
-- **CHCTRL** (write) starts and stops the channel (Table 6-4).
-- **CHSTAT** (read) says what it is doing (Table 6-5). Write 1 to DONE or ERR to clear it.
+- **CHCTRL** (write) starts and stops the channel (Table 6-5).
+- **CHSTAT** (read) says what it is doing (Table 6-6). Write 1 to DONE or ERR to clear it.
 - **CHDESC**: the descriptor START loads; while a list runs, the one now running ("Lists of Jobs").
 - **CHERR**: after an error, the address that caused it.
 
-**Table 6-4: CHCTRL Bits**
+**Table 6-5: CHCTRL Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -459,7 +489,7 @@ Each channel has four control registers besides its job:
 | 1 | RUN | Run the job already in the registers, then follow its NEXT |
 | 0 | START | Load the descriptor at CHDESC and run it |
 
-**Table 6-5: CHSTAT Bits**
+**Table 6-6: CHSTAT Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -471,9 +501,9 @@ Each channel has four control registers besides its job:
 
 BUSY is bit 0, so `RRA` puts it in carry, as `wait2` does. DONE and ERR stay set until you clear them; `scr_off` clears both before the examples return.
 
-**Interrupts.** A job with IRQ in CTRL1 sets its channel's bit in **DMXINT** when it ends. If the same bit is set in **DMXINTEN**, the channel interrupts the Z80: sources DMA0–DMA3 in the interrupt controller. The handler clears the bit by writing 1 to it in DMXINT. Put IRQ on the last job of a list to hear when the whole list is done, or on any job in it. DMXINT and DMXINTEN have the same bits (Table 6-6).
+**Interrupts.** A job with IRQ in CTRL1 sets its channel's bit in **DMXINT** when it ends. If the same bit is set in **DMXINTEN**, the channel interrupts the Z80: sources DMA0–DMA3 in the interrupt controller. The handler clears the bit by writing 1 to it in DMXINT. Put IRQ on the last job of a list to hear when the whole list is done, or on any job in it. DMXINT and DMXINTEN have the same bits (Table 6-7).
 
-**Table 6-6: DMXINT and DMXINTEN Bits**
+**Table 6-7: DMXINT and DMXINTEN Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -485,7 +515,7 @@ BUSY is bit 0, so `RRA` puts it in carry, as `wait2` does. DONE and ERR stay set
 
 **Errors** stop only that channel: an address outside SRAM (in version 1, the registers, palettes and ROM too), a reserved operation or MASK value, a non-zero CTRL2, or a descriptor address that is not a multiple of 4. BUSY clears, ERR is set, CHERR says where, and the channel's DMXINT bit is set. The other channels carry on.
 
-On the board, five bad jobs started with RUN on channel 2 (a mask image on the KS2, MASK 3, OP 2, CTRL2 = 1, and a DPT of `0x200000`, just past the KS2's 2 MB) each ended with CHSTAT `0x04`: ERR, with DONE clear. DMXINT read `0x04`, channel 2's bit. CHERR held `0x200000` for the bad address, and 0 for the other four, which have no address to blame.
+On the board, five bad jobs started with RUN on channel 2 (a mask image on the KS2, MASK 3, OP 2 in a bitstream without LINE, CTRL2 = 1, and a DPT of `0x200000`, just past the KS2's 2 MB) each ended with CHSTAT `0x04`: ERR, with DONE clear. DMXINT read `0x04`, channel 2's bit. CHERR held `0x200000` for the bad address, and 0 for the other four, which have no address to blame.
 
 **Suggested use of the channels:** 0 for the SD card and 1 for the USB serial link (once they are targets), 2 for general copies and fills, 3 for graphics and the copper's jobs. Any channel can do any job.
 
@@ -493,9 +523,9 @@ On the board, five bad jobs started with RUN on channel 2 (a mask image on the K
 
 ## Minterms
 
-For every bit of every pixel, the blitter takes the bits of A, B and C at that place and looks up the result in MINTERM (Table 6-7).
+For every bit of every pixel, the blitter takes the bits of A, B and C at that place and looks up the result in MINTERM (Table 6-8).
 
-**Table 6-7: MINTERM Bits**
+**Table 6-8: MINTERM Bits**
 
 | Bits | Name | Meaning: D when |
 |------|------|-----------------|
@@ -510,7 +540,13 @@ For every bit of every pixel, the blitter takes the bits of A, B and C at that p
 
 (The names are the Amiga's: a capital letter for an input at 1, a small one for an input at 0.)
 
-So the minterm is a truth table of the function you want. There is a quick way to work one out, as on the Amiga: write the function you want with **A = `0xF0`, B = `0xCC`, C = `0xAA`**, and work it out with ordinary logic. The answer is the minterm.
+So the minterm is a truth table of the function you want. Figure 6-2 shows it as a diagram: each of the eight areas of the three circles is one combination of A, B and C, and so one bit of MINTERM.
+
+![Three circles A, B and C, with each area labelled by its MINTERM bit](img/blitter-6-2-minterm.svg)
+
+*Figure 6-2: How MINTERM's Bits Map to A, B and C*
+
+There is a quick way to work one out, as on the Amiga: write the function you want with **A = `0xF0`, B = `0xCC`, C = `0xAA`**, and work it out with ordinary logic. The answer is the minterm.
 
 - D = B: `0xCC`.
 - D = B OR C: `0xCC | 0xAA` = `0xEE`.
@@ -524,9 +560,9 @@ The assembler can do the working for you. These two lines give the same byte:
         db      (0xF0 & 0xCC) | (~0xF0 & 0xAA)  ; the same, worked out by sjasmplus
 ```
 
-Table 6-8 lists the ones you will use most.
+Table 6-9 lists the ones you will use most.
 
-**Table 6-8: Common Minterms**
+**Table 6-9: Common Minterms**
 
 | MINTERM | D = | Use |
 |---------|-----|-----|
@@ -540,9 +576,9 @@ Table 6-8 lists the ones you will use most.
 | `0x55` | NOT C | Invert an area |
 | `0x00` | 0 | Clear (but a fill with VALUE 0 is just as fast) |
 
-Table 6-9 gives common jobs as CTRL1 and MINTERM.
+Table 6-10 gives common jobs as CTRL1 and MINTERM.
 
-**Table 6-9: Common Jobs as Minterms**
+**Table 6-10: Common Jobs as Minterms**
 
 | Job | CTRL1 | MINTERM |
 |-----|-------|---------|
@@ -557,9 +593,9 @@ Table 6-9 gives common jobs as CTRL1 and MINTERM.
 
 ## Masks
 
-The mask, A, says which pixels to draw. It is one bit per pixel: where it is 1, the minterm sees A = 1 in all of that pixel's bits; where it is 0, A = 0. MASK in CTRL1 says where it comes from (Table 6-10).
+The mask, A, says which pixels to draw. It is one bit per pixel: where it is 1, the minterm sees A = 1 in all of that pixel's bits; where it is 0, A = 0. MASK in CTRL1 says where it comes from (Table 6-11).
 
-**Table 6-10: MASK Values**
+**Table 6-11: MASK Values**
 
 | MASK | A comes from | Costs |
 |------|--------------|-------|
@@ -579,7 +615,11 @@ Most game graphics keep one colour, usually 0, for "nothing here". MASKKEY with 
         db      0xCA                    ; A ? B : C
 ```
 
-At 8 bpp this costs no more than a plain copy: where the mask is 0 the blitter simply does not write that byte, and it never needs to read the screen. Examples 6-2 and 6-3 draw this way.
+At 8 bpp this costs no more than a plain copy: where the mask is 0 the blitter simply does not write that byte, and it never needs to read the screen. Examples 6-2 and 6-3 draw this way. Figure 6-3 follows one small image through.
+
+![B with key-colour pixels, the mask A made from it, the background C, and the result D](img/blitter-6-3-cookiecut.svg)
+
+*Figure 6-3: Drawing with a Key Colour (Cookie-Cut)*
 
 ### Drawing through a mask image
 
@@ -673,7 +713,7 @@ A job's own Z80 address is its physical address in the program map, so `save` an
 
 Note how the strides swap: when the screen is the source, its stride is ABSTRIDE; when it is the destination, CDSTRIDE.
 
-On the board the ball moves smoothly over the bands, and the bands stay whole behind it: each restore puts back exactly what the save took. The three jobs take 114 µs a frame (Table 6-13).
+On the board the ball moves smoothly over the bands, and the bands stay whole behind it: each restore puts back exactly what the save took. The three jobs take 114 µs a frame (Table 6-20).
 
 ---
 
@@ -681,9 +721,9 @@ On the board the ball moves smoothly over the bands, and the bands stay whole be
 
 BPP in CTRL1 sets the bits per pixel: 1, 2, 4 or 8. A job works on whole pixels at that depth. A, B and D are read and written at the same depth, apart from A, which is always 1 bit per pixel.
 
-Below 8 bpp, a byte holds several pixels, the leftmost in the most significant bits (Table 6-11).
+Below 8 bpp, a byte holds several pixels, the leftmost in the most significant bits (Table 6-12).
 
-**Table 6-11: Pixels in a Byte**
+**Table 6-12: Pixels in a Byte**
 
 | BPP | Pixels per byte | Pixel x is in byte | At position |
 |-----|-----------------|--------------------|-------------|
@@ -692,9 +732,9 @@ Below 8 bpp, a byte holds several pixels, the leftmost in the most significant b
 | 4 | 2 | x / 2 | x mod 2 |
 | 8 | 1 | x | 0 |
 
-An image can start at any pixel. Give its byte address in APT, BPT or DPT, and its position within that byte in **SHIFT** (Table 6-12). Positions count pixels from the most significant end of the byte. The blitter shifts A and B into line with D, so an image stored at the start of its bytes can be drawn at any x.
+An image can start at any pixel. Give its byte address in APT, BPT or DPT, and its position within that byte in **SHIFT** (Table 6-13). Positions count pixels from the most significant end of the byte. The blitter shifts A and B into line with D, so an image stored at the start of its bytes can be drawn at any x.
 
-**Table 6-12: SHIFT Bits**
+**Table 6-13: SHIFT Bits**
 
 | Bits | Name | Meaning |
 |------|------|---------|
@@ -745,7 +785,7 @@ k = k + 1
         EDUP
 ```
 
-For the second image, x = 101 and y = 43, the assembler makes DPT `0x041E6E`, SHIFT `0x0100` (DBIT 1 in Table 6-12) and CTRL1 `0x42` (MASKKEY and BPP 2 in Table 6-3):
+For the second image, x = 101 and y = 43, the assembler makes DPT `0x041E6E`, SHIFT `0x0100` (DBIT 1 in Table 6-13) and CTRL1 `0x42` (MASKKEY and BPP 2 in Table 6-4):
 
 ```
         db      0x6E,0x1E,0x04          ; DPT: the same as SCREEN + 43*180 + 101/2
@@ -753,7 +793,11 @@ For the second image, x = 101 and y = 43, the assembler makes DPT `0x041E6E`, SH
         db      0x42                    ; CTRL1: the same as BPP4|MASKKEY
 ```
 
-The blitter handles the bytes at each end of every row that the image covers only in part: it reads them, changes only the image's pixels, and writes them back. You never set edge masks.
+The blitter handles the bytes at each end of every row that the image covers only in part: it reads them, changes only the image's pixels, and writes them back. You never set edge masks. Figure 6-4 shows one row of it.
+
+![A 4 bpp image row lined up with a screen row starting at the second pixel of a byte; the edge bytes are merged](img/blitter-6-4-shift.svg)
+
+*Figure 6-4: An Image Drawn from the Second Pixel of a Byte (4 bpp)*
 
 On the board the eight images step one pixel to the right each, away from the line. The bytes show it: the second image's second row reads `16 12 77 77 77 77 77 77 77 21` from byte 49. Byte 49 holds pixel 98 (background, 1) and the line at 99 (6); byte 50 holds pixel 100 (background) and the image's red edge at 101; byte 58 holds the right edge at 116 and the background at 117. The first row starts `11 22`: the corner pixel at 101 is the key colour, so the background shows through it.
 
@@ -768,6 +812,12 @@ A job covers WIDTH × HEIGHT pixels. After each row it moves on by the **stride*
 - A **linear** job (one long run, like `LDIR`) is HEIGHT 1 and WIDTH the length; at 8 bpp the width is in bytes.
 - A stride of **0** repeats the same row: a 1-row pattern fills a whole rectangle.
 - A **negative** stride runs up the memory: an image drawn upside down.
+
+Figure 6-5 shows an image copied out of a sheet into the screen, and the same job trimmed where it runs off the left edge.
+
+![A 32 by 32 image in a 128-byte-wide sheet copied to a 360-byte-wide screen, with the strides marked](img/blitter-6-5-stride.svg)
+
+*Figure 6-5: Rectangles and Strides*
 
 **Clipping is up to you.** Before starting a job, trim it to the screen:
 
@@ -786,6 +836,10 @@ A job reads up to 16 bytes ahead of where it writes. When the source and destina
 
 - If the destination is **before** the source (scrolling up or left), run forwards, as usual.
 - If the destination is **after** the source (scrolling down or right), set **DESC** in CTRL1. The job then runs backwards, from the last pixel of the last row to the first. You still give the addresses of the first pixel: the blitter works out the end for itself.
+
+![Copying a block two rows down within itself: forwards smears the top row, backwards is correct](img/blitter-6-6-desc.svg)
+
+*Figure 6-6: Overlapping Copies: Forwards and Backwards*
 
 ### Example 6-4: Scroll the screen down by 8 lines
 
@@ -854,6 +908,19 @@ OP_ADD adds B to C, pixel by pixel, at the job's depth: D = C + B. A carry never
 - **SAT** (`DMX_CTRL_SAT_M`): stop at the limit instead of wrapping round. At 8 bpp, 250 + 10 gives 4 without SAT and 255 with it.
 - **SIGNED** (`DMX_CTRL_SIGNED_M`): pixels are numbers from −128 to +127 (at 8 bpp), for saturating signed sums.
 
+Table 6-14 shows what the three settings give for a few 8 bpp pixels.
+
+**Table 6-14: ADD at 8 bpp**
+
+| C | B | SAT = 0 (wrap) | SAT = 1, SIGNED = 0 | SAT = 1, SIGNED = 1 |
+|---|---|----------------|---------------------|---------------------|
+| 250 | 10 | 4 | 255 | 4 (−6 + 10) |
+| 100 | 100 | 200 | 200 | 127 (+100 + 100 stops at +127) |
+| 5 | `0xFF` | 4 | 255 | 4 (+5 − 1) |
+| `0x90` (−112) | `0xF0` (−16) | `0x80` | 255 | `0x80` (−128) |
+
+At 1, 2 and 4 bpp the limits are those of the pixel: 0–15 unsigned and −8 to +7 signed at 4 bpp, for example.
+
 Uses:
 
 - **Darken or brighten** an area when the palette is laid out in ramps (for example 16 shades of each colour): add a constant, with SAT, to step every pixel along its ramp.
@@ -865,7 +932,11 @@ Uses:
 
 ## Lists of Jobs
 
-Each job ends with NEXT: the physical address of another job in SRAM, or 0. A list of jobs runs one after another, with no help from the CPU. Jobs in memory are called **descriptors**; they must start at an address that is a multiple of 4 (`align 4`).
+Each job ends with NEXT: the physical address of another job in SRAM, or 0. A list of jobs runs one after another, with no help from the CPU. Jobs in memory are called **descriptors**; they must start at an address that is a multiple of 4 (`align 4`). Figure 6-7 shows a list of three, as Example 6-2 uses.
+
+![CHDESC points at the first of three descriptors; each NEXT points at the next, and the last NEXT is 0](img/blitter-6-7-chain.svg)
+
+*Figure 6-7: A List of Jobs*
 
 To start a list, write the first descriptor's address to the channel's **CHDESC** and **START** to CHCTRL. The channel loads each descriptor in turn into its registers and runs it. This is `start2` from `screen.inc`, with HL the first descriptor:
 
@@ -885,7 +956,400 @@ start2: ld      bc,DMX2_CHDESC0_P
 
 (RUN runs the job already in the registers instead, and then follows its NEXT.)
 
-Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 114 µs where the single draw job takes 39 µs (Table 6-13).
+Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 114 µs where the single draw job takes 39 µs (Table 6-20).
+
+---
+
+## Drawing Lines
+
+A **LINE** job (OP 2) draws one straight line. You give the first pixel, which way the line goes and how long it is along each axis; the blitter steps from pixel to pixel by Bresenham's rule and draws each one through the minterm, as a BLIT draws its pixels. Three things come with it:
+
+- a **colour**, B, from VALUE's low byte;
+- a 16-bit **pattern**, A, from VALUE's high half, for dashed and dotted lines;
+- a **clip rectangle**, shared by all channels: pixels outside it are stepped over but not drawn.
+
+LINE works at 1, 2, 4 and 8 bpp, into any bitmap in SRAM.
+
+### Step 1: Work out the octant and the lengths
+
+For a line from (x0, y0) to (x1, y1), with y growing down the screen:
+
+1. dx = x1 − x0 and dy = y1 − y0.
+2. **XNEG** if dx is negative (the line goes left); **YNEG** if dy is negative (it goes up the screen).
+3. **YMAJOR** if \|dy\| > \|dx\|: the line is steeper than 45° and steps along y. A tie goes along x.
+4. **WIDTH** = the longer of \|dx\| and \|dy\|, plus 1, since both ends are drawn. **HEIGHT** = the shorter.
+
+The three bits pick one of eight **octants** (Figure 6-8).
+
+![Eight octants round a point, each labelled with its YMAJOR, XNEG and YNEG bits](img/blitter-6-8-octants.svg)
+
+*Figure 6-8: A Line's Octant*
+
+### Step 2: Fill in the job
+
+Table 6-15 gives the fields of a LINE job. Most keep their BLIT meaning; APT and BPT hold the first pixel's coordinates instead of addresses, for the clip test.
+
+**Table 6-15: A LINE Job's Fields**
+
+| Field | In a LINE job |
+|-------|---------------|
+| CTRL0 | OP = 2; YMAJOR, XNEG and YNEG from Step 1. SAT and SIGNED are ignored |
+| CTRL1 | BPP and IRQ as usual. BCONST is ignored: B is always VALUE. DESC and MASK must be 0 (an error otherwise) |
+| MINTERM | D = MINTERM(A, B, C) for each pixel, as for BLIT |
+| APT | **LX**: the first pixel's x, signed 16 bits (bits 15–0). Used only for clipping |
+| BPT | **LY**: the first pixel's y, signed 16 bits (bits 15–0). Used only for clipping |
+| DPT, SHIFT.DBIT | The first pixel's address, and its position in the byte below 8 bpp, as for BLIT |
+| WIDTH | Pixels drawn: the longer length + 1, from 1 to 32,768. 0 does nothing |
+| HEIGHT | The shorter length, from 0 to WIDTH − 1 |
+| ABSTRIDE | Not used |
+| CDSTRIDE | Bytes from one row of the screen to the next. YNEG steps back by it |
+| VALUE | The pattern and the colour (Table 6-16) |
+| NEXT | As for any job |
+
+In a LINE or EDGES job, VALUE is split as Table 6-16 shows.
+
+**Table 6-16: VALUE in a LINE or EDGES Job**
+
+| Bits | Name | Meaning |
+|------|------|---------|
+| 31–16 | PATTERN | A for each pixel in turn: bit 31 for the first, bit 30 for the second, and round again after bit 16. `0xFFFF` is a solid line |
+| 15–8 | – | Ignored |
+| 7–0 | COLOUR | B: the colour, its low BPP bits below 8 bpp |
+
+Here is the first ray of Example 6-5 as a descriptor: from the centre (180, 128) to the top left corner (0, 0) of the 360-byte-wide screen, in colour 14 with a dash-and-dot pattern. dx = −180 and dy = −128, so XNEG and YNEG are set, YMAJOR is clear, WIDTH is 181 and HEIGHT 128. The raw bytes, from the assembler's listing, are beside each source line:
+
+```
+ray:    db      OP_LINE|DMX_CTRL_XNEG_M|DMX_CTRL_YNEG_M, BPP8, 0, 0xCA
+                                        ; C2 03 00 CA: CTRL0 0xC2 = YNEG, XNEG, OP 2
+        d24     180, 128                ; B4 00 00  80 00 00: LX, LY
+        d24     SCREEN + 128*360 + 180  ; B4 B4 04: DPT 0x04B4B4
+        d24     181                     ; B5 00 00: WIDTH
+        dw      128, 0, 0, 360          ; 80 00  00 00  00 00  68 01: HEIGHT, SHIFT, ABSTRIDE, CDSTRIDE
+        dd      0xFF18000E              ; 0E 00 18 FF: colour 14, pattern 0xFF18
+        d24     0                       ; 00 00 00: NEXT
+        db      0
+```
+
+### How the blitter steps
+
+With M = WIDTH − 1, the longer length, and N = HEIGHT, the shorter, the blitter keeps an error term E, which starts at 2N − M. For each of the WIDTH pixels:
+
+1. It draws the pixel, unless the pixel is outside the clip rectangle.
+2. Unless that was the last pixel: if E > 0 it steps one pixel along the shorter axis and adds 2(N − M) to E; otherwise it adds 2N. Then it steps one pixel along the longer axis.
+
+A step along x moves one pixel through the bytes at the job's depth; a step along y moves DPT by CDSTRIDE. Figure 6-9 follows a short line through.
+
+![The pixels of a line from (0, 0) to (10, 4) on a grid, with the error term under each column](img/blitter-6-9-bresenham.svg)
+
+*Figure 6-9: Stepping a Line*
+
+A tie (E = 0) goes straight on, so a line drawn from the other end can differ by a pixel at a tie. To undraw a line with XOR, draw it the same way both times.
+
+### Colour, pattern and minterm
+
+Each pixel goes through the minterm as for BLIT: **A** is the pattern's bit for that pixel, **B** the colour and **C** the pixel already on the screen. So the BLIT minterms that use the mask work for lines too (Table 6-17).
+
+**Table 6-17: Minterms for Lines**
+
+| MINTERM | D = | The line |
+|---------|-----|----------|
+| `0xCA` | A ? B : C | The colour where the pattern is 1; the screen shows through the gaps |
+| `0xC0` | A ? B : 0 | The colour where the pattern is 1; colour 0 in the gaps |
+| `0xEA` | A ? (B OR C) : C | Sets the colour's bits in each pixel |
+| `0x6A` | A ? (B XOR C) : C | Flips the colour's bits: the same job draws and undraws |
+| `0xCC` | B | The colour everywhere: the pattern is ignored |
+
+The pattern moves on for every pixel, drawn or not, and starts again at bit 31 for each job. So a dashed line keeps its dashes where the clip rectangle cuts it.
+
+**Gaps cost nothing.** Where the pattern is 0 and the minterm leaves C alone, as `0xCA` does, the pixel is neither read nor written. At 8 bpp a pixel whose result does not depend on C is only written. Otherwise each pixel is a read of the byte holding it and a write.
+
+### The clip rectangle
+
+A pixel is drawn only if CLIPXMIN ≤ x ≤ CLIPXMAX and CLIPYMIN ≤ y ≤ CLIPYMAX. x and y start at LX and LY and move with each step. The four limits are global registers, shared by all channels (Table 6-18 has their bits; their ports follow each other, so `INC B` steps through them).
+
+**Table 6-18: Clip Rectangle Registers**
+
+| Offset | Port | Name | Access | Bits | After reset |
+|--------|------|------|--------|------|-------------|
+| `0x238` | `0x3812` | CLIPXMIN | RW | 15–0: the least x drawn, signed | `0x8000` (−32,768) |
+| `0x23A` | `0x3A12` | CLIPXMAX | RW | 15–0: the most x drawn, signed | `0x7FFF` (32,767) |
+| `0x23C` | `0x3C12` | CLIPYMIN | RW | 15–0: the least y drawn, signed | `0x8000` |
+| `0x23E` | `0x3E12` | CLIPYMAX | RW | 15–0: the most y drawn, signed | `0x7FFF` |
+
+Each is two bytes, low byte first (`CLIPXMIN0_P`, `CLIPXMIN1_P`). Both limits are inclusive. After reset nothing is clipped. The rectangle is read as each pixel is stepped, so change it only while no LINE or EDGES job is running: once a picture, typically.
+
+A clipped pixel costs a step, about 10 ns, and no memory cycle. Figure 6-10 shows a dashed line leaving the rectangle.
+
+![A dashed line on a pixel grid crossing the clip rectangle: pixels outside are stepped but not drawn](img/blitter-6-10-clip.svg)
+
+*Figure 6-10: The Pattern and the Clip Rectangle*
+
+Keep the rectangle inside the screen: the blitter checks a pixel against the rectangle, not against the screen. A line may start off the screen, as long as DPT is the address the first pixel would have (worked out in 23 bits, wrapping). Example 6-5 keeps it simple by starting every line on the screen, and leaves it to the rectangle to cut the far end.
+
+### Example 6-5: Lines through a clip rectangle
+
+`examples/blitter/line.asm` draws 48 lines from the centre of the 8 bpp screen to points round its edge, in the eight bright colours. A clip rectangle a little inside the screen cuts every one of them, and a white frame just outside it shows where it is. Below, with the rectangle opened again, four lines show four patterns: solid (`0xFFFF`), long dashes (`0xFF00`), short dashes (`0xF0F0`), and dash and dot (`0xFF18`).
+
+Channel 2's registers keep their values between jobs, so the fields that every line shares are loaded once, from a 32-byte job:
+
+```
+linejob:
+        db      OP_LINE, BPP8, 0        ; CTRL: LINE, 8 bpp (CTRL0 changes per line)
+        db      0xCA                    ; MINTERM: A ? B : C, the colour where the pattern is 1
+        d24     0, 0, 0                 ; APT (LX), BPT (LY), DPT: per line
+        d24     0                       ; WIDTH: per line
+        dw      0                       ; HEIGHT: per line
+        dw      0                       ; SHIFT: DBIT 0 at 8 bpp
+        dw      0                       ; ABSTRIDE: not used
+        dw      ROW                     ; CDSTRIDE: the screen's row length
+        dd      0xFFFF0000              ; VALUE: a solid pattern; the colour per line
+        d24     0                       ; NEXT: none
+        db      0
+```
+
+Then each line needs only CTRL0, APT, BPT, DPT, WIDTH and HEIGHT. The routine `line` works them out from four words, `x0`, `y0`, `x1` and `y1`, as Steps 1 and 2 describe:
+
+```
+; line: draw the line from (x0, y0) to (x1, y1) on channel 2. x0 and y0 are
+; on the screen, since the first pixel's address is worked out from them;
+; x1 and y1 can be anywhere from -16,384 to 16,383, and the clip rectangle
+; cuts the line. CTRL1, MINTERM, CDSTRIDE and VALUE are already in channel
+; 2's registers. lineset writes the job, linego starts it. Uses AF, BC, DE, HL.
+line:   call    lineset
+linego: ld      bc,DMX2_CHCTRL_P
+        ld      a,DMX_CHCTRL_RUN_M
+        out     (c),a                   ; draw
+        ret
+
+lineset:
+        ld      c,OP_LINE               ; C = CTRL0: the operation and the octant
+        ld      hl,(x1)
+        ld      de,(x0)
+        or      a
+        sbc     hl,de                   ; dx
+        jp      p,.right
+        call    neghl
+        set     DMX_CTRL_XNEG_B,c       ; the line goes left
+.right: ld      (adx),hl
+        ld      hl,(y1)
+        ld      de,(y0)
+        or      a
+        sbc     hl,de                   ; dy
+        jp      p,.down
+        call    neghl
+        set     DMX_CTRL_YNEG_B,c       ; the line goes up the screen
+.down:  ld      de,(adx)                ; HL = |dy|, DE = |dx|
+        push    hl
+        or      a
+        sbc     hl,de
+        pop     hl
+        jr      c,.lens                 ; |dy| < |dx|: along x
+        jr      z,.lens                 ; a tie goes along x too
+        set     DMX_CTRL_YMAJOR_B,c     ; |dy| > |dx|: along y
+        ex      de,hl
+.lens:  inc     de                      ; DE = WIDTH: the longer length + 1
+        ld      (lw),de
+        ld      (lh),hl                 ; HL = HEIGHT: the shorter length
+        ld      a,c
+        ld      (lctrl),a
+
+        ld      hl,(y0)                 ; DPT = SCREEN + y0 * 360 + x0
+        ...                             ; 45 y0 by shifts and adds, then x 8 into A:HL
+        ld      de,(x0)
+        add     hl,de
+        adc     a,SCREEN >> 16          ; SCREEN's low 16 bits are 0
+        ld      e,a
+
+        push    de
+        push    hl
+        call    wait2                   ; the registers can be written only while idle
+        pop     hl
+        pop     de
+        ld      bc,DMX2_CTRL0_P
+        ld      a,(lctrl)
+        out     (c),a                   ; CTRL0: LINE and the octant
+        ld      bc,DMX2_DPT0_P
+        out     (c),l                   ; DPT: the first pixel
+        inc     b
+        out     (c),h
+        inc     b
+        out     (c),e
+        ld      hl,(lw)
+        inc     b
+        out     (c),l                   ; WIDTH
+        ...                             ; WIDTH's other two bytes, then HEIGHT
+        ld      bc,DMX2_APT0_P
+        ld      hl,(x0)
+        out     (c),l                   ; APT: LX, the first pixel's x, for clipping
+        inc     b
+        out     (c),h
+        ld      bc,DMX2_BPT0_P
+        ld      hl,(y0)
+        out     (c),l                   ; BPT: LY, its y
+        inc     b
+        out     (c),h
+        ret
+```
+
+The Z80 works out the next line while the blitter draws the last: `lineset` waits for the channel only just before it writes the registers. The rectangle is set by copying 8 bytes to the clip registers' ports:
+
+```
+; setclip: the 8 bytes at HL into CLIPXMIN ... CLIPYMAX (ports in a row)
+setclip:
+        ld      bc,CLIPXMIN_P
+.next:  ld      a,(hl)
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,b
+        cp      (high CLIPXMIN_P) + 8
+        jr      nz,.next
+        ret
+
+box:    dw      30, 329, 16, 239        ; XMIN, XMAX, YMIN, YMAX, inclusive
+whole:  dw      -32768, 32767, -32768, 32767
+```
+
+The program sets `whole` again before it returns, since the rectangle is shared and stays set.
+
+On the board the rays fan out from the centre and every one stops exactly at the frame; the patterned lines below keep their dashes along their whole length. After a key the console shows:
+
+```
+48 rays took 3398 us; a 300-pixel line 20 us to draw, 53 us to set up
+```
+
+The last line (dash and dot, about 190 of its 300 pixels drawn) took the blitter 20 µs, but the Z80 took 53 µs to work it out and write it, over 1,000 T-states. So the rays, about 71 µs each, are paced by the Z80, not the blitter. For many short lines, such as a 3D object's, that is the limit, and EDGES removes it.
+
+---
+
+## Drawing Wireframe Objects
+
+An **EDGES** job (OP 3) draws every edge of a wireframe object. You leave the object's points, already projected to the screen, in one table and its edges in another; the blitter reads them, works out each edge's octant, lengths and first pixel itself, and draws it as a LINE. So the Z80 starts one job per object instead of one per line.
+
+### Points and edges in memory
+
+- **Points:** point n is 4 bytes at POINTS + 4n: x, then y, each a signed 16-bit word, in pixels from the origin, with y growing down the screen. An x of `0x8000` marks a point behind the eye: edges to it are left out.
+- **Edges:** edge k is 2 bytes at EDGES + 2k: the numbers of its two points, 0–255. It is drawn from the first point to the second.
+
+Both tables start at an even address. Figure 6-11 shows a cube's.
+
+![A cube's points table, its edges table, and the cube they draw](img/blitter-6-11-edges.svg)
+
+*Figure 6-11: An EDGES Job's Data*
+
+**Table 6-19: An EDGES Job's Fields**
+
+| Field | In an EDGES job |
+|-------|-----------------|
+| CTRL0 | OP = 3. YMAJOR, XNEG, YNEG, SAT and SIGNED are ignored: the blitter works out each edge's octant |
+| CTRL1 | BPP and IRQ as usual. BCONST is ignored. DESC and MASK must be 0 (an error otherwise) |
+| MINTERM | As for LINE (Table 6-17) |
+| APT | POINTS: the points table. Even (an error otherwise) |
+| BPT | EDGES: the edges table. Even (an error otherwise) |
+| DPT, SHIFT.DBIT | The **origin**: the address of pixel (0, 0), and its position in the byte below 8 bpp |
+| WIDTH | The number of edges, 0–65,535 |
+| HEIGHT, ABSTRIDE | Not used |
+| CDSTRIDE | Bytes from one row of the screen to the next |
+| VALUE | The pattern and the colour, as for LINE (Table 6-16) |
+| NEXT | As for any job |
+
+For each edge, from point a to point b, the blitter:
+
+1. leaves it out if either point's x is `0x8000`, if either point is outside −16,384 to 16,383 on either axis, or if both ends are beyond the same side of the clip rectangle;
+2. otherwise draws it exactly as a LINE job from (xa, ya) to (xb, yb), clipped pixel by pixel, with the pattern starting again at bit 31.
+
+Two edges that meet both draw the point where they meet. With a minterm that uses C, such as XOR, that point is flipped twice and vanishes. To remove an object, draw it again in the background colour with `0xCA`, rather than with XOR.
+
+### Example 6-6: A turning cube
+
+`examples/blitter/edges.asm` turns a cube and moves it from side to side through a clip rectangle, at 50 frames a second. `examples/blitter/cube.py` works out the cube's 8 points for each of 64 frames and writes them to `cube.inc`, 32 bytes a frame:
+
+```
+cube_pts:
+        dw      98, 62, 262, 62, 98, 226, 262, 226, 125, 89, 235, 89, 125, 199, 235, 199   ; frame 0
+        ...
+```
+
+Point i is the corner with x, y and z given by its bits 0, 1 and 2, so an edge joins two points that differ in one bit:
+
+```
+        align   2
+edges:  db      0,1, 2,3, 4,5, 6,7      ; along x
+        db      0,2, 1,3, 4,6, 5,7      ; along y
+        db      0,4, 1,5, 2,6, 3,7      ; along z
+```
+
+Each frame runs a list of two EDGES jobs: `erase` draws last frame's cube in black, then `draw` draws this frame's in bright cyan. They differ only in APT and VALUE:
+
+```
+        align   4
+erase:  db      OP_EDGES, BPP8, 0       ; CTRL: EDGES, 8 bpp
+        db      0xCA                    ; MINTERM: A ? B : C
+        d24     0                       ; APT: POINTS, last frame's (set each frame)
+        d24     edges                   ; BPT: EDGES
+        d24     SCREEN                  ; DPT: the origin, pixel (0, 0)
+        d24     12                      ; WIDTH: 12 edges
+        dw      0                       ; HEIGHT: not used
+        dw      0                       ; SHIFT: DBIT 0 at 8 bpp
+        dw      0                       ; ABSTRIDE: not used
+        dw      ROW                     ; CDSTRIDE: the screen's row length
+        dd      0xFFFF0000              ; VALUE: a solid pattern, colour 0 (black)
+        d24     draw                    ; NEXT
+        db      0
+
+draw:   db      OP_EDGES, BPP8, 0
+        db      0xCA
+        d24     0                       ; APT: POINTS, this frame's (set each frame)
+        d24     edges
+        d24     SCREEN
+        d24     12
+        dw      0, 0, 0, ROW
+        dd      0xFFFF000D              ; VALUE: solid, colour 13, bright cyan
+        d24     0                       ; NEXT: the end
+        db      0
+```
+
+With `edges` at `0x80C6` and `SCREEN` at `0x040000`, the assembler makes `draw` these bytes:
+
+```
+        db      0x03,0x03,0x00,0xCA     ; CTRL: OP 3; BPP8; 0. MINTERM 0xCA
+        db      0x00,0x00,0x00          ; APT: set each frame
+        db      0xC6,0x80,0x00          ; BPT: edges
+        db      0x00,0x00,0x04          ; DPT: SCREEN, the origin
+        db      0x0C,0x00,0x00          ; WIDTH: 12 edges
+        db      0x00,0x00,0x00,0x00     ; HEIGHT, SHIFT: 0
+        db      0x00,0x00,0x68,0x01     ; ABSTRIDE 0, CDSTRIDE 360
+        db      0x0D,0x00,0xFF,0xFF     ; VALUE: colour 13, pattern 0xFFFF
+        db      0x00,0x00,0x00,0x00     ; NEXT: 0; spare
+```
+
+The frame loop moves `draw`'s points to `erase`, steps `draw` on to the next frame, and starts the list:
+
+```
+loop:   call    frame                   ; once a frame, in the vertical blank
+        call    wait2                   ; last frame's list is long done
+        ld      hl,(draw + 4)           ; the cube on the screen now ...
+        ld      (erase + 4),hl          ; ... is the one to erase
+        ld      de,32
+        add     hl,de                   ; the next frame's points
+        ld      de,cube_pts_end
+        or      a
+        sbc     hl,de
+        add     hl,de
+        jr      nz,.same
+        ld      hl,cube_pts             ; round again
+.same:  ld      (draw + 4),hl           ; APT: POINTS
+        call    t0
+        ld      hl,erase
+        call    start2                  ; erase, then draw
+        call    wait2
+        call    t1
+        ld      (took),hl
+        rst     20h                     ; POLLC: a key ends it
+        jr      z,loop
+```
+
+On the board the cube turns smoothly and leaves no trace behind it. As it drifts past the frame, its edges are cut exactly at the rectangle, and the ones wholly outside disappear. After a key the console shows `Erase and draw took 82 us`: 24 edges, about 2,350 pixels stepped, including loading both descriptors. That is about 35 ns a pixel, and the Z80's part of each frame is a few register writes. The same list started from the copper or a timer would need no Z80 time at all.
 
 ---
 
@@ -903,7 +1367,7 @@ Both are built; the Copper chapter and spec 14, section 9, have the details.
 
 The blitter uses only memory cycles that nobody else wants: the Z80, the display, the sprites and the copper always come first. How fast it goes therefore depends on the screen and on what the CPU is doing.
 
-### Example 6-5: Timing jobs with TIME
+### Example 6-7: Timing jobs with TIME
 
 `examples/blitter/speed.asm` times seven jobs with TIME, which counts microseconds. Each job starts on the first visible line of a frame, so it runs while the display is fetching. Every job is timed twice: with the 360 × 288 8 bpp screen showing, and with the layers' fetches off (DMACON.BPLEN clear). Then the program puts the console back and prints the results. This is the part that times one job:
 
@@ -966,9 +1430,9 @@ The low 16 bits of TIME are enough for anything up to 65 ms. The jobs, the list 
 
 ### Measured times
 
-Table 6-13 gives what the KS2 printed. **Screen on** is the examples' screen: L0 a 360 × 288 8 bpp bitmap at 2× each way (180 words fetched a line), no sprites, the copper off. **Screen off** has the layers' fetches off as well. In both, the CPU runs at 20 MHz in `wait2`'s polling loop (`IN`, `RRA`, `JR`: a memory read about every 5½ T-states). The times include starting the job and reading TIME, a few µs. The worked-out figures are spec 14's, for one 8 bpp layer at 2×, 8 sprites and a busy CPU.
+Table 6-20 gives what the KS2 printed. **Screen on** is the examples' screen: L0 a 360 × 288 8 bpp bitmap at 2× each way (180 words fetched a line), no sprites, the copper off. **Screen off** has the layers' fetches off as well. In both, the CPU runs at 20 MHz in `wait2`'s polling loop (`IN`, `RRA`, `JR`: a memory read about every 5½ T-states). The times include starting the job and reading TIME, a few µs. The worked-out figures are spec 14's, for one 8 bpp layer at 2×, 8 sprites and a busy CPU.
 
-**Table 6-13: Times for Common Jobs, Measured on the KS2**
+**Table 6-20: Times for Common Jobs, Measured on the KS2**
 
 | Job | Bytes of D | Screen on | Screen off | Worked out |
 |-----|------------|-----------|------------|------------|
@@ -979,23 +1443,32 @@ Table 6-13 gives what the KS2 printed. **Screen on** is the examples' screen: L0
 | Draw a 32 × 32 object with a transparent colour | 1,024 | 39 µs | 36 µs | about 30 µs |
 | Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 114 µs | 101 µs | about 90 µs |
 | `LDIR`, for comparison | 16,384 | 17,208 µs (0.95 MB/s) | 17,209 µs | 17,203 µs |
+| A 300-pixel dash-and-dot line (Example 6-5), about 190 pixels drawn | about 190 | 20 µs | – | 15–20 µs |
+| Erase and draw a 12-edge cube, two EDGES jobs in a list (Example 6-6) | about 2,350 pixels stepped | 82 µs | – | 120–160 µs |
 
 So on the board the blitter fills about 64 times as fast as `LDIR` copies, and copies about 32 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
 
 The fills take about a fifth longer than the worked-out figures, and the copies about a tenth. With the screen off, the engine has far more free cycles, yet it is only about 10% faster: the engine's own steps, not the free cycles, set most of the pace. It works in groups of up to 8 words, reading a group's words before it writes them. A job that reads C costs no more than a copy, since both read once and write once for each word.
 
+The line and cube times were measured later, with the KS2's build without the copper, on the same screen. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
+
 ### What a job costs
 
-Table 6-14 gives what a job costs in memory cycles per 2 bytes of D, from the design. The measured times above follow the order of the table, but not its ratios.
+Table 6-21 gives what a job costs in memory cycles, from the design: per 2 bytes of D for BLIT and ADD, per pixel for LINE and EDGES. The measured times above follow the order of the table, but not its ratios.
 
-**Table 6-14: Memory Cycles per 2 Bytes of D**
+**Table 6-21: What Jobs Cost in Memory Cycles**
 
 | Job | Cycles | Why |
 |-----|--------|-----|
-| Fill (BCONST, no C) | 1 | Only writes |
-| Copy, or draw with MASKKEY at 8 bpp | 2 | Read B, write D |
-| Draw with a mask image (KS3) | 2 + 1 per 16 pixels | A is small |
-| Any minterm that uses C, and ADD | 3 | Read B, read C, write D |
+| Fill (BCONST, no C) | 1 per 2 bytes | Only writes |
+| Copy, or draw with MASKKEY at 8 bpp | 2 per 2 bytes | Read B, write D |
+| Draw with a mask image (KS3) | 2 per 2 bytes, + 1 per 16 pixels | A is small |
+| Any minterm that uses C, and ADD | 3 per 2 bytes | Read B, read C, write D |
+| A line pixel at 8 bpp whose result does not use C (`0xCA` where the pattern is 1) | 1 per pixel | Write D |
+| A line pixel that uses C, or any line pixel below 8 bpp | 2 per pixel | Read C, write D |
+| A gap in the pattern with `0xCA`, or a clipped pixel | 0 | A step only, about 10 ns |
+| An EDGES edge, drawn or left out | 5, + its pixels | Read the edge and its two points |
+| Loading a descriptor | 16 | 32 bytes |
 
 Tips:
 
@@ -1009,12 +1482,16 @@ Tips:
 
 ## What the Blitter Cannot Do
 
-- **No line drawing, no area fill.** The Amiga's LINE and FILL modes are not there, and nor are scaled or rotated blits. OP 6 (span fill) and OP 7 (triangle) are kept for the 3D hardware; today they, OP 2–4 and OP 5 (MIX, on hold) stop the channel with an error.
+- **No area fill, no scaled or rotated blits.** OP 6 (span fill) and OP 7 (triangle) are kept for the 3D hardware; today they, OP 4 and OP 5 (MIX, on hold) stop the channel with an error.
+- **LINE and EDGES only where there is room.** The KS3 has them; on the KS2, only the build without the copper.
+- **Lines are one pixel wide**, start on a whole pixel (no sub-pixel start), and have no one-pixel-per-row mode for area fills, as the Amiga's has.
+- **One clip rectangle for all channels**, and it applies only to LINE and EDGES.
+- **EDGES takes at most 256 points an object** (a point number is a byte), each within −16,384 to 16,383.
 - **SRAM only, in version 1.** A job cannot read or write the hardware registers, the palettes, the boot ROM, the SD card or the USB serial link yet. An address outside SRAM, or a non-zero CTRL2, stops the channel with an error. So a job cannot load a palette, set up a layer, or start another channel by writing its CHCTRL; the CPU or the copper does that.
 - **SRAM past the end of the board is an error**, not a mirror as the display sees: on the KS2's 2 MB, a DPT of `0x200000` stopped the channel with CHERR `0x200000`.
 - **No mask image on the KS2.** MASKIMG stops the channel with an error there (tried on the board). Use MASKKEY; the KS3 has mask images.
 - **The mask shares B's stride**, so a mask image's rows are as far apart as the image's, and most of each row is unused at 8 bpp.
-- **No clipping.** Trim jobs yourself ("Rectangles, Strides and Clipping").
+- **No clipping for BLIT and ADD.** Trim those jobs yourself ("Rectangles, Strides and Clipping").
 - **No overlap check.** Set DESC yourself when the destination is after the source.
 - **No descriptor memory of its own.** Every descriptor is in SRAM and costs 16 memory reads to load.
 - **It never takes a cycle from the CPU**, so it cannot be made faster by holding the Z80 up; slowing the CPU with CPUSPEED gives it more cycles.
@@ -1024,46 +1501,50 @@ Tips:
 
 ## Summary of Blitter Registers
 
-Channel n's registers are at custom offset `0x140 + n × 0x40` (`DMX0`–`DMX3` in `hw.inc`), ports named with `_P` (`DMX2_CTRL_P` and so on; spec 14, section 8, lists them), and register page offset `0x1000` + custom offset. Table 6-15 lists them.
+Channel n's registers are at custom offset `0x140 + n × 0x40` (`DMX0`–`DMX3` in `hw.inc`), ports named with `_P` (`DMX2_CTRL_P` and so on; spec 14, section 8, lists them), and register page offset `0x1000` + custom offset. Table 6-22 lists them.
 
-**Table 6-15: Channel Registers**
+**Table 6-22: Channel Registers**
 
 | Offset | Name | Bytes | Access | Bits |
 |--------|------|-------|--------|------|
-| `+0x00` | CTRL | 3 | RW | CTRL0: SIGNED (5), SAT (4), OP (2–0: 0 BLIT, 1 ADD). CTRL1: MASK (6–5: 0 none, 1 image, 2 key), BCONST (4), IRQ (3), DESC (2), BPP (1–0). CTRL2: 0. Table 6-3 |
-| `+0x03` | MINTERM | 1 | RW | One result bit per combination of A, B and C: Table 6-7 |
-| `+0x04` | APT | 3 | RW | Mask image address |
-| `+0x07` | BPT | 3 | RW | Image address |
-| `+0x0A` | DPT | 3 | RW | Destination address |
-| `+0x0D` | WIDTH | 3 | RW | Pixels across |
-| `+0x10` | HEIGHT | 2 | RW | Rows |
-| `+0x12` | SHIFT | 2 | RW | DBIT (10–8), BBIT (6–4), ABIT (2–0): Table 6-12 |
+| `+0x00` | CTRL | 3 | RW | CTRL0: YNEG (7), XNEG (6), SIGNED (5), SAT (4), YMAJOR (3), OP (2–0: 0 BLIT, 1 ADD, 2 LINE, 3 EDGES). CTRL1: MASK (6–5: 0 none, 1 image, 2 key), BCONST (4), IRQ (3), DESC (2), BPP (1–0). CTRL2: 0. Table 6-4 |
+| `+0x03` | MINTERM | 1 | RW | One result bit per combination of A, B and C: Table 6-8 |
+| `+0x04` | APT | 3 | RW | Mask image address; LINE: LX; EDGES: the points |
+| `+0x07` | BPT | 3 | RW | Image address; LINE: LY; EDGES: the edges |
+| `+0x0A` | DPT | 3 | RW | Destination address; LINE: the first pixel; EDGES: the origin |
+| `+0x0D` | WIDTH | 3 | RW | Pixels across; LINE: pixels along; EDGES: edges |
+| `+0x10` | HEIGHT | 2 | RW | Rows; LINE: the shorter length |
+| `+0x12` | SHIFT | 2 | RW | DBIT (10–8), BBIT (6–4), ABIT (2–0): Table 6-13 |
 | `+0x14` | ABSTRIDE | 2 | RW | Signed: A's and B's row to row |
 | `+0x16` | CDSTRIDE | 2 | RW | Signed: D's row to row |
-| `+0x18` | VALUE | 4 | RW | B's value with BCONST; the key colour with MASKKEY |
+| `+0x18` | VALUE | 4 | RW | B's value with BCONST; the key colour with MASKKEY; LINE and EDGES: PATTERN (31–16), COLOUR (7–0), Table 6-16 |
 | `+0x1C` | NEXT | 3 | RW | Next descriptor, or 0 |
 | `+0x20` | CHDESC | 3 | RW | First descriptor for START; the one running |
-| `+0x24` | CHCTRL | 1 | W | PAUSE (3, also readable), STOP (2), RUN (1), START (0): Table 6-4 |
-| `+0x28` | CHSTAT | 1 | R, W1C | PAUSED (3), ERR (2), DONE (1), BUSY (0): Table 6-5 |
+| `+0x24` | CHCTRL | 1 | W | PAUSE (3, also readable), STOP (2), RUN (1), START (0): Table 6-5 |
+| `+0x28` | CHSTAT | 1 | R, W1C | PAUSED (3), ERR (2), DONE (1), BUSY (0): Table 6-6 |
 | `+0x2C` | CHERR | 3 | R | Address of the last error |
 
-Writes to the job registers (`+0x00`–`+0x1E`) and CHDESC are ignored while the channel is busy. Table 6-16 gives the registers shared by all channels.
+Writes to the job registers (`+0x00`–`+0x1E`) and CHDESC are ignored while the channel is busy. Table 6-23 gives the registers shared by all channels.
 
-**Table 6-16: Global DMA Registers**
+**Table 6-23: Global DMA Registers**
 
 | Offset | Port | Name | Access | Bits |
 |--------|------|------|--------|------|
-| `0x230` | `0x3012` | DMXINT | W1C | CH3–CH0 (3–0): a channel's interrupt is pending. Table 6-6 |
-| `0x234` | `0x3412` | DMXINTEN | RW | CH3–CH0 (3–0): the interrupt enables. Table 6-6 |
+| `0x230` | `0x3012` | DMXINT | W1C | CH3–CH0 (3–0): a channel's interrupt is pending. Table 6-7 |
+| `0x234` | `0x3412` | DMXINTEN | RW | CH3–CH0 (3–0): the interrupt enables. Table 6-7 |
+| `0x238` | `0x3812` | CLIPXMIN | RW | 15–0, signed: the least x a LINE or EDGES job draws. Table 6-18 |
+| `0x23A` | `0x3A12` | CLIPXMAX | RW | 15–0, signed: the most x drawn |
+| `0x23C` | `0x3C12` | CLIPYMIN | RW | 15–0, signed: the least y drawn |
+| `0x23E` | `0x3E12` | CLIPYMAX | RW | 15–0, signed: the most y drawn |
 | `0x00C` | `0x0C10` | DMACON | Set/clear | SETCLR (7): a write sets (1) or clears (0) the bits written as 1. DMAEN (6) and BLTEN (3) let the engine run |
 
 The full definition is spec 14, `docs/spec/dma-engine.md`.
 
 ### State after reset and when a program starts
 
-After reset every channel register is 0, and so are DMXINT and DMXINTEN. DMACON.DMAEN and DMACON.BLTEN are clear, so no channel runs until a program sets them (Step 1).
+After reset every channel register is 0, and so are DMXINT and DMXINTEN. The clip rectangle is the whole range, −32,768 to 32,767 each way, so LINE and EDGES clip nothing. DMACON.DMAEN and DMACON.BLTEN are clear, so no channel runs until a program sets them (Step 1).
 
-When the boot ROM starts a program, the DMA engine is stopped: every channel is idle and BLTEN is clear. DMAEN is set, since the console's layer needs it. The examples set BLTEN when they start and clear it again before they return.
+When the boot ROM starts a program, the DMA engine is stopped: every channel is idle and BLTEN is clear. DMAEN is set, since the console's layer needs it. The examples set BLTEN when they start and clear it again before they return. The boot ROM does not set the clip rectangle, so a program that changed it, as Examples 6-5 and 6-6 do, puts the whole range back before it returns.
 
 ### Names in `hw.inc`
 
@@ -1071,3 +1552,6 @@ When the boot ROM starts a program, the DMA engine is stopped: every channel is 
 - `DMX_name`: a register's offset within a channel (`DMX_MINTERM` is 3, `DMX_VALUE` is `0x18`).
 - `DMX_CTRL_name_M`, `DMX_SHIFT_name_M`, `DMX_CHCTRL_name_M` and `DMX_CHSTAT_name_M`: masks for the fields, with `_B` for the lowest bit and `_W` for the width. CTRL's masks are for the whole 3-byte register, so CTRL1's are shifted up by 8.
 - `DMXINT_CHn_M`, `DMXINTEN_CHn_M`: the channel bits of the global registers.
+- `DMX_CTRL_YMAJOR_M`, `DMX_CTRL_XNEG_M`, `DMX_CTRL_YNEG_M`: LINE's octant bits in CTRL0, with `_B` for `SET n,r`.
+- `CLIPXMIN`–`CLIPYMAX` and their ports `CLIPXMIN_P`–`CLIPYMAX_P`; each byte as `CLIPXMIN0_P`, `CLIPXMIN1_P` and so on.
+- `hw.inc` has no names for LX and LY: they are APT and BPT (`DMX2_APT0_P`, `DMX2_BPT0_P`).

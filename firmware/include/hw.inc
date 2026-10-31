@@ -534,6 +534,63 @@ I2CSTAT_NACK_M               equ 0x2
 I2CSTAT_ARBLOST_B            equ 0x2
 I2CSTAT_ARBLOST_W            equ 0x1
 I2CSTAT_ARBLOST_M            equ 0x4
+GEOVX                        equ 0xB8          ; RW, spec 15/5.2
+GEOVX_N                      equ 0x2
+GEOVX_P                      equ 0xB800
+GEOVX0                       equ 0xB8
+GEOVX0_P                     equ 0xB800
+GEOVX1                       equ 0xB9
+GEOVX1_P                     equ 0xB900
+GEOVY                        equ 0xBA          ; RW, spec 15/5.2
+GEOVY_N                      equ 0x2
+GEOVY_P                      equ 0xBA00
+GEOVY0                       equ 0xBA
+GEOVY0_P                     equ 0xBA00
+GEOVY1                       equ 0xBB
+GEOVY1_P                     equ 0xBB00
+GEOVZ                        equ 0xBC          ; RW, spec 15/5.2
+GEOVZ_N                      equ 0x2
+GEOVZ_P                      equ 0xBC00
+GEOVZ0                       equ 0xBC
+GEOVZ0_P                     equ 0xBC00
+GEOVZ1                       equ 0xBD
+GEOVZ1_P                     equ 0xBD00
+GEOCTL                       equ 0xBE          ; RW, spec 15/5.2
+GEOCTL_N                     equ 0x1
+GEOCTL_P                     equ 0xBE00
+GEOCTL_BANK_B                equ 0x0
+GEOCTL_BANK_W                equ 0x3
+GEOCTL_BANK_M                equ 0x7
+GEOCTL_PROJ_B                equ 0x3
+GEOCTL_PROJ_W                equ 0x1
+GEOCTL_PROJ_M                equ 0x8
+GEOCTL_CAM_B                 equ 0x4
+GEOCTL_CAM_W                 equ 0x1
+GEOCTL_CAM_M                 equ 0x10
+GEOCTL_INV_B                 equ 0x5
+GEOCTL_INV_W                 equ 0x1
+GEOCTL_INV_M                 equ 0x20
+GEOSTAT                      equ 0xBF          ; RW1C, spec 15/5.3
+GEOSTAT_N                    equ 0x1
+GEOSTAT_P                    equ 0xBF00
+GEOSTAT_BUSY_B               equ 0x0
+GEOSTAT_BUSY_W               equ 0x1
+GEOSTAT_BUSY_M               equ 0x1
+GEOSTAT_NEAR_B               equ 0x1
+GEOSTAT_NEAR_W               equ 0x1
+GEOSTAT_NEAR_M               equ 0x2
+GEOSTAT_SAT_B                equ 0x2
+GEOSTAT_SAT_W                equ 0x1
+GEOSTAT_SAT_M                equ 0x4
+GEOSTAT_DIVZ_B               equ 0x3
+GEOSTAT_DIVZ_W               equ 0x1
+GEOSTAT_DIVZ_M               equ 0x8
+GEOSTAT_FRONT_B              equ 0x4
+GEOSTAT_FRONT_W              equ 0x1
+GEOSTAT_FRONT_M              equ 0x10
+GEOSTAT_SATS_B               equ 0x7
+GEOSTAT_SATS_W               equ 0x1
+GEOSTAT_SATS_M               equ 0x80
 ULA                          equ 0xFE          ; RW, spec 12/8
 ULA_N                        equ 0x1
 ULA_P                        equ 0xFE00
@@ -602,6 +659,92 @@ KEYMAP5_P                    equ 0x1500
 KEYMAP6                      equ 0x16          ; R,SEP, spec 12/5.3
 KEYMAP6_N                    equ 0x1
 KEYMAP6_P                    equ 0x1600
+GEOW                         equ 0xA0          ; GEOW0..11, spec 15/5.1
+GEOW_NUM                     equ 0xC
+GEOW0                        equ 0xA0          ; RW, spec 15/5.1
+GEOW0_N                      equ 0x2
+GEOW0_P                      equ 0xA000
+GEOW0_0                      equ 0xA0
+GEOW0_0_P                    equ 0xA000
+GEOW0_1                      equ 0xA1
+GEOW0_1_P                    equ 0xA100
+GEOW1                        equ 0xA2          ; RW, spec 15/5.1
+GEOW1_N                      equ 0x2
+GEOW1_P                      equ 0xA200
+GEOW1_0                      equ 0xA2
+GEOW1_0_P                    equ 0xA200
+GEOW1_1                      equ 0xA3
+GEOW1_1_P                    equ 0xA300
+GEOW2                        equ 0xA4          ; RW, spec 15/5.1
+GEOW2_N                      equ 0x2
+GEOW2_P                      equ 0xA400
+GEOW2_0                      equ 0xA4
+GEOW2_0_P                    equ 0xA400
+GEOW2_1                      equ 0xA5
+GEOW2_1_P                    equ 0xA500
+GEOW3                        equ 0xA6          ; RW, spec 15/5.1
+GEOW3_N                      equ 0x2
+GEOW3_P                      equ 0xA600
+GEOW3_0                      equ 0xA6
+GEOW3_0_P                    equ 0xA600
+GEOW3_1                      equ 0xA7
+GEOW3_1_P                    equ 0xA700
+GEOW4                        equ 0xA8          ; RW, spec 15/5.1
+GEOW4_N                      equ 0x2
+GEOW4_P                      equ 0xA800
+GEOW4_0                      equ 0xA8
+GEOW4_0_P                    equ 0xA800
+GEOW4_1                      equ 0xA9
+GEOW4_1_P                    equ 0xA900
+GEOW5                        equ 0xAA          ; RW, spec 15/5.1
+GEOW5_N                      equ 0x2
+GEOW5_P                      equ 0xAA00
+GEOW5_0                      equ 0xAA
+GEOW5_0_P                    equ 0xAA00
+GEOW5_1                      equ 0xAB
+GEOW5_1_P                    equ 0xAB00
+GEOW6                        equ 0xAC          ; RW, spec 15/5.1
+GEOW6_N                      equ 0x2
+GEOW6_P                      equ 0xAC00
+GEOW6_0                      equ 0xAC
+GEOW6_0_P                    equ 0xAC00
+GEOW6_1                      equ 0xAD
+GEOW6_1_P                    equ 0xAD00
+GEOW7                        equ 0xAE          ; RW, spec 15/5.1
+GEOW7_N                      equ 0x2
+GEOW7_P                      equ 0xAE00
+GEOW7_0                      equ 0xAE
+GEOW7_0_P                    equ 0xAE00
+GEOW7_1                      equ 0xAF
+GEOW7_1_P                    equ 0xAF00
+GEOW8                        equ 0xB0          ; RW, spec 15/5.1
+GEOW8_N                      equ 0x2
+GEOW8_P                      equ 0xB000
+GEOW8_0                      equ 0xB0
+GEOW8_0_P                    equ 0xB000
+GEOW8_1                      equ 0xB1
+GEOW8_1_P                    equ 0xB100
+GEOW9                        equ 0xB2          ; RW, spec 15/5.1
+GEOW9_N                      equ 0x2
+GEOW9_P                      equ 0xB200
+GEOW9_0                      equ 0xB2
+GEOW9_0_P                    equ 0xB200
+GEOW9_1                      equ 0xB3
+GEOW9_1_P                    equ 0xB300
+GEOW10                       equ 0xB4          ; RW, spec 15/5.1
+GEOW10_N                     equ 0x2
+GEOW10_P                     equ 0xB400
+GEOW10_0                     equ 0xB4
+GEOW10_0_P                   equ 0xB400
+GEOW10_1                     equ 0xB5
+GEOW10_1_P                   equ 0xB500
+GEOW11                       equ 0xB6          ; RW, spec 15/5.1
+GEOW11_N                     equ 0x2
+GEOW11_P                     equ 0xB600
+GEOW11_0                     equ 0xB6
+GEOW11_0_P                   equ 0xB600
+GEOW11_1                     equ 0xB7
+GEOW11_1_P                   equ 0xB700
 
 ; ---- TMR0..TMR3: 4 x 0x8 bytes, spec 9/6
 TMR_NUM                      equ 0x4
@@ -2058,6 +2201,34 @@ DMXINTEN_CH2_M               equ 0x4
 DMXINTEN_CH3_B               equ 0x3
 DMXINTEN_CH3_W               equ 0x1
 DMXINTEN_CH3_M               equ 0x8
+CLIPXMIN                     equ 0x238         ; RW, spec 14/8.4
+CLIPXMIN_N                   equ 0x2
+CLIPXMIN_P                   equ 0x3812
+CLIPXMIN0                    equ 0x238
+CLIPXMIN0_P                  equ 0x3812
+CLIPXMIN1                    equ 0x239
+CLIPXMIN1_P                  equ 0x3912
+CLIPXMAX                     equ 0x23A         ; RW, spec 14/8.4
+CLIPXMAX_N                   equ 0x2
+CLIPXMAX_P                   equ 0x3A12
+CLIPXMAX0                    equ 0x23A
+CLIPXMAX0_P                  equ 0x3A12
+CLIPXMAX1                    equ 0x23B
+CLIPXMAX1_P                  equ 0x3B12
+CLIPYMIN                     equ 0x23C         ; RW, spec 14/8.4
+CLIPYMIN_N                   equ 0x2
+CLIPYMIN_P                   equ 0x3C12
+CLIPYMIN0                    equ 0x23C
+CLIPYMIN0_P                  equ 0x3C12
+CLIPYMIN1                    equ 0x23D
+CLIPYMIN1_P                  equ 0x3D12
+CLIPYMAX                     equ 0x23E         ; RW, spec 14/8.4
+CLIPYMAX_N                   equ 0x2
+CLIPYMAX_P                   equ 0x3E12
+CLIPYMAX0                    equ 0x23E
+CLIPYMAX0_P                  equ 0x3E12
+CLIPYMAX1                    equ 0x23F
+CLIPYMAX1_P                  equ 0x3F12
 SEQCON                       equ 0x300         ; RW, spec 17/8
 SEQCON_N                     equ 0x1
 SEQCON_P                     equ 0x13
@@ -2962,12 +3133,21 @@ DMX_CTRL2                    equ 0x2
 DMX_CTRL_OP_B                equ 0x0
 DMX_CTRL_OP_W                equ 0x3
 DMX_CTRL_OP_M                equ 0x7
+DMX_CTRL_YMAJOR_B            equ 0x3
+DMX_CTRL_YMAJOR_W            equ 0x1
+DMX_CTRL_YMAJOR_M            equ 0x8
 DMX_CTRL_SAT_B               equ 0x4
 DMX_CTRL_SAT_W               equ 0x1
 DMX_CTRL_SAT_M               equ 0x10
 DMX_CTRL_SIGNED_B            equ 0x5
 DMX_CTRL_SIGNED_W            equ 0x1
 DMX_CTRL_SIGNED_M            equ 0x20
+DMX_CTRL_XNEG_B              equ 0x6
+DMX_CTRL_XNEG_W              equ 0x1
+DMX_CTRL_XNEG_M              equ 0x40
+DMX_CTRL_YNEG_B              equ 0x7
+DMX_CTRL_YNEG_W              equ 0x1
+DMX_CTRL_YNEG_M              equ 0x80
 DMX_CTRL_BPP_B               equ 0x8
 DMX_CTRL_BPP_W               equ 0x2
 DMX_CTRL_BPP_M               equ 0x300
@@ -3652,6 +3832,63 @@ ME_YFLIP                     equ 0x40          ; Map entry high byte: the tile u
 ME_PRI                       equ 0x80          ; Map entry high byte: in front of all layers
 SEQ_END                      equ 0x7FF         ; Sequencer: VSTART of the end-of-list entry
 SEQ_ENTRY                    equ 0x10          ; Sequencer: bytes per list entry
+GEO_BANK_CAM                 equ 0x0           ; GEOCTL.BANK: the camera
+GEO_BANK_OBJ                 equ 0x1           ; GEOCTL.BANK: the object
+GEO_BANK_VIEW                equ 0x2           ; GEOCTL.BANK: the view
+GEO_BANK_OPS                 equ 0x3           ; GEOCTL.BANK: the operands
+GEO_BANK_PROD                equ 0x4           ; GEOCTL.BANK: the product M and T (read only)
+GEO_CM11                     equ 0xA0          ; Geometry, camera bank: CM11
+GEO_CM12                     equ 0xA2          ; Geometry, camera bank: CM12
+GEO_CM13                     equ 0xA4          ; Geometry, camera bank: CM13
+GEO_CM21                     equ 0xA6          ; Geometry, camera bank: CM21
+GEO_CM22                     equ 0xA8          ; Geometry, camera bank: CM22
+GEO_CM23                     equ 0xAA          ; Geometry, camera bank: CM23
+GEO_CM31                     equ 0xAC          ; Geometry, camera bank: CM31
+GEO_CM32                     equ 0xAE          ; Geometry, camera bank: CM32
+GEO_CM33                     equ 0xB0          ; Geometry, camera bank: CM33
+GEO_CPX                      equ 0xB2          ; Geometry, camera bank: CPX
+GEO_CPY                      equ 0xB4          ; Geometry, camera bank: CPY
+GEO_CPZ                      equ 0xB6          ; Geometry, camera bank: CPZ
+GEO_OM11                     equ 0xA0          ; Geometry, object bank: OM11
+GEO_OM12                     equ 0xA2          ; Geometry, object bank: OM12
+GEO_OM13                     equ 0xA4          ; Geometry, object bank: OM13
+GEO_OM21                     equ 0xA6          ; Geometry, object bank: OM21
+GEO_OM22                     equ 0xA8          ; Geometry, object bank: OM22
+GEO_OM23                     equ 0xAA          ; Geometry, object bank: OM23
+GEO_OM31                     equ 0xAC          ; Geometry, object bank: OM31
+GEO_OM32                     equ 0xAE          ; Geometry, object bank: OM32
+GEO_OM33                     equ 0xB0          ; Geometry, object bank: OM33
+GEO_OPX                      equ 0xB2          ; Geometry, object bank: OPX
+GEO_OPY                      equ 0xB4          ; Geometry, object bank: OPY
+GEO_OPZ                      equ 0xB6          ; Geometry, object bank: OPZ
+GEO_DX                       equ 0xA0          ; Geometry, view bank: DX
+GEO_DY                       equ 0xA2          ; Geometry, view bank: DY
+GEO_SCX                      equ 0xA4          ; Geometry, view bank: SCX
+GEO_SCY                      equ 0xA6          ; Geometry, view bank: SCY
+GEO_ZMIN                     equ 0xA8          ; Geometry, view bank: ZMIN
+GEO_F0X                      equ 0xA0          ; Geometry, operands bank: F0X
+GEO_F0Y                      equ 0xA2          ; Geometry, operands bank: F0Y
+GEO_F1X                      equ 0xA4          ; Geometry, operands bank: F1X
+GEO_F1Y                      equ 0xA6          ; Geometry, operands bank: F1Y
+GEO_F2X                      equ 0xA8          ; Geometry, operands bank: F2X
+GEO_F2Y                      equ 0xAA          ; Geometry, operands bank: F2Y
+GEO_MA                       equ 0xAC          ; Geometry, operands bank: MA
+GEO_MB                       equ 0xAE          ; Geometry, operands bank: MB
+GEO_DVD                      equ 0xB0          ; Geometry, operands bank: DVD
+GEO_DVDHI                    equ 0xB2          ; Geometry, operands bank: DVDHI
+GEO_DVS                      equ 0xB4          ; Geometry, operands bank: DVS
+GEO_M11                      equ 0xA0          ; Geometry, product bank: M11
+GEO_M12                      equ 0xA2          ; Geometry, product bank: M12
+GEO_M13                      equ 0xA4          ; Geometry, product bank: M13
+GEO_M21                      equ 0xA6          ; Geometry, product bank: M21
+GEO_M22                      equ 0xA8          ; Geometry, product bank: M22
+GEO_M23                      equ 0xAA          ; Geometry, product bank: M23
+GEO_M31                      equ 0xAC          ; Geometry, product bank: M31
+GEO_M32                      equ 0xAE          ; Geometry, product bank: M32
+GEO_M33                      equ 0xB0          ; Geometry, product bank: M33
+GEO_TX                       equ 0xB2          ; Geometry, product bank: TX
+GEO_TY                       equ 0xB4          ; Geometry, product bank: TY
+GEO_TZ                       equ 0xB6          ; Geometry, product bank: TZ
 SYSRESET_MAGIC               equ 0xA5          ; SYSRESET: a full reset
 WDKICK_MAGIC                 equ 0x5A          ; WDKICK: restart the watchdog's time
 

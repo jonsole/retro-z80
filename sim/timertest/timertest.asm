@@ -54,6 +54,13 @@ PHMARK  equ     0x5A
         cp      xv
         jp      nz,fail
     ENDM
+    MACRO RCHKM xp, xm, xv              ; fail unless register port xp, masked by xm, reads xv
+        ld      bc,xp
+        in      a,(c)
+        and     xm
+        cp      xv
+        jp      nz,fail
+    ENDM
     MACRO CHECK xn                      ; the check that follows is number xn
         ld      a,xn
         ld      (CHK),a
@@ -295,7 +302,7 @@ start:  ld      sp,0x0000
         ld      a,TMR2_STAT
         call    waitund
         CHECK   0x41                    ; check 41: the tick came with VBLANK, in the vertical blank
-        RCHK    VIDSTAT_P, VIDSTAT_VBLANK_M | VIDSTAT_INVBLANK_M
+        RCHKM   VIDSTAT_P, VIDSTAT_VBLANK_M | VIDSTAT_INVBLANK_M, VIDSTAT_VBLANK_M | VIDSTAT_INVBLANK_M ; LINE may be set too
         RCHK    TMR2_CTRL_P, SRC2       ; one-shot: stopped
 
         ; ---- TIME and the capture (spec 3, rule 4)

@@ -10,14 +10,15 @@
 // scheduler (dmac.v), shown by layer_pix.v. NL sets how many layers are
 // built (1-3): the registers of layers not built read 0xFF and PRIO naming
 // them shows nothing. Not yet: direct colour (VIDCON.DIRECT is kept and
-// read back), the attribute layer, LINECMP, the LINE request, BEAMPOS and
-// FRAMECOUNT. Ticket #16 added VIDINTEN and the request line to the
+// read back) and the attribute layer. Ticket #16 added VIDINTEN and the request line to the
 // interrupt controller (VBLANK); ticket #21 the border from port 0xFE
 // writes. Ticket #31 added the sprites (spec 5; sprites.v, sprite_pix.v; NS
 // of them built), their place among the layers by DEPTH, SPRPALETTE and
 // the collisions, VIDSTAT.SPRUNDER and the VIDERR request. Ticket #32 added
 // the copper's side (spec 6): the beam and the frame start for it, its own
-// colour assembly buffer (rb_cop marks its writes) and DMACON.COPEN.
+// colour assembly buffer (rb_cop marks its writes) and DMACON.COPEN. Ticket
+// #53 added BEAMPOS and FRAMECOUNT (counted on the pixel side, sampled with
+// the beam, handed to the CPU's capture), LINECMP and the LINE request.
 //
 // Registers (custom block, spec 4, section 6):
 //   VIDCON    0x000  EN (0) starts the beam; BLANKALL (2) shows BGCOLOR only;
@@ -78,13 +79,14 @@ module video #(
     input  wire [7:0]  rb_wdata,
     output wire [7:0]  rb_rdata,
     output wire        rb_hit,         // with rb_rdata: this unit answered
-    output wire [31:0] rb_cdata,       // with rb_rdata: SPRxPT whole, for the CPU's capture
+    output wire [31:0] rb_cdata,       // with rb_rdata: SPRxPT, BPL0PT, BEAMPOS or FRAMECOUNT whole, for the CPU's capture
     output wire        rb_cap,
     input  wire        rb_cop,         // the write on the bus is the copper's (its colour buffer)
 
     output wire        frame_tick,     // 1 clock (100 MHz) at the start of each frame
     output wire        line_tick,      // 1 clock (100 MHz) at the start of each beam line (timers, #17)
     output wire        irq,            // to the interrupt controller: source VBLANK (0)
+    output wire        irq_line,       // ... source LINE (1)
     output wire        irq_err,        // ... and source VIDERR (3)
 
     // For the copper (spec 6): the beam as the memory side sees it, and DMACON
@@ -137,6 +139,8 @@ module video #(
     // ================================================================ registers (100 MHz)
     reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
     reg         vs_vblank;             // VIDSTAT.VBLANK
+    reg         vs_line;               // VIDSTAT.LINE
+    reg  [10:0] lc_v;                  // LINECMP: read by the pixel side, a setting
     reg  [2:0]  vs_over;               // VIDSTAT.OVERRUN0-2
     reg         vs_sprunder;           // VIDSTAT.SPRUNDER
     reg  [5:0]  prio;
@@ -174,14 +178,17 @@ module video #(
     wire        sel_lay = (rb_addr[12:8] == 5'h10) && (rb_addr[7:0] >= 8'h90) && ({1'b0, ll[7:5]} < NL)
                           && (lo <= 5'h0F);
 
-    // From the pixel domain: the beam line and pixel, sampled until two samples agree
+    // From the pixel domain: the beam line and pixel, and the frame count,
+    // sampled until two samples agree, so a read is never torn
     reg  [10:0] p_vline, p_hpix;
-    reg  [21:0] bs1, bs2;
+    reg  [15:0] p_frames;
+    reg  [37:0] bs1, bs2;
     reg  [10:0] s_vline, s_hpix;
+    reg  [15:0] s_frames;
     always @(posedge clk) begin
-        bs1 <= {p_vline, p_hpix};
+        bs1 <= {p_frames, p_vline, p_hpix};
         bs2 <= bs1;
-        if (bs1 == bs2) {s_vline, s_hpix} <= bs2;
+        if (bs1 == bs2) {s_frames, s_vline, s_hpix} <= bs2;
     end
     wire invblank = (s_vline < BV0);
     assign beam_v = s_vline;
@@ -197,11 +204,17 @@ module video #(
     always @(posedge clk) ln_s <= {ln_s[1:0], p_ln_t};
     assign line_tick = ln_s[2] != ln_s[1];
 
+    reg        p_lc_t;                 // toggles at the start of beam line LINECMP
+    reg  [2:0] lc_s;
+    always @(posedge clk) lc_s <= {lc_s[1:0], p_lc_t};
+    wire       line_ev = lc_s[2] != lc_s[1];
+
     wire [2:0] ov_t;                // OVERRUN toggles from the layer units
     (* ASYNC_REG = "TRUE" *) reg [2:0] ov_s1, ov_s2;
     reg  [2:0] ov_s3;
 
     assign irq     = vs_vblank && vidinten[`RM_VIDINTEN_VBLANK];
+    assign irq_line = vs_line && vidinten[`RM_VIDINTEN_LINE];
     assign irq_err = |({vs_sprunder, vs_over} & vidinten[7:4]);
     wire [7:0] p_un;                // the sprites' underrun toggles (pixel side)
     (* ASYNC_REG = "TRUE" *) reg [1:0] un_s;
@@ -224,9 +237,8 @@ module video #(
     assign cop_on = dmacon[6] && dmacon[4];
     assign blt_on = dmacon[6] && dmacon[3];
 
-    wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) &&
-                    (rb_addr != `RM_LINECMP0) && (rb_addr != `RM_LINECMP1) ||
-                    (rb_addr >= `RM_VIDSIZE0) && (rb_addr <= `RM_VIDSIZE3);
+    wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) ||
+                    (rb_addr >= `RM_BEAMPOS0) && (rb_addr <= `RM_VIDSIZE3);
 
     // ---- the palettes in the register page (0x1400-0x1FFF): palette p,
     // entry i, byte b at 0x1400 + p x 0x300 + 3i + b. As the palettes are 3
@@ -261,6 +273,8 @@ module video #(
         if (rst) begin
             vidcon    <= 6'd0;
             vs_vblank <= 1'b0;
+            vs_line   <= 1'b0;
+            lc_v      <= 11'd0;
             vs_over   <= 3'd0;
             vs_sprunder <= 1'b0;
             prio      <= 6'b10_01_00;      // L0 in front, then L1, then L2
@@ -281,17 +295,21 @@ module video #(
             end
         end else begin
             if (frame_tick) vs_vblank <= 1'b1;
+            if (line_ev)    vs_line   <= 1'b1;
             for (i = 0; i < 3; i = i + 1) if (ov_ev[i]) vs_over[i] <= 1'b1;
             if (un_s3 != un_s[1]) vs_sprunder <= 1'b1;
             if (rb_wr) case (rb_addr)
                 `RM_VIDCON:   vidcon <= {rb_wdata[5:4], 1'b0, rb_wdata[2], 1'b0, rb_wdata[0]};
                 `RM_VIDSTAT:  begin
                     if (rb_wdata[`RM_VIDSTAT_VBLANK]) vs_vblank <= 1'b0;
+                    if (rb_wdata[`RM_VIDSTAT_LINE])   vs_line   <= 1'b0;
                     vs_over <= vs_over & ~rb_wdata[6:4];
                     if (rb_wdata[`RM_VIDSTAT_SPRUNDER]) vs_sprunder <= 1'b0;
                 end
                 `RM_VIDINTEN: vidinten <= rb_wdata & 8'hF7;
                 `RM_PRIO:     prio <= rb_wdata[5:0];
+                `RM_LINECMP0: lc_v[7:0]  <= rb_wdata;
+                `RM_LINECMP1: lc_v[10:8] <= rb_wdata[2:0];
                 `RM_BGCOLOR0: if (rb_cop) ccab[7:0]  <= rb_wdata; else cab[7:0]  <= rb_wdata;
                 `RM_BGCOLOR1: if (rb_cop) ccab[15:8] <= rb_wdata; else cab[15:8] <= rb_wdata;
                 `RM_BGCOLOR2: bgcolor   <= {rb_wdata, wcab};
@@ -361,16 +379,38 @@ module video #(
     end
 
     // ---- register reads (the palettes' are below)
+    // BEAMPOS and FRAMECOUNT read live; reading the low byte also hands the
+    // whole value to the CPU's capture (bus_if.v; spec 3, rule 4)
     reg  [7:0] reg_q;
     reg        reg_hit;
+    reg [31:0] v_cdata;
+    reg        v_cap;
     always @(posedge clk) begin
         reg_q   <= 8'd0;
         reg_hit <= rb_rd && (sel_glob || sel_lay);
+        v_cdata <= 32'd0;
+        v_cap   <= 1'b0;
+        if (rb_rd && rb_addr == `RM_BEAMPOS0) begin
+            v_cdata <= {5'd0, s_vline, 5'd0, s_hpix};
+            v_cap   <= 1'b1;
+        end
+        if (rb_rd && rb_addr == `RM_FRAMECOUNT0) begin
+            v_cdata <= {16'd0, s_frames};
+            v_cap   <= 1'b1;
+        end
         if (rb_rd) case (rb_addr)
             `RM_VIDCON:   reg_q <= {2'd0, vidcon};
-            `RM_VIDSTAT:  reg_q <= {vs_sprunder, vs_over, invblank, 2'd0, vs_vblank};
+            `RM_VIDSTAT:  reg_q <= {vs_sprunder, vs_over, invblank, 1'b0, vs_line, vs_vblank};
             `RM_VIDINTEN: reg_q <= vidinten;
             `RM_PRIO:     reg_q <= {2'd0, prio};
+            `RM_LINECMP0: reg_q <= lc_v[7:0];
+            `RM_LINECMP1: reg_q <= {5'd0, lc_v[10:8]};
+            `RM_BEAMPOS0: reg_q <= s_hpix[7:0];
+            `RM_BEAMPOS1: reg_q <= {5'd0, s_hpix[10:8]};
+            `RM_BEAMPOS2: reg_q <= s_vline[7:0];
+            `RM_BEAMPOS3: reg_q <= {5'd0, s_vline[10:8]};
+            `RM_FRAMECOUNT0: reg_q <= s_frames[7:0];
+            `RM_FRAMECOUNT1: reg_q <= s_frames[15:8];
             `RM_BGCOLOR0: reg_q <= bgcolor[7:0];
             `RM_BGCOLOR1: reg_q <= bgcolor[15:8];
             `RM_BGCOLOR2: reg_q <= bgcolor[23:16];
@@ -443,6 +483,10 @@ module video #(
     wire [7:0] dma_q, spr_q;
     wire       dma_hit, spr_hit;
     assign rb_rdata = reg_q | dma_q | spr_q | pal_byte;
+    wire [31:0] spr_cdata, dma_cdata;
+    wire        spr_cap, dma_cap;
+    assign rb_cdata = spr_cdata | dma_cdata | v_cdata;
+    assign rb_cap   = spr_cap | dma_cap | v_cap;
     assign rb_hit   = reg_hit | dma_hit | spr_hit | pal_hit;
 
     // ================================================================ pixel domain
@@ -506,6 +550,14 @@ module video #(
             p_vb_t <= 1'b0;
         else if (en_p && bh == 11'd0 && bv == 11'd0)   // the frame starts: (0, 0)
             p_vb_t <= ~p_vb_t;
+        if (prst)
+            p_frames <= 16'd0;
+        else if (en_p && bh == 11'd0 && bv == 11'd0)
+            p_frames <= p_frames + 1'b1;
+        if (prst)
+            p_lc_t <= 1'b0;
+        else if (en_p && bh == 11'd0 && bv == lc_v)    // beam line LINECMP starts (above 624: never)
+            p_lc_t <= ~p_lc_t;
         if (prst)
             p_ln_t <= 1'b0;
         else if (en_p && bh == 11'd0)                  // a line starts: pixel 0
@@ -644,7 +696,7 @@ module video #(
     bpldma #(.NL(NL)) dma (
         .clk(clk), .rst(rst), .enable(fetch_en),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(dma_q), .rb_hit(dma_hit),
+        .rb_rdata(dma_q), .rb_hit(dma_hit), .rb_cdata(dma_cdata), .rb_cap(dma_cap),
         .line_t(line_t), .act(f_act), .adv(f_adv),
         .lbpp(fv_lb), .hscale(fv_hs), .wrap(fv_wrap), .ngroups(fv_groups),
         .tile(f_tile), .mapw(fv_mw), .ty(fv_ty), .tcol(fv_tcol),
@@ -670,7 +722,7 @@ module video #(
     sprites #(.NS(NS)) spr (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(spr_q), .rb_hit(spr_hit), .rb_cdata(rb_cdata), .rb_cap(rb_cap),
+        .rb_rdata(spr_q), .rb_hit(spr_hit), .rb_cdata(spr_cdata), .rb_cap(spr_cap),
         .dma_on(vidcon[0] && dmacon[6] && dmacon[2]), .vblank(frame_tick), .beam_v(s_vline), .beam_h(s_hpix),
         .mem_req(spr_req), .mem_addr(spr_addr), .mem_deadline(spr_deadline), .mem_urgent(spr_urgent),
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),

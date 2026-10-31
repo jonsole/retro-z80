@@ -2,11 +2,15 @@
 # Adapted from retro68k's fpga/ks3/build.tcl. Run through build.sh:
 #   vivado -mode batch -source build.tcl -tclargs <repo root> <build dir> <what>
 # <what> is "machine" (the computer, top_ks2; build.sh has put boot.hex in
-# the build folder) or "pattern" (the test pattern, top_ks2_pattern).
+# the build folder) or "pattern" (the test pattern, top_ks2_pattern), and
+# an optional 1 to build the geometry unit in place of the DMA engine (GEOM),
+# then an optional 0 to leave the copper out (COPPER).
 
 set root   [file normalize [lindex $argv 0]]
 set out    [file normalize [lindex $argv 1]]
 set what   [lindex $argv 2]
+set geom   [expr {[llength $argv] > 3 ? [lindex $argv 3] : 0}]
+set copper [expr {[llength $argv] > 4 ? [lindex $argv 4] : 1}]
 set part   xc7a15tcsg324-1
 set rtl    $root/fpga/rtl
 
@@ -27,7 +31,7 @@ if {$what eq "pattern"} {
         $root/fpga/third_party/tv80/tv80_core.v $root/fpga/third_party/tv80/tv80_alu.v \
         $root/fpga/third_party/tv80/tv80_mcode.v $root/fpga/third_party/tv80/tv80_reg.v \
         $rtl/z80_cpu.v $rtl/cpu_cen.v $rtl/bus_if.v $rtl/dbgunit.v $rtl/mmu.v $rtl/intpages.v $rtl/timebase.v $rtl/dmac.v \
-        $rtl/sram_ctl.v $rtl/bootrom.v $rtl/fifo8.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/layer_pix.v $rtl/bpldma.v $rtl/sprites.v $rtl/sprite_pix.v $rtl/video.v $rtl/copper.v $rtl/dmx.v $rtl/timers.v \
+        $rtl/sram_ctl.v $rtl/bootrom.v $rtl/fifo8.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/layer_pix.v $rtl/bpldma.v $rtl/sprites.v $rtl/sprite_pix.v $rtl/video.v $rtl/copper.v $rtl/dmx.v $rtl/geom.v $rtl/timers.v \
         $rtl/ps2kb.v $rtl/ps2map.v $rtl/keys.v $rtl/joy.v $rtl/audio.v \
         $rtl/retroz80.v $rtl/tmds_encoder.v $root/fpga/ks2/top_ks2.v \
         $rtl/platform/artix7/ks2_clocks.v $rtl/platform/artix7/hdmi_out.v \
@@ -37,7 +41,11 @@ if {$what eq "pattern"} {
 }
 
 # tv80 counts R and drives rfsh_n only with TV80_REFRESH (spec 1)
-synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
+if {$what eq "pattern"} {
+    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
+} else {
+    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom -generic COPPER=$copper
+}
 write_checkpoint -force post_synth.dcp
 report_utilization -file utilization_synth.txt
 

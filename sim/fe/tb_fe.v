@@ -88,6 +88,7 @@ module tb_fe;
     video #(.NL(1)) vid (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_cop(1'b0),                 // the CPU's writes only: no copper here
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(), .rb_cap(),
         .frame_tick(), .line_tick(), .irq(), .irq_err(),
         .disp_req(), .disp_urgent(), .disp_deadline(), .disp_addr(),

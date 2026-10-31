@@ -40,6 +40,19 @@
 // BCONST in place of the kinds; WIDTH 24 bits; no HIGH mode or CPUSHARE; no
 // descriptor RAM; one start line per channel from the timers. MASKIMG = 0
 // leaves the mask image out (about 400 LUTs), for the KS2.
+//
+// LINE (OP 2, spec 14 section 3.4; ticket #75, a retro-z80 addition) steps
+// one pixel at a time: each pixel inside the clip rectangle is its word read
+// (when the minterm needs C), merged through the minterm and written back.
+// Its progress lives in fields the group machinery saves anyway: the pixel's
+// bit address in w_dw:w_od, x in w_arow (APT), y in w_srow (BPT), the error
+// term in w_sw, the pixels left in w_dleft and the pattern's place in w_ao.
+//
+// EDGES (OP 3, section 3.5) reads each edge (a word: two point numbers) and
+// its two points (two words each), works out the line and runs it through
+// LINE's stepping. Besides LINE's progress it keeps the next edge's word in
+// w_aw, the edges left in w_rows, and the line's N, M and octant in
+// w_carry, w_aleft and w_le, so a channel coming back mid-line carries on.
 `include "regmap.vh"
 
 module dmx #(
@@ -89,6 +102,7 @@ module dmx #(
     wire        sel_err   = in_dmx && ro >= 6'h2C && ro <= 6'h2E;
     wire        sel_int   = rb_addr == `RM_DMXINT;
     wire        sel_inten = rb_addr == `RM_DMXINTEN;
+    wire        sel_clip  = in_dmx && rch == 2'd3 && ro >= 6'h38;   // 0x238-0x23F
 
     // ================================================================ channel registers
     reg  [23:0] chdesc [0:3];
@@ -99,6 +113,11 @@ module dmx #(
     localparam M_LOAD = 2'd0, M_SETUP = 2'd1, M_ROW = 2'd2, M_RUN = 2'd3;
 
     assign idle = ~|busy;
+
+    // LINE's clip rectangle (spec 14, section 8.4): XMIN, XMAX, YMIN, YMAX,
+    // signed, inclusive; reset to the whole range
+    reg  [15:0] clip [0:3];
+    wire [1:0]  clip_i = ro[2:1];
     assign irq  = dint & dinten;
 
     // Job registers: 4 channels x 8 long words, a RAM per byte lane, in
@@ -147,6 +166,8 @@ module dmx #(
                 rb_hit <= 1'b1; rb_rdata <= {4'd0, dint};
             end else if (sel_inten) begin
                 rb_hit <= 1'b1; rb_rdata <= {4'd0, dinten};
+            end else if (sel_clip) begin
+                rb_hit <= 1'b1; rb_rdata <= ro[0] ? clip[clip_i][15:8] : clip[clip_i][7:0];
             end else if (sel_jr) begin
                 rb_hit <= 1'b1; rb_rdata <= jr_byte;
             end else if (sel_cd) begin
@@ -200,6 +221,20 @@ module dmx #(
     reg  [31:0] w_areg;                // bits not yet used, from bit 31
     reg  [4:0]  w_acnt;                // how many
     reg         w_c2;                  // CTRL2 not 0 (checked as the job starts; not saved)
+    // LINE: the octant, HEIGHT, and what the engine derives from them (not
+    // saved: worked out again whenever the channel comes back)
+    reg         w_ymaj, w_xneg, w_yneg;
+    reg  [15:0] w_n;                   // HEIGHT: the shorter length
+    reg  [17:0] l_ins, l_ind;          // E's steps: 2N, and 2(N - M)
+    reg  [26:0] l_dmaj, l_dmin;        // the bit address's steps along each axis
+    reg  [3:0]  l_k;                   // pixels this turn
+    reg  [15:0] l_c;                   // the pixel's word as read (C)
+    // EDGES: the points' and the origin's addresses (read from the job
+    // registers each time), the edge's ends as read, y x stride
+    reg  [22:0] w_aptf, w_dptf;
+    reg  [15:0] e_ab;                  // the edge word: a in 7-0, b in 15-8
+    reg  [15:0] e_x0, e_y0, e_x1, e_y1;
+    reg  [31:0] e_mul;
 
     // Only the progress is saved: what stays the same for the whole job is
     // read again from the job registers (S_SETUP) when the channel comes
@@ -341,7 +376,9 @@ module dmx #(
     localparam S_IDLE = 5'd0, S_REST = 5'd1, S_DESC = 5'd2, S_SETUP = 5'd3, S_CHECK = 5'd4,
                S_MUL = 5'd5, S_ROW1 = 5'd6, S_ROW2 = 5'd7, S_ROW3 = 5'd8, S_GRP = 5'd9,
                S_RD = 5'd10, S_DR = 5'd11, S_WR = 5'd12, S_SAVE = 5'd13, S_DRAIN = 5'd14,
-               S_RA = 4'd15, S_BACK = 5'd16;
+               S_RA = 5'd15, S_BACK = 5'd16, S_LSET = 5'd17, S_LPIX = 5'd18, S_LRD = 5'd19,
+               S_LCMB = 5'd20, S_LWR = 5'd21, S_LSTEP = 5'd22, S_EFETCH = 5'd23, S_EPTS = 5'd24,
+               S_ECALC = 5'd25, S_EADDR = 5'd26;
     reg  [4:0]  es;
     reg  [1:0]  last_ch;
     wire [3:0]  runnable = busy & ~pause & {4{blt_on}};
@@ -373,6 +410,10 @@ module dmx #(
     reg  [1:0]  b_be;
     reg         b_skip;
 
+    // EDGES: the edge's point being read (S_EPTS: point a, then b, two words each)
+    wire [7:0]  e_pn     = r_iss[1] ? e_ab[15:8] : e_ab[7:0];
+    wire [22:0] e_pw     = {1'b0, w_aptf[22:1]} + {13'd0, e_pn, 1'b0} + {22'd0, r_iss[0]};
+
     // ================================================================ the access unit
     // The phase's next access (engine order: b_be[1] is the even byte)
     reg         xq_v, xq_we;
@@ -384,6 +425,10 @@ module dmx #(
             S_RD, S_RA: xq_v = (r_iss < r_tot) && !e_bad;
             S_DR:       begin xq_v = (g_dneed != 8'd0) && !e_bad; xq_w = dr_a; end
             S_WR:       begin xq_v = b_v && !b_skip && !e_bad; xq_we = 1'b1; xq_w = b_w; end
+            S_LRD:      begin xq_v = (r_iss == 5'd0) && !e_bad; xq_w = w_dw; end
+            S_LWR:      begin xq_v = (r_iss == 5'd0) && !e_bad; xq_we = 1'b1; xq_w = w_dw; end
+            S_EFETCH:   begin xq_v = (r_iss == 5'd0) && (w_rows != 16'd0) && !e_bad; xq_w = w_aw; end
+            S_EPTS:     begin xq_v = (r_iss < 5'd4) && !e_bad; xq_w = e_pw; end
             default: ;
         endcase
     end
@@ -427,9 +472,56 @@ module dmx #(
                          : minterm(w_mt, b_A, a_s, a_d);
     wire [15:0] mfin     = a_m & ~(keep0 ? ~b_A : 16'd0);
 
-    // Job setup: OP 0 BLIT and 1 ADD only (2-4 reserved, 5 MIX on hold, 6 and
-    // 7 for 3D), MASK 3 reserved, CTRL2 for later targets
-    wire        bad_op   = (w_op > 3'd1) || (w_mask == 2'd3) || (MASKIMG == 0 && w_mask == 2'd1) || w_c2;
+    // LINE and EDGES: the line's octant, N (the shorter length) and M (the
+    // longer): LINE's from its job, EDGES' from the edge (kept in w_le,
+    // w_carry and w_aleft)
+    wire        is_e     = (w_op == 3'd3);
+    wire        l_ymaj   = is_e ? w_le[0] : w_ymaj;
+    wire        l_xneg   = is_e ? w_le[1] : w_xneg;
+    wire        l_yneg   = is_e ? w_le[2] : w_yneg;
+    wire [15:0] l_nn     = is_e ? w_carry : w_n;
+    wire [15:0] l_mm     = is_e ? w_aleft[15:0] : w_apx[15:0] - 1'b1;
+    // and what is worked out from its ends
+    wire [16:0] e_dx     = {e_x1[15], e_x1} - {e_x0[15], e_x0};
+    wire [16:0] e_dy     = {e_y1[15], e_y1} - {e_y0[15], e_y0};
+    wire [15:0] e_ax     = e_dx[16] ? 16'd0 - e_dx[15:0] : e_dx[15:0];
+    wire [15:0] e_ay     = e_dy[16] ? 16'd0 - e_dy[15:0] : e_dy[15:0];
+    wire        e_ymaj   = e_ay > e_ax;
+    wire [15:0] e_m      = e_ymaj ? e_ay : e_ax;
+    wire [15:0] e_n      = e_ymaj ? e_ax : e_ay;
+    // left out: an end outside -16384..16383 (x = 0x8000 among them), or
+    // both beyond the same side of the clip rectangle
+    wire        e_range  = (e_x0[15] != e_x0[14]) || (e_y0[15] != e_y0[14])
+                        || (e_x1[15] != e_x1[14]) || (e_y1[15] != e_y1[14]);
+    wire        e_beyond = ($signed(e_x0) < $signed(clip[0]) && $signed(e_x1) < $signed(clip[0]))
+                        || ($signed(e_x0) > $signed(clip[1]) && $signed(e_x1) > $signed(clip[1]))
+                        || ($signed(e_y0) < $signed(clip[2]) && $signed(e_y1) < $signed(clip[2]))
+                        || ($signed(e_y0) > $signed(clip[3]) && $signed(e_y1) > $signed(clip[3]));
+
+    // LINE: this pixel. x in w_arow, y in w_srow; the pattern's bit, from 31
+    wire [15:0] l_x      = w_arow[15:0];
+    wire [15:0] l_y      = w_srow[15:0];
+    wire        l_in     = $signed(l_x) >= $signed(clip[0]) && $signed(l_x) <= $signed(clip[1])
+                        && $signed(l_y) >= $signed(clip[2]) && $signed(l_y) <= $signed(clip[3]);
+    wire        l_a      = w_val[5'd31 - {1'b0, w_ao}];
+    wire        l_keep   = !l_a && (w_mt[3:0] == 4'hA);              // D = C: nothing to do
+    wire        l_needc  = (w_lb != 2'd3) || cdep(l_a ? w_mt[7:4] : w_mt[3:0]);
+    wire [4:0]  l_bits   = 5'd1 << w_lb;
+    wire [15:0] l_pm     = (16'hFFFF >> w_od) & ~(16'hFFFF >> ({1'b0, w_od} + l_bits));
+    wire [15:0] l_res    = minterm(w_mt, {16{l_a}}, pattern({4{w_val[7:0]}}, w_lb, 1'b0), l_c);
+    wire [17:0] l_e      = w_sw[17:0];
+    wire        l_minor  = !l_e[17] && (l_e != 18'd0);                 // E > 0: the shorter axis too
+
+    // Job setup: OP 0 BLIT, 1 ADD and 2 LINE (3-4 reserved, 5 MIX on hold, 6
+    // and 7 for 3D), MASK 3 reserved, CTRL2 for later targets. LINE: no DESC
+    // or MASK, WIDTH up to 32,768, HEIGHT up to WIDTH - 1
+    wire        bad_line = (w_op == 3'd2) && (w_desc || w_mask != 2'd0 || w_apx > 24'd32768
+                                              || (w_apx != 24'd0 && {8'd0, w_n} > w_apx - 1'b1));
+    // EDGES: no DESC or MASK, even POINTS and EDGES, up to 65,535 edges
+    // (BPT is in w_srow when the job starts)
+    wire        bad_edges = is_e && (w_desc || w_mask != 2'd0 || w_aptf[0] || w_srow[0] || w_apx[23:16] != 8'd0);
+    wire        bad_op   = (w_op > 3'd3) || (w_mask == 2'd3) || (MASKIMG == 0 && w_mask == 2'd1) || w_c2
+                        || bad_line || bad_edges;
 
     // Row start
     reg  [26:0] rs_sba, rs_dba, rs_aba;  // the row's first bits
@@ -459,6 +551,7 @@ module dmx #(
             chip_out <= 5'd0;
             busy <= 4'd0; done <= 4'd0; err <= 4'd0; pause <= 4'd0; stopreq <= 4'd0;
             dint <= 4'd0; dinten <= 4'd0;
+            clip[0] <= 16'h8000; clip[1] <= 16'h7FFF; clip[2] <= 16'h8000; clip[3] <= 16'h7FFF;
             last_ch <= 2'd3;
             for (i = 0; i < 4; i = i + 1) begin
                 chdesc[i] <= 24'd0; cherr[i] <= 24'd0; mode[i] <= M_LOAD;
@@ -520,7 +613,7 @@ module dmx #(
                     end
                     M_SETUP: es <= S_SETUP;
                     default: if (w_live && w_ch == cur)
-                                 es <= (mode[cur] == M_ROW) ? S_ROW1 : S_GRP;
+                                 es <= (w_op == 3'd2 || w_op == 3'd3) ? S_LPIX : (mode[cur] == M_ROW) ? S_ROW1 : S_GRP;
                              else begin
                                  su_back <= 1'b1;
                                  es <= S_SETUP;
@@ -561,14 +654,19 @@ module dmx #(
                 v = {jr3[{cur, su_i}], jr2[{cur, su_i}], jr1[{cur, su_i}], jr0[{cur, su_i}]};
                 case (su_i)
                     3'd0: begin w_op <= v[2:0]; w_as <= v[5:4]; w_lb <= v[9:8]; w_desc <= v[10];
+                                w_ymaj <= v[3]; w_xneg <= v[6]; w_yneg <= v[7];
                                 w_irq <= v[11]; w_bc <= v[12]; w_mask <= v[14:13];
                                 w_c2 <= (v[23:16] != 8'd0); w_mt <= v[31:24]; end
-                    3'd1: if (!su_back) begin w_arow <= {1'b0, v[22:0]}; w_srow[7:0] <= v[31:24]; end
-                    3'd2: if (!su_back) begin w_srow[23:8] <= {1'b0, v[14:0]}; w_drow[15:0] <= v[31:16]; end
+                    3'd1: begin if (!su_back) begin w_arow <= {1'b0, v[22:0]}; w_srow[7:0] <= v[31:24]; end
+                                w_aptf <= v[22:0]; end
+                    3'd2: begin if (!su_back) begin w_srow[23:8] <= {1'b0, v[14:0]}; w_drow[15:0] <= v[31:16]; end
+                                w_dptf[15:0] <= v[31:16]; end
                     3'd3: begin if (!su_back) w_drow[23:16] <= {1'b0, v[6:0]};
+                                w_dptf[22:16] <= v[6:0];
                                 w_nbits <= {3'd0, v[31:8]};          // the width, for now
                                 w_apx <= v[31:8]; end
-                    3'd4: begin if (!su_back) w_rows <= v[15:0]; w_abit <= v[18:16]; w_sbit <= v[22:20];
+                    3'd4: begin if (!su_back) w_rows <= v[15:0]; w_n <= v[15:0];
+                                w_abit <= v[18:16]; w_sbit <= v[22:20];
                                 w_dbit <= v[26:24]; end
                     3'd5: begin w_sstr <= v[15:0]; w_dstr <= v[31:16]; end
                     3'd6: w_val  <= v;
@@ -580,7 +678,7 @@ module dmx #(
             // back to a job after another channel's turn: the width in bits again
             S_BACK: begin
                 w_nbits <= w_nbits << w_lb;
-                es <= (mode[cur] == M_ROW) ? S_ROW1 : S_GRP;
+                es <= (w_op == 3'd2 || w_op == 3'd3) ? S_LSET : (mode[cur] == M_ROW) ? S_ROW1 : S_GRP;
             end
 
             S_CHECK: begin
@@ -591,6 +689,31 @@ module dmx #(
                     e_addr <= chdesc[cur];
                     e_bad  <= 1'b1;
                     es     <= S_SAVE;
+                end else if (w_op == 3'd3) begin
+                    if (w_apx == 24'd0) begin
+                        w_rows <= 16'd0;             // no edges: the job ends
+                        es     <= S_SAVE;
+                    end else begin
+                        w_rows  <= w_apx[15:0];      // the edges left
+                        w_aw    <= w_srow[23:1];     // the first edge's word (BPT)
+                        r_iss   <= 5'd0; r_got <= 5'd0;
+                        mode[cur] <= M_RUN;
+                        es      <= S_EFETCH;
+                    end
+                end else if (w_op == 3'd2) begin
+                    if (w_apx == 24'd0) begin
+                        w_rows <= 16'd0;             // nothing to do: the job ends
+                        es     <= S_SAVE;
+                    end else begin
+                        // the first pixel; the rest is worked out in S_LSET
+                        w_rows  <= 16'd1;
+                        {w_dw, w_od} <= {w_drow, 3'b000} + ({24'd0, w_dbit} << w_lb);
+                        w_sw    <= {5'd0, w_n, 1'b0} - {5'd0, w_apx[17:0]} + 23'd1;    // 2N - M
+                        w_dleft <= w_apx;
+                        w_ao    <= 4'd0;
+                        mode[cur] <= M_RUN;
+                        es      <= S_LSET;
+                    end
                 end else if (w_nbits == 27'd0 || w_rows == 16'd0) begin
                     w_rows <= 16'd0;                 // nothing to do: the job ends
                     es     <= S_SAVE;
@@ -823,6 +946,144 @@ module dmx #(
                 end
             end
 
+            // ---------------------------------------------------- LINE
+            // E's two steps and the address's two steps, from the fixed fields
+            S_LSET: begin : lset
+                reg [26:0] xs, ys;
+                l_ins  <= {1'b0, l_nn, 1'b0};
+                l_ind  <= {1'b0, l_nn, 1'b0} - {1'b0, l_mm, 1'b0};               // 2(N - M)
+                xs = {22'd0, l_bits};
+                ys = {{8{w_dstr[15]}}, w_dstr, 3'b000};
+                if (l_xneg) xs = 27'd0 - xs;
+                if (l_yneg) ys = 27'd0 - ys;
+                l_dmaj <= l_ymaj ? ys : xs;
+                l_dmin <= l_ymaj ? xs : ys;
+                l_k    <= 4'd0;
+                es     <= S_LPIX;
+            end
+            // the next pixel: drawn, left alone or clipped
+            S_LPIX: begin
+                r_iss <= 5'd0; r_got <= 5'd0;
+                l_c   <= 16'd0;                  // (C not read: the result does not use it)
+                if (w_dleft == 24'd0 && is_e) begin
+                    w_rows <= w_rows - 1'b1;     // EDGES: on to the next edge
+                    w_aw   <= w_aw + 1'b1;
+                    es     <= S_EFETCH;
+                end else if (w_dleft == 24'd0) begin
+                    if (!mem_req) begin          // the line is done, its last write taken
+                        w_rows    <= 16'd0;
+                        mode[cur] <= M_ROW;
+                        es        <= S_SAVE;
+                    end
+                end else if (!l_in || l_keep)
+                    es <= S_LSTEP;
+                else
+                    es <= l_needc ? S_LRD : S_LCMB;
+            end
+            S_LRD: begin
+                if (xq_take) r_iss <= 5'd1;
+                if (x_rv) begin
+                    l_c   <= x_rd;
+                    r_got <= 5'd1;
+                end
+                if (e_bad) begin
+                    if (!mem_req) es <= S_DRAIN;
+                end else if (r_got == 5'd1 && !mem_req)
+                    es <= S_LCMB;
+            end
+            S_LCMB: begin
+                b_out <= (l_res & l_pm) | (l_c & ~l_pm);
+                b_be  <= {|l_pm[15:8], |l_pm[7:0]};
+                r_iss <= 5'd0;
+                es    <= S_LWR;
+            end
+            S_LWR: begin
+                if (xq_take) r_iss <= 5'd1;
+                if (e_bad) begin
+                    if (!mem_req) es <= S_DRAIN;
+                end else if (r_iss == 5'd1 || xq_take)
+                    es <= S_LSTEP;
+            end
+            // on along the line (after the last pixel the count reaches 0)
+            S_LSTEP: begin
+                w_dleft <= w_dleft - 1'b1;
+                w_ao    <= w_ao + 1'b1;
+                w_sw    <= {5'd0, l_e + (l_minor ? l_ind : l_ins)};
+                // 23-bit byte addresses, wrapping (spec 14, section 3.4)
+                {w_dw, w_od} <= ({w_dw, w_od} + l_dmaj + (l_minor ? l_dmin : 27'd0)) & 27'h3FFFFFF;
+                if (l_ymaj || l_minor) w_srow[15:0] <= l_yneg ? l_y - 1'b1 : l_y + 1'b1;
+                if (!l_ymaj || l_minor) w_arow[15:0] <= l_xneg ? l_x - 1'b1 : l_x + 1'b1;
+                l_k <= l_k + 1'b1;
+                // a turn is 16 pixels, then the other channels have theirs
+                es  <= (l_k == 4'd15) ? S_SAVE : S_LPIX;
+            end
+
+            // ---------------------------------------------------- EDGES
+            // the next edge's word, or the end of the job
+            S_EFETCH: begin
+                if (w_rows == 16'd0) begin
+                    if (!mem_req) begin          // every edge done, the last write taken
+                        mode[cur] <= M_ROW;
+                        es        <= S_SAVE;
+                    end
+                end else begin
+                    if (xq_take) r_iss <= 5'd1;
+                    if (x_rv) begin
+                        e_ab  <= mem_rdata;       // the even byte (a) in bits 7-0
+                        r_got <= 5'd1;
+                    end
+                    if (e_bad) begin
+                        if (!mem_req) es <= S_DRAIN;
+                    end else if (r_got == 5'd1 && !mem_req) begin
+                        r_iss <= 5'd0; r_got <= 5'd0;
+                        es    <= S_EPTS;
+                    end
+                end
+            end
+            // its two points: x and y of a, then of b
+            S_EPTS: begin
+                if (xq_take) r_iss <= r_iss + 1'b1;
+                if (x_rv) begin
+                    case (r_got[1:0])
+                        2'd0: e_x0 <= mem_rdata;
+                        2'd1: e_y0 <= mem_rdata;
+                        2'd2: e_x1 <= mem_rdata;
+                        default: e_y1 <= mem_rdata;
+                    endcase
+                    r_got <= r_got + 1'b1;
+                end
+                if (e_bad) begin
+                    if (!mem_req) es <= S_DRAIN;
+                end else if (r_got == 5'd4 && !mem_req)
+                    es <= S_ECALC;
+            end
+            // left out, or set up as a line
+            S_ECALC: begin
+                r_iss <= 5'd0; r_got <= 5'd0;
+                if (e_range || e_beyond) begin
+                    w_rows <= w_rows - 1'b1;
+                    w_aw   <= w_aw + 1'b1;
+                    es     <= S_EFETCH;
+                end else begin
+                    w_le    <= {1'b0, e_dy[16], e_dx[16], e_ymaj};
+                    w_carry <= e_n;
+                    w_aleft <= {8'd0, e_m};
+                    w_dleft <= {8'd0, e_m} + 1'b1;
+                    w_sw    <= {6'd0, e_n, 1'b0} - {7'd0, e_m};        // 2N - M
+                    w_ao    <= 4'd0;
+                    w_arow[15:0] <= e_x0;
+                    w_srow[15:0] <= e_y0;
+                    e_mul   <= $signed(e_y0) * $signed(w_dstr);
+                    es      <= S_EADDR;
+                end
+            end
+            // the first pixel's bit address: origin + 8 y stride + x BPP
+            S_EADDR: begin
+                {w_dw, w_od} <= ({w_dptf, 3'b000} + ({24'd0, w_dbit} << w_lb) + {e_mul[23:0], 3'b000}
+                                 + ({{11{e_x0[15]}}, e_x0} << w_lb)) & 27'h3FFFFFF;
+                es <= S_LSET;
+            end
+
             // after an error: wait for every read asked for to come back
             S_DRAIN: if (chip_out == 5'd0 && !mem_req) es <= S_SAVE;
 
@@ -861,6 +1122,10 @@ module dmx #(
             if (rb_wr) begin
                 if (sel_int)        dint   <= dint & ~rb_wdata[3:0];
                 else if (sel_inten) dinten <= rb_wdata[3:0];
+                else if (sel_clip) begin
+                    if (ro[0]) clip[clip_i][15:8] <= rb_wdata;
+                    else       clip[clip_i][7:0]  <= rb_wdata;
+                end
                 else if (sel_ctl) begin
                     if ((rb_wdata[0] || rb_wdata[1]) && !busy[rch]) begin
                         busy[rch]    <= 1'b1;

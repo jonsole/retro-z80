@@ -528,6 +528,63 @@
 #define I2CSTAT_ARBLOST_B            0x2u
 #define I2CSTAT_ARBLOST_W            0x1u
 #define I2CSTAT_ARBLOST_M            0x4u
+#define GEOVX                        0xB8u       /* RW, spec 15/5.2 */
+#define GEOVX_N                      0x2u
+#define GEOVX_P                      0xB800u
+#define GEOVX0                       0xB8u
+#define GEOVX0_P                     0xB800u
+#define GEOVX1                       0xB9u
+#define GEOVX1_P                     0xB900u
+#define GEOVY                        0xBAu       /* RW, spec 15/5.2 */
+#define GEOVY_N                      0x2u
+#define GEOVY_P                      0xBA00u
+#define GEOVY0                       0xBAu
+#define GEOVY0_P                     0xBA00u
+#define GEOVY1                       0xBBu
+#define GEOVY1_P                     0xBB00u
+#define GEOVZ                        0xBCu       /* RW, spec 15/5.2 */
+#define GEOVZ_N                      0x2u
+#define GEOVZ_P                      0xBC00u
+#define GEOVZ0                       0xBCu
+#define GEOVZ0_P                     0xBC00u
+#define GEOVZ1                       0xBDu
+#define GEOVZ1_P                     0xBD00u
+#define GEOCTL                       0xBEu       /* RW, spec 15/5.2 */
+#define GEOCTL_N                     0x1u
+#define GEOCTL_P                     0xBE00u
+#define GEOCTL_BANK_B                0x0u
+#define GEOCTL_BANK_W                0x3u
+#define GEOCTL_BANK_M                0x7u
+#define GEOCTL_PROJ_B                0x3u
+#define GEOCTL_PROJ_W                0x1u
+#define GEOCTL_PROJ_M                0x8u
+#define GEOCTL_CAM_B                 0x4u
+#define GEOCTL_CAM_W                 0x1u
+#define GEOCTL_CAM_M                 0x10u
+#define GEOCTL_INV_B                 0x5u
+#define GEOCTL_INV_W                 0x1u
+#define GEOCTL_INV_M                 0x20u
+#define GEOSTAT                      0xBFu       /* RW1C, spec 15/5.3 */
+#define GEOSTAT_N                    0x1u
+#define GEOSTAT_P                    0xBF00u
+#define GEOSTAT_BUSY_B               0x0u
+#define GEOSTAT_BUSY_W               0x1u
+#define GEOSTAT_BUSY_M               0x1u
+#define GEOSTAT_NEAR_B               0x1u
+#define GEOSTAT_NEAR_W               0x1u
+#define GEOSTAT_NEAR_M               0x2u
+#define GEOSTAT_SAT_B                0x2u
+#define GEOSTAT_SAT_W                0x1u
+#define GEOSTAT_SAT_M                0x4u
+#define GEOSTAT_DIVZ_B               0x3u
+#define GEOSTAT_DIVZ_W               0x1u
+#define GEOSTAT_DIVZ_M               0x8u
+#define GEOSTAT_FRONT_B              0x4u
+#define GEOSTAT_FRONT_W              0x1u
+#define GEOSTAT_FRONT_M              0x10u
+#define GEOSTAT_SATS_B               0x7u
+#define GEOSTAT_SATS_W               0x1u
+#define GEOSTAT_SATS_M               0x80u
 #define ULA                          0xFEu       /* RW, spec 12/8 */
 #define ULA_N                        0x1u
 #define ULA_P                        0xFE00u
@@ -596,6 +653,92 @@
 #define KEYMAP6                      0x16u       /* R,SEP, spec 12/5.3 */
 #define KEYMAP6_N                    0x1u
 #define KEYMAP6_P                    0x1600u
+#define GEOW                         0xA0u       /* GEOW0..11, spec 15/5.1 */
+#define GEOW_NUM                     0xCu
+#define GEOW0                        0xA0u       /* RW, spec 15/5.1 */
+#define GEOW0_N                      0x2u
+#define GEOW0_P                      0xA000u
+#define GEOW0_0                      0xA0u
+#define GEOW0_0_P                    0xA000u
+#define GEOW0_1                      0xA1u
+#define GEOW0_1_P                    0xA100u
+#define GEOW1                        0xA2u       /* RW, spec 15/5.1 */
+#define GEOW1_N                      0x2u
+#define GEOW1_P                      0xA200u
+#define GEOW1_0                      0xA2u
+#define GEOW1_0_P                    0xA200u
+#define GEOW1_1                      0xA3u
+#define GEOW1_1_P                    0xA300u
+#define GEOW2                        0xA4u       /* RW, spec 15/5.1 */
+#define GEOW2_N                      0x2u
+#define GEOW2_P                      0xA400u
+#define GEOW2_0                      0xA4u
+#define GEOW2_0_P                    0xA400u
+#define GEOW2_1                      0xA5u
+#define GEOW2_1_P                    0xA500u
+#define GEOW3                        0xA6u       /* RW, spec 15/5.1 */
+#define GEOW3_N                      0x2u
+#define GEOW3_P                      0xA600u
+#define GEOW3_0                      0xA6u
+#define GEOW3_0_P                    0xA600u
+#define GEOW3_1                      0xA7u
+#define GEOW3_1_P                    0xA700u
+#define GEOW4                        0xA8u       /* RW, spec 15/5.1 */
+#define GEOW4_N                      0x2u
+#define GEOW4_P                      0xA800u
+#define GEOW4_0                      0xA8u
+#define GEOW4_0_P                    0xA800u
+#define GEOW4_1                      0xA9u
+#define GEOW4_1_P                    0xA900u
+#define GEOW5                        0xAAu       /* RW, spec 15/5.1 */
+#define GEOW5_N                      0x2u
+#define GEOW5_P                      0xAA00u
+#define GEOW5_0                      0xAAu
+#define GEOW5_0_P                    0xAA00u
+#define GEOW5_1                      0xABu
+#define GEOW5_1_P                    0xAB00u
+#define GEOW6                        0xACu       /* RW, spec 15/5.1 */
+#define GEOW6_N                      0x2u
+#define GEOW6_P                      0xAC00u
+#define GEOW6_0                      0xACu
+#define GEOW6_0_P                    0xAC00u
+#define GEOW6_1                      0xADu
+#define GEOW6_1_P                    0xAD00u
+#define GEOW7                        0xAEu       /* RW, spec 15/5.1 */
+#define GEOW7_N                      0x2u
+#define GEOW7_P                      0xAE00u
+#define GEOW7_0                      0xAEu
+#define GEOW7_0_P                    0xAE00u
+#define GEOW7_1                      0xAFu
+#define GEOW7_1_P                    0xAF00u
+#define GEOW8                        0xB0u       /* RW, spec 15/5.1 */
+#define GEOW8_N                      0x2u
+#define GEOW8_P                      0xB000u
+#define GEOW8_0                      0xB0u
+#define GEOW8_0_P                    0xB000u
+#define GEOW8_1                      0xB1u
+#define GEOW8_1_P                    0xB100u
+#define GEOW9                        0xB2u       /* RW, spec 15/5.1 */
+#define GEOW9_N                      0x2u
+#define GEOW9_P                      0xB200u
+#define GEOW9_0                      0xB2u
+#define GEOW9_0_P                    0xB200u
+#define GEOW9_1                      0xB3u
+#define GEOW9_1_P                    0xB300u
+#define GEOW10                       0xB4u       /* RW, spec 15/5.1 */
+#define GEOW10_N                     0x2u
+#define GEOW10_P                     0xB400u
+#define GEOW10_0                     0xB4u
+#define GEOW10_0_P                   0xB400u
+#define GEOW10_1                     0xB5u
+#define GEOW10_1_P                   0xB500u
+#define GEOW11                       0xB6u       /* RW, spec 15/5.1 */
+#define GEOW11_N                     0x2u
+#define GEOW11_P                     0xB600u
+#define GEOW11_0                     0xB6u
+#define GEOW11_0_P                   0xB600u
+#define GEOW11_1                     0xB7u
+#define GEOW11_1_P                   0xB700u
 
 /* ---- TMR0..TMR3: 4 x 0x8 bytes, spec 9/6 */
 #define TMR_NUM                      0x4u
@@ -2052,6 +2195,34 @@
 #define DMXINTEN_CH3_B               0x3u
 #define DMXINTEN_CH3_W               0x1u
 #define DMXINTEN_CH3_M               0x8u
+#define CLIPXMIN                     0x238u      /* RW, spec 14/8.4 */
+#define CLIPXMIN_N                   0x2u
+#define CLIPXMIN_P                   0x3812u
+#define CLIPXMIN0                    0x238u
+#define CLIPXMIN0_P                  0x3812u
+#define CLIPXMIN1                    0x239u
+#define CLIPXMIN1_P                  0x3912u
+#define CLIPXMAX                     0x23Au      /* RW, spec 14/8.4 */
+#define CLIPXMAX_N                   0x2u
+#define CLIPXMAX_P                   0x3A12u
+#define CLIPXMAX0                    0x23Au
+#define CLIPXMAX0_P                  0x3A12u
+#define CLIPXMAX1                    0x23Bu
+#define CLIPXMAX1_P                  0x3B12u
+#define CLIPYMIN                     0x23Cu      /* RW, spec 14/8.4 */
+#define CLIPYMIN_N                   0x2u
+#define CLIPYMIN_P                   0x3C12u
+#define CLIPYMIN0                    0x23Cu
+#define CLIPYMIN0_P                  0x3C12u
+#define CLIPYMIN1                    0x23Du
+#define CLIPYMIN1_P                  0x3D12u
+#define CLIPYMAX                     0x23Eu      /* RW, spec 14/8.4 */
+#define CLIPYMAX_N                   0x2u
+#define CLIPYMAX_P                   0x3E12u
+#define CLIPYMAX0                    0x23Eu
+#define CLIPYMAX0_P                  0x3E12u
+#define CLIPYMAX1                    0x23Fu
+#define CLIPYMAX1_P                  0x3F12u
 #define SEQCON                       0x300u      /* RW, spec 17/8 */
 #define SEQCON_N                     0x1u
 #define SEQCON_P                     0x13u
@@ -2956,12 +3127,21 @@
 #define DMX_CTRL_OP_B                0x0u
 #define DMX_CTRL_OP_W                0x3u
 #define DMX_CTRL_OP_M                0x7u
+#define DMX_CTRL_YMAJOR_B            0x3u
+#define DMX_CTRL_YMAJOR_W            0x1u
+#define DMX_CTRL_YMAJOR_M            0x8u
 #define DMX_CTRL_SAT_B               0x4u
 #define DMX_CTRL_SAT_W               0x1u
 #define DMX_CTRL_SAT_M               0x10u
 #define DMX_CTRL_SIGNED_B            0x5u
 #define DMX_CTRL_SIGNED_W            0x1u
 #define DMX_CTRL_SIGNED_M            0x20u
+#define DMX_CTRL_XNEG_B              0x6u
+#define DMX_CTRL_XNEG_W              0x1u
+#define DMX_CTRL_XNEG_M              0x40u
+#define DMX_CTRL_YNEG_B              0x7u
+#define DMX_CTRL_YNEG_W              0x1u
+#define DMX_CTRL_YNEG_M              0x80u
 #define DMX_CTRL_BPP_B               0x8u
 #define DMX_CTRL_BPP_W               0x2u
 #define DMX_CTRL_BPP_M               0x300u
@@ -3646,6 +3826,63 @@
 #define ME_PRI                       0x80u       /* Map entry high byte: in front of all layers */
 #define SEQ_END                      0x7FFu      /* Sequencer: VSTART of the end-of-list entry */
 #define SEQ_ENTRY                    0x10u       /* Sequencer: bytes per list entry */
+#define GEO_BANK_CAM                 0x0u        /* GEOCTL.BANK: the camera */
+#define GEO_BANK_OBJ                 0x1u        /* GEOCTL.BANK: the object */
+#define GEO_BANK_VIEW                0x2u        /* GEOCTL.BANK: the view */
+#define GEO_BANK_OPS                 0x3u        /* GEOCTL.BANK: the operands */
+#define GEO_BANK_PROD                0x4u        /* GEOCTL.BANK: the product M and T (read only) */
+#define GEO_CM11                     0xA0u       /* Geometry, camera bank: CM11 */
+#define GEO_CM12                     0xA2u       /* Geometry, camera bank: CM12 */
+#define GEO_CM13                     0xA4u       /* Geometry, camera bank: CM13 */
+#define GEO_CM21                     0xA6u       /* Geometry, camera bank: CM21 */
+#define GEO_CM22                     0xA8u       /* Geometry, camera bank: CM22 */
+#define GEO_CM23                     0xAAu       /* Geometry, camera bank: CM23 */
+#define GEO_CM31                     0xACu       /* Geometry, camera bank: CM31 */
+#define GEO_CM32                     0xAEu       /* Geometry, camera bank: CM32 */
+#define GEO_CM33                     0xB0u       /* Geometry, camera bank: CM33 */
+#define GEO_CPX                      0xB2u       /* Geometry, camera bank: CPX */
+#define GEO_CPY                      0xB4u       /* Geometry, camera bank: CPY */
+#define GEO_CPZ                      0xB6u       /* Geometry, camera bank: CPZ */
+#define GEO_OM11                     0xA0u       /* Geometry, object bank: OM11 */
+#define GEO_OM12                     0xA2u       /* Geometry, object bank: OM12 */
+#define GEO_OM13                     0xA4u       /* Geometry, object bank: OM13 */
+#define GEO_OM21                     0xA6u       /* Geometry, object bank: OM21 */
+#define GEO_OM22                     0xA8u       /* Geometry, object bank: OM22 */
+#define GEO_OM23                     0xAAu       /* Geometry, object bank: OM23 */
+#define GEO_OM31                     0xACu       /* Geometry, object bank: OM31 */
+#define GEO_OM32                     0xAEu       /* Geometry, object bank: OM32 */
+#define GEO_OM33                     0xB0u       /* Geometry, object bank: OM33 */
+#define GEO_OPX                      0xB2u       /* Geometry, object bank: OPX */
+#define GEO_OPY                      0xB4u       /* Geometry, object bank: OPY */
+#define GEO_OPZ                      0xB6u       /* Geometry, object bank: OPZ */
+#define GEO_DX                       0xA0u       /* Geometry, view bank: DX */
+#define GEO_DY                       0xA2u       /* Geometry, view bank: DY */
+#define GEO_SCX                      0xA4u       /* Geometry, view bank: SCX */
+#define GEO_SCY                      0xA6u       /* Geometry, view bank: SCY */
+#define GEO_ZMIN                     0xA8u       /* Geometry, view bank: ZMIN */
+#define GEO_F0X                      0xA0u       /* Geometry, operands bank: F0X */
+#define GEO_F0Y                      0xA2u       /* Geometry, operands bank: F0Y */
+#define GEO_F1X                      0xA4u       /* Geometry, operands bank: F1X */
+#define GEO_F1Y                      0xA6u       /* Geometry, operands bank: F1Y */
+#define GEO_F2X                      0xA8u       /* Geometry, operands bank: F2X */
+#define GEO_F2Y                      0xAAu       /* Geometry, operands bank: F2Y */
+#define GEO_MA                       0xACu       /* Geometry, operands bank: MA */
+#define GEO_MB                       0xAEu       /* Geometry, operands bank: MB */
+#define GEO_DVD                      0xB0u       /* Geometry, operands bank: DVD */
+#define GEO_DVDHI                    0xB2u       /* Geometry, operands bank: DVDHI */
+#define GEO_DVS                      0xB4u       /* Geometry, operands bank: DVS */
+#define GEO_M11                      0xA0u       /* Geometry, product bank: M11 */
+#define GEO_M12                      0xA2u       /* Geometry, product bank: M12 */
+#define GEO_M13                      0xA4u       /* Geometry, product bank: M13 */
+#define GEO_M21                      0xA6u       /* Geometry, product bank: M21 */
+#define GEO_M22                      0xA8u       /* Geometry, product bank: M22 */
+#define GEO_M23                      0xAAu       /* Geometry, product bank: M23 */
+#define GEO_M31                      0xACu       /* Geometry, product bank: M31 */
+#define GEO_M32                      0xAEu       /* Geometry, product bank: M32 */
+#define GEO_M33                      0xB0u       /* Geometry, product bank: M33 */
+#define GEO_TX                       0xB2u       /* Geometry, product bank: TX */
+#define GEO_TY                       0xB4u       /* Geometry, product bank: TY */
+#define GEO_TZ                       0xB6u       /* Geometry, product bank: TZ */
 #define SYSRESET_MAGIC               0xA5u       /* SYSRESET: a full reset */
 #define WDKICK_MAGIC                 0x5Au       /* WDKICK: restart the watchdog's time */
 
