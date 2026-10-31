@@ -233,6 +233,50 @@ chain:  ld      d,0x20
         cp      0xEE
         jp      nz,fail
 
+        ; ---- PAUSE and STOP in the middle of a long job (ticket #63: a
+        ; channel running alone carries on from group to group, and must
+        ; still stop at a group's end). Channel 1 fills 4000 bytes.
+LAST    equ     DST + 0x100 + 3999      ; the job's last byte
+        ld      d,0x3B                  ; PAUSE: BUSY and PAUSED, the end not yet written
+        WREG    DMX1_CHSTAT_P, DMX_CHSTAT_DONE_M    ; DONE from the two-channel check
+        ld      a,0xEE
+        ld      (LAST),a
+        ld      e,high DMX1_CTRL_P
+        ld      hl,job_pause
+        call    loadjob
+        ld      d,0x3B
+        WREG    DMX1_CHCTRL_P, DMX_CHCTRL_RUN_M
+        WREG    DMX1_CHCTRL_P, DMX_CHCTRL_PAUSE_M
+        RCHK    DMX1_CHSTAT_P, DMX_CHSTAT_BUSY_M | DMX_CHSTAT_PAUSED_M
+        ld      a,(LAST)
+        cp      0xEE
+        jp      nz,fail
+        ld      d,0x3C                  ; PAUSE cleared: it finishes
+        WREG    DMX1_CHCTRL_P, 0
+        ld      bc,DMX1_CHSTAT_P
+        call    waitbc
+        RCHK    DMX1_CHSTAT_P, DMX_CHSTAT_DONE_M
+        ld      a,(LAST)
+        cp      0x99
+        jp      nz,fail
+        WREG    DMX1_CHSTAT_P, DMX_CHSTAT_DONE_M
+        ld      d,0x3D                  ; STOP: DONE at a group's end, the end never written
+        ld      a,0xEE
+        ld      (LAST),a
+        ld      e,high DMX1_CTRL_P
+        ld      hl,job_pause
+        call    loadjob
+        ld      d,0x3D
+        WREG    DMX1_CHCTRL_P, DMX_CHCTRL_RUN_M
+        WREG    DMX1_CHCTRL_P, DMX_CHCTRL_STOP_M
+        ld      bc,DMX1_CHSTAT_P
+        call    waitbc
+        RCHK    DMX1_CHSTAT_P, DMX_CHSTAT_DONE_M
+        ld      a,(LAST)
+        cp      0xEE
+        jp      nz,fail
+        WREG    DMX1_CHSTAT_P, DMX_CHSTAT_DONE_M
+
         ; ---- registers
         ld      d,0x40                  ; the job registers read back; +0x1F is reserved
         WREG    DMX2_MINTERM_P, 0x5A
@@ -459,3 +503,4 @@ job_two0:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x800, 600, 1, 0, 0, 0, 0x777777
 job_ldir:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x10, 4, 1, 0, 0, 0, 0x5A5A5A5A, 0
 job_lddr:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x14, 4, 1, 0, 0, 0, 0xA5A5A5A5, 0
 job_long:   JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x100, 4000, 1, 0, 0, 0, 0, 0
+job_pause:  JOB 0, B8|BCONST, 0xCC, 0, 0, DST_P+0x100, 4000, 1, 0, 0, 0, 0x99999999, 0

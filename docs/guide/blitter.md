@@ -713,7 +713,7 @@ A job's own Z80 address is its physical address in the program map, so `save` an
 
 Note how the strides swap: when the screen is the source, its stride is ABSTRIDE; when it is the destination, CDSTRIDE.
 
-On the board the ball moves smoothly over the bands, and the bands stay whole behind it: each restore puts back exactly what the save took. The three jobs take 120 µs a frame (Table 6-20).
+On the board the ball moves smoothly over the bands, and the bands stay whole behind it: each restore puts back exactly what the save took. The three jobs take 114 µs a frame (Table 6-20).
 
 ---
 
@@ -956,7 +956,7 @@ start2: ld      bc,DMX2_CHDESC0_P
 
 (RUN runs the job already in the registers instead, and then follows its NEXT.)
 
-Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 120 µs where the single draw job takes 42 µs (Table 6-20).
+Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 114 µs where the single draw job takes 39 µs (Table 6-20).
 
 ---
 
@@ -1436,19 +1436,19 @@ Table 6-20 gives what the KS2 printed. **Screen on** is the examples' screen: L0
 
 | Job | Bytes of D | Screen on | Screen off | Worked out |
 |-----|------------|-----------|------------|------------|
-| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,917 µs (54 MB/s) | 1,771 µs (59 MB/s) | about 1.4 ms |
-| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,956 µs | 1,793 µs | about 1.4 ms |
-| Copy, one row | 103,680 | 3,537 µs (29 MB/s) | 3,147 µs (33 MB/s) | about 2.8 ms |
-| XOR with VALUE, which reads C | 103,680 | 3,700 µs | 3,263 µs | about 4.2 ms |
-| Draw a 32 × 32 object with a transparent colour | 1,024 | 42 µs | 38 µs | about 30 µs |
-| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 120 µs | 107 µs | about 90 µs |
+| Fill, one row (Example 6-4's `clearjob`) | 103,680 | 1,695 µs (61 MB/s) | 1,519 µs (68 MB/s) | about 1.4 ms |
+| Fill, 360 × 288 with a stride (Example 6-1) | 103,680 | 1,716 µs | 1,532 µs | about 1.4 ms |
+| Copy, one row | 103,680 | 3,382 µs (31 MB/s) | 3,030 µs (34 MB/s) | about 2.8 ms |
+| XOR with VALUE, which reads C | 103,680 | 3,382 µs | 3,031 µs | about 4.2 ms |
+| Draw a 32 × 32 object with a transparent colour | 1,024 | 39 µs | 36 µs | about 30 µs |
+| Restore, save and draw one 32 × 32 object (Example 6-2) | 3 × 1,024 | 114 µs | 101 µs | about 90 µs |
 | `LDIR`, for comparison | 16,384 | 17,208 µs (0.95 MB/s) | 17,209 µs | 17,203 µs |
 | A 300-pixel dash-and-dot line (Example 6-5), about 190 pixels drawn | about 190 | 20 µs | – | 15–20 µs |
 | Erase and draw a 12-edge cube, two EDGES jobs in a list (Example 6-6) | about 2,350 pixels stepped | 82 µs | – | 120–160 µs |
 
-So on the board the blitter fills about 57 times as fast as `LDIR` copies, and copies about 31 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
+So on the board the blitter fills about 64 times as fast as `LDIR` copies, and copies about 32 times as fast: `LDIR` would take 109 ms for the screen. `LDIR` takes the same time with the screen on or off, because the CPU never waits for memory.
 
-The fills and copies take about a third longer than the worked-out figures. With the screen off, the engine has far more free cycles, yet it is only 8–13% faster. So the engine's own work between groups, not the free cycles, sets most of the pace on the KS2. A job that reads C costs only 5% more than a copy, not half as much again.
+The fills take about a fifth longer than the worked-out figures, and the copies about a tenth. With the screen off, the engine has far more free cycles, yet it is only about 10% faster: the engine's own steps, not the free cycles, set most of the pace. It works in groups of up to 8 words, reading a group's words before it writes them. A job that reads C costs no more than a copy, since both read once and write once for each word.
 
 The line and cube times were measured later, with the KS2's build without the copper, on the same screen. Lines are quicker than spec 14's worked-out rate, which counts two cycles a pixel: at 8 bpp with `0xCA`, a pixel is one write and a gap is nothing.
 

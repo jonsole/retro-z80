@@ -6,7 +6,8 @@
 // as a descriptor) and its progress through its job are kept in small RAMs.
 // The engine picks the next channel with work (round robin), restores its
 // progress, runs one group of up to 8 destination words, saves the progress
-// and picks again.
+// and picks again. While only one channel can run, it goes straight on to
+// that channel's next group or row instead (ticket #63).
 //
 // A job is rows of pixels, each row a stream of bits. Each destination
 // pixel D is MINTERM(A, B, C) bit by bit (BLIT), or C + B (ADD): A the mask
@@ -781,7 +782,7 @@ module dmx #(
 
             // ---------------------------------------------------- a group
             S_GRP: begin : grp
-                reg [3:0] n, nr;
+                reg [3:0] n, nr, ga;
                 reg [24:0] want;
                 reg [7:0] need, avail, extra, na;
                 integer j;
@@ -793,7 +794,8 @@ module dmx #(
                 avail = w_first ? {4'd0, w_od >> w_lb} + 8'd16 - {4'd0, w_ao} : {3'd0, w_acnt};
                 extra = (need > avail) ? (need - avail + 8'd15) >> 4 : 8'd0;
                 na    = extra + (w_first ? 8'd1 : 8'd0);
-                g_na  <= !maskimg ? 4'd0 : ({16'd0, na} > w_aleft) ? w_aleft[3:0] : na[3:0];
+                ga    = !maskimg ? 4'd0 : ({16'd0, na} > w_aleft) ? w_aleft[3:0] : na[3:0];
+                g_na  <= ga;
                 g_n  <= n;
                 g_nr <= nr;
                 g_last <= (w_dleft > 24'd8) ? 4'd8 : w_dleft[3:0] - 1'b1;
@@ -802,7 +804,8 @@ module dmx #(
                                               || (j == w_dleft - 1 && w_le[2:0] != 3'd0));
                 r_tot <= {1'b0, nr}; r_iss <= 5'd0; r_got <= 5'd0;
                 r_a   <= w_sw;
-                es    <= S_RD;
+                // nothing to read (a fill): straight to the C reads
+                es    <= (nr == 4'd0 && ga == 4'd0) ? S_DR : S_RD;
             end
 
             S_RD: begin
@@ -929,7 +932,17 @@ module dmx #(
                         w_drow <= w_desc ? w_drow - {{8{w_dstr[15]}}, w_dstr} : w_drow + {{8{w_dstr[15]}}, w_dstr};
                         mode[cur] <= M_ROW;
                     end
-                    es <= S_SAVE;
+                    // Carry on with the same channel when it is the only one
+                    // that can run and no STOP waits: its progress stays in
+                    // the w_ registers, so the save, the pick and the restore
+                    // (S_SAVE, S_IDLE, S_REST) are left out. They are still
+                    // taken at the end of the job, for a STOP or a pause, and
+                    // when another channel waits (round robin).
+                    if (runnable == (4'd1 << cur) && !stopreq[cur]
+                        && !(w_dleft == {20'd0, g_n} && w_rows == 16'd1))
+                        es <= (w_dleft == {20'd0, g_n}) ? S_ROW1 : S_GRP;
+                    else
+                        es <= S_SAVE;
                 end
             end
 
