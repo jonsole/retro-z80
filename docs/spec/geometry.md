@@ -315,6 +315,10 @@ The KS2 has no room for the unit beside the DMA engine: that build already has 2
 | The unit, back faces removed (face sign) | 278,338 | 50 |
 | Software at 3.57 MHz (CPUSPEED.SPECTRUM, the builds' default) | 474,395 | 7.5 |
 | The unit at 3.57 MHz | 269,244 | 13.1 |
+| Software, lines by the DMA engine's LINE job (spec 14, section 3.4; KS2 without the copper) | 432,850 | 41.8 |
+| Software, each object's edges by one EDGES job (spec 14, section 3.5; the same build) | 351,912 | 47.5 |
+| Software, cleared by a BLIT fill (spec 14, section 3.1; 31 October 2026) | 433,002 (153,140, 723,420) | 41.5 |
+| Software, EDGES and the BLIT fill (KS2 without the copper) | 311,801 (124,460, 514,980) | 48.4 |
 
 With the unit, the culling and the vertices go through it (CAM for each object's centre, PROJ for its vertices); fast3d's `compute_matrix` still makes each matrix from three angles, and the lines are drawn, clipped and cleared in software. 5.2 objects are drawn a picture on average (fast3d: 5.1; the unit's cull rounds in world units).
 
@@ -332,6 +336,8 @@ Where the time goes, in T-states a picture:
 | Clearing | 40,682 (9%) | 41,393 (15%) | 41,393 |
 | Other (the loops, the boxes, the flip) | 50,856 (11%) | 51,757 (19%) | 43,391 |
 | Total | 473,866 | 269,195 | 279,254 |
+
+**Clearing by the DMA engine** (ticket #74, `--dmaclear`): the vertical blank interrupt, as it flips, starts a BLIT fill (8 bpp, BCONST, VALUE 0, CDSTRIDE 32) of the box last drawn on the screen it has stopped showing, on channel 2. The fill runs while the Z80 works out the next picture, and `render_frame` waits for it before drawing; it has always finished by then. Clearing goes from 40,679 T-states a picture to 74 (the wait and its marks), and the picture from 473,311 to 433,002, 8.5% faster. Starting the fill costs about 200 T-states in the interrupt, once a picture.
 
 So the unit takes the geometry from 276,000 T-states a picture to 69,000, and the picture from 473,000 to 268,000, 1.76 times as fast. What is left is drawing: lines, clipping and clearing are 149,000, 55% of a picture, and most of "other" is the drawing loop's fetching of edge ends. A vertex costs about 320 T-states in the flight (six bytes in, four out, the NEAR test and the stores), 6% of a picture, so a list mode (G2) would save about 5%. Removing back faces with the face sign costs more than it saves here, as it does in software (fast3d: 539,000 against 468,000): copying the three points of each face into the unit is about 530 T-states a face, and these objects are small on the screen.
 

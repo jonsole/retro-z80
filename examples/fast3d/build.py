@@ -8,6 +8,8 @@ then sjasmplus on fast3d.asm, for build/fast3d.bin and .sld, loaded at 0x8000.
     python build.py --geom       # culling and vertices through the geometry unit
     python build.py --geom --phases
     python build.py [--geom] --faces [--phases]   # each object losing its back edges
+    python build.py --line [--phases]   # lines by the DMA engine (spec 14, LINE)
+    python build.py [...] --dmaclear     # the last picture cleared by a DMA fill
 
 Every build runs the CPU at 3.57 MHz (CPUSPEED.SPECTRUM), as a Spectrum;
 --20mhz runs it at 20 MHz instead, with _20mhz on the name.
@@ -391,6 +393,8 @@ def main() -> None:
     geom = 1 if "--geom" in sys.argv[1:] else 0        # culling and vertices through the unit
     faces = 1 if "--faces" in sys.argv[1:] else 0      # back edges removed
     spectrum = 0 if "--20mhz" in sys.argv[1:] else 1   # the CPU at 3.57 MHz unless told 20
+    line = 1 if "--line" in sys.argv[1:] else 0        # lines by the DMA engine's LINE job
+    dmaclear = 1 if "--dmaclear" in sys.argv[1:] else 0  # the box cleared by a DMA fill
     OUT.mkdir(exist_ok=True)
     write_tables(OUT / "tables_gen.s")
     write_rows(OUT / "rows_gen.s")
@@ -398,9 +402,11 @@ def main() -> None:
     write_objects(OUT / "objects_gen.s")
     write_world(OUT / "world_gen.s")
     write_times129(OUT / "times129_gen.s")
-    out = ("fast3d" + ("_geom" if geom else "") + ("_faces" if faces else "") + ("_phases" if phases else "")
+    out = ("fast3d" + ("_geom" if geom else "") + ("_line" if line else "") + ("_faces" if faces else "")
+           + ("_dmaclear" if dmaclear else "")
+           + ("_phases" if phases else "")
            + ("" if spectrum else "_20mhz"))
-    assemble("fast3d", out, PHASES=phases, GEOM=geom, FACES=faces, SPECTRUM=spectrum, OUTPUT=f'"build/{out}.bin"')
+    assemble("fast3d", out, PHASES=phases, GEOM=geom, DMALINE=line, DMACLEAR=dmaclear, FACES=faces, SPECTRUM=spectrum, OUTPUT=f'"build/{out}.bin"')
     print(f"Wrote {BUILD / (out + '.bin')} and its SLD")
 
 

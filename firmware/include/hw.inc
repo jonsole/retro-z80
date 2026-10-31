@@ -2201,6 +2201,34 @@ DMXINTEN_CH2_M               equ 0x4
 DMXINTEN_CH3_B               equ 0x3
 DMXINTEN_CH3_W               equ 0x1
 DMXINTEN_CH3_M               equ 0x8
+CLIPXMIN                     equ 0x238         ; RW, spec 14/8.4
+CLIPXMIN_N                   equ 0x2
+CLIPXMIN_P                   equ 0x3812
+CLIPXMIN0                    equ 0x238
+CLIPXMIN0_P                  equ 0x3812
+CLIPXMIN1                    equ 0x239
+CLIPXMIN1_P                  equ 0x3912
+CLIPXMAX                     equ 0x23A         ; RW, spec 14/8.4
+CLIPXMAX_N                   equ 0x2
+CLIPXMAX_P                   equ 0x3A12
+CLIPXMAX0                    equ 0x23A
+CLIPXMAX0_P                  equ 0x3A12
+CLIPXMAX1                    equ 0x23B
+CLIPXMAX1_P                  equ 0x3B12
+CLIPYMIN                     equ 0x23C         ; RW, spec 14/8.4
+CLIPYMIN_N                   equ 0x2
+CLIPYMIN_P                   equ 0x3C12
+CLIPYMIN0                    equ 0x23C
+CLIPYMIN0_P                  equ 0x3C12
+CLIPYMIN1                    equ 0x23D
+CLIPYMIN1_P                  equ 0x3D12
+CLIPYMAX                     equ 0x23E         ; RW, spec 14/8.4
+CLIPYMAX_N                   equ 0x2
+CLIPYMAX_P                   equ 0x3E12
+CLIPYMAX0                    equ 0x23E
+CLIPYMAX0_P                  equ 0x3E12
+CLIPYMAX1                    equ 0x23F
+CLIPYMAX1_P                  equ 0x3F12
 SEQCON                       equ 0x300         ; RW, spec 17/8
 SEQCON_N                     equ 0x1
 SEQCON_P                     equ 0x13
@@ -3105,12 +3133,21 @@ DMX_CTRL2                    equ 0x2
 DMX_CTRL_OP_B                equ 0x0
 DMX_CTRL_OP_W                equ 0x3
 DMX_CTRL_OP_M                equ 0x7
+DMX_CTRL_YMAJOR_B            equ 0x3
+DMX_CTRL_YMAJOR_W            equ 0x1
+DMX_CTRL_YMAJOR_M            equ 0x8
 DMX_CTRL_SAT_B               equ 0x4
 DMX_CTRL_SAT_W               equ 0x1
 DMX_CTRL_SAT_M               equ 0x10
 DMX_CTRL_SIGNED_B            equ 0x5
 DMX_CTRL_SIGNED_W            equ 0x1
 DMX_CTRL_SIGNED_M            equ 0x20
+DMX_CTRL_XNEG_B              equ 0x6
+DMX_CTRL_XNEG_W              equ 0x1
+DMX_CTRL_XNEG_M              equ 0x40
+DMX_CTRL_YNEG_B              equ 0x7
+DMX_CTRL_YNEG_W              equ 0x1
+DMX_CTRL_YNEG_M              equ 0x80
 DMX_CTRL_BPP_B               equ 0x8
 DMX_CTRL_BPP_W               equ 0x2
 DMX_CTRL_BPP_M               equ 0x300

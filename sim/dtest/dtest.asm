@@ -18,6 +18,7 @@ C_CH1   equ     0x04
 C_CH2   equ     0x08
 C_EXPECT equ    0x0C                    ; DMXINT bits to expect
 C_JOB3  equ     0x10                    ; channel 3's first job (32 bytes)
+C_CLIP  equ     0x30                    ; the LINE clip rectangle (8 bytes)
 
         DEVICE  NOSLOT64K
         include "hw.inc"
@@ -58,6 +59,16 @@ start:  ld      sp,0xC000
         WREG    SERCON_P, SERCON_EN_M | SERCON_CTLEN_M
         WREG    DMACON_P, DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BLTEN_M
         WREG    DMXINTEN_P, 0x0F
+
+        ld      hl,CTL + C_CLIP         ; the clip rectangle (spec 14, 8.4)
+        ld      bc,CLIPXMIN_P
+.clip:  ld      a,(hl)
+        out     (c),a
+        inc     hl
+        inc     b
+        ld      a,b
+        cp      high CLIPXMIN_P + 8
+        jr      nz,.clip
 
         ld      hl,CTL + C_JOB3         ; channel 3: its job registers
         ld      bc,DMX3_CTRL_P

@@ -60,6 +60,12 @@ GEOM				EQU		0					; 1: culling and vertices through the
 					DEFINE	CULL_SKIP 1				; skip what cannot have come into
 													; view (engine/objects.s), as demo.s
 					ENDIF
+					IFNDEF	DMALINE
+DMALINE				EQU		0					; 1: lines by the DMA engine (dmaline.asm)
+					ENDIF
+					IFNDEF	DMACLEAR
+DMACLEAR			EQU		0					; 1: the last box cleared by a DMA fill
+					ENDIF								; (dmaclear.asm)
 					IFNDEF	FACES
 FACES				EQU		0					; 1: each object loses its back edges
 					ENDIF								; (demo.s's --faces)
@@ -99,8 +105,9 @@ PH_CLEAR			EQU		6					; clear_box
 PH_CLIP				EQU		7					; clip_line
 PH_LINE				EQU		8					; draw_line
 PH_FACES			EQU		9					; facing_edges or geo_facing_edges
-PH_WAIT				EQU		10					; waiting for the flip: not counted
-PH_COUNT			EQU		11
+PH_DWAIT			EQU		10					; waiting for the DMA engine (DMALINE)
+PH_WAIT				EQU		11					; waiting for the flip: not counted
+PH_COUNT			EQU		12
 
 ; MARK p: from here, the time is part p's. Keeps every register and flag.
 					MACRO	MARK p
@@ -150,6 +157,12 @@ start:
 					call	demo_setup			; the window and its frame on both
 					IF GEOM
 					call	geo_setup
+					ENDIF
+					IF DMALINE
+					call	dma_setup
+					ENDIF
+					IF DMACLEAR
+					call	clear_setup
 					ENDIF
 
 					ld		hl,colours			; the colours: black, white
@@ -229,6 +242,11 @@ frame:
 					ld		(t_start),hl
 					ld		(t_start + 2),de
 					call	render_frame
+					IF DMALINE
+					MARK	PH_DWAIT
+					call	dma_wait			; the last line drawn
+					MARK	PH_OTHER
+					ENDIF
 					call	time_now
 					call	since
 					ld		bc,(t_work)			; the picture's microseconds
@@ -246,7 +264,7 @@ frame:
 					ld		(drawing),a
 					ld		a,(reported)
 					or		a
-					jr		z,frame
+					jp		z,frame
 					jp		finish
 
 ; time_now: DE:HL = TIME, microseconds. (Reading TIME0 captures all four
@@ -409,7 +427,8 @@ VIS_PAGE			EQU		0					; its points' page
 VIS_BASE			EQU		1					; and its first vertex there
 VIS_INSIDE			EQU		2					; non-zero: wholly in the window
 VIS_EDGES			EQU		3					; how many edges, and where
-VIS_SIZE			EQU		6
+VIS_VERTS			EQU		6					; how many vertices (DMALINE's EDGES)
+VIS_SIZE			EQU		7
 CUT_LINES			EQU		64					; room for lines cut at the near
 												; plane (an object's are left out
 												; if its edges might overflow it)
@@ -624,6 +643,12 @@ compute_frame:
 					ld		(hl),e
 					inc		hl
 					ld		(hl),d
+					inc		hl
+					push	hl					; VIS_VERTS
+					ld		hl,(.model)
+					ld		a,(hl)				; MODEL_VERTICES
+					pop		hl
+					ld		(hl),a
 					inc		hl
 					ld		(.entry),hl
 					ld		ix,(.object)
@@ -912,7 +937,11 @@ render_frame:
 					inc		hl
 					ld		e,(hl)
 					MARK	PH_CLEAR
+					IF DMACLEAR
+					call	clear_wait			; the fill vblank started
+					ELSE
 					call	clear_box
+					ENDIF
 					MARK	PH_OTHER
 .cleared:			call	box_of_screen		; and this picture's, for next
 					ex		de,hl				; time
@@ -925,6 +954,9 @@ render_frame:
 					or		a
 					ret		z
 					ld		hl,visible
+					IF DMALINE
+					jp		render_edges		; an EDGES job an object (dmaline.asm)
+					ENDIF
 .object:			ld		(.objects_left),a
 					ld		a,(hl)				; VIS_PAGE and VIS_BASE, into
 					ld		(.page1 + 1),a		; the code below
@@ -944,6 +976,7 @@ render_frame:
 					inc		hl
 					ld		d,(hl)
 					inc		hl
+					inc		hl					; (VIS_VERTS: EDGES only)
 					ld		(.entry),hl
 					ld		(.edge_at),de
 					or		a					; (none kept: nothing to draw)
@@ -970,6 +1003,11 @@ render_frame:
 					END_AT	clip_x0, render_frame.next_edge	; neither behind the plane
 					ld		l,c
 					END_AT	clip_x1, render_frame.next_edge
+					IF DMALINE
+					MARK	PH_LINE
+					call	dma_line			; clipped by the engine
+					MARK	PH_OTHER
+					ELSE
 					MARK	PH_CLIP
 					call	clip_line
 					MARK	PH_OTHER
@@ -977,6 +1015,7 @@ render_frame:
 					MARK	PH_LINE
 					call	draw_line
 					MARK	PH_OTHER
+					ENDIF
 .next_edge:			ld		a,(.edges_left)
 					dec		a
 					jr		nz,.edge
@@ -1005,7 +1044,11 @@ render_frame:
 					set		7,l
 					ld		c,(hl)
 					MARK	PH_LINE
+					IF DMALINE
+					call	dma_line8
+					ELSE
 					call	draw_line
+					ENDIF
 					MARK	PH_OTHER
 					ld		a,(.edges_left)
 					dec		a
@@ -1026,11 +1069,17 @@ render_frame:
 					ld		bc,8
 					ldir
 					ld		(.edge_at),hl
+					IF DMALINE
+					MARK	PH_LINE
+					call	dma_line
+					MARK	PH_OTHER
+					ELSE
 					MARK	PH_CLIP
 					call	clip_line
 					MARK	PH_LINE
 					call	nc,draw_line
 					MARK	PH_OTHER
+					ENDIF
 					ld		hl,(.edge_at)
 					ld		a,(.edges_left)
 					dec		a
@@ -1405,7 +1454,8 @@ ph_sums:			DS		8 * PH_COUNT		; each part: ticks, then marks
 ph_total:			DS		4
 ph_marks:			DS		4
 mcand2:				DS		4
-ph_names:			DW		s_other, s_camera, s_cull, s_matrix, s_vertex, s_cut, s_clear, s_clip, s_line, s_faces
+ph_names:			DW		s_other, s_camera, s_cull, s_matrix, s_vertex, s_cut, s_clear, s_clip, s_line, s_faces, s_dwait
+s_dwait:			DB		"  DMA wait  ", 0
 s_faces:			DB		"  faces     ", 0
 s_other:			DB		"  other     ", 0
 s_camera:			DB		"  camera    ", 0
@@ -1437,6 +1487,9 @@ vblank:				push	af
 					or		a
 					jr		z,.same
 					ld		(shown),a
+					IF DMACLEAR
+					call	clear_start			; the screen just freed: its box
+					ENDIF
 					xor		a
 					ld		(flip_to),a
 .same:				ld		a,(shown)
@@ -1468,6 +1521,10 @@ finish:
 					xor		a
 					ld		(CREG + VIDINTEN),a
 					ld		(SREG + TMR0_CTRL),a
+					IF DMALINE | DMACLEAR
+					ld		a,DMACON_BLTEN_M	; the engine off again (SETCLR clear)
+					ld		(CREG + DMACON),a
+					ENDIF
 					ld		a,(exit_speed)		; the CPU's speed as it was
 					ld		(SREG + CPUSPEED),a
 					ld		hl,save_l0 + L_SPAN - 1	; the console's L0: the last
@@ -1543,6 +1600,12 @@ s_title:			DB		13, 10, "fast3d on retro-z80, "
 					IF FACES
 					DB		", back faces removed"
 					ENDIF
+					IF DMALINE
+					DB		", lines by the DMA engine"
+					ENDIF
+					IF DMACLEAR
+					DB		", cleared by a DMA fill"
+					ENDIF
 					IF SPECTRUM
 					DB		", 3.57 MHz"
 					ELSE
@@ -1563,6 +1626,12 @@ s_crlf:				DB		13, 10, 0
 					IF GEOM
 					INCLUDE	"geom.asm"
 					ENDIF
+					IF DMALINE
+					INCLUDE	"dmaline.asm"
+					ENDIF
+					IF DMACLEAR
+					INCLUDE	"dmaclear.asm"
+					ENDIF
 					INCLUDE	"fast3d.s"
 					INCLUDE	"output/objects_gen.s"
 					INCLUDE	"output/world_gen.s"
@@ -1578,6 +1647,9 @@ code_end:
 point_pool:			DS		256 * POINT_PAGES
 visible:			DS		VIS_SIZE * WORLD_OBJECTS
 cut_lines:			DS		8 * CUT_LINES
+					IF DMALINE
+records:			DS		4 * 12 * WORLD_OBJECTS	; the objects' points as EDGES reads them
+					ENDIF
 					IF FACES
 edge_pool:			DS		2 * WORLD_EDGES		; the edges kept, for every object
 					ENDIF
