@@ -451,7 +451,7 @@ start2: ld      bc,DMX2_CHDESC0_P
         ret
 ```
 
-RUN follows NEXT too: a job written into the registers with a NEXT that is not 0 runs, and then the list at NEXT. While a list runs, CHDESC reads as the descriptor now running. STOP ends the list after the current group of at most 16 bytes, and PAUSE holds it there until PAUSE is cleared; both are in CHCTRL (Table 6-6).
+RUN follows NEXT too: a job written into the registers with a NEXT that is not 0 runs, and then the list at NEXT. While a list runs, CHDESC reads as the descriptor now running. STOP ends the list after the current group of at most 32 bytes, and PAUSE holds it there until PAUSE is cleared; both are in CHCTRL (Table 6-6).
 
 Lists are the quickest way to start a lot of work: the CPU writes four registers, and a whole frame's drawing runs on its own. A list can be built once and reused, changing only the positions each frame, as Example 6-2 does. The jobs must stay where they are while the channel uses them, and a program changes them only while the channel is idle. Loading a descriptor costs 16 memory reads; Example 6-2's three jobs, started with START, take 114 µs where the single draw job takes 39 µs (Table 6-21).
 
