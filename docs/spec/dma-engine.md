@@ -333,9 +333,70 @@ The engine works through each row of D in groups of up to 8 words (16 bytes). Ea
 
 **Read-modify-write:** the SRAM can only skip whole bytes when writing. When a write would change only some pixels in a byte, the engine reads C, merges, and writes it back. This happens at the row edges of 1, 2 and 4 bpp jobs that don't start or end on a byte, inside bytes where the mask is partly 0 at 1, 2 and 4 bpp, and for every minterm that uses C. At 8 bpp, a copy, a fill and a cookie-cut never need it: a pixel the mask leaves alone is a byte not written. **8 bpp is the fastest format for game graphics.**
 
-Between groups, and at the end of each row, the engine works out the next addresses from the strides. That takes no memory cycles; the engine is pipelined so that it can use back-to-back free cycles (all five cycles of a slot in the vertical blank with the CPU slowed, for example).
+Between groups, and at the end of each row, the engine works out the next addresses from the strides. That takes no memory cycles. Within a step the engine uses back-to-back free cycles (all five cycles of a slot in the vertical blank with the CPU slowed, for example), but between the steps it waits: section 6.1.
 
 **At the end of a job** its last write has reached the SRAM or the register. Then, if CTRL.IRQ is set, the channel's DMXINT bit is set; the channel loads the descriptor at NEXT and runs it, or, if NEXT is 0, BUSY clears and DONE is set.
+
+### 6.1 Where the time goes
+
+A group's steps run one after another: all its reads, then all its writes. The engine has one request with the scheduler at a time, granted at the start of a memory cycle (every 2 clocks at most), and a read's data comes back 40 ns, 4 clocks, after its cycle (spec 2, section 5). Before each step the engine waits until the last one's requests are done. So every group has clocks in which the engine asks for no memory cycle, and a free cycle that comes then is lost.
+
+Worked out from `dmx.v`, an 8-word group in the middle of a long row at 8 bpp, with every cycle free:
+
+| Step | Copy: clocks | Fill: clocks | Memory cycles |
+|------|--------------|--------------|---------------|
+| Set-up (S_GRP) | 1 | 1 | None |
+| Read B (S_RD) | 16 | – (no reads since #63) | 8 reads |
+| Wait for the last read's data, and for the request to clear | 6 | – | None |
+| The C step (S_DR), with no C to read | 1 | 1 | None |
+| Fill the write pipeline (S_WR's two stages) | 2 | 2 | None |
+| Write D | 16 | 16 | 8 writes |
+| Drain: the last write taken, the group ends | 2 | 2 | None |
+| **Total** | **44** | **22** | Copy 16 of 22, fill 8 of 11 |
+
+The totals are the simulation's (ticket #63). The idle clocks are 12 a copy group and 6 a fill group: the engine uses about **73%** of the memory cycles it could. Figure 14-1 shows both groups.
+
+![An 8-word copy group and fill group, clock by clock, with the idle clocks marked](img/dma-engine-1-group-today.svg)
+
+*Figure 14-1: One 8-Word Group Today*
+
+The KS2 agrees. On the guide's screen (one 8 bpp layer at 2×, 180 cycles a line) with the CPU polling the channel (about 116 cycles a line), the engine has about 1,300 free cycles a line, 40.8 million a second. A fill at 61 MB/s uses 30.6 million of them (75%). With the screen off, 1,480 free a line, a fill at 68 MB/s uses 34 million of 46 million (74%). The share stays the same as the free cycles grow, so the engine's own waits, not the free cycles, set its speed.
+
+Other costs, outside the groups:
+
+- **A row's set-up** (S_ROW1–S_ROW3): a few clocks a row. Short rows pay it often: a 32-pixel 8 bpp sprite's row is 2 groups.
+- **A descriptor:** 16 reads, then the job's set-up.
+- **Taking turns:** saving one channel's progress, picking the next and restoring it. Left out since #63 while one channel runs alone.
+- **LINE and EDGES** step a pixel at a time, and wait for a pixel's read before its write. Not measured.
+
+### 6.2 Ways to make it faster
+
+Three changes, which can be combined (open point D2). Figure 14-2 shows 16 words of a copy in the middle of a long row with each.
+
+| Change | What changes | Copy: clocks per 8 words | Fill | Cycles used | Logic (estimate) | Other effects |
+|--------|--------------|--------------------------|------|-------------|------------------|---------------|
+| Today | – | 44 | 22 | 73% | – | – |
+| **A. Less bookkeeping** | The writes start while the last reads come back (the shifter needs B's words in order, not all of them); the C step is left out when there is no C to read; the next group is set up during the last writes | about 38 | about 19 | about 84% | Small: 50–150 LUTs | None |
+| **B. 16-word groups** | Groups of up to 16 words: the same idle clocks for twice the work. Buffers of 17 B words, 16 C words and 16 mask words, in distributed RAM, which costs the same up to 32 deep | 38 | 19 | 84% | Small: 50–150 LUTs | A channel's turn grows to 32 bytes: a port channel waits at most about 2.3 µs for the three others (1.3 µs now) |
+| **A and B** | Both | 35 | 17.5 | 91% | 100–300 LUTs | As B |
+| **C. Overlapped groups** | Two sets of buffers: the next group's reads go between this group's writes, so the memory never waits for the pipeline | about 32 | about 16 | Close to 100% | Large: 400–800 LUTs, and a rewrite of S_RD to S_WR | Reads run up to two groups ahead of the writes. The rule for overlapping copies (section 3.3) still holds: it does not depend on how far ahead reads run |
+
+![16 words of a copy done five ways: today, A, B, A and B, and C](img/dma-engine-2-options.svg)
+
+*Figure 14-2: 16 Words of a Copy, Five Ways*
+
+On the KS2, with the guide's screen, the speed would grow with the share of cycles used (estimates, until measured):
+
+| Change | Fill | Copy |
+|--------|------|------|
+| Today (measured) | 61 MB/s | 31 MB/s |
+| A, or B | about 70 MB/s | about 36 MB/s |
+| A and B | about 76 MB/s | about 39 MB/s |
+| C | about 80 MB/s (the free cycles' limit, 81.6) | about 40 MB/s (40.8) |
+
+**Taking the CPU's cycles** instead, as retro68k's HIGH mode does, was weighed against these (31 October 2026). The Z80 uses only 116–213 of its 640 cycles a line; the rest already go to the engine. So priority over the CPU would add at most 9–16% more free cycles, and the Z80 would have to wait for memory, which design plan branch 11 rules out. Slowing the CPU with CPUSPEED gives about as much today. Left out.
+
+Suggested order: A and B first, small enough for the KS2, measured on the board; then C, on the KS3.
 
 ## 7. Speed
 
@@ -656,7 +717,7 @@ The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is
 | # | Item |
 |---|------|
 | D1 | Check the engine fits and meets timing at 100 MHz, and uses back-to-back free cycles |
-| D2 | Measure the speed figures of section 7. Measured on the KS2 (ticket #63, guide chapter 6, Table 6-21): the engine's own steps, not the scheduler, set its speed: each group of up to 8 words was read, then written, then saved, and the next channel picked, about 6 clocks of bookkeeping a group. Since #63, a channel running alone goes straight on to its next group or row, and a group with nothing to read skips the read step: on the KS2, a fill 61 MB/s with the screen on (was 54) and 68 MB/s with it off, a copy 31 MB/s (was 29). Simulation: a fill 22 clocks per 8 words (was 26), a copy 44 (was 46). Still open, with retro68k (its dmx.v is the same): overlapping a group's reads with the last one's writes, and 16-word groups |
+| D2 | Measure the speed figures of section 7. Measured on the KS2 (ticket #63, guide chapter 6, Table 6-21): the engine's own steps, not the scheduler, set its speed (section 6.1). Since #63, a channel running alone goes straight on to its next group or row, and a group with nothing to read skips the read step: on the KS2, a fill 61 MB/s with the screen on (was 54) and 68 MB/s with it off, a copy 31 MB/s (was 29). Simulation: a fill 22 clocks per 8 words (was 26), a copy 44 (was 46). The engine still uses only about 73% of its free cycles. Still open, with retro68k (its dmx.v is the same): changes A (less bookkeeping), B (16-word groups) and C (overlapped groups) in section 6.2, to be chosen; priority over the CPU weighed and left out |
 | D3 | Line drawing: **LINE, OP 2** (section 3.4) and **EDGES, OP 3** (section 3.5, decided 30 October 2026 when LINE alone left the Z80's per-line setup as the cost), decided 30 October 2026 from the fast3d benchmark (spec 15, G1; ticket #75): software gives the octant and the two lengths, the engine derives the Bresenham terms; each pixel through the minterm with a 16-bit pattern as A; one read and one write a pixel; a global clip rectangle at `0x238`–`0x23F`. A job of its own, separate from OP 7 triangle. To be agreed with retro68k, whose sketch it follows. Still later: merging the pixels that share a byte into one read and write (up to 8 times fewer cycles on shallow 1 bpp lines), the Amiga's one-pixel-per-row mode for area fill, sub-pixel starts, and scaling or rotating blits, as retro68k's D3 |
 | D4 | MIX (section 3.1): on hold until it has proper resampling, as retro68k's D4 |
 | D5 | A descriptor RAM, as retro68k's: 2 KB (64 descriptors) in one RAMB18, with no SRAM cycles to load a descriptor, for short frequent jobs. It needs a block RAM from the budget (spec 4 sets the video's share) and an address: an MMU page of its own (for example `0x3F9`), which the CPU could also map, rather than room in the register page. Not in version 1 (decided again on 28 October 2026, design plan branch 21; the KS3 has the block RAM for it later) |

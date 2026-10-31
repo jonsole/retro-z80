@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="372" viewBox="0 0 760 372" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="372" fill="#ffffff"/>
+<text x="20" y="24" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">16 words of a copy in the middle of a long row, five ways (to scale)</text>
+<text x="170" y="62" font-size="12" text-anchor="end" fill="#1a1a1a" font-weight="bold">Today</text>
+<text x="170" y="76" font-size="10" text-anchor="end" fill="#555">two 8-word groups</text>
+<rect x="180" y="50" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="185.2" y="50" width="83.2" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="268.4" y="50" width="31.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="299.6" y="50" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="304.8" y="50" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="315.2" y="50" width="83.2" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="398.4" y="50" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="408.8" y="50" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="414" y="50" width="83.2" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="497.2" y="50" width="31.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="528.4" y="50" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="533.6" y="50" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="544" y="50" width="83.2" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="627.2" y="50" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<text x="645.6" y="65" font-size="12" text-anchor="start" fill="#1a1a1a">88 clocks: 73%</text>
+<text x="170" y="122" font-size="12" text-anchor="end" fill="#1a1a1a" font-weight="bold">A. Less bookkeeping</text>
+<text x="170" y="136" font-size="10" text-anchor="end" fill="#555">two 8-word groups</text>
+<rect x="180" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="185.2" y="110" width="83.2" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="268.4" y="110" width="15.6" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="284" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="289.2" y="110" width="83.2" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="372.4" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="377.6" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="382.8" y="110" width="83.2" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="466" y="110" width="15.6" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="481.6" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="486.8" y="110" width="83.2" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="570" y="110" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<text x="583.2" y="125" font-size="12" text-anchor="start" fill="#1a1a1a">76 clocks: 84%</text>
+<text x="170" y="182" font-size="12" text-anchor="end" fill="#1a1a1a" font-weight="bold">B. 16-word groups</text>
+<text x="170" y="196" font-size="10" text-anchor="end" fill="#555">one group</text>
+<rect x="180" y="170" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="185.2" y="170" width="166.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="351.6" y="170" width="31.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="382.8" y="170" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="388" y="170" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="398.4" y="170" width="166.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="564.8" y="170" width="10.4" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<text x="583.2" y="185" font-size="12" text-anchor="start" fill="#1a1a1a">76 clocks: 84%</text>
+<text x="170" y="242" font-size="12" text-anchor="end" fill="#1a1a1a" font-weight="bold">A and B</text>
+<text x="170" y="256" font-size="10" text-anchor="end" fill="#555">one group</text>
+<rect x="180" y="230" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="185.2" y="230" width="166.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="351.6" y="230" width="15.6" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="367.2" y="230" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<rect x="372.4" y="230" width="166.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="538.8" y="230" width="5.2" height="22" fill="#e06666" stroke="#333" stroke-width="1"/>
+<text x="552" y="245" font-size="12" text-anchor="start" fill="#1a1a1a">70 clocks: 91%</text>
+<text x="170" y="302" font-size="12" text-anchor="end" fill="#1a1a1a" font-weight="bold">C. Overlapped groups</text>
+<text x="170" y="316" font-size="10" text-anchor="end" fill="#555">reads of the next group</text>
+<rect x="180" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="190.4" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="200.8" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="211.2" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="221.6" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="232" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="242.4" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="252.8" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="263.2" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="273.6" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="284" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="294.4" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="304.8" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="315.2" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="325.6" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="336" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="346.4" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="356.8" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="367.2" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="377.6" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="388" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="398.4" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="408.8" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="419.2" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="429.6" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="440" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="450.4" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="460.8" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="471.2" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="481.6" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<rect x="492" y="290" width="10.4" height="22" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<rect x="502.4" y="290" width="10.4" height="22" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="520.8" y="305" font-size="12" text-anchor="start" fill="#1a1a1a">64 clocks: about 100%</text>
+<text x="170" y="330" font-size="10" text-anchor="end" fill="#555">between this one's writes</text>
+<rect x="180" y="346" width="22" height="14" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="208" y="357" font-size="11" text-anchor="start" fill="#1a1a1a">read</text>
+<rect x="260" y="346" width="22" height="14" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="288" y="357" font-size="11" text-anchor="start" fill="#1a1a1a">write</text>
+<rect x="345" y="346" width="22" height="14" fill="#e06666" stroke="#333" stroke-width="1"/>
+<text x="373" y="357" font-size="11" text-anchor="start" fill="#1a1a1a">idle clocks</text>
+</svg>
