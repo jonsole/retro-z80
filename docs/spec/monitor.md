@@ -557,4 +557,4 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 | M6 | How the copies are kept in step: by hand, or a CI check against the other repo. A cross-repo check needs read access to the other repo; if either repo is private, a token stored as a secret |
 | M7 | Symbols (names for addresses) in the monitor and the disassembler: not planned for version 1 |
 | M8 | `pyserial` is the tool's only package outside the standard library; both repos' tool READMEs say so |
-| M9 | TARGET 3 (section 6.7) is retro-z80's proposal to retro68k (its SY7). A CRC in the flash writer's hardware would cut the END check from about 9 s to under 1 s, if loading designs proves too slow |
+| M9 | TARGET 3 (section 6.7): accepted by retro68k (its SY7, 1 November 2026). A CRC in the flash writer's hardware would cut retro-z80's END check from about 9 s to under 1 s, if loading designs proves too slow; retro68k's 68000 does not need it |

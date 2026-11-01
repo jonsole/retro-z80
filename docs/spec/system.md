@@ -500,5 +500,5 @@ A retro-z80 page pair, for the flash writer of section 8.1. I/O page `0x03`: por
 | SY14 | Which slot the Next's Extra Cores menu writes into, and whether the user can pick it: the known-good copy must land in FLASHGOOD's slot |
 | SY15 | The default slots (8 known-good, 9 development) clash with other extra cores the user may keep there; they are build settings |
 | SY16 | KS2 room: the KS2 is already short of LUTs (design plan, branch 21). Whether the Pi build fits with the flash writer, and what it leaves out; whether the FT232H build has the flash writer too |
-| SY17 | Proposed to retro68k (its SY7): TARGET 3 and `rlink.py flash` (`monitor.md`, section 6.7). Closed once it adopts them |
+| SY17 | Closed: TARGET 3 and `rlink.py flash` (`monitor.md`, section 6.7), accepted unchanged by retro68k (its SY7, PR #29, 1 November 2026) |
 | SY18 | A compressed bitstream would load faster over the link; check that the Next's menu and IPROG accept one |
