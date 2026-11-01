@@ -2,7 +2,7 @@
 
 Status: **draft**
 
-The USB serial link connects the computer to a PC through a small FT232H USB module on the KS3's accelerator port. It carries the console (text in and out), program and file uploads, and debug commands. On the PC it is an ordinary serial port, so any terminal program works.
+The USB serial link connects the computer to a PC through a small FT232H USB module on the KS3's accelerator port, or, in the Pi build, over Wi-Fi through a Raspberry Pi Zero 2 W in the same place (section 3.1). It carries the console (text in and out), program and file uploads, and debug commands. On the PC it is an ordinary serial port, so any terminal program works.
 
 This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" and `serial.v`) with the same registers, names and bit layouts, cut to bytes. Its registers are `0x50`–`0x57` and `0x5C` of page `0x00`, the system block (spec 3): SERCON is port `0x5000`. SERDATA is also the low-byte-only port `0x53`, so `INIR` and `OTIR` work on it.
 
@@ -10,7 +10,7 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 
 | Item | Value |
 |------|-------|
-| Hardware | An FT232H USB module (e.g. FTDI UM232H-B) on the accelerator port (`accel_io`, 3.3 V), as an 8-bit parallel FIFO in asynchronous 245 FIFO mode. Powered from its own USB cable |
+| Hardware | An FT232H USB module (e.g. FTDI UM232H-B) on the accelerator port (`accel_io`, 3.3 V), as an 8-bit parallel FIFO in asynchronous 245 FIFO mode. Powered from its own USB cable. Or, as a build option, a Raspberry Pi Zero 2 W on the same port, by a UART, reached over Wi-Fi (section 3.1) |
 | On the PC | A normal serial port (e.g. `/dev/ttyUSB1` or `COM5`); the baud rate setting is ignored |
 | Link speed | Up to about 8 MB/s each way in the FT232H; the Z80 is the limit (section 6), the DMA engine is not |
 | Flow control | In hardware, both ways: no byte is lost; no XON/XOFF or RTS/CTS |
@@ -66,6 +66,28 @@ The interface logic is retro68k's `serial.v`, unchanged in its timing: both mach
 - **Computer to PC:** the FPGA writes only when TXE# says there is room. If the PC is not reading, the FT232H and then the transmit FIFO fill up (section 5.3).
 
 **Low delay:** when the transmit FIFO becomes empty after sending, the FPGA pulses SIWU#, so a short console message reaches the PC at once instead of after the FT232H's 16 ms latency timer.
+
+### 3.1 The Pi link: a second front end
+
+Decided 1 November 2026 (design plan, branch 22), shared with retro68k (its spec 14, section 2.1). Not built yet.
+
+Instead of the FT232H, a **Raspberry Pi Zero 2 W** sits on the accelerator port, inside the Next's case. The Pi joins the user's Wi-Fi and relays a TCP connection to the FPGA over a UART. The PC reaches the computer over the network with the case closed: the console, uploads, the debugger and new FPGA designs (spec 7, section 8).
+
+| Item | Value |
+|------|-------|
+| Choice | A build option: the FT232H front end or the Pi front end, not both. Everything behind it is the same: the 2 KB FIFOs, the escapes and control commands (section 4), the registers, DMA port 1 |
+| Wiring | `accel_io[n]` is Pi GPIO n (open point U2). GPIO 14 (the Pi's TXD) to the FPGA's receiver, GPIO 15 (RXD) from its transmitter, GPIO 16 CTS (from the FPGA), GPIO 17 RTS (from the Pi) |
+| Format | 8 data bits, no parity, 1 stop bit, at **3 Mbaud** (exact on the Pi's PL011 UART at its default 48 MHz clock; open point U9). About 300 KB/s each way |
+| Flow control | The FPGA holds CTS high (stop) while its receive FIFO has fewer than 64 bytes free, so nothing from the Pi is lost. It sends only while RTS is low |
+| Power | From the accelerator port's 5 V pins, as the Next's own Pi accelerator (open point U10) |
+| On the PC | `rlink.py` and the bridge connect with `tcp:HOST:PORT` instead of a serial port. The Pi passes bytes through unchanged; the PC escapes as usual |
+| Rescue pin | GPIO 4, held low by the Pi, restarts the FPGA from the known-good copy even when the link has stopped working (spec 7, section 8.3) |
+| Pi set-up | Raspberry Pi OS Lite; the PL011 on GPIO 14/15 with Bluetooth off (`dtoverlay=disable-bt`), RTS/CTS on 16/17; the relay starts at boot (`tools/`, ticket to come) |
+
+- The UART has no low-delay signal: the Pi forwards bytes as they arrive, and the relay sends them on at once (no Nagle delay).
+- 3 Mbaud is a tenth of the FT232H's speed but is plenty for the console, the debugger and programs: a 48 KB program arrives in about 0.16 s. A whole FPGA design (2.1 MB) takes about 7 s.
+- The receiver samples each bit in the middle, timed from the start bit's falling edge by a fractional counter on the 100 MHz clock (33⅓ clocks a bit).
+- With no Pi fitted, the receive line is pulled up (idle) and RTS reads high (stop): the link is simply idle, as with no FT232H.
 
 ## 4. Control commands from the PC
 
@@ -242,6 +264,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 - **DMA:** port 1 jobs each way at full speed; a stalled port does not hold up other channels.
 - **Latency:** a single byte reaches the PC in well under 16 ms (SIWU#).
 - **Timing:** in simulation against retro68k's FT232H model at 100 MHz; on the board, measure throughput both ways.
+- **Pi link** (simulation, a UART model at 3 Mbaud, with its clock 2 % fast and slow): loopback of every byte value; escapes and commands through the UART; CTS goes high with fewer than 64 bytes free and no byte is lost when the sender obeys it within 16 bytes; the transmitter stops while RTS is high; a line held low (a break) gives no bytes. On the board: a loopback through the Pi relay over Wi-Fi, a whole upload, and a VS Code debugging session.
 
 ## 10. Open points
 
@@ -255,3 +278,5 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 | U6 | Closed: SERDROP is at register `0x5C` of page `0x00` (branch 11) |
 | U7 | Closed (spec 7): a reset clears SERCON and the FIFOs but does not disturb the FT232H or the PC, so the terminal stays connected. Still open in retro68k ("the serial link surviving a reset"); the two should end up the same |
 | U8 | Closed: software checks RXCOUNT before reading SERDATA (branch 11); an empty read gives `0x00` and no flag |
+| U9 | The Pi link's rate: 3 Mbaud to start; 4 Mbaud with `init_uart_clock=64000000` if it proves reliable through the header's 200 ohm resistors (retro68k's U7) |
+| U10 | Whether the accelerator port's 5 V carries a Pi Zero 2 W's current (up to about 500 mA at boot with Wi-Fi) on the KS2 (retro68k's U9) |

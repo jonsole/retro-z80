@@ -237,10 +237,10 @@ Every upload and every boot file starts with this 32-byte header. All fields are
 | 0 | 4 | MAGIC | ASCII `RIMG` (`0x52 0x49 0x4D 0x47`) |
 | 4 | 4 | MACHINE | ASCII `Z80 ` (`0x5A 0x38 0x30 0x20`) for retro-z80, `68K ` (`0x36 0x38 0x4B 0x20`) for retro68k |
 | 8 | 1 | VERSION | 1 |
-| 9 | 1 | TARGET | 0 program, 1 boot ROM image, 2 resident image (section 5.2) |
+| 9 | 1 | TARGET | 0 program, 1 boot ROM image, 2 resident image, 3 FPGA design (section 5.2) |
 | 10 | 2 | FLAGS | Bit 0 PHYS: LOAD is a physical address (section 3.2). Bits 15–1 are 0 |
 | 12 | 4 | LOAD | Where the first image byte goes |
-| 16 | 4 | ENTRY | Where the program starts: a CPU address. Ignored for TARGET 1 |
+| 16 | 4 | ENTRY | Where the program starts: a CPU address. Ignored for TARGET 1 and 3 |
 | 20 | 4 | SIZE | Bytes of image after the header, 1 or more |
 | 24 | 4 | ICRC | CRC-32 of the SIZE image bytes |
 | 28 | 4 | HCRC | CRC-32 of header bytes 0–27 |
@@ -258,6 +258,7 @@ Every upload and every boot file starts with this 32-byte header. All fields are
 | 0 | **Program** | Loads it at LOAD and, if asked, runs it at ENTRY (section 6.5) with the environment each machine's spec gives |
 | 1 | **Boot ROM image** | Checks it, keeps it in RAM until it is all in, writes it to the boot ROM with SYSCON.ROMWE, reads it back, then resets. LOAD is the offset in the boot ROM (0 for a whole image). Refused while SYSCON.ROMLOCK is set (`? locked`, refusal code 5). The new ROM runs until the FPGA is reloaded (each machine's system spec) |
 | 2 | **Resident image** | A ROM image kept in write-protected RAM (BASIC): loaded into the RAM the machine keeps for it and protected; started by `X` and at start-up (section 9) |
+| 3 | **FPGA design** | A Vivado `.bit` file, written into the machine's development flash slot with its flash writer, read back and checked, then started if asked (section 6.7). LOAD must be 0, meaning the development slot; ENTRY and PHYS are ignored. SIZE at most `0x220000`. Refused (code 5) by a build without the flash writer |
 
 Each machine's spec gives the address ranges it accepts for each target, and refuses others (refusal code 3).
 
@@ -328,6 +329,7 @@ The loader answers every frame it has read whole with a 5-byte reply:
 | 6 | At END, the image in memory does not match ICRC |
 | 7 | Out of order: DATA before HEADER, or past SIZE; END before every byte has come |
 | 8 | Stopped at the machine (Esc) |
+| 9 | TARGET 3: the design is not for this FPGA (its IDCODE, section 6.7) |
 
 A frame whose SEQ is that of the last frame taken is answered `K` again and not used twice, so a lost reply only costs a resend.
 
@@ -353,16 +355,16 @@ END     SEQ n  ACTION 1                ──► ICRC checked over memory
 
 - **PING** can be sent at any time. The loader answers `K` with CODE = the protocol version and sends the ready line again. The tool uses it when it starts after the loader is already waiting.
 - **HEADER** starts an upload (and drops any upload under way). The loader checks the header and the target and replies `K` or `R`.
-- **DATA** frames carry the image, normally in order and in 4,096-byte pieces (the last one shorter). The loader writes each payload to LOAD + OFFSET as soon as its CRC is right; TARGET 1 goes to a buffer first.
+- **DATA** frames carry the image, normally in order and in 4,096-byte pieces (the last one shorter). The loader writes each payload to LOAD + OFFSET as soon as its CRC is right; TARGET 1 goes to a buffer first. TARGET 3 goes straight to the flash and must come in order (section 6.7).
 - **END** finishes. The loader computes ICRC **from memory**, so the check also covers the RAM the image went into. Then it replies and does the ACTION.
 - **ABORT** drops the upload; the loader replies `K` and waits again.
 
 ### 6.5 ACTION
 
-| ACTION | TARGET 0 program | TARGET 1 boot ROM image | TARGET 2 resident image |
-|--------|------------------|-------------------------|-------------------------|
-| 0 | Back to the monitor, with PC = ENTRY and the other registers at their defaults; `G` runs it | Checked only, not written; back to the monitor | Kept and protected; back to the monitor |
-| 1 | Run it at ENTRY | Write it to the boot ROM, read it back, reset | Kept and protected, then started |
+| ACTION | TARGET 0 program | TARGET 1 boot ROM image | TARGET 2 resident image | TARGET 3 FPGA design |
+|--------|------------------|-------------------------|-------------------------|----------------------|
+| 0 | Back to the monitor, with PC = ENTRY and the other registers at their defaults; `G` runs it | Checked only, not written; back to the monitor | Kept and protected; back to the monitor | Written and checked; back to the loader |
+| 1 | Run it at ENTRY | Write it to the boot ROM, read it back, reset | Kept and protected, then started | Written and checked, then started (BOOT) |
 
 The loader sends the reply to END **before** it acts, so the tool does not send END twice: with no reply to END it reports that the program may already be running.
 
@@ -374,6 +376,18 @@ The loader sends the reply to END **before** it acts, so the tool does not send 
 | Tool waits for a reply | 2 s, then sends the frame again |
 | Tries per frame | 5, then the tool stops (exit code 3) |
 | Loader drops a frame whose bytes stop | After 1 s |
+| Tool waits for a reply, TARGET 3 | 5 s (a DATA frame may wait for a sector erase, up to 2 s); 60 s for END (the read-back check) |
+
+### 6.7 FPGA designs (TARGET 3)
+
+Shared with retro68k (decided in retro-z80, 1 November 2026: its design plan, branch 22). Each machine's system spec describes its flash writer and slots; this section is the loader's part.
+
+- **HEADER** is checked as for any target. Nothing is erased yet.
+- **DATA** must come in order: OFFSET must be where the last frame taken ended (else code 7; a resend of the last frame is answered `K` by the SEQ rule, as always). When a frame reaches a 64 KB sector it has not yet touched, the loader erases that sector first, then programs the frame's bytes page by page. The link's flow control holds the PC back meanwhile.
+- **The first DATA frame** must hold the bitstream's sync word (`AA 99 55 66`) and, soon after it, the IDCODE write (`30 01 80 01`, then the IDCODE). If the IDCODE is not this FPGA's, the loader refuses with code 9 before it writes anything, so a KS3 design is never started on a KS2 or the other way round.
+- **END** reads the whole slot back through the flash writer and works out ICRC from it, as the other targets check memory. This takes some seconds (about 9 s on the Z80 for a 2.1 MB design); the loader shows progress on the screen. A mismatch is code 6, and nothing is started: the old design goes on running.
+- **ACTION 1** sends the reply, then BOOTs into the slot. The reply goes first, as for every target; the tool then waits for the new design's loader (section 8.1).
+- The image is never held whole in RAM. A failed upload leaves the development slot half written; the next upload writes it again. The machine's other slots are never touched (each system spec says how this is enforced).
 
 ## 7. The boot file and other image files
 
@@ -395,13 +409,14 @@ One Python 3 script, the same file in both repos. It needs Python 3.8 or newer a
 python3 tools/rlink.py [-p PORT] COMMAND [options]
 ```
 
-`-p PORT` names the serial port (`COM5`, `/dev/ttyUSB1`); without it the tool uses the environment variable `RLINK_PORT`. The baud rate does not matter (each machine's serial spec).
+`-p PORT` names the serial port (`COM5`, `/dev/ttyUSB1`), or `tcp:HOST:PORT` for a Pi link or a simulation; without it the tool uses the environment variable `RLINK_PORT`. The baud rate does not matter (each machine's serial spec).
 
 | Command | What it does |
 |---------|--------------|
 | `upload FILE [--no-run] [--no-reset] [--term]` | Sends UPLOAD, waits for the ready line, checks the machine against the file's header, sends the image, and runs it (ACTION 1) unless `--no-run`. `--no-reset` skips UPLOAD, for a loader already waiting (`U`). `--term` stays on as a terminal afterwards |
 | `upload BIN --load ADDR [--entry ADDR] [--machine z80\|68k] [--target program\|rom\|resident] [--phys] …` | The same for a raw binary: the tool makes the header on the fly. `--entry` defaults to `--load`. The machine defaults to the one in the ready line |
 | `image BIN -o FILE --machine z80\|68k --load ADDR [--entry ADDR] [--target …] [--phys]` | Makes an image file (header and image) for the SD card or a later upload |
+| `flash FILE.bit [--no-boot]` | Writes an FPGA design into the development slot (TARGET 3, section 6.7): sends UPLOAD, waits for the ready line, makes the header from the `.bit` (LOAD 0, MACHINE from the ready line), sends the file whole, header included, and BOOTs it unless `--no-boot`. Then it waits up to 30 s for the new design's ready line and reports it. The `.bit` is sent as Vivado wrote it, so the Next's core menu can name the slot |
 | `show FILE` | Prints an image file's header and checks HCRC and ICRC |
 | `reset`, `break`, `uploadmode` | Sends one control command: RESET, BREAK or UPLOAD |
 | `term` | A terminal: shows what the machine sends and sends what is typed, so the monitor and programs can be used from the PC. Ctrl-] then a key: `r` RESET, `b` BREAK, `u` upload a file (asks for its name), `q` quit |
@@ -542,3 +557,4 @@ Each machine's own boot ROM spec covers what this spec leaves to it:
 | M6 | How the copies are kept in step: by hand, or a CI check against the other repo. A cross-repo check needs read access to the other repo; if either repo is private, a token stored as a secret |
 | M7 | Symbols (names for addresses) in the monitor and the disassembler: not planned for version 1 |
 | M8 | `pyserial` is the tool's only package outside the standard library; both repos' tool READMEs say so |
+| M9 | TARGET 3 (section 6.7): accepted by retro68k (its SY7, 1 November 2026). A CRC in the flash writer's hardware would cut retro-z80's END check from about 9 s to under 1 s, if loading designs proves too slow; retro68k's 68000 does not need it |
