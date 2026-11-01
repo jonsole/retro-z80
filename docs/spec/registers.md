@@ -9,7 +9,7 @@ This is the one place that lists every register in the machine: the rules every 
 | Item | Value |
 |------|-------|
 | Register size | 8 bits. Wider values are consecutive bytes, low byte first. Every byte is written straight through, with no latch, except the MMU and interrupt pages and the colours (rule 2) |
-| Ports | Every I/O port is **register (high byte) : page (low byte)**: port = register × 256 + page. Page `0x00` is the system page; registers `0x40`–`0xFF` of page `0x01` are the interrupt pages; page `0x02` is the debug unit; pages `0x10`–`0x13` are the custom block; every other page is reserved (section 4.1) |
+| Ports | Every I/O port is **register (high byte) : page (low byte)**: port = register × 256 + page. Page `0x00` is the system page; registers `0x40`–`0xFF` of page `0x01` are the interrupt pages; page `0x02` is the debug unit; pages `0x03`–`0x04` are the flash writer (Pi build; spec 7, section 11.4); pages `0x10`–`0x13` are the custom block; every other page is reserved (section 4.1) |
 | Low-byte-only ports | `0x1F` (Kempston), `0x53` (SERDATA), `0x5B` (SDDATA), `0x62` (KBDATA) and `0xFE` (Spectrum port) answer whatever the high byte holds, so `IN A,(n)`, `OUT (n),A`, `INIR` and `OTIR` work on them. Each is also a register of page `0x00` (section 4.1) |
 | System page | Page `0x00`: interrupts, the key map, timers, serial, SD card, input, system, the MMU and the geometry unit, in retro68k's order. SYSID is port `0x7000` (section 4) |
 | Custom block | The chipset, as retro68k's custom block: 1 KB of byte registers, offsets `0x000`–`0x3FF`. Custom offset k is port (k bits 7–0) × 256 + `0x10` + (k bits 9–8) (section 5) |
@@ -32,6 +32,7 @@ This is the one place that lists every register in the machine: the rules every 
 | KEYROW0–7 (register page `0x0100`–`0x0107`) | Read, through the register page | No | No |
 | Interrupt pages (page `0x01`, registers `0x40`–`0xFF`; register page `0x0140`–`0x01FF`) | Read and write | No | No: a job that names them stops with an error |
 | Debug unit (page `0x02`; register page `0x0200`–`0x023C`) | Read and write | No | No: a job that names it stops with an error |
+| Flash writer (pages `0x03`–`0x04`; register page `0x0300`–`0x030F`, `0x0400`–`0x04FF`) | Read and write | No | No: a job that names it stops with an error |
 | Boot ROM (MMU pages `0x3FC`–`0x3FF`) | Read; write with SYSCON.ROMWE | No | Read |
 | SRAM | Through the MMU (spec 2) | Reads its list only | Read and write |
 
@@ -649,14 +650,18 @@ MMU page `0x3F8` (REGS) shows the registers as memory, in any window, for reads,
 | `0x0108`–`0x013F` | – | Reserved | |
 | `0x0140`–`0x01FF` | `0x01` | The interrupt pages: register r of page `0x01` at `0x0100` + r, with the same values and commits as through I/O | Section 4.13 |
 | `0x0200`–`0x023C` | `0x02` | The debug unit: register r of page `0x02` at `0x0200` + r | Section 4.14 |
-| `0x023D`–`0x0FFF` | – | Reserved | |
+| `0x023D`–`0x02FF` | – | Reserved | |
+| `0x0300`–`0x030F` | `0x03` | The flash writer's registers: register r of page `0x03` at `0x0300` + r (Pi build) | Spec 7, 11.4 |
+| `0x0310`–`0x03FF` | – | Reserved | |
+| `0x0400`–`0x04FF` | `0x04` | FLASHBUF, the flash writer's 256-byte page buffer (Pi build) | Spec 7, 11.4 |
+| `0x0500`–`0x0FFF` | – | Reserved | |
 | `0x1000`–`0x13FF` | `0x10`–`0x13` | The custom block: custom offset k at `0x1000` + k | Section 5 |
 | `0x1400`–`0x16FF` | – | PALETTE0 (layer L0) | 2, 10.2; 4, 6.5 |
 | `0x1700`–`0x19FF` | – | PALETTE1 (layer L1) | 2, 10.2 |
 | `0x1A00`–`0x1CFF` | – | PALETTE2 (layer L2) | 2, 10.2 |
 | `0x1D00`–`0x1FFF` | – | SPRPALETTE | 2, 10.2 |
 
-- **Palettes:** entry i of palette p is at `0x1400` + p × `0x300` + 3i: blue, green, red. The blue and green bytes go into the CPU's colour assembly buffer; the red byte writes the entry whole, as rule 7 and as PALDAT. This path does not use or change PALIDX. A rising `LDIR` of 768 bytes copies a palette, and the bytes are the same stream PALDAT takes. The palettes have no I/O page of their own; I/O pages `0x03`–`0x0F` and `0x14`–`0xFF` are reserved, and so are registers `0x00`–`0x3F` of page `0x01` and `0x3D`–`0xFF` of page `0x02`.
+- **Palettes:** entry i of palette p is at `0x1400` + p × `0x300` + 3i: blue, green, red. The blue and green bytes go into the CPU's colour assembly buffer; the red byte writes the entry whole, as rule 7 and as PALDAT. This path does not use or change PALIDX. A rising `LDIR` of 768 bytes copies a palette, and the bytes are the same stream PALDAT takes. The palettes have no I/O page of their own; I/O pages `0x05`–`0x0F` (and `0x03`–`0x04` without the flash writer) and `0x14`–`0xFF` are reserved, and so are registers `0x00`–`0x3F` of page `0x01`, `0x3D`–`0xFF` of page `0x02` and `0x10`–`0xFF` of page `0x03`.
 - Reserved offsets read `0xFF` and ignore writes.
 - Opcode fetches from the register page read `0xFF` (`RST 38h`) and have no side effect (spec 1, section 5.7).
 - Register page accesses use no SRAM cycle.

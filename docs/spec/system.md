@@ -244,12 +244,54 @@ i2c_wr: ld   bc,I2CDATA_P        ; port 0x7900
         ret                      ; A bit 0 now NACK (shifted down): test before use
 ```
 
-## 8. Installing on the KS3
+## 8. Installing, the flash writer and the rescue pin
 
-As in retro68k: the Next keeps several FPGA designs ("cores") in its configuration flash, in slots. Slot 0 holds the anti-brick core and slot 1 the Next itself. **Those two slots are never touched.**
+As in retro68k: the Next keeps several FPGA designs ("cores") in its configuration flash, in slots. The facts below come from the Next's own sources (`docs/notes/next-flash.md`, 1 November 2026) and are still to be tried on the board.
 
-- **Development:** the design is loaded straight into the FPGA over the board's JTAG header, with Vivado or openFPGALoader. Nothing is written to the flash; turning the power off brings back the normal Next.
-- **Everyday use:** the design is installed as an extra Next core in a free flash slot and started from the Next's core menu. The KS3's core file format and slot size are to be confirmed once for both projects (open point SY4; design plan Q8).
+| Item | Value |
+|------|-------|
+| Flash | Macronix MX25L25645G, 32 MB, 4-byte addresses, the same on the KS2 and KS3 |
+| Slots | 15 of `0x220000` bytes (2,176 KB); slot n starts at n × `0x220000` |
+| The Next's slots | 0 the anti-brick core, 1 the Next, 2–7 reserved. **Never written by us** |
+| Extra cores | Slots 8–14. Ours by default: **slot 8 the known-good copy** (`0x1100000`), **slot 9 the development slot** (`0x1320000`); both are build settings (open point SY15) |
+| Image | The Vivado `.bit` file, header included, as the Next's own core menu writes it, so the menu names the slot. About 2.1 MB uncompressed |
+
+- **Development over JTAG:** the design is loaded straight into the FPGA with Vivado and the Platform Cable. Nothing is written to the flash; a power-cycle brings back the Next.
+- **Development over the Pi link** (spec 10, section 3.1): a new design is written into the development slot over Wi-Fi and the FPGA restarts into it, with the case closed (section 8.2). It survives a power-cycle: start it from the Next's core menu.
+- **Everyday use:** the `.bit` is installed with the Next's own Extra Cores menu (`/machines/retroz80/core2.bit` on the KS2, `core3.bit` on the KS3; hold C at a hard reset). That is also how the known-good copy is put in slot 8.
+
+### 8.1 The flash writer
+
+retro68k's unit (its spec 7, section 7.1), cut to bytes and put on I/O pages of its own (section 11.4). It is in the Pi build; whether the FT232H build has it too is open point SY16. It drives the flash's chip select, clock (pin D9, an ordinary pin: no STARTUPE2), data in and data out itself, 1 bit wide, with WP held low and HOLD high, and sends the flash's own commands (write enable, erase, page program, read, status polling). Software sees a 256-byte page buffer and four commands.
+
+**Only the development slot can be changed, in hardware.** ERASE and PROGRAM outside FLASHMIN to FLASHMIN + `0x21FFFF` are refused and set DENIED: no software bug or bad upload can touch the Next's slots, the known-good copy or other extra cores. READ and BOOT work anywhere.
+
+| Command | What it does |
+|---------|--------------|
+| READ (`0xA1`) | Read the 256 bytes at FLASHADDR (bits 7–0 ignored) into FLASHBUF |
+| ERASE (`0xA2`) | Erase the 64 KB sector at FLASHADDR (bits 15–0 ignored). Typically a few hundred milliseconds |
+| PROGRAM (`0xA3`) | Write FLASHBUF to the 256-byte page at FLASHADDR (bits 7–0 ignored). The page must have been erased |
+| BOOT (`0xA4`) | Restart the FPGA from the design at FLASHADDR: ICAPE2 with WBSTAR = FLASHADDR >> 8, then IPROG. Everything stops; the new design starts as at power-on |
+
+FLASHCMD takes only these four values (the key is the high nibble `0xA`); any other write is ignored, as is any write while BUSY. FLASHADDR is 25 bits, since slots 8–14 lie above 16 MB.
+
+### 8.2 Loading a design over the link
+
+1. The PC sends UPLOAD (spec 10, section 4), so the boot ROM's loader runs.
+2. The PC sends the `.bit` with the upload protocol (`monitor.md`), as TARGET 3, an FPGA design (`monitor.md`, section 6.7; `rlink.py flash`).
+3. The boot ROM checks the design's IDCODE, then erases each 64 KB sector of the development slot as the data reaches it and programs each page as it arrives; the link's flow control holds the PC back while the flash is busy. The image is never held whole: the KS2 has only 2 MB of SRAM.
+4. It reads the slot back and checks its CRC-32 against the one the PC sent.
+5. Only if they match does it BOOT into the slot. Otherwise it reports the error over the link and goes on running the old design.
+
+At 3 Mbaud the image takes about 7 s to send (the Z80's frame CRCs keep pace), the erases about 10 s and the read-back check about 9 s: about 30 s in all. A CRC in the flash writer could cut the check to under 1 s later (`monitor.md`, open point M9).
+
+### 8.3 The rescue pin
+
+If a new design does not start, or its link has stopped working, the Pi holds **GPIO 4** (`accel_io[4]`) low for at least 1 second. A small block that depends on neither the CPU nor the link then does a BOOT into the **known-good copy** (FLASHGOOD). The pin is debounced, and ignored for 2 seconds after the FPGA starts, so a Pi still holding it after the restart does not cause a loop. The Pi then uses the known-good copy's link to mend the development slot.
+
+- GPIO 4 because the Pi pulls GPIO 0–8 up while it boots, and 9–27 down: a pin that means something when low must not be one the Pi pulls down.
+- The rescue block is part of every design we build, so it only helps while one of ours is running. A design that does not configure leaves the FPGA blank (the Next's configuration fallback is off); then only a power-cycle helps: the board starts the Next, and the known-good copy is chosen from its core menu.
+- It cannot help when the board itself is wedged (the clocks stopped): a power-cycle, as now.
 
 ## 9. Board connections
 
@@ -262,14 +304,14 @@ Pin names follow the Next's own `zxnext_top_issue5.vhd` and `zxnext_pins_issue5.
 | VGA | rgb_r_o, rgb_g_o, rgb_b_o, hsync_o, vsync_o, vgaclk_o, vgaclkn_o | Video (spec 4), as in retro68k |
 | HDMI | hdmi_p_o[3:0], hdmi_n_o[3:0] | Video (spec 4), as in retro68k |
 | Buttons | btn_reset_n_i, btn_multiface_n_i, btn_divmmc_n_i | Section 6 |
-| Accelerator port | accel_io[27:0] (Raspberry Pi header). [7:0] D7–D0, [8] RXF#, [9] TXE#, [10] RD#, [11] WR#, [12] SIWU# | FT232H USB serial (spec 10; pins provisional, as in retro68k). The rest free |
+| Accelerator port | accel_io[27:0] (Raspberry Pi header). [7:0] D7–D0, [8] RXF#, [9] TXE#, [10] RD#, [11] WR#, [12] SIWU# | FT232H USB serial (spec 10; pins provisional, as in retro68k), or, in the Pi build, a Raspberry Pi Zero 2 W: `accel_io[n]` is Pi GPIO n; UART on 14/15, RTS/CTS on 16/17 (spec 10, section 3.1), the rescue pin on 4 (section 8.3). The rest free |
 | SD card | sd_cs0_n_o, sd_cs1_n_o, sd_sclk_o, sd_mosi_o, sd_miso_i | Spec 11 |
 | PS/2 | ps2_clk_io, ps2_data_io (keyboard); ps2_pin6_io, ps2_pin2_io (mouse, spare) | PS/2 keyboard (spec 12). Mouse not used |
 | Spectrum keyboard | keyb_row_o[7:0], keyb_col_i[6:0] | The membrane matrix: 8 rows × 7 columns. A row is selected by driving it low (open drain); a pressed key pulls its column low. Columns 0–4 are the Spectrum's 40 keys; columns 5–6 are the Next's extra keys. Scanned and debounced in hardware (spec 12) |
 | Joysticks | joyp1_i (up), joyp2_i (down), joyp3_i (left), joyp4_i (right), joyp6_i (fire 1), joyp9_i (fire 2), joyp7_o (pin 7 out), joysel_o | Both ports share the input pins; joysel_o picks the left or the right port, and the hardware reads them in turn. joyp7_o drives pin 7 (select line of Mega Drive pads). Low = pressed (spec 12) |
 | Audio | audioext_l_o, audioext_r_o, audioint_o | Sigma-delta streams: the beeper in version 1 (section 10.2), sound later (spec 13) |
 | I2C | i2c_scl_io, i2c_sda_io | Real-time clock and HDMI DDC (section 7) |
-| Configuration flash | flash_cs_n_o and the SPI pins | Kept deselected |
+| Configuration flash | flash_cs_n_o (L13), flash_sclk_o (D9), flash_mosi_o (K17), flash_miso_i (K18), flash_wp_o (L14), flash_hold_o (M14) | The flash writer (section 8.1); otherwise kept deselected |
 | ESP8266 WiFi | esp_rx_i, esp_tx_o | Not used |
 | Spectrum expansion connector | | Not used |
 
@@ -395,6 +437,19 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. T
 
 Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI), which are now the NMI set of the interrupt pages in I/O page `0x01` (spec 2, section 9.8): NMICTL keeps its name and its EN and INNMI bits there; the stack capture added with it is always on and has no bit.
 
+### 11.4 Flash writer (I/O pages `0x03` and `0x04`)
+
+A retro-z80 page pair, for the flash writer of section 8.1. I/O page `0x03`: port = register × 256 + `0x03`; register page offset `0x0300` + register. Registers `0x10`–`0xFF` are reserved. I/O page `0x04` is FLASHBUF: port = byte × 256 + `0x04`; register page offset `0x0400` + byte, so `LDIR` through the register page fills or empties it. In a build without the flash writer both pages are reserved.
+
+| Register | Port | Name | Access | Bits | Reset | Description |
+|----------|------|------|--------|------|-------|-------------|
+| `0x00`–`0x03` | `0x0003`–`0x0303` | FLASHADDR (FLASHADDR0–3) | RW | 24–0 | `0x00` | Byte address in the flash, low byte first. FLASHADDR3 bits 7–1 read 0 |
+| `0x04` | `0x0403` | FLASHCMD | W | 7–0 | – | `0xA1` READ, `0xA2` ERASE, `0xA3` PROGRAM, `0xA4` BOOT (section 8.1). Other values, and writes while BUSY, are ignored. Reads `0x00` |
+| `0x05` | `0x0503` | FLASHSTAT | R | BUSY (0), DENIED (1) | `0x00` | BUSY: a command is running. DENIED: the last ERASE or PROGRAM was outside the development slot and was not done; cleared by the next command. Bits 7–2 read 0 |
+| `0x06`–`0x07` | | – | | | | Reserved |
+| `0x08`–`0x0B` | `0x0803`–`0x0B03` | FLASHMIN (FLASHMIN0–3) | R | 24–0 | build | Start of the development slot (slot 9: `0x1320000`) |
+| `0x0C`–`0x0F` | `0x0C03`–`0x0F03` | FLASHGOOD (FLASHGOOD0–3) | R | 24–0 | build | Start of the known-good copy, which the rescue pin starts (slot 8: `0x1100000`) |
+
 ## 12. FPGA resources
 
 | Item | Resource |
@@ -403,6 +458,7 @@ Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI),
 | Reset control, button debounce, system registers, CPU clock enable | Estimate 90–160 LUTs (the NMI registers are now in spec 2, section 13) |
 | I2C master | Estimate 80–150 LUTs (as retro68k) |
 | Beeper and three sigma-delta modulators | About 280 LUTs (as retro68k) |
+| Flash writer and rescue pin (section 8; Pi build) | Estimate 150–250 LUTs (retro68k's estimate); FLASHBUF in distributed RAM or one block RAM |
 
 ## 13. Test plan
 
@@ -420,6 +476,8 @@ Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI),
 - **I2C:** read and set the real-time clock; read the monitor's EDID; a missing device gives NACK; CLKDIV 124 and 31 give 100 kHz and 391 kHz in simulation against an I2C slave model.
 - **NMI paging:** with each read/write page pair in window 0 (SRAM, ROM, REGS, NONE, split), an NMI fetches `0x0066` from page `0x3FF`; the PC push is captured (memory at SP − 1 and SP − 2 unchanged, also with SP in ROM); NMICAPPC and NMICAPSP hold the PC and SP; NMISAV0–7 and NMISAV0W–7W hold the old pages; MMU0/MMU0W read `0x3FF`/`0x0FF` and INNMI = 1; the switch is made before the pushes; writes to window 0 go to page `0x0FF` and the program's window 0 page is unchanged; `RETN` takes the PC from the capture, then restores window 0 (SP in window 0 and elsewhere), a written NMICAPPC returns there and a written NMISAV0 maps that page; `RETI` and other `ED` instructions in the monitor change nothing; with EN = 0 nothing is paged but the PC is still captured and `RETN` still takes it from NMICAPPC; writing NMICTL bit 2 changes nothing and it reads 0; a second button press in the monitor gives no nested NMI but a new one after `RETN`; reset sets NMICTL to `0x01` and the NMI pages to their reset values.
 - **Beeper:** toggling port `0xFE` bit 4 gives a square wave of ± a quarter of full scale on all three audio pins (averaged sigma-delta stream in simulation; heard on the jack and the speaker on the board); bits 3 and 5–7 have no effect on the sound.
+- **Flash writer** (simulation, with a SPI flash model): READ, ERASE and PROGRAM send the MX25L25645G's 4-byte commands; ERASE and PROGRAM outside the development slot are refused with DENIED and nothing reaches the flash; a FLASHCMD other than `0xA1`–`0xA4` is ignored; BOOT drives ICAPE2 with WBSTAR = FLASHADDR >> 8 and IPROG (an ICAPE2 model). The rescue pin: low for under 1 s does nothing; 1 s gives one BOOT to FLASHGOOD; low within 2 s of start is ignored.
+- **Flash on the board** (Pi build): load a design over the Pi link and boot it; a damaged CRC keeps the old design running; the Next's core menu names slot 9 from the `.bit` header; the rescue pin brings back the known-good copy.
 - **Board:** keyboard rows and columns, both joystick ports, I2C and all buttons checked on a real KS3.
 
 ## 14. Open points
@@ -429,7 +487,7 @@ Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI),
 | SY1 | The KS3 pin locations for keyb_row_o, keyb_col_i, the joystick pins, PS/2, sd_miso_i and I2C are not yet in retro68k's `ks3.xdc`; take them from the Next's `zxnext_pins_issue5.xdc`, and check whether the keyboard rows need to be open drain on this issue (design plan Q7) |
 | SY2 | Closed: spec 16 (the boot ROM) and the shared spec "Monitor and upload protocol" (`monitor.md`): monitor commands, the upload protocol (with spec 10), the boot file (`BOOT.Z80`, the shared image header), the background colours (spec 16, section 4.4) |
 | SY3 | Closed: there is a watchdog (spec 9, section 5); RESETWHY.WATCHDOG is bit 1, as in retro68k |
-| SY4 | The KS3 core file format and flash slot size, and installing from the SD card (shared with retro68k, its SY5) |
+| SY4 | Answered from the Next's sources (section 8, `docs/notes/next-flash.md`; retro68k's SY5): 15 slots of 2,176 KB, extra cores in 8–14, the `.bit` with its header. Still to try on the board |
 | SY5 | Closed: SYSCFG.CHIPMB is a build constant (branch 11), not a test at power-on |
 | SY6 | Closed: no UPLOAD on a long press of the reset button (branch 11). UPLOAD comes only from the PC (spec 10) |
 | SY7 | Closed: spec 16, section 5.3 lays out the workspace; the console's state sits in the map's hidden columns. A program may take every page; the monitor then sets the console and workspace up again when it is next entered, and the program loses what it had there |
@@ -439,3 +497,8 @@ Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI),
 | SY11 | Registers `0x7C`–`0x7F` are free again, since the NMI registers moved to I/O page `0x01` (design plan, branch 17). A later system register (for example a SYSSTAT) goes there |
 | SY12 | The console font: `font8x8` covers ASCII, Latin-1, box drawing, block elements and Greek; the 40 code page 437 characters it lacks (the symbols at `0x01`–`0x1F` and `0x7F`, and ten mathematical signs) are drawn in `tools/mkfont.py` (ticket #15). Still to do: check them by eye against code page 437 (`mkfont.py --show`) |
 | SY13 | A 25 MHz speed (a T-state every 4 clocks; the opcode fetch then needs data 80 ns after the address) is to be tried in simulation (design plan, branch 11); faster is parked (design plan Q9) |
+| SY14 | Which slot the Next's Extra Cores menu writes into, and whether the user can pick it: the known-good copy must land in FLASHGOOD's slot |
+| SY15 | The default slots (8 known-good, 9 development) clash with other extra cores the user may keep there; they are build settings |
+| SY16 | KS2 room: the KS2 is already short of LUTs (design plan, branch 21). Whether the Pi build fits with the flash writer, and what it leaves out; whether the FT232H build has the flash writer too |
+| SY17 | Proposed to retro68k (its SY7): TARGET 3 and `rlink.py flash` (`monitor.md`, section 6.7). Closed once it adopts them |
+| SY18 | A compressed bitstream would load faster over the link; check that the Next's menu and IPROG accept one |
