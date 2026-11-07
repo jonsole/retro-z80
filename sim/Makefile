@@ -175,8 +175,8 @@ intc: $(BUILD)/tb_intc.vvp
 	@grep -q "^TEST PASSED" $(BUILD)/intc.log
 
 # The serial unit on its own: escapes and control commands (spec 10, section 4)
-$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v
+$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW_RTL)/serial_link.v $(HW_RTL)/slip_rx.v $(HW_RTL)/ft232h_if.v $(HW)/sim/ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW_RTL)/serial_link.v $(HW_RTL)/slip_rx.v $(HW_RTL)/ft232h_if.v $(HW)/sim/ft232h_model.v
 
 serial: $(BUILD)/tb_serial.vvp
 	cd $(BUILD) && $(VVP) -n tb_serial.vvp | tee serial.log
