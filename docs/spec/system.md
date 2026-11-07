@@ -501,4 +501,4 @@ A retro-z80 page pair, for the flash writer of section 8.1. I/O page `0x03`: por
 | SY15 | The default slots (8 known-good, 9 development) clash with other extra cores the user may keep there; they are build settings |
 | SY16 | KS2 room: the KS2 is already short of LUTs (design plan, branch 21). Whether the Pi build fits with the flash writer, and what it leaves out; whether the FT232H build has the flash writer too |
 | SY17 | Closed: TARGET 3 and `rlink.py flash` (`monitor.md`, section 6.7), accepted unchanged by retro68k (its SY7, PR #29, 1 November 2026) |
-| SY18 | A compressed bitstream would load faster over the link; check that the Next's menu and IPROG accept one |
+| SY18 | A compressed bitstream would load faster over the link; check that the Next's menu and IPROG accept one. The Next's firmware takes a `.bit` header field `a` of at most 80 bytes; Vivado 2026.1 writes about 156 (with COMPRESS and the SHA-256), so the header must be rewritten before writing (`docs/notes/next-flash.md`, section on the header; found by retro-spectrum) |
