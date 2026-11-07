@@ -584,6 +584,17 @@ The copper has no Spectrum extras of its own. It reaches the attribute layer (cu
 | Total | About 500–600 LUTs, 250 flip-flops; no block RAM. retro68k's 16-bit copper's first build is about 1,100 LUTs |
 | Built (ticket #32, KS2) | About 680 LUTs (16 of them the stack in distributed RAM) and 350 flip-flops on its own; the KS2 build grew by 854 LUTs, to 9,271 (89.1%), with the per-master palette state in video.v |
 
+### 10.1 Shared core
+
+The engine is retro-hw's `copper_engine` ([spec](../../fpga/retro-hw/docs/spec/copper_engine.md)), in `fpga/retro-hw/rtl/copper_engine.v`: the fetch and the buffer, running, WAIT and SKIP, the conditions, JUMP, CALL and RET, the strobes' starts, the frame restart, RESUME and STKKEEP. `fpga/rtl/copper.v` is retro-z80's wrapper round it.
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| AW | 21 | List places are bits 21–1 of a byte address (a 4 MB memory) |
+| WR_HANDSHAKE | 0 | The copper goes first on the register bus (section 5.5), so a write is on the bus for one clock, with no handshake |
+
+The wrapper keeps the instruction words (section 4): it decodes each one's code into the engine's length and op, and keeps the reserved patterns. It also keeps the 10-bit beam compares' inputs, X, Y, R0–R7 and the ALU, and the registers of section 6. The palette's byte counter and colour buffer per master stay in the video unit (spec 4).
+
 ## 11. Test plan
 
 - **Encodings:** every instruction and form against a Python copper model; every reserved encoding stops with ERR and COPPC at it; `0xFFFF` stops with ERR.

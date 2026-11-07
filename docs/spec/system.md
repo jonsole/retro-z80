@@ -348,10 +348,12 @@ Until sound (spec 13) is decided, the only sound source is the Spectrum-style **
 | Beeper bit | Port `0xFE` bit 4, held until the next write. 0 after reset |
 | Level | 0 gives the 16-bit value −BEEPAMP, 1 gives +BEEPAMP. BEEPAMP is fixed at a **quarter of full scale** (`0x2000`); software cannot change it |
 | Mix | The beeper's value is the same on both channels. When spec 13 adds sound, its left and right mixes are added to it here, with clipping |
-| Modulators | Three second-order sigma-delta modulators at 100 MHz, as retro68k's `sigma_delta2`, input scaled to half their range: left, right and mono ((left + right) ÷ 2) |
+| Modulators | Three second-order sigma-delta modulators at 100 MHz, retro-hw's `sigma_delta2` (as retro68k's), input scaled to half their range: left, right and mono ((left + right) ÷ 2) |
 | Pins | audioext_l_o and audioext_r_o (the jack), audioint_o (the internal speaker) |
 
 The board's RC filter turns each stream back into sound. A steady beeper bit gives a steady level, which the board's coupling capacitor blocks, so silence costs nothing. Square waves toggled by software sound as on a Spectrum, at any CPU speed (the pitch follows the program's timing, so code timed for a Spectrum should run with CPUSPEED.SPECTRUM set, or use the timers).
+
+**Shared core.** Each modulator is retro-hw's `sigma_delta2` ([spec](../../fpga/retro-hw/docs/spec/sigma_delta2.md)), in `fpga/retro-hw/rtl/sigma_delta2.v`. It has no parameters. `fpga/rtl/audio.v` is retro-z80's wrapper: it keeps the beeper bit, makes its level and the mono mix, and builds the three modulators.
 
 ## 11. Registers
 

@@ -35,6 +35,8 @@ Phase 1: the simulated CPU. The decisions are in [`docs/design-plan.md`](docs/de
 | Python 3 | 3.8 or newer | Standard library only |
 | Vivado | 2026.1 | FPGA builds, later |
 
+The cores shared with retro68k and retro-6502 come from the [retro-hw](https://github.com/jonsole/retro-hw) submodule in `fpga/retro-hw`: clone with `git clone --recurse-submodules`, or run `git submodule update --init` after cloning.
+
 ### Windows
 
 As for retro68k: MSYS2 in `C:/msys64`, with the UCRT64 packages `gcc`, `make`, `iverilog`, `yosys`, `python` and `verilator` (`pacman -S mingw-w64-ucrt-x86_64-verilator`). sjasmplus is the Windows build from its GitHub release (`sjasmplus-1.24.0.win.zip`), unpacked into `C:/tools/sjasmplus` and added to the user PATH. Run the Makefiles from an MSYS2 shell (`C:/msys64/usr/bin/bash.exe -l`) with `/ucrt64/bin` and `/c/tools/sjasmplus` first on the PATH, not with Chocolatey's `make`:

@@ -4,7 +4,7 @@ Status: **draft**
 
 This spec describes how the Z80 and the chipset share the KS3's fast SRAM: the 100 MHz clock, memory cycles and slots, who owns each cycle, the scheduler that gives out every cycle, the SRAM controller and its timing, the MMU that gives the Z80 its 64 KB view, the register page, and the physical addresses the chipset uses.
 
-It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The clock, the cycles, the slots, the scheduler (`dmac.v`) and the SRAM controller (`sram_ctl.v`) are retro68k's. The cycle owners differ in one way: the Z80 owns two cycles of each slot instead of one, and nobody takes a cycle it has asked for. The CPU side of each access (when the Z80 asks, and which cycle it uses) is spec 1, section 5.
+It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The clock, the cycles, the slots, the scheduler and the SRAM controller are retro68k's, now shared through retro-hw (`dmac.v`, `sram_ctl.v`; sections 5.5 and 8.5). The cycle owners differ in one way: the Z80 owns two cycles of each slot instead of one, and nobody takes a cycle it has asked for. The CPU side of each access (when the Z80 asks, and which cycle it uses) is spec 1, section 5.
 
 ## 1. Summary
 
@@ -108,7 +108,7 @@ The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so 
 
 ### 5.1 Channels
 
-One block, the DMA controller (`dmac.v`, retro68k's, the equivalent of the Amiga's Agnus), decides who gets every memory cycle. Each user is a **channel** that holds a request (address, read or write, data) until it is granted; read data comes back 40 ns after the issue (section 3). Hard-deadline channels give, with each request, the time left until the data is needed, and say when it is **urgent** (about to be late).
+One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalent of the Amiga's Agnus), decides who gets every memory cycle. Each user is a **channel** that holds a request (address, read or write, data) until it is granted; read data comes back 40 ns after the issue (section 3). Hard-deadline channels give, with each request, the time left until the data is needed, and say when it is **urgent** (about to be late).
 
 | Channel | What | Kind |
 |---------|------|------|
@@ -155,6 +155,21 @@ A screen within the display budget (section 7) is rarely urgent at all. On a scr
 
 As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (DMA engine), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
 
+### 5.5 Shared core
+
+The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dmac.md)), and the slot counter `sc` (section 3) is retro-hw's `timebase` ([spec](../../fpga/retro-hw/docs/spec/timebase.md)). Both are in `fpga/retro-hw/rtl/`. retro-z80's cycle owners (section 4) are `dmac`'s parameters:
+
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| CPU_CYCLES | `00101` | The CPU owns cycles 0 and 2 |
+| HARD_CYCLES | `01010` | Cycles 1 and 3 are the display's |
+| AUD_CYCLES | `10000` | Cycle 4 is audio's, then the free pool |
+| CPU_FIRST | 1 | Rule 0: the CPU is never overridden, not even by an urgent fetch (section 5.3) |
+| NASTY | 0 | No nasty copper: COPCON.PRI 2 and 3 act as 1 (spec 6) |
+| HIGH | 0 | No HIGH mode: the DMA engine never takes the CPU's cycles (`blt_high`, `blt_share` tied to 0) |
+
+`timebase` runs without its `ph` output (left unconnected), as tv80 runs on the system clock. retro-z80 keeps the rest: DMACON (section 5.4, spec 4), each unit's requests, and the CPU channel in the bus interface (spec 1).
+
 ## 6. Fixed allocation per line
 
 Every slot of every line has the same owners, so the allocation per line is the number of slots:
@@ -195,7 +210,7 @@ There are no line buffers: display data is fetched just in time into each layer'
 
 ### 8.1 Pins
 
-As retro68k (its `top_ks3.v` and `sram_ctl.v`):
+As retro68k (its `top_ks3.v`, and retro-hw's `sram_ctl.v`):
 
 | Pin | Width | Use |
 |-----|-------|-----|
@@ -246,6 +261,10 @@ The tight points are tHZOE (write after read) and tPWE. retro68k meets timing at
 - **Reads** always read the whole 16-bit word (/UB and /LB both low). Chipset units use both bytes; the CPU keeps the byte chosen by address bit 0.
 - **Writes** come from the CPU and the DMA engine. A byte write drives the byte on both halves of the data bus and pulls only /LB (even address) or /UB (odd address) low, so the other byte is unchanged. A word write pulls both low.
 - The memory is little-endian: the byte at an even address is the low half of its word.
+
+### 8.5 Shared core
+
+The SRAM controller is retro-hw's `sram_ctl` core ([spec](../../fpga/retro-hw/docs/spec/sram_ctl.md)), in `fpga/retro-hw/rtl/sram_ctl.v`. It has no parameters. retro-z80 keeps the pins and their pad flip-flops and DDR registers in each board's top level (`fpga/ks2/top_ks2.v`), and the tags it hands back go to `dmac` (section 5.5).
 
 ## 9. The MMU
 
@@ -551,7 +570,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 
 | Item | Resource |
 |------|----------|
-| Scheduler and SRAM controller (`dmac.v`, `sram_ctl.v`, from retro68k without HIGH) | Estimate 150–250 LUTs |
+| Scheduler and SRAM controller (retro-hw's `dmac.v` with HIGH 0, and `sram_ctl.v`) | Estimate 150–250 LUTs |
 | MMU: 16 × 10-bit page registers, held low bytes, page decode | Estimate 100–150 LUTs |
 | Interrupt pages and stack capture: both sets' pages, saved pages and held bytes in distributed RAM (2 × (8 × 20 + 8 × 20 + 16 × 18) bits, section 9.9), the copy engine, one more load path into the MMU (a 20-bit bus into all 16 page registers) and the save path out of it, two masks and their noted copies, the depth, the NMI's two capture registers, the read-back of page `0x01` | Estimate 190–330 LUTs, of which about 60 are distributed RAM, and about 100 flip-flops (open point M10) |
 | Boot ROM | 16 block RAMs (spec 7) |

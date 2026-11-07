@@ -102,6 +102,20 @@ The boot ROM has a small decoder and a layout table, and BBC BASIC's `INKEY` and
 
 The KEYB request (spec 8 gives its number) is on while any bit is set in both KBIRQ and KBIRQEN, and the controller follows it as a level. It drops when the FIFO is read empty (DATA) and the sticky flags are cleared.
 
+### 3.6 Shared core
+
+The PS/2 engine is retro-hw's `ps2_core` ([spec](../../fpga/retro-hw/docs/spec/ps2_core.md)), in `fpga/retro-hw/rtl/ps2_core.v`: the receiver and its filter, the sender, the timeouts and the 16-byte FIFO. It has no parameters. `fpga/rtl/ps2kb.v` is retro-z80's wrapper round it, and keeps:
+
+| Wrapper part | What |
+|--------------|------|
+| Registers | `0x60`–`0x65` (section 6), with KBSTAT.TXBUSY in bit 7 and KBDATA's empty `0x00` |
+| Receiver on | KBCON.EN or KEYCON.PS2MAP (the core's `rx_en`); bytes into the FIFO only while KBCON.EN is set |
+| Mapper feed | Every good byte to the PS2MAP mapper (section 8.3) |
+| KEY bytes | The link's KEY command (spec 10) into the core's `ins_stb` |
+| Flags | The sticky flags of KBIRQ and the KEYB request (section 3.5) |
+
+The joysticks and the membrane (sections 4 and 5) are retro-z80's own.
+
 ## 4. Joysticks
 
 ### 4.1 The ports

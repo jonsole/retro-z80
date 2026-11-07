@@ -125,7 +125,7 @@ Each event sets a sticky flag in VIDSTAT, cleared by writing 1 to it. VIDINTEN h
 
 ### 3.5 Output
 
-The HDMI (DVI) and VGA outputs are retro68k's platform modules, copied in: `ks3_clocks.v` (the MMCMs), `tmds_encoder.v`, `hdmi_out.v` and `vga_out.v`. The ADV7125 takes 8 bits per colour over 4 pins at double rate and shows the same picture and timing as HDMI. Outside the picture the outputs are black with sync.
+The HDMI (DVI) and VGA outputs are retro68k's platform modules: `ks3_clocks.v` (the MMCMs), `tmds_encoder.v`, `hdmi_out.v` and `vga_out.v`. `tmds_encoder.v` and `hdmi_out.v` are now retro-hw's (section 9.1). The ADV7125 takes 8 bits per colour over 4 pins at double rate and shows the same picture and timing as HDMI. Outside the picture the outputs are black with sync.
 
 VIDCON.EN starts the beam. Clearing it stops the beam itself, as in retro68k: no picture, no sync and no VBLANK or LINE events; the monitor loses the signal. With EN set and no layer on, the screen shows BGCOLOR.
 
@@ -360,7 +360,7 @@ Group g is complete when its last pattern word arrives (step 1). The entries of 
 
 ### 5.3 Memory cycles and the scheduler
 
-The display (layers, the attribute layer and sprites) is one **hard-deadline** user of retro68k's DMA scheduler (`dmac.v`), which decides who gets every memory cycle (spec 2):
+The display (layers, the attribute layer and sprites) is one **hard-deadline** user of the DMA scheduler (retro-hw's `dmac.v`, as retro68k's; spec 2, section 5.5), which decides who gets every memory cycle (spec 2):
 
 | Cycle (spec 2) | Owner | Display use |
 |----------------|-------|-------------|
@@ -671,6 +671,18 @@ The boot ROM's text console is a layer in tile mode with 1-bit tiles (section 4.
 The sprites' FIFOs are spec 5's.
 
 **Layers built.** The RTL takes the number of layers as a parameter (`NLAYERS`, 1–3, in `retroz80.v`). The KS2 build (`fpga/ks2/top_ks2.v`) has **1**, L0, to fit the XC7A15T; the KS3 build is to have all three. The registers of layers not built do not answer (spec 3: they read `0xFF` and writes do nothing).
+
+### 9.1 Shared cores
+
+Parts of the video are retro-hw's cores, in `fpga/retro-hw/`. `fpga/rtl/video.v` is retro-z80's own and wraps them.
+
+| Core | What | Parameters | Spec |
+|------|------|------------|------|
+| `layer_pix` (`rtl/`) | One layer's pixel side: groups across the clock crossing, fine scroll, scaling, overrun (sections 4.6, 5.5 and 5.7) | PLANAR 0 (chunky only), TILES 1 (the tile PAL and PRI) | [layer_pix](../../fpga/retro-hw/docs/spec/layer_pix.md) |
+| `tmds_encoder` (`rtl/`) | One HDMI lane's 8b/10b encoder | None | [tmds_encoder](../../fpga/retro-hw/docs/spec/tmds_encoder.md) |
+| `hdmi_out` (`platform/artix7/`) | Three encoders, the serialisers and the differential pins | None | [platform](../../fpga/retro-hw/docs/spec/platform.md) |
+
+`video.v` keeps the rest: the registers of section 6, the beam and its interrupts, the layer and attribute fetch (section 5), priority, the palettes and the border.
 
 ## 10. Test plan
 
