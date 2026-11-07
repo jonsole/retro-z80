@@ -122,7 +122,7 @@ HW_RTL    := $(HW)/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v              bootrom.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v bootrom.v serial.v sysregs.v intc.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
              $(wildcard $(HW_RTL)/*.v)
 SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
@@ -260,7 +260,7 @@ boing: $(VL_TB) $(BUILD)/boot.hex
 # The copper on its own (ticket #32): cop/tb_cop.v runs the lists of
 # cop/coptest.asm on copper.v and the scheduler, cop/copcheck.py checks the
 # log against its model of spec 6
-COP_RTL := $(addprefix $(RTL)/,copper.v dmac.v timebase.v)
+COP_RTL := $(RTL)/copper.v $(addprefix $(HW_RTL)/,dmac.v timebase.v)
 $(BUILD)/vl_cop/vcop: cop/tb_cop.v $(COP_RTL) $(RTL)/regmap.vh | $(BUILD)
 	$(VERILATOR) --binary --timing -Wall -Wno-fatal $(VL_OPT) -I$(RTL) --top-module tb_cop 	    --Mdir $(BUILD)/vl_cop -o vcop cop/tb_cop.v $(COP_RTL) > $(BUILD)/vl_cop.log
 
