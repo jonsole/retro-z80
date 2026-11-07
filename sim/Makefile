@@ -116,11 +116,15 @@ vsmoke: $(BUILD)/vl_smoke/vsmoke $(BUILD)/smoke.hex
 # retro68k's SRAM and FT232H models. Each run checks that the Z80 never
 # waited (tb.v). +dma keeps the DMA port busy meanwhile.
 RTL       := $(ROOT)/fpga/rtl
+# Shared cores and models (the retro-hw submodule)
+HW        := $(ROOT)/fpga/retro-hw
+HW_RTL    := $(HW)/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v sram_ctl.v              bootrom.v fifo8.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v)
-SYS_SIM   := $(RTL)/platform/sim/oddr.v sram_model.v ft232h_model.v ps2_model.v tb.v
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v              bootrom.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
+             $(wildcard $(HW_RTL)/*.v)
+SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
                  selftest.asm tape.asm sprdemo.asm help.asm font.inc disasm.asm mondis.asm memtest.asm link.asm stub.asm crctab.asm) $(INC)/hw.inc $(INC)/copper.inc
@@ -171,8 +175,8 @@ intc: $(BUILD)/tb_intc.vvp
 	@grep -q "^TEST PASSED" $(BUILD)/intc.log
 
 # The serial unit on its own: escapes and control commands (spec 10, section 4)
-$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(RTL)/fifo8.v ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(RTL)/fifo8.v ft232h_model.v
+$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v
 
 serial: $(BUILD)/tb_serial.vvp
 	cd $(BUILD) && $(VVP) -n tb_serial.vvp | tee serial.log
@@ -458,8 +462,8 @@ geom: $(BUILD)/tb_geom.vvp $(BUILD)/geom_vec.txt
 .PHONY: input bootkeys
 all: input
 
-$(BUILD)/tb_input.vvp: input/tb_input.v ps2_model.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v ps2_model.v \
+$(BUILD)/tb_input.vvp: input/tb_input.v $(HW)/sim/ps2_model.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v $(HW)/sim/ps2_model.v \
 	    $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v)
 
 input: $(BUILD)/tb_input.vvp
