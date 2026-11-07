@@ -122,7 +122,7 @@ HW_RTL    := $(HW)/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v              bootrom.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v              bootrom.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
              $(wildcard $(HW_RTL)/*.v)
 SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
@@ -482,9 +482,9 @@ bootkeys: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 .PHONY: fe
 all: fe
 
-$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v regmap.vh) | $(BUILD)
+$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v audio.v regmap.vh) $(addprefix $(HW_RTL)/,sprite_fetch.v sprite_pix.v) | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v \
-	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v)
+	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v audio.v) $(addprefix $(HW_RTL)/,sprite_fetch.v sprite_pix.v)
 
 fe: $(BUILD)/tb_fe.vvp
 	cd $(BUILD) && $(VVP) -n tb_fe.vvp | tee fe.log
