@@ -1,6 +1,9 @@
 // Copper (spec 6): runs a list of 16-bit instruction words from SRAM every
 // frame and writes custom registers at chosen beam positions. retro68k's
-// copper.v, narrowed to 8-bit data (ticket #32).
+// copper.v, narrowed to 8-bit data (ticket #32). The engine (the fetch, the
+// buffer, running, WAIT, jumps, the stack, the starts, the frame restart
+// and RESUME) is retro-hw's copper_engine.v; this file is the wrapper: the
+// registers, the decoder and the ALU.
 //
 //   fetch     one 16-bit word at a time through the scheduler's copper
 //             channel (dmac.v), into a buffer of two words: the next words
@@ -87,8 +90,6 @@ module copper (
 
     output wire        irq             // source COPPER (2)
 );
-    localparam [10:0] VTOT = 11'd625, HTOT = 11'd864;
-
     // ================================================================ registers
     reg  [5:0]  copcon;                // PRI (5:4), STKKEEP (3), RESUME (2), IRQEN (1), EN (0)
     reg  [21:1] lc1, lc2;
@@ -96,8 +97,6 @@ module copper (
     reg  [7:0]  rx, ry;
     reg  [2:0]  rf;                    // C (2), N (1), Z (0)
     reg  [7:0]  rr [0:7];
-    reg  [21:1] stk [0:7];
-    reg  [3:0]  sp;
 
     wire en = copcon[0] && dma_on;
     assign mem_pri = copcon[5:4];
@@ -114,32 +113,53 @@ module copper (
     wire s_int  = wr && rb_addr == `RM_COPINT;
     wire s_sp   = wr && rb_addr == `RM_COPSP;
 
-    // ================================================================ state
-    localparam X_OFF = 3'd0, X_RUN = 3'd1, X_WAIT = 3'd2, X_GAP = 3'd3, X_ALU = 3'd4;
-    reg  [2:0]  xs;
-    reg  [21:1] npc;                   // next instruction to run (the word at b0)
-    reg  [21:1] xpc;                   // the instruction running
-    reg         in2;                   // in list 2 (RESUME)
+    // ================================================================ engine
+    // retro-hw's copper engine (copper_engine.v) does the fetch, the buffer,
+    // running each instruction, WAIT and SKIP on the beam, the jumps and the
+    // stack, the strobes' starts, the frame restart, RESUME and STKKEEP. This
+    // file decodes the words for it and keeps the registers and the ALU.
+    localparam [3:0] OP_NEXT = 4'd0, OP_WRITE = 4'd1, OP_WAIT = 4'd2, OP_SKIP = 4'd3,
+                     OP_SKIPC = 4'd4, OP_JUMP = 4'd5, OP_CALL = 4'd6, OP_RET = 4'd7,
+                     OP_STOP = 4'd8, OP_ERR = 4'd9, OP_MORE = 4'd10;
 
-    // Fetch: a buffer of two words (three behind a SKIP), and at most one
-    // word on its way
-    reg  [15:0] b0, b1, b2;
-    reg  [1:0]  bn;
-    reg  [21:1] fpc;                   // next word to fetch
-    reg         outst;                 // a word is on its way (acked, data not back)
-    reg         stale;                 // ... and it is to be dropped
+    wire [15:0] b0, b1, b2;            // the engine's buffer
+    reg  [1:0]  need, len;
+    wire [1:0]  skip_len;
+    reg  [3:0]  op;
+    wire        exec, more, error, save2, e_stopped, e_waiting, e_wreq, e_mreq;
+    wire [21:1] save2_at, e_pc, e_maddr;
+    wire [3:0]  sp;
 
-    // A WAIT in progress
-    reg  [10:0] w_line, w_px;
-    reg         w_never, w_blt;
-
-    // The ALU, one clock after decode
-    reg  [7:0]  a_op, a_val;
-
-    // ---------------------------------------------------------------- decode
     wire [7:0]  code = b0[15:8];
     wire [7:0]  lo   = b0[7:0];
     wire        ext  = (code[7:4] == 4'hF);
+
+    copper_engine #(.AW(21), .VTOT(11'd625), .HTOT(11'd864), .WR_HANDSHAKE(0)) eng (
+        .clk(clk), .rst(rst),
+        .run(en), .frame(vblank), .start1(s_jmp1), .start2(s_jmp2),
+        .list1(lc1), .list2(lc2),
+        .resume(copcon[2]), .stack_keep(copcon[3]), .stack_clear(s_sp),
+        .save2(save2), .save2_at(save2_at),
+        .word0(b0), .word1(b1), .word2(b2),
+        .need(need), .len(len), .skip_len(skip_len), .op(op),
+        .target({lo[5:0], b1[15:1]}),
+        .pos_line({1'b0, lo[3:2], b1[15:8]}), .pos_px({1'b0, lo[1:0], b1[7:0]}),
+        .pos_rel(lo[7]), .wait_blt(lo[6]),
+        .cc(lo[3:0]), .flags(rf),
+        .exec(exec), .more(more), .error(error),
+        .wr_req(e_wreq), .wr_go(1'b1),
+        .stopped(e_stopped), .waiting(e_waiting), .pc(e_pc), .sp(sp),
+        .mem_req(e_mreq), .mem_addr(e_maddr),
+        .mem_ack(mem_ack), .mem_rvalid(mem_rvalid), .mem_rdata(mem_rdata),
+        .beam_v(beam_v), .beam_h(beam_h), .blt_idle(blt_idle)
+    );
+    always @(*) begin
+        cw_req   = e_wreq;
+        mem_req  = e_mreq;
+        mem_addr = e_maddr;
+    end
+
+    // ---------------------------------------------------------------- decode
     // Two-word instructions: WAIT, SKIP, JUMP, MOVEF, ALU with a value, CALL
     function is_two(input [15:0] w);
         is_two = (w[15:12] == 4'hF) && (w[11:8] == 4'h0 || w[11:8] == 4'h1 || w[11:8] == 4'h2 ||
@@ -149,33 +169,8 @@ module copper (
     wire        two    = is_two(b0);
     wire        i_skip = (code == 8'hF1);              // SKIP: needs a third word
     wire        i_skc  = (code == 8'hFA);              // SKIPC: needs a second
-    wire        have   = i_skip ? (bn == 2'd3) : (two || i_skc) ? (bn >= 2'd2) : (bn != 2'd0);
-    wire [21:1] npc_n  = npc + (two ? 21'd2 : 21'd1);  // the instruction after this one
-    // ... and the one after that, for a SKIP or SKIPC that skips
-    wire [21:1] npc_s  = npc_n + (is_two(i_skip ? b2 : b1) ? 21'd2 : 21'd1);
-
-    // WAIT and SKIP positions: line and pixel, 10 bits each
-    wire [10:0] i_line = {1'b0, lo[3:2], b1[15:8]};
-    wire [10:0] i_px   = {1'b0, lo[1:0], b1[7:0]};
-    wire        i_p    = lo[7];
-    // Reached: the beam is at or past (line, pixel) in the frame
-    wire        t_never  = (i_line >= VTOT) || (i_px >= HTOT);
-    wire        t_reach  = !t_never && ((beam_v > i_line) || (beam_v == i_line && beam_h >= i_px));
-    wire        t_preach = (i_px < HTOT) && (beam_h >= i_px);
-
-    function cond(input [3:0] cc, input [2:0] f);   // f = {C, N, Z}
-        case (cc)
-            4'd0: cond = f[0];
-            4'd1: cond = !f[0];
-            4'd2: cond = f[2];
-            4'd3: cond = !f[2];
-            4'd4: cond = f[1];
-            4'd5: cond = !f[1];
-            4'd6: cond = !f[2] && !f[0];
-            4'd7: cond = f[2] || f[0];
-            default: cond = 1'b0;
-        endcase
-    endfunction
+    // The next instruction's length, for a SKIP or SKIPC that skips it
+    assign skip_len = is_two(i_skip ? b2 : b1) ? 2'd2 : 2'd1;
 
     // Reserved patterns (spec 6, section 4.9): bits shown as 0 must be 0
     reg bad;
@@ -198,205 +193,101 @@ module copper (
         endcase
     end
 
-    // A clock that restarts the copper runs no instruction, so that a cut-off
-    // never leaves one half done
-    wire hold = (vblank || s_jmp1 || s_jmp2) && en;
+    // What the instruction does, and a register write's offset and data
+    reg [9:0] w_off;
+    reg [7:0] w_data;
+    always @(*) begin
+        need   = i_skip ? 2'd3 : (two || i_skc) ? 2'd2 : 2'd1;
+        len    = two ? 2'd2 : 2'd1;
+        w_off  = {2'b00, code};                                          // MOVE
+        w_data = lo;
+        if (!ext)     op = OP_WRITE;
+        else if (bad) op = OP_ERR;
+        else case (code[3:0])
+            4'h0: op = (!lo[7] && lo[3:2] == 2'd3 && b1[15:8] == 8'hFF)  // WAIT for line 1023:
+                       ? OP_STOP : OP_WAIT;                              // the end of the list
+            4'h1: op = OP_SKIP;
+            4'h2: op = OP_JUMP;
+            4'h3: op = OP_STOP;
+            4'h4, 4'h5: begin op = OP_WRITE; w_off = {2'b00, rx}; end        // MOVR (X) = value
+            4'h6: begin op = OP_WRITE; w_off = {2'b00, lo}; w_data = rx; end // MOVR reg = X
+            4'h7: begin op = OP_WRITE; w_off = {2'b00, lo}; w_data = ry; end // MOVR reg = Y
+            4'h8: begin                                                      // MOVR (X) = Y or X
+                op = OP_WRITE; w_off = {2'b00, rx}; w_data = lo[0] ? rx : ry;
+            end
+            4'h9: op = OP_MORE;                                              // ALU
+            4'hA: op = OP_SKIPC;
+            4'hB: op = lo[7] ? OP_RET : OP_CALL;
+            4'hC: begin                                                      // MOVEF
+                op = OP_WRITE; w_off = {lo[1:0], b1[15:8]}; w_data = b1[7:0];
+            end
+            default: op = OP_ERR;
+        endcase
+    end
+
+    // The ALU, one clock after decode
+    reg  [7:0]  a_op, a_val;
 
     // ---------------------------------------------------------------- main
     integer i;
-    reg        flush;                  // throw the fetched words away, fetch from f_to
-    reg [21:1] f_to;
-    reg [1:0]  used;                   // words taken from the buffer this clock
 
     always @(posedge clk) begin
-        flush = 1'b0;
-        f_to  = npc;
-        used  = 2'd0;
-        cw_req <= 1'b0;
-
         if (rst) begin
             copcon <= 6'd0;
             lc1 <= 21'd0; lc2 <= 21'd0;
             st_err <= 1'b0; st_irq <= 1'b0;
             rx <= 8'd0; ry <= 8'd0; rf <= 3'd0;
             for (i = 0; i < 8; i = i + 1) rr[i] <= 8'd0;
-            sp <= 4'd0;
-            xs <= X_OFF;
-            npc <= 21'd0; xpc <= 21'd0;
-            in2 <= 1'b0;
-            bn <= 2'd0;
-            fpc <= 21'd0;
-            mem_req <= 1'b0;
-            outst <= 1'b0;
-            stale <= 1'b0;
         end else begin
-            // ---- execute
-            case (xs)
-                X_RUN: if (have && !hold) begin
-                    used = two ? 2'd2 : 2'd1;
-                    xpc  <= npc;
-                    npc  <= npc_n;
-                    if (!ext) begin
-                        do_write({2'b00, code}, lo);                       // MOVE
-                    end else if (bad) begin
-                        st_err <= 1'b1;
-                        stop;
-                    end else case (code[3:0])
-                        4'h0: begin                                         // WAIT
-                            if (!i_p && i_line == 11'd1023) stop;
-                            else begin
-                                w_line  <= i_p ? beam_v + {10'd0, beam_h >= i_px} : i_line;
-                                w_px    <= i_px;
-                                w_never <= i_p ? (i_px >= HTOT) : t_never;
-                                w_blt   <= lo[6];
-                                xs      <= X_WAIT;
-                            end
-                        end
-                        4'h1: if (i_p ? t_preach : t_reach) begin           // SKIP: past the next
-                            flush = 1'b1; f_to = npc_s;
-                        end
-                        4'h2: begin flush = 1'b1; f_to = {lo[5:0], b1[15:1]}; end   // JUMP
-                        4'h3: stop;                                         // STOP
-                        4'h4: do_write({2'b00, rx}, lo);                    // MOVR (X) = value
-                        4'h5: begin                                         // ... X + 1
-                            do_write({2'b00, rx}, lo);
-                            rx <= rx + 8'd1;
-                        end
-                        4'h6: do_write({2'b00, lo}, rx);                    // MOVR reg = X
-                        4'h7: do_write({2'b00, lo}, ry);                    // MOVR reg = Y
-                        4'h8: begin                                         // MOVR (X) = Y or X
-                            do_write({2'b00, rx}, lo[0] ? rx : ry);
-                            if (lo[1]) rx <= rx + 8'd1;
-                        end
-                        4'h9: begin                                         // ALU
-                            a_op  <= lo;
-                            a_val <= b1[7:0];
-                            xs    <= X_ALU;
-                        end
-                        4'hA: if (cond(lo[3:0], rf)) begin                  // SKIPC
-                            flush = 1'b1; f_to = npc_s;
-                        end
-                        4'hB: if (lo[7]) begin                              // RET
-                            if (sp == 4'd0) begin st_err <= 1'b1; stop; end
-                            else begin
-                                sp <= sp - 1'b1;
-                                flush = 1'b1; f_to = stk[sp[2:0] - 3'd1];
-                            end
-                        end else begin                                      // CALL
-                            if (sp == 4'd8) begin st_err <= 1'b1; stop; end
-                            else begin
-                                stk[sp[2:0]] <= npc_n;
-                                sp <= sp + 1'b1;
-                                flush = 1'b1; f_to = {lo[5:0], b1[15:1]};
-                            end
-                        end
-                        4'hC: do_write({lo[1:0], b1[15:8]}, b1[7:0]);       // MOVEF
-                        default: ;
-                    endcase
+            // ---- the instruction the engine runs
+            if (exec) begin
+                if (op == OP_WRITE) begin
+                    cw_off  <= w_off;
+                    cw_data <= w_data;
                 end
+                // MOVR (X) = value, X + 1; MOVR (X) = Y or X with the step
+                if (ext && !bad && (code[3:0] == 4'h5 || (code[3:0] == 4'h8 && lo[1])))
+                    rx <= rx + 8'd1;
+                if (op == OP_MORE) begin
+                    a_op  <= lo;
+                    a_val <= b1[7:0];
+                end
+            end
+            if (error) st_err <= 1'b1;
 
-                X_ALU: if (!hold) begin : alu
-                    reg [8:0] r;
-                    reg [7:0] d, s;
-                    reg [2:0] fn;
-                    fn = a_op[7:5];
-                    d  = a_op[4] ? ry : rx;
-                    s  = (a_op[3:0] == 4'd10) ? a_val : (a_op[3:0] == 4'd8) ? rx :
-                         (a_op[3:0] == 4'd9) ? ry : rr[a_op[2:0]];
-                    case (fn)
-                        3'd0: if (a_op[4]) ry <= s; else rx <= s;              // LD
-                        3'd1: rr[a_op[2:0]] <= d;                              // ST
-                        3'd7: if (a_op[4]) rr[a_op[2:0]] <= {5'd0, rf};       // ST flags
-                              else rf <= s[2:0];                               // LD flags
-                        default: begin
-                            case (fn)
-                                3'd2: r = {1'b0, d} + {1'b0, s};
-                                3'd3, 3'd6: r = {1'b0, d} - {1'b0, s};
-                                3'd4: r = {1'b0, d & s};
-                                default: r = {1'b0, d | s};
-                            endcase
-                            rf <= {r[8], r[7], r[7:0] == 8'd0};
-                            if (fn != 3'd6) begin
-                                if (a_op[4]) ry <= r[7:0]; else rx <= r[7:0];
-                            end
+            if (more) begin : alu
+                reg [8:0] r;
+                reg [7:0] d, s;
+                reg [2:0] fn;
+                fn = a_op[7:5];
+                d  = a_op[4] ? ry : rx;
+                s  = (a_op[3:0] == 4'd10) ? a_val : (a_op[3:0] == 4'd8) ? rx :
+                     (a_op[3:0] == 4'd9) ? ry : rr[a_op[2:0]];
+                case (fn)
+                    3'd0: if (a_op[4]) ry <= s; else rx <= s;              // LD
+                    3'd1: rr[a_op[2:0]] <= d;                              // ST
+                    3'd7: if (a_op[4]) rr[a_op[2:0]] <= {5'd0, rf};       // ST flags
+                          else rf <= s[2:0];                               // LD flags
+                    default: begin
+                        case (fn)
+                            3'd2: r = {1'b0, d} + {1'b0, s};
+                            3'd3, 3'd6: r = {1'b0, d} - {1'b0, s};
+                            3'd4: r = {1'b0, d & s};
+                            default: r = {1'b0, d | s};
+                        endcase
+                        rf <= {r[8], r[7], r[7:0] == 8'd0};
+                        if (fn != 3'd6) begin
+                            if (a_op[4]) ry <= r[7:0]; else rx <= r[7:0];
                         end
-                    endcase
-                    xs <= X_RUN;
-                end
-
-                X_WAIT: if (!w_never && ((beam_v > w_line) || (beam_v == w_line && beam_h >= w_px))
-                            && (!w_blt || blt_idle))
-                    xs <= X_RUN;
-
-                X_GAP: xs <= X_RUN;
-                default: ;
-            endcase
-
-            // ---- strobes and the frame restart (after execute: they win)
-            if (s_jmp1 && en) begin
-                in2 <= 1'b0;
-                restart(lc1);
-            end
-            if (s_jmp2 && en) begin
-                in2 <= 1'b1;
-                restart(lc2);
-            end
-            if (vblank && en) begin
-                // RESUME: list 2's place. A WAIT still waiting or an ALU not
-                // done is run again; after a skip, npc is already past it
-                if (copcon[2] && in2)
-                    lc2 <= (xs == X_WAIT || xs == X_ALU) ? xpc : npc;
-                in2 <= 1'b0;
-                if (!copcon[3]) sp <= 4'd0;
-                restart(lc1);
-            end
-            if (!en) begin                 // off: stopped, as by STOP (not in list 2)
-                xs  <= X_OFF;
-                in2 <= 1'b0;
-                if (xs != X_OFF) flush = 1'b1;
-            end
-
-            // ---- fetch: the buffer, less the words used, plus a word arriving
-            begin : fetch
-                reg [15:0] n0, n1, n2;
-                reg [1:0]  nn;
-                n0 = (used == 2'd1) ? b1 : (used == 2'd2) ? b2 : b0;
-                n1 = (used == 2'd1) ? b2 : b1;
-                n2 = b2;
-                nn = bn - used;
-                if (mem_ack) begin
-                    mem_req <= 1'b0;
-                    outst   <= 1'b1;
-                end
-                if (mem_rvalid) begin
-                    outst <= 1'b0;
-                    if (stale) stale <= 1'b0;
-                    else if (!flush) begin
-                        if (nn == 2'd0) n0 = mem_rdata; else if (nn == 2'd1) n1 = mem_rdata; else n2 = mem_rdata;
-                        nn = nn + 2'd1;
                     end
-                end
-                b0 <= n0;
-                b1 <= n1;
-                b2 <= n2;
-                bn <= nn;
+                endcase
             end
-            if (flush) begin
-                bn   <= 2'd0;
-                fpc  <= f_to;
-                npc  <= f_to;
-                // A word asked for or on its way is dropped when it comes
-                if (mem_req || mem_ack || (outst && !mem_rvalid)) stale <= 1'b1;
-            end else if (!mem_req && !outst && !mem_ack && !mem_rvalid && !stale
-                         && xs != X_OFF && (bn < 2'd2 || (bn == 2'd2 && i_skip))) begin
-                mem_req  <= 1'b1;
-                mem_addr <= fpc;
-                fpc      <= fpc + 1'b1;
-            end
+
+            // ---- RESUME: list 2's place, at the frame restart
+            if (save2) lc2 <= save2_at;
 
             // ---- register writes (after the instructions: the bus wins)
             if (s_int) st_irq <= 1'b1;
-            if (s_sp) sp <= 4'd0;
             if (wr) case (ro)
                 5'h00: copcon <= rb_wdata[5:0];
                 5'h01: lc1[7:1]   <= rb_wdata[7:1];
@@ -419,7 +310,7 @@ module copper (
     end
 
     // ---- reads (1 clock); COPPC0 hands the whole value to the capture
-    wire [21:0] pc_now = {(xs == X_RUN) ? npc : xpc, 1'b0};   // stopped: the STOP
+    wire [21:0] pc_now = {e_pc, 1'b0};       // stopped: the STOP
     always @(posedge clk) begin
         rb_rdata <= 8'd0;
         rb_hit   <= 1'b0;
@@ -442,7 +333,7 @@ module copper (
                 end
                 5'h0B: rb_rdata <= pc_now[15:8];
                 5'h0C: rb_rdata <= {2'd0, pc_now[21:16]};
-                5'h0D: rb_rdata <= {4'd0, st_irq, st_err, xs == X_OFF, xs == X_WAIT};
+                5'h0D: rb_rdata <= {4'd0, st_irq, st_err, e_stopped, e_waiting};
                 5'h0E: rb_rdata <= rx;
                 5'h0F: rb_rdata <= ry;
                 5'h10: rb_rdata <= {5'd0, rf};
@@ -453,30 +344,4 @@ module copper (
         end
     end
 
-    // A register write: one byte, at once (spec 6, section 4.2; a colour's
-    // blue and green go into the copper's colour assembly buffer, video.v)
-    task do_write(input [9:0] o, input [7:0] d);
-        begin
-            cw_req  <= 1'b1;
-            cw_off  <= o;
-            cw_data <= d;
-            xs      <= X_GAP;
-        end
-    endtask
-
-    task stop;
-        begin
-            xs  <= X_OFF;
-            in2 <= 1'b0;
-        end
-    endtask
-
-    task restart(input [21:1] to);
-        begin
-            xs     <= X_RUN;
-            cw_req <= 1'b0;
-            flush  = 1'b1;
-            f_to   = to;
-        end
-    endtask
 endmodule

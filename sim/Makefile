@@ -260,7 +260,7 @@ boing: $(VL_TB) $(BUILD)/boot.hex
 # The copper on its own (ticket #32): cop/tb_cop.v runs the lists of
 # cop/coptest.asm on copper.v and the scheduler, cop/copcheck.py checks the
 # log against its model of spec 6
-COP_RTL := $(RTL)/copper.v $(addprefix $(HW_RTL)/,dmac.v timebase.v)
+COP_RTL := $(RTL)/copper.v $(addprefix $(HW_RTL)/,dmac.v timebase.v copper_engine.v)
 $(BUILD)/vl_cop/vcop: cop/tb_cop.v $(COP_RTL) $(RTL)/regmap.vh | $(BUILD)
 	$(VERILATOR) --binary --timing -Wall -Wno-fatal $(VL_OPT) -I$(RTL) --top-module tb_cop 	    --Mdir $(BUILD)/vl_cop -o vcop cop/tb_cop.v $(COP_RTL) > $(BUILD)/vl_cop.log
 
