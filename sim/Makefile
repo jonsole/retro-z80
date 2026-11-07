@@ -462,8 +462,8 @@ geom: $(BUILD)/tb_geom.vvp $(BUILD)/geom_vec.txt
 .PHONY: input bootkeys
 all: input
 
-$(BUILD)/tb_input.vvp: input/tb_input.v $(HW)/sim/ps2_model.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v $(HW)/sim/ps2_model.v \
+$(BUILD)/tb_input.vvp: input/tb_input.v $(HW)/sim/ps2_model.v $(HW_RTL)/ps2_core.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v $(HW)/sim/ps2_model.v $(HW_RTL)/ps2_core.v \
 	    $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v)
 
 input: $(BUILD)/tb_input.vvp
@@ -482,8 +482,8 @@ bootkeys: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 .PHONY: fe
 all: fe
 
-$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v regmap.vh) | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v \
+$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(HW_RTL)/sigma_delta2.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v $(HW_RTL)/sigma_delta2.v \
 	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v)
 
 fe: $(BUILD)/tb_fe.vvp

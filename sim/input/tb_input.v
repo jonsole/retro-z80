@@ -301,7 +301,7 @@ module tb_input;
             ps2(8'h32);
             begin
                 @(negedge clk);
-                while (!(kb.rn == 4'd10 && kb.kfall)) @(negedge clk);
+                while (!(kb.core.rn == 4'd10 && kb.core.kfall)) @(negedge clk);
                 inj_stb = 1'b1; inj_byte = 8'h21;
                 @(negedge clk); inj_stb = 1'b0;
             end
