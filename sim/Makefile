@@ -122,7 +122,7 @@ HW_RTL    := $(HW)/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v bootrom.v serial.v sysregs.v intc.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v bootrom.v serial.v sysregs.v intc.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v dmac8.v sram_ctl8.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
              $(wildcard $(HW_RTL)/*.v)
 SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
@@ -552,3 +552,68 @@ sramtest: $(BUILD)/tb_lat.vvp $(BUILD)/tb_sramtest.vvp
 	diff sramtest/lat.ref $(BUILD)/lat.out && echo "SERDES models agree with the unisims"
 	cd $(BUILD) && $(VVP) -n tb_sramtest.vvp | tee sramtest.log
 	@grep -q "^TEST PASSED" $(BUILD)/sramtest.log
+
+# ---- The fast-memory experiment (issue #91): the system testbench with
+# -DFASTMEM, the cut-down build (no sprites, copper or geometry unit) at 8
+# memory cycles of 12.5 ns a slot (dmac8.v, sram_ctl8.v) on the SERDES pads
+# (sram8_pads.v), with the SRAM tester's Xilinx primitive models and its
+# timing-checking SRAM as the KS2's -8 part (4 MB here, for systest). Each
+# runs as its 20 ns namesake; not part of make all (the pin models are slow)
+#   make fm-hello fm-systest fm-dmx fm-dtest   (make fastmem: all four)
+#   make fm-dmxspeed                           the DMA engine's speed, as dmxspeed
+#   make fm-fmspeed fmspeed                    the board's measurement program
+#                   (examples/fastmem/fmspeed.asm, 16 KB, through fastmem/fmsim.asm)
+#                   at 12.5 ns and on the 20 ns testbench
+.PHONY: fm-ctl fastmem fm-hello fm-systest fm-dmx fm-dmxspeed fm-dtest fm-fmspeed fmspeed
+FM_SIM := $(RTL)/platform/artix7/sram8_pads.v $(addprefix $(HW)/sim/,ft232h_model.v ps2_model.v) \
+          sramtest/xilinx_models.v sramtest/sram_timed.v tb.v
+
+$(BUILD)/tb_fm.vvp: $(TV80_CORE) $(SYS_RTL) $(FM_SIM) $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -Wno-implicit-dimensions -DTV80_REFRESH -DFASTMEM -I $(RTL) -s tb -o $@ \
+	    $(TV80_CORE) $(SYS_RTL) $(FM_SIM)
+
+fastmem: fm-hello fm-systest fm-dmx fm-dtest
+
+fm-hello: $(BUILD)/tb_fm.vvp $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=boot.hex +hello +dma +timeout=40000 | tee fm-hello.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-hello.log
+
+fm-systest: $(BUILD)/tb_fm.vvp $(BUILD)/systest.hex $(BUILD)/boot.hex
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=systest.hex +dma | tee fm-systest.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-systest.log
+
+fm-dmx: $(BUILD)/tb_fm.vvp $(BUILD)/dmxtest.hex
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=dmxtest.hex +timeout=10000 | tee fm-dmx.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-dmx.log
+
+fm-dmxspeed: $(BUILD)/tb_fm.vvp $(BUILD)/dmxspeed.hex
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=dmxspeed.hex +print +timeout=20000 | tee fm-dmxspeed.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-dmxspeed.log
+
+fm-dtest: $(BUILD)/tb_fm.vvp $(BUILD)/dtest.hex
+	@for s in $(DTEST_SEEDS); do d=$(BUILD)/fm-dtest/$$s; mkdir -p $$d && \
+	$(PYTHON) dtest/dgen.py $$d $$s && \
+	(cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=dtest.hex +ram=fm-dtest/$$s/ram.hex +ramout=fm-dtest/$$s/after.hex \
+	    +timeout=20000 > fm-dtest/$$s/sim.log); \
+	grep -q "^TEST PASSED" $$d/sim.log || { echo "fm-dtest: seed $$s failed"; tail -n 3 $$d/sim.log; exit 1; }; \
+	$(PYTHON) dtest/dmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex || { echo "fm-dtest: seed $$s failed"; exit 1; }; \
+	done; echo "fm-dtest: all seeds passed"
+$(BUILD)/fmspeed_sim.bin: $(ROOT)/examples/fastmem/fmspeed.asm $(ROOT)/examples/blitter/screen.inc $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -DSIM --raw=$@ $<
+$(BUILD)/fmsim.bin: fastmem/fmsim.asm $(BUILD)/fmspeed_sim.bin $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) -I $(BUILD) --raw=$@ $<
+
+fm-fmspeed: $(BUILD)/tb_fm.vvp $(BUILD)/fmsim.hex
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=fmsim.hex +print +timeout=20000 | tee fm-fmspeed.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-fmspeed.log
+
+fmspeed: $(BUILD)/tb.vvp $(BUILD)/fmsim.hex
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=fmsim.hex +print +timeout=20000 | tee fmspeed.log
+	@grep -q "^TEST PASSED" $(BUILD)/fmspeed.log
+# The controller and pads alone, against the timing-checking SRAM (seconds)
+fm-ctl: $(BUILD)/tb_sram8.vvp
+	cd $(BUILD) && $(VVP) -n tb_sram8.vvp | tee fm-ctl.log
+	@grep -q "^TEST PASSED" $(BUILD)/fm-ctl.log
+$(BUILD)/tb_sram8.vvp: fastmem/tb_sram8.v $(RTL)/sram_ctl8.v $(RTL)/platform/artix7/sram8_pads.v sramtest/xilinx_models.v sramtest/sram_timed.v | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -Wno-implicit-dimensions -s tb_sram8 -o $@ \
+	    fastmem/tb_sram8.v $(RTL)/sram_ctl8.v $(RTL)/platform/artix7/sram8_pads.v sramtest/xilinx_models.v sramtest/sram_timed.v

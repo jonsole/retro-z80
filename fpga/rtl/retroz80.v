@@ -25,16 +25,22 @@
 // and the COPPER interrupt source. Ticket #39 adds the DMA engine (dmx.v;
 // spec 14) on the scheduler's DMA engine channel, and DMA0-DMA3. Ticket #67
 // adds the geometry unit (geom.v; spec 15) in the system page, and the
-// build options DMX and GEOM: the KS2 builds one or the other.
+// build options DMX and GEOM: the KS2 builds one or the other. Issue #91
+// adds the fast-memory experiment (FASTMEM): 8 memory cycles of 12.5 ns a
+// slot (dmac8.v, sram_ctl8.v) on the SERDES pads, whose pin words leave on
+// the fm_* ports; the sram_* ports are then idle.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
     parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
-    parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
+    parameter NSPRITES = 8,            // sprites built, 0-8 (spec 5; 0: no sprite unit)
     parameter DMX_MASKIMG = 1,         // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
     parameter DMX = 1,                 // build the DMA engine (spec 14)
     parameter GEOM = 1,                // build the geometry unit (spec 15)
-    parameter COPPER = 1               // build the copper (spec 6; 0 frees its LUTs on the KS2)
+    parameter COPPER = 1,              // build the copper (spec 6; 0 frees its LUTs on the KS2)
+    parameter FASTMEM = 0,             // 1: 8 cycles of 12.5 ns a slot (issue #91)
+    parameter [3:0] FM_WE_LO = 4'd3,   // ... /WE low over these steps of a cycle (sram_ctl8.v)
+    parameter [3:0] FM_WE_HI = 4'd7
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -49,6 +55,13 @@ module retroz80 #(
     output wire [15:0] sram_dq_o,
     output wire        sram_dq_t_r, sram_dq_t_f,
     input  wire [15:0] sram_dq_i,
+
+    // SRAM with FASTMEM: pin words for sram8_pads (bit 8p + i is pin p at
+    // step i; 21 address pins), and its DQ samples
+    output wire [167:0] fm_addr,
+    output wire [7:0]  fm_cs_n, fm_oe_n, fm_we_n, fm_lb_n, fm_ub_n, fm_dq_t,
+    output wire [127:0] fm_dq,
+    input  wire [127:0] fm_qs,
 
     // FT232H
     input  wire        ft_rxf_n, ft_txe_n,
@@ -290,43 +303,124 @@ module retroz80 #(
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
-    // SRAM keeps its contents across a reset, spec 7, section 3.2)
+    // SRAM keeps its contents across a reset, spec 7, section 3.2).
+    // With FASTMEM, dmac8 and sram_ctl8 (g_fm) stand in for sched and mem,
+    // whose outputs are then not used and are left out by synthesis.
+    wire        go0, go_we0, m_start0, m_rvalid0;
+    wire [21:1] go_addr0;
+    wire [15:0] go_wdata0, mem_rdata0;
+    wire [1:0]  go_be0;
+    wire [2:0]  go_tag0, m_cycle0, m_rtag0;
+    wire        cpu_ack0, cpu_rvalid0, bpl_ack0, bpl_rvalid0, spr_ack0, spr_rvalid0;
+    wire        cop_ack0, cop_rvalid0, blt_ack0, blt_rvalid0, dma_ack0, dma_rvalid0;
+    wire        go8, go_we8, m_start8, m_rvalid8;
+    wire [21:1] go_addr8;
+    wire [15:0] go_wdata8, mem_rdata8;
+    wire [1:0]  go_be8;
+    wire [2:0]  go_tag8, m_cycle8, m_rtag8;
+    wire        cpu_ack8, cpu_rvalid8, bpl_ack8, bpl_rvalid8, spr_ack8, spr_rvalid8;
+    wire        cop_ack8, cop_rvalid8, blt_ack8, blt_rvalid8, dma_ack8, dma_rvalid8;
+
     dmac #(.CPU_CYCLES(5'b00101), .HARD_CYCLES(5'b01010), .AUD_CYCLES(5'b10000),
            .CPU_FIRST(1), .NASTY(0), .HIGH(0)) sched (
-        .clk(clk), .rst(por), .start_next(m_start), .next_cycle(m_cycle),
+        .clk(clk), .rst(por), .start_next(m_start0), .next_cycle(m_cycle0),
         .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr), .cpu_wdata(cpu_wdata),
-        .cpu_be(cpu_be), .cpu_ack(cpu_ack), .cpu_rvalid(cpu_rvalid),
+        .cpu_be(cpu_be), .cpu_ack(cpu_ack0), .cpu_rvalid(cpu_rvalid0),
         .bpl_req(bpl_req), .bpl_addr(bpl_addr), .bpl_deadline(bpl_deadline), .bpl_urgent(bpl_urgent),
-        .bpl_ack(bpl_ack), .bpl_rvalid(bpl_rvalid),
+        .bpl_ack(bpl_ack0), .bpl_rvalid(bpl_rvalid0),
         .spr_req(spr_req), .spr_addr(spr_addr), .spr_deadline(spr_deadline), .spr_urgent(spr_urgent),
-        .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
+        .spr_ack(spr_ack0), .spr_rvalid(spr_rvalid0),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
-        .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
+        .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack0), .cop_rvalid(cop_rvalid0),
         .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be), .blt_high(1'b0), .blt_share(2'd0),
-        .blt_ack(blt_ack), .blt_rvalid(blt_rvalid),
+        .blt_ack(blt_ack0), .blt_rvalid(blt_rvalid0),
         .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata),
-        .port_be(dma_be), .port_ack(dma_ack), .port_rvalid(dma_rvalid),
-        .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(go_wdata), .go_be(go_be),
-        .go_tag(go_tag), .rvalid(m_rvalid), .rtag(m_rtag)
+        .port_be(dma_be), .port_ack(dma_ack0), .port_rvalid(dma_rvalid0),
+        .go(go0), .go_we(go_we0), .go_addr(go_addr0), .go_wdata(go_wdata0), .go_be(go_be0),
+        .go_tag(go_tag0), .rvalid(m_rvalid0), .rtag(m_rtag0)
     );
-    assign dma_rdata = mem_rdata;
 
     // A 2 MB build ignores physical address bit 21, for every master, so
     // 0x200000-0x3FFFFF (MMU pages 0x100-0x1FF) mirrors the bottom half
     // (spec 2, section 11). SYSCFG.CHIPMB reports the build's size.
-    wire [21:1] sram_addr = {go_addr[21] && CHIPMB != 6'd2, go_addr[20:1]};
+    wire [21:1] sram_addr0 = {go_addr0[21] && CHIPMB != 6'd2, go_addr0[20:1]};
 
     sram_ctl mem (
         .clk(clk), .rst(por), .sc(sc),
-        .go(go), .go_we(go_we), .go_addr(sram_addr), .go_wdata(go_wdata), .go_be(go_be),
-        .go_tag(go_tag), .start_next(m_start), .next_cycle(m_cycle),
-        .rvalid(m_rvalid), .rtag(m_rtag), .rdata(mem_rdata),
+        .go(go0), .go_we(go_we0), .go_addr(sram_addr0), .go_wdata(go_wdata0), .go_be(go_be0),
+        .go_tag(go_tag0), .start_next(m_start0), .next_cycle(m_cycle0),
+        .rvalid(m_rvalid0), .rtag(m_rtag0), .rdata(mem_rdata0),
         .sram_a(sram_a), .sram_ce_n(sram_ce_n), .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n),
         .sram_oe_n_r(sram_oe_n_r), .sram_oe_n_f(sram_oe_n_f),
         .sram_we_n_r(sram_we_n_r), .sram_we_n_f(sram_we_n_f),
         .sram_dq_o(sram_dq_o), .sram_dq_t_r(sram_dq_t_r), .sram_dq_t_f(sram_dq_t_f),
         .sram_dq_i(sram_dq_i)
     );
+
+    // The fast-memory experiment (issue #91): 8 cycles a slot
+    generate if (FASTMEM) begin : g_fm
+        dmac8 sched8 (
+            .clk(clk), .rst(por), .start_next(m_start8), .next_cycle(m_cycle8),
+            .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr), .cpu_wdata(cpu_wdata),
+            .cpu_be(cpu_be), .cpu_ack(cpu_ack8), .cpu_rvalid(cpu_rvalid8),
+            .bpl_req(bpl_req), .bpl_addr(bpl_addr), .bpl_deadline(bpl_deadline), .bpl_urgent(bpl_urgent),
+            .bpl_ack(bpl_ack8), .bpl_rvalid(bpl_rvalid8),
+            .spr_req(spr_req), .spr_addr(spr_addr), .spr_deadline(spr_deadline), .spr_urgent(spr_urgent),
+            .spr_ack(spr_ack8), .spr_rvalid(spr_rvalid8),
+            .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
+            .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack8), .cop_rvalid(cop_rvalid8),
+            .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be), .blt_high(1'b0), .blt_share(2'd0),
+            .blt_ack(blt_ack8), .blt_rvalid(blt_rvalid8),
+            .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata),
+            .port_be(dma_be), .port_ack(dma_ack8), .port_rvalid(dma_rvalid8),
+            .go(go8), .go_we(go_we8), .go_addr(go_addr8), .go_wdata(go_wdata8), .go_be(go_be8),
+            .go_tag(go_tag8), .rvalid(m_rvalid8), .rtag(m_rtag8)
+        );
+        wire [21:1] sram_addr8 = {go_addr8[21] && CHIPMB != 6'd2, go_addr8[20:1]};
+        sram_ctl8 #(.AW(21), .WE_LO(FM_WE_LO), .WE_HI(FM_WE_HI)) mem8 (
+            .clk(clk), .rst(por), .sc(sc),
+            .go(go8), .go_we(go_we8), .go_addr(sram_addr8), .go_wdata(go_wdata8), .go_be(go_be8),
+            .go_tag(go_tag8), .start_next(m_start8), .next_cycle(m_cycle8),
+            .rvalid(m_rvalid8), .rtag(m_rtag8), .rdata(mem_rdata8),
+            .w_addr(fm_addr), .w_cs_n(fm_cs_n), .w_oe_n(fm_oe_n), .w_we_n(fm_we_n),
+            .w_lb_n(fm_lb_n), .w_ub_n(fm_ub_n), .w_dq(fm_dq), .w_dq_t(fm_dq_t), .qs(fm_qs)
+        );
+    end else begin : g_nofm
+        assign {go8, go_we8, m_start8, m_rvalid8, go_addr8, go_wdata8, mem_rdata8, go_be8,
+                go_tag8, m_cycle8, m_rtag8} = 68'd0;
+        assign {cpu_ack8, cpu_rvalid8, bpl_ack8, bpl_rvalid8, spr_ack8, spr_rvalid8,
+                cop_ack8, cop_rvalid8, blt_ack8, blt_rvalid8, dma_ack8, dma_rvalid8} = 12'd0;
+        assign fm_addr = 168'd0;
+        assign {fm_cs_n, fm_oe_n, fm_we_n, fm_lb_n, fm_ub_n, fm_dq_t} = {48{1'b1}};
+        assign fm_dq = 128'd0;
+    end endgenerate
+
+    // The scheduler and controller in use
+    wire fm = (FASTMEM != 0);
+    assign go         = fm ? go8       : go0;
+    assign go_we      = fm ? go_we8    : go_we0;
+    assign go_addr    = fm ? go_addr8  : go_addr0;
+    assign go_wdata   = fm ? go_wdata8 : go_wdata0;
+    assign go_be      = fm ? go_be8    : go_be0;
+    assign go_tag     = fm ? go_tag8   : go_tag0;
+    assign m_start    = fm ? m_start8  : m_start0;
+    assign m_cycle    = fm ? m_cycle8  : m_cycle0;
+    assign m_rvalid   = fm ? m_rvalid8 : m_rvalid0;
+    assign m_rtag     = fm ? m_rtag8   : m_rtag0;
+    assign mem_rdata  = fm ? mem_rdata8 : mem_rdata0;
+    assign cpu_ack    = fm ? cpu_ack8  : cpu_ack0;
+    assign cpu_rvalid = fm ? cpu_rvalid8 : cpu_rvalid0;
+    assign bpl_ack    = fm ? bpl_ack8  : bpl_ack0;
+    assign bpl_rvalid = fm ? bpl_rvalid8 : bpl_rvalid0;
+    assign spr_ack    = fm ? spr_ack8  : spr_ack0;
+    assign spr_rvalid = fm ? spr_rvalid8 : spr_rvalid0;
+    assign cop_ack    = fm ? cop_ack8  : cop_ack0;
+    assign cop_rvalid = fm ? cop_rvalid8 : cop_rvalid0;
+    assign blt_ack    = fm ? blt_ack8  : blt_ack0;
+    assign blt_rvalid = fm ? blt_rvalid8 : blt_rvalid0;
+    assign dma_ack    = fm ? dma_ack8  : dma_ack0;
+    assign dma_rvalid = fm ? dma_rvalid8 : dma_rvalid0;
+    assign dma_rdata  = mem_rdata;
 
     bootrom #(.INIT(ROM_INIT)) rom (
         .clk(clk), .en(rom_en), .we(rom_we), .addr(rom_addr), .wdata(rom_wdata), .rdata(rom_rdata)

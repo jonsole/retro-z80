@@ -165,12 +165,29 @@ module tb #(
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
 
+    // The fast-memory experiment (issue #91; built with -DFASTMEM): the
+    // cut-down build (no sprites, copper or geometry unit) at 8 cycles of
+    // 12.5 ns a slot, on the SERDES pads below
+    wire [167:0] fm_a;
+    wire [7:0]   fm_cs, fm_oe, fm_we, fm_lb, fm_ub, fm_t;
+    wire [127:0] fm_dq, fm_qs;
+`ifdef FASTMEM
+    // /WE low over steps 2-8 here, not the KS2 build's 3-7 (the middle of
+    // the board's measured windows), so that sram_timed's datasheet checks
+    // for the -8 part (tPWE 6.5 ns) hold; the board passed both
+    retroz80 #(.CHIPMB(CHIPMB), .FASTMEM(1), .NSPRITES(0), .COPPER(0), .GEOM(0),
+               .FM_WE_LO(4'd2), .FM_WE_HI(4'd8)) dut (
+`else
+    assign fm_qs = 128'd0;
     retroz80 #(.CHIPMB(CHIPMB)) dut (
+`endif
         .clk(clk), .por(por),
         .btn_reset_n(1'b1), .buttons({1'b0, tb_nmibtn}),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
         .sram_oe_n_r(oe_r), .sram_oe_n_f(oe_f), .sram_we_n_r(we_r), .sram_we_n_f(we_f),
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq),
+        .fm_addr(fm_a), .fm_cs_n(fm_cs), .fm_oe_n(fm_oe), .fm_we_n(fm_we),
+        .fm_lb_n(fm_lb), .fm_ub_n(fm_ub), .fm_dq_t(fm_t), .fm_dq(fm_dq), .fm_qs(fm_qs),
         .ft_rxf_n(ft_rxf_n), .ft_txe_n(ft_txe_n), .ft_d_i(ft_d), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .dma_req(dma_req), .dma_we(dma_we), .dma_addr(dma_addr), .dma_wdata(dma_wdata),
@@ -194,6 +211,45 @@ module tb #(
         if ($value$plusargs("ram=%s", ramfile)) $readmemh(ramfile, sram.mem);
     end
 
+`ifdef FASTMEM
+    // ---------------------------------------------------------------- SRAM pads, fast memory
+    // The SERDES pads (sram8_pads.v) on the Xilinx primitive models of the
+    // SRAM tester (sramtest/xilinx_models.v: IOBUF adds 2.5 ns out and 1 ns
+    // in), with 400 and 200 MHz clocks rising with clk, and its timing-
+    // checking SRAM (sramtest/sram_timed.v) as the KS2's -8 part, 4 MB here
+    reg clk200 = 1'b1, clk400 = 1'b1;
+    always #2.5  clk200 = ~clk200;
+    always #1.25 clk400 = ~clk400;
+    reg [1:0] por200 = 2'b11;
+    always @(posedge clk200) por200 <= {por200[0], por};
+    wire [20:0] fa_f;
+    wire        fcs_f, foe_f, fwe_f, flb_f, fub_f;
+    sram8_pads #(.AW(21), .TAPS(8)) pads (
+        .clk100(clk), .clk200(clk200), .clk400(clk400), .rst100(por), .rst200(por200[1]),
+        .addr_w(fm_a), .cs_n_w(fm_cs), .oe_n_w(fm_oe), .we_n_w(fm_we),
+        .lb_n_w(fm_lb), .ub_n_w(fm_ub), .dq_w(fm_dq), .dq_t_w(fm_t), .qs(fm_qs),
+        .ram_addr_o(fa_f), .ram_data_io(dq),
+        .ram_cs_n_o(fcs_f), .ram_oe_n_o(foe_f), .ram_we_n_o(fwe_f), .ram_lb_n_o(flb_f), .ram_ub_n_o(fub_f)
+    );
+    // The output pads' delay on the output-only pins (IOBUF has its own)
+    reg [20:0] fa_p = 21'd0;
+    reg        fcs_p = 1'b1, foe_p = 1'b1, fwe_p = 1'b1, flb_p = 1'b1, fub_p = 1'b1;
+    always @(fa_f)  fa_p  <= #2.5 fa_f;
+    always @(fcs_f) fcs_p <= #2.5 fcs_f;
+    always @(foe_f) foe_p <= #2.5 foe_f;
+    always @(fwe_f) fwe_p <= #2.5 fwe_f;
+    always @(flb_f) flb_p <= #2.5 flb_f;
+    always @(fub_f) fub_p <= #2.5 fub_f;
+    genvar fpu;
+    generate for (fpu = 0; fpu < 16; fpu = fpu + 1) begin : pu
+        pullup (dq[fpu]);
+    end endgenerate
+
+    sram_timed #(.PART(8), .AW(21)) sram (
+        .a(fa_p), .dq(dq), .ce_n(fcs_p), .oe_n(foe_p), .we_n(fwe_p), .ub_n(fub_p), .lb_n(flb_p),
+        .fpga_drives(!pads.dq[0].io.t_d)
+    );
+`else
     // ---------------------------------------------------------------- SRAM pads
     // Output registers in the pads: 1 ns clock-to-out (as retro68k's tb.v)
     reg  [20:0] pa;   reg pce_n = 1, pub_n = 1, plb_n = 1;  reg [15:0] pdq;
@@ -212,6 +268,7 @@ module tb #(
 
     sram_model sram (.a(pa), .dq(dq), .ce_n(pce_n), .oe_n(poe_n), .we_n(pwe_n),
                      .ub_n(pub_n), .lb_n(plb_n), .fpga_drives(!pt));
+`endif
 
     // ---------------------------------------------------------------- FT232H
     assign ft_d = ft_d_oe ? ft_d_o : 8'hzz;
@@ -270,13 +327,19 @@ module tb #(
     // ---------------------------------------------------------------- never waits
     // (1) The scheduler: a CPU request standing when a CPU cycle (0 or 2) is
     //     given out must get it. sc odd = a cycle is given out at the next edge.
+    //     With FASTMEM the CPU's cycles are 3 and 7, given out at slot
+    //     edges 4 and 9 (dmac8.v); counted below as "0" and "2".
     integer cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
+`ifdef FASTMEM
+    wire    cpu_cycle_next = (sc == 4'd8 || sc == 4'd3);
+`else
     wire    cpu_cycle_next = sc[0] && (sc == 4'd9 || sc == 4'd3);
+`endif
     always @(posedge clk) if (!por) begin
         if (dut.cpu_req && !dut.cpu_ack && cpu_cycle_next) begin
             if (dut.go && dut.go_tag == 3'd1) begin
                 cpu_cycles = cpu_cycles + 1;
-                if (sc == 4'd9) cpu_issue0 = cpu_issue0 + 1; else cpu_issue2 = cpu_issue2 + 1;
+                if (sc == 4'd9 || sc == 4'd8) cpu_issue0 = cpu_issue0 + 1; else cpu_issue2 = cpu_issue2 + 1;
             end else begin
                 if (cpu_refused < 5) $display("%t WAIT ERROR: CPU request turned away from its cycle", $realtime);
                 cpu_refused = cpu_refused + 1;

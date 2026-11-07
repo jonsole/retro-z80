@@ -5,13 +5,17 @@
 # the build folder), "pattern" (the test pattern, top_ks2_pattern) or
 # "sramtest" (the SRAM timing tester, top_ks2_sramtest; issue #90), and
 # an optional 1 to build the geometry unit in place of the DMA engine (GEOM),
-# then an optional 0 to leave the copper out (COPPER).
+# then an optional 0 to leave the copper out (COPPER), then the number of
+# sprites (NSPRITES, 2) and an optional 1 for the fast-memory experiment
+# (FASTMEM, issue #91: 12.5 ns SRAM cycles on the SERDES pads).
 
 set root   [file normalize [lindex $argv 0]]
 set out    [file normalize [lindex $argv 1]]
 set what   [lindex $argv 2]
 set geom   [expr {[llength $argv] > 3 ? [lindex $argv 3] : 0}]
 set copper [expr {[llength $argv] > 4 ? [lindex $argv 4] : 1}]
+set nspr   [expr {[llength $argv] > 5 ? [lindex $argv 5] : 2}]
+set fmem   [expr {[llength $argv] > 6 ? [lindex $argv 6] : 0}]
 set part   xc7a15tcsg324-1
 set rtl    $root/fpga/rtl
 set hw     $root/fpga/retro-hw
@@ -44,19 +48,25 @@ if {$what eq "pattern"} {
         $rtl/z80_cpu.v $rtl/cpu_cen.v $rtl/bus_if.v $rtl/dbgunit.v $rtl/mmu.v $rtl/intpages.v \
         $rtl/bootrom.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/bpldma.v $rtl/sprites.v $rtl/video.v $rtl/copper.v $rtl/dmx.v $rtl/geom.v $rtl/timers.v \
         $rtl/ps2kb.v $rtl/ps2map.v $rtl/keys.v $rtl/joy.v $rtl/audio.v \
-        $rtl/retroz80.v $root/fpga/ks2/top_ks2.v \
-        $rtl/platform/artix7/ks2_clocks.v $hw/platform/artix7/hdmi_out.v \
+        $rtl/retroz80.v $rtl/dmac8.v $rtl/sram_ctl8.v $root/fpga/ks2/top_ks2.v \
+        $rtl/platform/artix7/ks2_clocks.v $rtl/platform/artix7/sram8_pads.v $hw/platform/artix7/hdmi_out.v \
         $hw/platform/artix7/oddr.v ] [glob $hw/rtl/*.v]
     read_xdc $root/fpga/ks2/ks2.xdc
     read_xdc $root/fpga/ks2/ks2_clocks.xdc
     read_xdc $root/fpga/ks2/ks2_machine.xdc
+    if {$fmem} {
+        read_xdc $root/fpga/ks2/ks2_fastmem.xdc
+    } else {
+        read_xdc $root/fpga/ks2/ks2_sram20.xdc
+    }
 }
 
 # tv80 counts R and drives rfsh_n only with TV80_REFRESH (spec 1)
 if {$what ne "machine"} {
     synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
 } else {
-    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom -generic COPPER=$copper
+    synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom -generic COPPER=$copper \
+        -generic NSPRITES=$nspr -generic FASTMEM=$fmem
 }
 write_checkpoint -force post_synth.dcp
 report_utilization -file utilization_synth.txt

@@ -39,9 +39,20 @@
 // pattern build): flash and SD cards deselected, MIC low,
 // expansion bus RAMCS pulled down. Other pins are weakly pulled up
 // (ks2.xdc).
+//
+// The fast-memory experiment (issue #91, build.sh --fastmem): FASTMEM runs
+// the SRAM at 8 cycles of 12.5 ns a slot (sram_ctl8.v) through the SRAM
+// tester's SERDES pads (sram8_pads.v), on 400, 200 and 100 MHz clocks from
+// one MMCM. It is built cut down (no sprites, copper or geometry unit:
+// NSPRITES 0, COPPER 0, GEOM 0), and the same cut-down build at 20 ns
+// (--fastmem --slow) is the one to compare it with.
 module top_ks2 #(
     parameter GEOM = 0,                // 1: the geometry unit in place of the DMA engine (spec 15, section 8)
-    parameter COPPER = 1               // 0: no copper, for room (build.sh --no-copper)
+    parameter COPPER = 1,              // 0: no copper, for room (build.sh --no-copper)
+    parameter NSPRITES = 2,            // sprites built (0: none, the fast-memory builds)
+    parameter FASTMEM = 0,             // 1: 12.5 ns SRAM cycles on the SERDES pads (issue #91)
+    parameter FM_WE_LO = 3,            // ... /WE low over these steps of a cycle
+    parameter FM_WE_HI = 7
 ) (
     input  wire        clock_50_i,
 
@@ -80,9 +91,10 @@ module top_ks2 #(
     output wire        audioext_l_o, audioext_r_o, audioint_o
 );
     // ---------------------------------------------------------------- clocks and reset
-    wire clk100, clk_pix, clk_pix5, locked;
-    ks2_clocks clocks (
-        .clk50(clock_50_i), .clk100(clk100), .clk_pix(clk_pix), .clk_pix5(clk_pix5), .locked(locked)
+    wire clk100, clk200, clk400, clk_pix, clk_pix5, locked;
+    ks2_clocks #(.SERDES(FASTMEM)) clocks (
+        .clk50(clock_50_i), .clk100(clk100), .clk200(clk200), .clk400(clk400),
+        .clk_pix(clk_pix), .clk_pix5(clk_pix5), .locked(locked)
     );
 
     // Power-on reset: held until both MMCMs lock, then 256 more clocks
@@ -125,15 +137,22 @@ module top_ks2 #(
     wire [7:0]  row_low;
     wire        aud_l, aud_r, aud_m;
 
+    wire [167:0] fm_a;
+    wire [7:0]   fm_cs, fm_oe, fm_we, fm_lb, fm_ub, fm_t;
+    wire [127:0] fm_dq, fm_qs;
+
     // 2 sprites and no DMA mask image, so the DMA engine fits (design plan, branch 21).
     // The XC7A15T has room for the DMA engine or the geometry unit, not both.
-    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0),
-               .DMX(GEOM ? 0 : 1), .GEOM(GEOM), .COPPER(COPPER)) sys (
+    retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(NSPRITES), .DMX_MASKIMG(0),
+               .DMX(GEOM ? 0 : 1), .GEOM(GEOM), .COPPER(COPPER),
+               .FASTMEM(FASTMEM), .FM_WE_LO(FM_WE_LO), .FM_WE_HI(FM_WE_HI)) sys (
         .clk(clk100), .por(por),
         .btn_reset_n(!btn_q[0]), .buttons(btn_q[2:1]),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
         .sram_oe_n_r(oe_r), .sram_oe_n_f(oe_f), .sram_we_n_r(we_r), .sram_we_n_f(we_f),
         .sram_dq_o(dq_o), .sram_dq_t_r(t_r), .sram_dq_t_f(t_f), .sram_dq_i(dq_i),
+        .fm_addr(fm_a), .fm_cs_n(fm_cs), .fm_oe_n(fm_oe), .fm_we_n(fm_we),
+        .fm_lb_n(fm_lb), .fm_ub_n(fm_ub), .fm_dq_t(fm_t), .fm_dq(fm_dq), .fm_qs(fm_qs),
         .ft_rxf_n(accel_io[8]), .ft_txe_n(accel_io[9]), .ft_d_i(ft_d_i), .ft_d_o(ft_d_o),
         .ft_d_oe(ft_d_oe), .ft_rd_n(ft_rd_n), .ft_wr_n(ft_wr_n), .ft_siwu_n(ft_siwu_n),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .vid_rgb(rgb), .vid_hsync(hs), .vid_vsync(vs), .vid_de(de),
@@ -149,31 +168,49 @@ module top_ks2 #(
     // ---------------------------------------------------------------- SRAM pads
     // Output flip-flops in the pads (IOB), DDR registers for /OE, /WE and the
     // data bus enable; read data is taken by sram_ctl's rdata register, which
-    // goes in the input pads (ks2_machine.xdc). The 2 MB build drives
+    // goes in the input pads (ks2_sram20.xdc). The 2 MB build drives
     // physical address bits 20-1 (sram_a[19:0]); sram_a[20] is always 0.
-    (* IOB = "TRUE" *) reg [19:0] pad_a = 20'd0;
-    (* IOB = "TRUE" *) reg        pce_n = 1'b1, pub_n = 1'b1, plb_n = 1'b1;
-    (* IOB = "TRUE" *) reg [15:0] pdq = 16'd0;
-    always @(posedge clk100) begin
-        pad_a <= a[19:0];
-        pce_n <= ce_n;
-        pub_n <= ub_n;
-        plb_n <= lb_n;
-        pdq   <= dq_o;
-    end
-    assign ram_addr_o = pad_a;
-    assign ram_cs_n_o = pce_n;
-    assign ram_ub_n_o = pub_n;
-    assign ram_lb_n_o = plb_n;
-
-    oddr #(.INIT(1'b1)) o_oe (.clk(clk100), .d_r(oe_r), .d_f(oe_f), .q(ram_oe_n_o));
-    oddr #(.INIT(1'b1)) o_we (.clk(clk100), .d_r(we_r), .d_f(we_f), .q(ram_we_n_o));
-
+    // With FASTMEM, the SERDES pads instead (sram8_pads.v): the low 20 of
+    // the 21 address pins' words.
     genvar i;
-    generate for (i = 0; i < 16; i = i + 1) begin : dq
-        wire t;
-        oddr #(.INIT(1'b1)) o_t (.clk(clk100), .d_r(t_r), .d_f(t_f), .q(t));
-        IOBUF io (.IO(ram_data_io[i]), .I(pdq[i]), .O(dq_i[i]), .T(t));
+    generate if (FASTMEM) begin : g_pads8
+        // The SERDES' 200 MHz reset, from the power-on reset
+        reg [1:0] por200 = 2'b11;
+        always @(posedge clk200) por200 <= {por200[0], por};
+        sram8_pads #(.AW(20), .TAPS(8)) pads (
+            .clk100(clk100), .clk200(clk200), .clk400(clk400), .rst100(por), .rst200(por200[1]),
+            .addr_w(fm_a[159:0]), .cs_n_w(fm_cs), .oe_n_w(fm_oe), .we_n_w(fm_we),
+            .lb_n_w(fm_lb), .ub_n_w(fm_ub), .dq_w(fm_dq), .dq_t_w(fm_t), .qs(fm_qs),
+            .ram_addr_o(ram_addr_o), .ram_data_io(ram_data_io),
+            .ram_cs_n_o(ram_cs_n_o), .ram_oe_n_o(ram_oe_n_o), .ram_we_n_o(ram_we_n_o),
+            .ram_lb_n_o(ram_lb_n_o), .ram_ub_n_o(ram_ub_n_o)
+        );
+        assign dq_i = 16'd0;
+    end else begin : g_pads
+        (* IOB = "TRUE" *) reg [19:0] pad_a = 20'd0;
+        (* IOB = "TRUE" *) reg        pce_n = 1'b1, pub_n = 1'b1, plb_n = 1'b1;
+        (* IOB = "TRUE" *) reg [15:0] pdq = 16'd0;
+        always @(posedge clk100) begin
+            pad_a <= a[19:0];
+            pce_n <= ce_n;
+            pub_n <= ub_n;
+            plb_n <= lb_n;
+            pdq   <= dq_o;
+        end
+        assign ram_addr_o = pad_a;
+        assign ram_cs_n_o = pce_n;
+        assign ram_ub_n_o = pub_n;
+        assign ram_lb_n_o = plb_n;
+
+        oddr #(.INIT(1'b1)) o_oe (.clk(clk100), .d_r(oe_r), .d_f(oe_f), .q(ram_oe_n_o));
+        oddr #(.INIT(1'b1)) o_we (.clk(clk100), .d_r(we_r), .d_f(we_f), .q(ram_we_n_o));
+
+        for (i = 0; i < 16; i = i + 1) begin : dq
+            wire t;
+            oddr #(.INIT(1'b1)) o_t (.clk(clk100), .d_r(t_r), .d_f(t_f), .q(t));
+            IOBUF io (.IO(ram_data_io[i]), .I(pdq[i]), .O(dq_i[i]), .T(t));
+        end
+        assign fm_qs = 128'd0;
     end endgenerate
 
     // ---------------------------------------------------------------- FT232H

@@ -68,7 +68,7 @@
 
 module video #(
     parameter NL = 1,                  // layers built (1-3)
-    parameter NS = 8                   // sprites built (1-8)
+    parameter NS = 8                   // sprites built (1-8; 0 no sprite unit)
 ) (
     input  wire        clk,            // 100 MHz
     input  wire        rst,
@@ -719,18 +719,31 @@ module video #(
     wire [7:0]  sp_fl, sp_fla;
     reg  [31:0] coll_acc, coll_line;
     reg         coll_t;
-    sprites #(.NS(NS)) spr (
+    // With NS = 0 (the fast-memory test build, issue #91) there is no sprite
+    // unit: a one-sprite unit is built but nothing it makes is used, so
+    // synthesis leaves it out; its registers are not answered (read 0xFF)
+    // and it never fetches
+    localparam SON = (NS > 0);
+    wire [41:0]  s_rb;
+    wire [32:0]  s_mem;
+    wire [367:0] s_p;
+    wire [183:0] s_f;
+    sprites #(.NS(SON ? NS : 1)) spr (
         .clk(clk), .rst(rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
-        .rb_rdata(spr_q), .rb_hit(spr_hit), .rb_cdata(spr_cdata), .rb_cap(spr_cap),
+        .rb_rdata(s_rb[41:34]), .rb_hit(s_rb[33]), .rb_cdata(s_rb[32:1]), .rb_cap(s_rb[0]),
         .dma_on(vidcon[0] && dmacon[6] && dmacon[2]), .vblank(frame_tick), .beam_v(s_vline), .beam_h(s_hpix),
-        .mem_req(spr_req), .mem_addr(spr_addr), .mem_deadline(spr_deadline), .mem_urgent(spr_urgent),
+        .mem_req(s_mem[32]), .mem_addr(s_mem[31:11]), .mem_deadline(s_mem[10:1]), .mem_urgent(s_mem[0]),
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
-        .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
-        .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),
-        .fifo_ra(sp_ra), .fifo_rd(sp_rd), .wp_g(sp_wpg), .rp_g(sp_rpg), .flush_t(sp_fl), .flush_ack_t(sp_fla),
+        .p_hs(s_p[367:288]), .p_xe(s_p[287:208]), .p_act(s_p[207:200]), .p_lb(s_p[199:184]),
+        .p_xstep(s_p[183:56]), .p_depth(s_p[55:40]), .p_pal(s_p[39:8]), .p_dma(s_p[7:0]),
+        .fifo_ra(sp_ra), .fifo_rd(s_f[183:56]), .wp_g(s_f[55:8]), .rp_g(sp_rpg), .flush_t(s_f[7:0]), .flush_ack_t(sp_fla),
         .coll_line(coll_line), .coll_t(coll_t)
     );
+    assign {spr_q, spr_hit, spr_cdata, spr_cap} = SON ? s_rb : 42'd0;
+    assign {spr_req, spr_addr, spr_deadline, spr_urgent} = SON ? s_mem : {22'd0, 10'h3FF, 1'b0};
+    assign {sp_hs, sp_xe, sp_act, sp_lb, sp_xstep, sp_depth, sp_pal, sp_dma} = SON ? s_p : 368'd0;
+    assign {sp_rd, sp_wpg, sp_fl} = SON ? s_f : 184'd0;
 
     // A sprite's line is a beam line: from the start of its horizontal blank
     // (beam pixel 0); its settings are taken at beam pixel 12, after the

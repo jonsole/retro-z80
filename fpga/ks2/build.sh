@@ -9,6 +9,11 @@
 #                                     (fpga/ks2/build/geom/retroz80_ks2.bit; spec 15)
 #   fpga/ks2/build.sh --no-copper ... no copper, for room (build/nocopper/; with
 #                                     --geom, build/geom-nocopper/)
+#   fpga/ks2/build.sh --fastmem ...   the fast-memory experiment (issue #91): 12.5 ns
+#                                     SRAM cycles on the SERDES pads, cut down (no
+#                                     sprites, copper or geometry unit; build/fastmem/)
+#   fpga/ks2/build.sh --fastmem --slow ...  the same cut-down build at 20 ns, to
+#                                     compare with (build/fastmem-slow/)
 #   fpga/ks2/build.sh --pattern ...   the same for the test pattern
 #                                     (fpga/ks2/build/pattern/ks2_pattern.bit)
 #   fpga/ks2/build.sh --sramtest ...  the same for the SRAM timing tester
@@ -33,6 +38,8 @@ do_build=1
 do_program=0
 geom=0
 copper=1
+fastmem=0
+slow=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -40,9 +47,11 @@ while [ $# -gt 0 ]; do
         --sramtest)     what=sramtest ;;
         --geom)         geom=1 ;;
         --no-copper)    copper=0 ;;
+        --fastmem)      fastmem=1 ;;
+        --slow)         slow=1 ;;
         --program)      do_program=1 ;;
         --program-only) do_program=1; do_build=0 ;;
-        -h|--help)      sed -n '2,25p' "$0"; exit 0 ;;
+        -h|--help)      sed -n '2,30p' "$0"; exit 0 ;;
         *)              echo "build.sh: unknown option $1 (try --help)" >&2; exit 1 ;;
     esac
     shift
@@ -65,6 +74,18 @@ fi
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
+# The fast-memory builds are cut down: no sprites, copper or geometry unit
+nsprites=2
+fmem=0
+if [ "$fastmem" = 1 ]; then
+    [ "$what" = machine ] || die "--fastmem is a build of the computer"
+    geom=0; copper=0; nsprites=0
+    if [ "$slow" = 1 ]; then out="$here/build/fastmem-slow"; else out="$here/build/fastmem"; fmem=1; fi
+    bit="$out/retroz80_ks2.bit"
+elif [ "$slow" = 1 ]; then
+    die "--slow goes with --fastmem"
+fi
+
 vivado="${VIVADO:-$(command -v vivado || true)}"
 [ -n "$vivado" ] || die "Vivado not found: put it on the PATH or set VIVADO"
 
@@ -85,7 +106,7 @@ if [ "$do_build" = 1 ]; then
     say "Running Vivado (synthesis, place and route, bitstream): a few minutes"
     set +e
     (cd "$out" && "$vivado" -mode batch -nojournal -log vivado.log \
-        -source "$here/build.tcl" -tclargs "$root" "$out" "$what" "$geom" "$copper")
+        -source "$here/build.tcl" -tclargs "$root" "$out" "$what" "$geom" "$copper" "$nsprites" "$fmem")
     status=$?
     set -e
     grep -h "^retro-z80:" "$out/vivado.log" || true

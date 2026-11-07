@@ -8,12 +8,15 @@
 //    8  the KS2's IS61WV102416FBLL-8, as fpga/ks2/README.md quotes it
 //       (approximate): tAA 8, tOHA 2.5, tDOE 4, tHZOE 3, tPWE 6.5, tSD 5,
 //       tAW 6.5
-// tSA, tHA and tHD are 0. Errors are counted in errors and printed.
+// tSA, tHA and tHD are 0. Errors are counted in errors and printed. AW
+// address lines: 20 (2 MB, the KS2), or 21 for the fast-memory system
+// testbench's 4 MB (sim/tb.v with FASTMEM, issue #91).
 `timescale 1ns/1ps
 module sram_timed #(
-    parameter PART = 10
+    parameter PART = 10,
+    parameter AW   = 20
 ) (
-    input  wire [19:0] a,
+    input  wire [AW-1:0] a,
     inout  wire [15:0] dq,
     input  wire        ce_n, oe_n, we_n, ub_n, lb_n,
     input  wire        fpga_drives       // for the bus-contention check
@@ -27,7 +30,7 @@ module sram_timed #(
         end
     end
 
-    reg [15:0] mem [0:(1<<20)-1];
+    reg [15:0] mem [0:(1<<AW)-1];
     integer errors = 0;
     integer quiet  = 0;          // errors printed: the first 20
     task err(input [8*48-1:0] what, input real v);
@@ -40,7 +43,7 @@ module sram_timed #(
 
     // ---- read
     real       t_a = -100.0, t_oe = -100.0, t_oeh = -100.0, t_d = -100.0, t_we = -100.0;
-    reg [19:0] a_old = 20'd0, a_now = 20'd0;
+    reg [AW-1:0] a_old = {AW{1'b0}}, a_now = {AW{1'b0}};
     reg        old_ok = 1'b0;
     always @(a) begin
         old_ok = ($realtime - t_a >= tAA) && !oe_n && ($realtime - t_oe >= tDOE);

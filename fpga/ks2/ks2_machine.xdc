@@ -65,8 +65,8 @@ set_false_path -to   [get_ports {ps2_clk_io ps2_data_io keyb_row_o[*] joyp7_o jo
 # The settings the pixel side copies (BGCOLOR once a line, VIDCON.EN through
 # two flip-flops) are covered by the asynchronous clock groups in ks2_clocks.xdc.
 
-# SRAM read data: captured in the input pad flip-flops (sram_ctl.v)
-set_property IOB TRUE [get_cells -hier -filter {NAME =~ sys/mem/rdata_reg*}]
+# SRAM read data: in ks2_sram20.xdc (sram_ctl.v's pads) or ks2_fastmem.xdc
+# (the SERDES pads, issue #91)
 
 # tv80: every register in the CPU (the core and z80_cpu.v's strobes and read
 # data register) is enabled by cen, and cen pulses are at least 5 clocks
