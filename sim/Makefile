@@ -84,8 +84,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxspeed dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dtest zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxint dmxspeed dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dmxint dtest zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -282,6 +282,14 @@ $(BUILD)/dmxtest.bin: dmx/dmxtest.asm $(INC)/hw.inc | $(BUILD)
 dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxtest.hex +timeout=10000 | tee dmx.log
 	@grep -q "^TEST PASSED" $(BUILD)/dmx.log
+
+# DMXINT's race (spec 14, section 8.4): the engine alone, the interrupt
+# coming due in the clock a write clears it
+$(BUILD)/tb_dmxint.vvp: dmxint/tb_dmxint.v $(RTL)/dmx.v $(HW_RTL)/dmx_core.v | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_dmxint -o $@ $^
+dmxint: $(BUILD)/tb_dmxint.vvp
+	cd $(BUILD) && $(VVP) -n tb_dmxint.vvp | tee dmxint.log
+	@grep -q "^TEST PASSED" $(BUILD)/dmxint.log
 
 # The DMA engine's speed (spec 14, section 6.3; ticket #78): each job's time
 # in microseconds, from RUN to BUSY clear, printed before PASS. Not a check:

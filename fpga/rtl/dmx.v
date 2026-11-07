@@ -99,6 +99,7 @@ module dmx #(
     wire [3:0]  cpu_run = (w_ctl && rb_wdata[1] && !rb_wdata[0]) ? ch1 : 4'd0;
     // CHDESC: a byte at a time (the core takes it only while the channel is idle)
     wire [23:0] cd_old  = da_q[24*rch +: 24];
+    wire [23:0] ea_old  = ea_q[24*rch +: 24];       // (picked first, then the byte: a small mux)
     wire [23:0] cd_new  = {ro[1:0] == 2'd2 ? rb_wdata : cd_old[23:16],
                            ro[1:0] == 2'd1 ? rb_wdata : cd_old[15:8],
                            ro[1:0] == 2'd0 ? rb_wdata : cd_old[7:0]};
@@ -233,19 +234,19 @@ module dmx #(
             end else if (sel_stat) begin
                 rb_hit <= 1'b1; rb_rdata <= {4'd0, busy[rch] && pause[rch], err[rch], done[rch], busy[rch]};
             end else if (sel_err) begin
-                rb_hit <= 1'b1; rb_rdata <= ea_q[24*rch + 8*ro[1:0] +: 8];
+                rb_hit <= 1'b1; rb_rdata <= ea_old[8*ro[1:0] +: 8];
             end
         end
     end
 
-    // Writes. A DMXINT write in the clock an interrupt comes due loses it.
+    // Writes. A DMXINT bit that comes due in the clock a write of 1 clears
+    // it stays set: the new interrupt is never lost (spec 14, section 8.4).
     always @(posedge clk) begin
         if (rst) begin
             pause <= 4'd0; dint <= 4'd0; dinten <= 4'd0;
             clip[0] <= 16'h8000; clip[1] <= 16'h7FFF; clip[2] <= 16'h8000; clip[3] <= 16'h7FFF;
         end else begin
-            if (rb_wr && sel_int) dint <= dint & ~rb_wdata[3:0];
-            else                  dint <= dint | irq_set;
+            dint <= ((rb_wr && sel_int) ? (dint & ~rb_wdata[3:0]) : dint) | irq_set;
             if (rb_wr && sel_inten) dinten <= rb_wdata[3:0];
             if (rb_wr && sel_clip && !sel_int && !sel_inten) begin
                 if (ro[0]) clip[clip_i][15:8] <= rb_wdata;

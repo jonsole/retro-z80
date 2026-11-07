@@ -405,7 +405,7 @@ On the KS2, with the guide's screen, the speed would grow with the share of cycl
 Built by ticket #78 (31 October 2026):
 
 - **B:** a group is up to 16 destination words. The buffers hold 17 source words, 16 destination words and 17 mask words.
-- **A:** when a group has no C or mask words to read, the writes start as soon as every source read has been made, not when the last one is back. Stage A waits for each source word it needs. A group with nothing to read at all (a fill) goes straight from its set-up to the writes. On the way to the same channel's next group, a group ends when its last write is taken, not when its cycle is granted: the access unit holds the next request until then.
+- **A:** when a group has no C or mask words to read, the writes start as soon as every source read has been made, not when the last one is back. Stage A waits for each source word it needs. A group with nothing to read at all (a fill) goes to the writes from the read step's first clock: since 7 November 2026 the group's counts are registered before anything decides on them, for timing (retro-hw's `dmx_core`), so such a group, and one with only C words to read, takes one clock more than before. On the way to the same channel's next group, a group ends when its last write is taken, not when its cycle is granted: the access unit holds the next request until then.
 - Not built: setting up the next group during the last writes. Groups that read C or a mask image still read everything first.
 
 The simulation (`sim/dmx/dmxspeed.asm`, the layers off, timed from RUN to BUSY clear):

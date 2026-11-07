@@ -52,8 +52,10 @@ report_utilization -file utilization_synth.txt
 
 # The machine fills nearly 90% of the XC7A15T since the copper (issue #32):
 # placement and physical optimisation work harder, and once more after
-# routing if a path is still short
-opt_design
+# routing if a path is still short. ExploreArea re-synthesises for area:
+# since the units became retro-hw cores and wrappers the no-copper build
+# needs it to fit (about 85 LUTs fewer than plain opt_design)
+opt_design -directive ExploreArea
 place_design -directive ExtraTimingOpt
 phys_opt_design -directive AggressiveExplore
 route_design -directive Explore
