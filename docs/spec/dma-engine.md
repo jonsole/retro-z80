@@ -560,7 +560,7 @@ In channel 3's spare bytes, where retro68k has them (after its channel 3):
 
 **DMACON** (spec 4): **BLTEN**, with DMAEN, lets the engine run. Both are clear after reset.
 
-**Interrupts:** each channel is its own source in the interrupt controller (spec 8): **DMA0–DMA3, sources 4–7**. A channel requests its interrupt while its DMXINT bit and DMXINTEN bit are both set. The handler clears it by writing 1 to that DMXINT bit.
+**Interrupts:** each channel is its own source in the interrupt controller (spec 8): **DMA0–DMA3, sources 4–7**. A channel requests its interrupt while its DMXINT bit and DMXINTEN bit are both set. The handler clears it by writing 1 to that DMXINT bit. A bit that comes due in the same clock as a write of 1 that clears it **stays set**: the new interrupt is never lost, so the handler sees it again (7 November 2026, as retro68k).
 
 ### 8.5 Errors
 
