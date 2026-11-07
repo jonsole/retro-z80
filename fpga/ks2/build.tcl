@@ -31,8 +31,8 @@ if {$what eq "pattern"} {
     read_verilog [list \
         $root/fpga/third_party/tv80/tv80_core.v $root/fpga/third_party/tv80/tv80_alu.v \
         $root/fpga/third_party/tv80/tv80_mcode.v $root/fpga/third_party/tv80/tv80_reg.v \
-        $rtl/z80_cpu.v $rtl/cpu_cen.v $rtl/bus_if.v $rtl/dbgunit.v $rtl/mmu.v $rtl/intpages.v $rtl/timebase.v $rtl/dmac.v \
-        $rtl/bootrom.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/layer_pix.v $rtl/bpldma.v $rtl/sprites.v $rtl/sprite_pix.v $rtl/video.v $rtl/copper.v $rtl/dmx.v $rtl/geom.v $rtl/timers.v \
+        $rtl/z80_cpu.v $rtl/cpu_cen.v $rtl/bus_if.v $rtl/dbgunit.v $rtl/mmu.v $rtl/intpages.v \
+        $rtl/bootrom.v $rtl/serial.v $rtl/sysregs.v $rtl/intc.v $rtl/bpldma.v $rtl/sprites.v $rtl/sprite_pix.v $rtl/video.v $rtl/copper.v $rtl/dmx.v $rtl/geom.v $rtl/timers.v \
         $rtl/ps2kb.v $rtl/ps2map.v $rtl/keys.v $rtl/joy.v $rtl/audio.v \
         $rtl/retroz80.v $root/fpga/ks2/top_ks2.v \
         $rtl/platform/artix7/ks2_clocks.v $hw/platform/artix7/hdmi_out.v \
