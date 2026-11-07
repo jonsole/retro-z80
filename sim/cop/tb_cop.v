@@ -217,7 +217,7 @@ module tb_cop;
     integer cuts = 0, last_cut = 0;
     always @(posedge clk) begin
         cut_vbl <= 1'b0;
-        if (tb_cut && cuts < 3 && clocks - last_cut > 3000 && dut.xs == 3'd1 && dut.have && !dut.hold
+        if (tb_cut && cuts < 3 && clocks - last_cut > 3000 && dut.exec
             && (dut.i_skip || dut.i_skc)) begin
             cut_vbl  <= 1'b1;
             cuts     = cuts + 1;
@@ -322,7 +322,7 @@ module tb_cop;
                     fr = fr + 1;
                     tf = clocks;
                 end
-                if (nf == 0) stopped = (dut.xs == 3'd0) && (!fl[0] || (fr >= 1 && clocks > tf + 4));
+                if (nf == 0) stopped = dut.e_stopped && (!fl[0] || (fr >= 1 && clocks > tf + 4));
                 else         stopped = (fr > nf);
             end
             if (!stopped) begin
