@@ -14,8 +14,9 @@
 //   - the checks spec 14 adds: a non-zero CTRL2 is an error
 //
 // The core runs with the SRAM little-endian (LE), physical addresses, SRAM
-// only (no other port), no port jobs. MASKIMG = 0 leaves the mask image
-// out (about 400 LUTs), for the KS2.
+// only (no other port), no port jobs, with LINE and EDGES (spec 14,
+// sections 3.4 and 3.5). MASKIMG = 0 leaves the mask image out (about 400
+// LUTs), for the KS2.
 `include "regmap.vh"
 
 module dmx #(
@@ -105,7 +106,8 @@ module dmx #(
     wire        eng_jw_set;
     reg         eng_jw;
 
-    dmx_core #(.CHIP_WORDS({CHIPMB[4:0], 19'd0}), .LE(1), .MASKIMG(MASKIMG), .XPORT(0), .PORTJOB(0)) core (
+    dmx_core #(.CHIP_WORDS({CHIPMB[4:0], 19'd0}), .LE(1), .MASKIMG(MASKIMG), .XPORT(0), .PORTJOB(0),
+               .LINE(1), .EDGES(1)) core (
         .clk(clk), .rst(rst),
         .enable(blt_on), .pause(pause),
         .start_ld(tmr_start | cpu_ld), .start_run(cpu_run & ~tmr_start),
