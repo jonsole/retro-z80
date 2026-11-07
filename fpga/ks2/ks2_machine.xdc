@@ -63,7 +63,7 @@ set_false_path -from [get_ports {ps2_clk_io ps2_data_io keyb_col_i[*] joyp1_i jo
 set_false_path -to   [get_ports {ps2_clk_io ps2_data_io keyb_row_o[*] joyp7_o joysel_o}]
 
 # The settings the pixel side copies (BGCOLOR once a line, VIDCON.EN through
-# two flip-flops) are covered by the asynchronous clock groups in ks2.xdc.
+# two flip-flops) are covered by the asynchronous clock groups in ks2_clocks.xdc.
 
 # SRAM read data: captured in the input pad flip-flops (sram_ctl.v)
 set_property IOB TRUE [get_cells -hier -filter {NAME =~ sys/mem/rdata_reg*}]

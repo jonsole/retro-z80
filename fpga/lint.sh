@@ -7,7 +7,7 @@
 # Style warnings (unused signals, empty pins) are left out; other warnings
 # are shown but do not fail. The third-party CPU core is not checked
 # (fpga/lint.vlt). The KS2 builds (the computer and the test pattern) are
-# linted on their own, with stand-ins for the Xilinx primitives
+# linted on their own, as is the SRAM tester, with stand-ins for the Xilinx primitives
 # (retro-hw's platform/artix7/lint_stub.v). The shared cores come from the
 # retro-hw submodule (fpga/retro-hw).
 set -e
@@ -31,4 +31,9 @@ $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal 
     fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
     fpga/rtl/*.v fpga/retro-hw/rtl/*.v fpga/ks2/top_ks2.v fpga/rtl/platform/artix7/ks2_clocks.v \
     fpga/retro-hw/platform/artix7/hdmi_out.v fpga/retro-hw/platform/artix7/oddr.v fpga/retro-hw/platform/artix7/lint_stub.v
+# The SRAM tester (issue #90), with its own stand-ins (fpga/ks2/lint_stub_sramtest.v)
+$VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
+    --top-module top_ks2_sramtest fpga/ks2/top_ks2_sramtest.v fpga/rtl/sramtest/sramt_engine.v \
+    fpga/rtl/sramtest/sramt_wave.v fpga/rtl/sramtest/sramt_link.v fpga/rtl/platform/artix7/sramt_pads.v \
+    fpga/ks2/lint_stub_sramtest.v
 echo "lint: no widths cut short"

@@ -1,9 +1,10 @@
 # Building for the ZX Spectrum Next KS2
 
-Two builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
+Three builds for the KS2 (issue 4, XC7A15T-1CSG324; design plan D1a and branch 12):
 
 - **The computer** (issue #11, `top_ks2.v`): tv80 at 20 MHz, the MMU, the scheduler and SRAM controller on the KS2's 2 MB SRAM, the boot ROM, the system registers, USB serial on the accelerator header, the interrupt controller (issue #16), the video unit with one layer, L0, as a bitmap (issue #13) or a tile map (issue #14), and the palettes, on HDMI and VGA, the timers and the watchdog (issue #17), the keyboards and joysticks (issue #19), port `0xFE`'s border and beeper (issue #21). The boot ROM (spec 16) tests the memory at power-on, sets up the boot console on L0 (issue #15) and starts the **monitor** (issue #22; the shared spec `docs/spec/monitor.md`): commands typed on the Spectrum keyboard or a PS/2 keyboard, a small program typed in and run, breakpoints, the registers, the ports. The tape loader demo of issue #21 is EDIT (or Tab) on an empty command line.
 - **The test pattern** (issue #10, `top_ks2_pattern.v`): colour bars on HDMI and VGA at 576p. It proved the tools, the pins, the clocks and both video outputs before the computer was involved.
+- **The SRAM timing tester** (issue #90, design plan branch 24, `top_ks2_sramtest.v`): every SRAM edge set at run time in 1.25 ns steps, driven from the PC by `tools/sramtest.py`, to measure the board's SRAM margins. Below.
 
 ```
 fpga/ks2/build.sh                    # the computer -> fpga/ks2/build/retroz80_ks2.bit (and .bin)
@@ -11,6 +12,8 @@ fpga/ks2/build.sh --program          # build, then load it over JTAG
 fpga/ks2/build.sh --program-only     # load the last build
 fpga/ks2/build.sh --pattern          # the test pattern -> fpga/ks2/build/pattern/ks2_pattern.bit
 fpga/ks2/build.sh --pattern --program-only
+fpga/ks2/build.sh --sramtest         # the SRAM tester -> fpga/ks2/build/sramtest/ks2_sramtest.bit
+fpga/ks2/build.sh --sramtest --program-only
 ```
 
 **You need:** Vivado 2026.1 (the free edition covers the XC7A15T), on the PATH or named by `VIVADO`. The computer also needs sjasmplus and Python 3 for the boot ROM (on the PATH, or `SJASMPLUS` and `PYTHON`; `C:/tools/sjasmplus/sjasmplus.exe` is found by itself). On Windows, from Git Bash or the MSYS2 shell, at the repository root:
@@ -353,17 +356,46 @@ The Next's own core never drives GPIO 1:0 (its NextReg 0x90 cannot enable them, 
 
 HDMI carries plain DVI (no audio, no InfoFrames), which HDMI displays accept.
 
+## The SRAM timing tester
+
+Issue #90, design plan branch 24: the real margins of the 20 ns memory cycle on the KS2 (spec 2, section 8.3 and open point M1), then the shortest cycle the board holds. A bitstream of its own, not the computer. The FT232H must be wired (above).
+
+**Run it.** Build and load it, then run the sweep from the repository root (the board on, the FT232H on COM3):
+
+```
+VIVADO=/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat bash fpga/ks2/build.sh --sramtest --program
+python tools/sramtest.py check          # one run at the 20 ns defaults over all 2 MB (seconds)
+python tools/sramtest.py scope          # the samples of one write and one read cycle, step by step
+python tools/sramtest.py                # the whole sweep, a few minutes; writes docs/notes/sram-ks2.md
+```
+
+`--port COMn` for another port; `--words N` for the region each sweep row writes and reads (default 65536 words; the full checks use all 1M); `--cycles 16,12,10,8` for the cycle lengths (8–32 steps of 1.25 ns). The sweep runs a 35 ns reference cycle first (28 steps; the retro-spectrum build's speed on the same pads), so a rig fault shows before any timing is blamed. For each cycle it prints and saves the loopback (when the FPGA sees its own DQ drive), then a map per setting: the read capture point (sample step and IDELAY taps), the /WE falling and rising steps, the data set-up, the write-after-read turnaround and the read-after-write turnaround, each moved alone, the rest at the cycle's defaults. Each row has the words read wrong, the bus errors (below), a bar (one # per doubling) and the failing DQ bits. Then a table of pass windows and the margins at the default, and a full check of all 2 MB with each setting at the middle of its window. The last section names the shortest cycle with a clean window.
+
+**How it works.** One MMCM makes 400, 200 and 100 MHz, rising together. Every SRAM pin goes through an OSERDESE2 at 800 Mb/s, so each pin's waveform is a pattern of 1.25 ns steps that the logic (100 MHz) builds 8 at a time (`sramt_wave.v`) and a 200 MHz gearbox hands on 4 at a time (`sramt_pads.v`). DQ comes back through an IDELAYE2 (0–31 taps of 78 ps) into an ISERDESE2: a sample every 1.25 ns. A cycle is N steps (8–32); the address and byte selects change at step 0; /OE, /WE and the drive are windows of steps, set at run time. The defaults are sram_ctl's 20 ns cycle (spec 2, section 8.2): /OE low 4–16, capture at 16 (the step where the next address leaves, as the computer's input flip-flops), /WE low 4–12, data driven 4–16. `sramt_engine.v` makes the patterns (random data from a seed, regenerated for checking; 0x0000 and 0xFFFF in turn; walking ones on data and address), steps the cycles back to back, picks each read's sample from the sample stream and counts errors per DQ bit, with the first failing word. In a write it also checks the FPGA's own DQ sample at a set step ("bus errors": the bus did not hold the driven data, as when the SRAM still drives after a read). The protocol is three commands (`sramt_link.v`): set a setting, run, read results; `tools/sramtest.py` has the settings' numbers.
+
+**Design notes.**
+
+- 4:1 OSERDESE2s at a 200 MHz word clock, not 8:1 at 100 MHz: the tristate serialiser has only four bits (T1–T4, 4:1 DDR only), so 8:1 would move the DQ drive in 10 ns steps. 4:1 at 800 Mb/s keeps every pin, the drive included, in 1.25 ns steps. The XC7A15T-1's limits hold: OSERDES and ISERDES DDR up to 950 Mb/s on HR banks, BUFG to 464 MHz (DS181); the 400 MHz BUFG's pulse width slack is +0.345 ns.
+- The latencies are those of Vivado's unisim models, measured in xsim (`sim/sramtest/tb_lat.v`): a step leaves the OSERDESE2 12.5 ns after the logic made it; the ISERDESE2 hands over at edge E the samples of E − 15 to E − 6.25 ns, the earliest in Q8. `sramt_engine.v`'s CAP_LAT and CAP_SKEW line them up, so "capture at step c" samples DQ at the moment step c leaves. If the silicon differs, the loopback line shows it: it should see the drive about 3 steps late (output pad, board, input pad and the IDELAY's 0.6 ns).
+- Not constrained: the SRAM pins' timing is what the tester measures.
+
+**Results of the build** (Vivado 2026.1, 7 November 2026): 2,084 LUTs (20%), 3,804 flip-flops, 41 OSERDESE2, 16 ISERDESE2, 16 IDELAYE2, 2 IDELAYCTRL (Vivado puts one in each clock region with IDELAYs), 5 BUFG, 1 MMCM. Timing met: worst setup +0.299 ns (the 100 to 200 MHz gearbox), worst hold +0.034 ns. No critical warnings; DRC has only the RPBF-3 warnings on the FT232H's one-way pins, as the computer's build. The build takes about 13 minutes. The board results go in `docs/notes/sram-ks2.md`.
+
 ## Files
 
 | File | What |
 |------|------|
 | `build.sh` | The one script: boot ROM, Vivado, then JTAG |
-| `build.tcl` | Vivado non-project flow: synthesis, place and route, reports, bitstream (the computer or the pattern) |
+| `build.tcl` | Vivado non-project flow: synthesis, place and route, reports, bitstream (the computer, the pattern or the SRAM tester) |
 | `program.tcl` | Load the bitstream over JTAG with Vivado's hardware manager |
-| `ks2.xdc` | Pins and configuration settings shared by both builds (from the Next's `zxnext_pins_issue4.xdc`), clocks |
+| `ks2.xdc` | Pins and configuration settings shared by all three builds (from the Next's `zxnext_pins_issue4.xdc`), the 50 MHz clock |
+| `ks2_clocks.xdc` | The computer's and the pattern's two MMCMs as asynchronous clock groups |
+| `ks2_sramtest.xdc` | The SRAM tester's own: the accelerator header, false paths |
 | `ks2_machine.xdc` | The computer's own: buttons, the accelerator header, the PS/2 keyboard, membrane columns and joystick pins, false paths, the SRAM input flip-flops, the audio pads' flip-flops, tv80's multicycle paths |
 | `top_ks2.v` | The computer's top level: clocks, power-on reset, buttons, SRAM pads, FT232H, the open-drain PS/2 lines and keyboard rows, HDMI and VGA, the audio pads |
 | `top_ks2_pattern.v` | The test pattern's top level |
+| `top_ks2_sramtest.v` | The SRAM tester's top level: its MMCM, reset, the FT232H pads, the other pins held. The tester itself is in `fpga/rtl/sramtest/` and `fpga/rtl/platform/artix7/sramt_pads.v` |
+| `lint_stub_sramtest.v` | Stand-ins for the SRAM tester's Xilinx primitives, for `fpga/lint.sh` |
 
 The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), `hdmi_out.v` (TMDS encoders and serialisers, with `fpga/rtl/tmds_encoder.v`), `oddr.v`. They and the flow come from retro68k's KS3 build (`fpga/rtl/PROVENANCE.md`).
 

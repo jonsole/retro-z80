@@ -2,7 +2,8 @@
 # Adapted from retro68k's fpga/ks3/build.tcl. Run through build.sh:
 #   vivado -mode batch -source build.tcl -tclargs <repo root> <build dir> <what>
 # <what> is "machine" (the computer, top_ks2; build.sh has put boot.hex in
-# the build folder) or "pattern" (the test pattern, top_ks2_pattern), and
+# the build folder), "pattern" (the test pattern, top_ks2_pattern) or
+# "sramtest" (the SRAM timing tester, top_ks2_sramtest; issue #90), and
 # an optional 1 to build the geometry unit in place of the DMA engine (GEOM),
 # then an optional 0 to leave the copper out (COPPER).
 
@@ -25,6 +26,15 @@ if {$what eq "pattern"} {
         $root/fpga/ks2/top_ks2_pattern.v $hw/rtl/tmds_encoder.v \
         $rtl/platform/artix7/ks2_clocks.v $hw/platform/artix7/hdmi_out.v ]
     read_xdc $root/fpga/ks2/ks2.xdc
+    read_xdc $root/fpga/ks2/ks2_clocks.xdc
+} elseif {$what eq "sramtest"} {
+    set top  top_ks2_sramtest
+    set name ks2_sramtest
+    read_verilog [list \
+        $root/fpga/ks2/top_ks2_sramtest.v $rtl/sramtest/sramt_engine.v $rtl/sramtest/sramt_wave.v \
+        $rtl/sramtest/sramt_link.v $rtl/platform/artix7/sramt_pads.v ]
+    read_xdc $root/fpga/ks2/ks2.xdc
+    read_xdc $root/fpga/ks2/ks2_sramtest.xdc
 } else {
     set top  top_ks2
     set name retroz80_ks2
@@ -38,11 +48,12 @@ if {$what eq "pattern"} {
         $rtl/platform/artix7/ks2_clocks.v $hw/platform/artix7/hdmi_out.v \
         $hw/platform/artix7/oddr.v ] [glob $hw/rtl/*.v]
     read_xdc $root/fpga/ks2/ks2.xdc
+    read_xdc $root/fpga/ks2/ks2_clocks.xdc
     read_xdc $root/fpga/ks2/ks2_machine.xdc
 }
 
 # tv80 counts R and drives rfsh_n only with TV80_REFRESH (spec 1)
-if {$what eq "pattern"} {
+if {$what ne "machine"} {
     synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH
 } else {
     synth_design -top $top -include_dirs $rtl -verilog_define TV80_REFRESH -generic GEOM=$geom -generic COPPER=$copper
