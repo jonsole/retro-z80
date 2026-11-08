@@ -27,7 +27,7 @@ module tb_cop;
 
     // ---------------------------------------------------------------- slots
     wire [3:0] sc;
-    timebase tbase (.clk(clk), .rst(rst), .sc(sc));
+    timebase tbase (.clk(clk), .rst(rst), .ph(), .sc(sc));
     wire       start_next = sc[0];
     wire [2:0] next_cycle = (sc == 4'd9) ? 3'd0 : sc[3:1] + 1'b1;
 
@@ -96,7 +96,8 @@ module tb_cop;
         for (k = 1; k < 4; k = k + 1) begin rt_p[k] <= rt_p[k-1]; rd_p[k] <= rd_p[k-1]; end
     end
 
-    dmac sched (
+    dmac #(.CPU_CYCLES(5'b00101), .HARD_CYCLES(5'b01010), .AUD_CYCLES(5'b10000),
+           .CPU_FIRST(1), .NASTY(0), .HIGH(0)) sched (
         .clk(clk), .rst(rst), .start_next(start_next), .next_cycle(next_cycle),
         .cpu_req(busy), .cpu_we(1'b0), .cpu_addr(21'd0), .cpu_wdata(16'd0), .cpu_be(2'b11),
         .cpu_ack(), .cpu_rvalid(),
@@ -106,7 +107,7 @@ module tb_cop;
         .spr_ack(), .spr_rvalid(),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
         .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(1'b0), .blt_we(1'b0), .blt_addr(21'd0), .blt_wdata(16'd0), .blt_be(2'b00),
+        .blt_req(1'b0), .blt_we(1'b0), .blt_addr(21'd0), .blt_wdata(16'd0), .blt_be(2'b00), .blt_high(1'b0), .blt_share(2'd0),
         .blt_ack(), .blt_rvalid(),
         .port_req(1'b0), .port_we(1'b0), .port_addr(21'd0), .port_wdata(16'd0), .port_be(2'b00),
         .port_ack(), .port_rvalid(),
@@ -217,7 +218,7 @@ module tb_cop;
     integer cuts = 0, last_cut = 0;
     always @(posedge clk) begin
         cut_vbl <= 1'b0;
-        if (tb_cut && cuts < 3 && clocks - last_cut > 3000 && dut.xs == 3'd1 && dut.have && !dut.hold
+        if (tb_cut && cuts < 3 && clocks - last_cut > 3000 && dut.exec
             && (dut.i_skip || dut.i_skc)) begin
             cut_vbl  <= 1'b1;
             cuts     = cuts + 1;
@@ -322,7 +323,7 @@ module tb_cop;
                     fr = fr + 1;
                     tf = clocks;
                 end
-                if (nf == 0) stopped = (dut.xs == 3'd0) && (!fl[0] || (fr >= 1 && clocks > tf + 4));
+                if (nf == 0) stopped = dut.e_stopped && (!fl[0] || (fr >= 1 && clocks > tf + 4));
                 else         stopped = (fr > nf);
             end
             if (!stopped) begin

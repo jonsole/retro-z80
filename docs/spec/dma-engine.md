@@ -405,7 +405,7 @@ On the KS2, with the guide's screen, the speed would grow with the share of cycl
 Built by ticket #78 (31 October 2026):
 
 - **B:** a group is up to 16 destination words. The buffers hold 17 source words, 16 destination words and 17 mask words.
-- **A:** when a group has no C or mask words to read, the writes start as soon as every source read has been made, not when the last one is back. Stage A waits for each source word it needs. A group with nothing to read at all (a fill) goes straight from its set-up to the writes. On the way to the same channel's next group, a group ends when its last write is taken, not when its cycle is granted: the access unit holds the next request until then.
+- **A:** when a group has no C or mask words to read, the writes start as soon as every source read has been made, not when the last one is back. Stage A waits for each source word it needs. A group with nothing to read at all (a fill) goes to the writes from the read step's first clock: since 7 November 2026 the group's counts are registered before anything decides on them, for timing (retro-hw's `dmx_core`), so such a group, and one with only C words to read, takes one clock more than before. On the way to the same channel's next group, a group ends when its last write is taken, not when its cycle is granted: the access unit holds the next request until then.
 - Not built: setting up the next group during the last writes. Groups that read C or a mask image still read everything first.
 
 The simulation (`sim/dmx/dmxspeed.asm`, the layers off, timed from RUN to BUSY clear):
@@ -560,7 +560,7 @@ In channel 3's spare bytes, where retro68k has them (after its channel 3):
 
 **DMACON** (spec 4): **BLTEN**, with DMAEN, lets the engine run. Both are clear after reset.
 
-**Interrupts:** each channel is its own source in the interrupt controller (spec 8): **DMA0–DMA3, sources 4–7**. A channel requests its interrupt while its DMXINT bit and DMXINTEN bit are both set. The handler clears it by writing 1 to that DMXINT bit.
+**Interrupts:** each channel is its own source in the interrupt controller (spec 8): **DMA0–DMA3, sources 4–7**. A channel requests its interrupt while its DMXINT bit and DMXINTEN bit are both set. The handler clears it by writing 1 to that DMXINT bit. A bit that comes due in the same clock as a write of 1 that clears it **stays set**: the new interrupt is never lost, so the handler sees it again (7 November 2026, as retro68k).
 
 ### 8.5 Errors
 
@@ -717,7 +717,22 @@ Software decides, but a sensible default, as retro68k's:
 
 retro68k's engine came to about 2,300 LUTs. The port (ticket #39) came to about 2,550 logic LUTs and 400 LUTs of distributed RAM; of the logic, the 1 bpp mask image (MASK = 1) is about 400 and ADD about 125. With 2 sprites the KS2 was still 29 LUTs short, so **the KS2 builds 2 sprites and no mask image** (`DMX_MASKIMG = 0`: MASK = 1 is an error there, section 8.5); compare masks, every minterm and ADD work. It came to 9,773 logic LUTs (94%), timing met by 0.080 ns (29 October 2026). The KS3 builds everything (design plan, branch 21).
 
-The RTL is retro68k's `dmx.v`, ported and narrowed to this spec, and its test is retro68k's random-job test against a Python model (design plan, branch 21; `fpga/rtl/PROVENANCE.md`).
+The RTL was retro68k's `dmx.v`, ported and narrowed to this spec, and its test is retro68k's random-job test against a Python model (design plan, branch 21; `fpga/rtl/PROVENANCE.md`).
+
+### 11.1 Shared core
+
+The engine is retro-hw's `dmx_core` ([spec](../../fpga/retro-hw/docs/spec/dmx_core.md)), in `fpga/retro-hw/rtl/dmx_core.v`: the four channels, their scheduler and the shared datapath (shifter, mask stream, minterm, ADD, colour key, edge masks, the C read and skip rules, LINE and EDGES). `fpga/rtl/dmx.v` is retro-z80's wrapper round it.
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| CHIP_WORDS | From `CHIPMB` | The SRAM on the board |
+| LE | 1 | The SRAM is little-endian (spec 2, section 8.4) |
+| XPORT | 0 | Version 1 reaches SRAM only (section 4) |
+| PORTJOB | 0 | No port jobs in version 1 (section 4) |
+| MASKIMG | `DMX_MASKIMG`: 0 on the KS2, 1 on the KS3 | The 1 bpp mask image (above) |
+
+The wrapper keeps this spec's registers (section 8): the 32-byte descriptor at custom `0x140`–`0x23F` as byte registers, decoded onto the core's job ports; VALUE little-endian; BCONST; 3-byte physical addresses; CTRL2 non-zero as an error; CHCTRL, CHSTAT, the global registers and the interrupt flags.
+
 
 ## 12. Test plan
 
