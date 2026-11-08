@@ -678,11 +678,12 @@ Parts of the video are retro-hw's cores, in `fpga/retro-hw/`. `fpga/rtl/video.v`
 
 | Core | What | Parameters | Spec |
 |------|------|------------|------|
+| `layer_fetch` (`rtl/`) | The layer fetch: the pointers and saved line starts, the line state, the data registers, earliest-deadline layer choice, the urgent mark and the tile mode (section 5) | NL 3 (1 on the KS2), PW 22, PLANAR 0, TILES 1, DATWRITE 0, LITTLE 1 (the even byte, the pixels further left, into the high half), URG_BASE 17, URG_WORD 5 (spec 2, section 5.3) | [layer_fetch](../../fpga/retro-hw/docs/spec/layer_fetch.md) |
 | `layer_pix` (`rtl/`) | One layer's pixel side: groups across the clock crossing, fine scroll, scaling, overrun (sections 4.6, 5.5 and 5.7) | PLANAR 0 (chunky only), TILES 1 (the tile PAL and PRI) | [layer_pix](../../fpga/retro-hw/docs/spec/layer_pix.md) |
 | `tmds_encoder` (`rtl/`) | One HDMI lane's 8b/10b encoder | None | [tmds_encoder](../../fpga/retro-hw/docs/spec/tmds_encoder.md) |
 | `hdmi_out` (`platform/artix7/`) | Three encoders, the serialisers and the differential pins | None | [platform](../../fpga/retro-hw/docs/spec/platform.md) |
 
-`video.v` keeps the rest: the registers of section 6, the beam and its interrupts, the layer and attribute fetch (section 5), priority, the palettes and the border.
+`video.v` keeps the rest: the registers of section 6, the beam and its interrupts, the attribute fetch (section 7.1), priority, the palettes and the border. `bpldma.v` wraps `layer_fetch`: it holds BPLSTRIDE, MAPPT, PATPT and the BPL0PT byte registers (a byte write is merged into the core's live pointer), and hands BPL0PT to the CPU's capture. The core takes MAPPT and PATPT at the start of each line and BPLSTRIDE when the line's last word is asked for; `video.v` loads the other line settings once a line. Making CTRL0–CTRL3 take effect mid-line, from the next group, is design plan branch 26 (live CTRL).
 
 ## 10. Test plan
 

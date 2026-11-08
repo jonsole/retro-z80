@@ -98,7 +98,6 @@ module video #(
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
     output wire        disp_urgent,
-    output wire [9:0]  disp_deadline,
     output wire [21:1] disp_addr,
     input  wire        disp_ack,
     input  wire        disp_rvalid,
@@ -702,7 +701,7 @@ module video #(
         .tile(f_tile), .mapw(fv_mw), .ty(fv_ty), .tcol(fv_tcol),
         .line_go(line_go), .line_gen(line_gen),
         .dat(dat), .attr(at), .fill_t(fill_t), .take_t(take_t),
-        .req(disp_req), .urgent(disp_urgent), .deadline(disp_deadline), .addr(disp_addr),
+        .req(disp_req), .urgent(disp_urgent), .addr(disp_addr),
         .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
 
