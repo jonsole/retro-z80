@@ -270,11 +270,11 @@ module tb #(
     // ---------------------------------------------------------------- never waits
     // (1) The scheduler: a CPU request standing when a CPU cycle (0 or 2) is
     //     given out must get it. sc odd = a cycle is given out at the next edge.
-    integer cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
+    integer cpu_cycles = 0, cpu_spare = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
     wire    cpu_cycle_next = sc[0] && (sc == 4'd9 || sc == 4'd3);
     always @(posedge clk) if (!por) begin
         if (dut.cpu_req && !dut.cpu_ack && cpu_cycle_next) begin
-            if (dut.go && dut.go_tag == 3'd1) begin
+            if (dut.go && dut.sched.win[4]) begin
                 cpu_cycles = cpu_cycles + 1;
                 if (sc == 4'd9) cpu_issue0 = cpu_issue0 + 1; else cpu_issue2 = cpu_issue2 + 1;
             end else begin
@@ -286,10 +286,9 @@ module tb #(
             $display("%t WAIT ERROR: the core took a byte before it was at di", $realtime);
             wait_errors = wait_errors + 1;
         end
-        if (dut.go && dut.go_tag == 3'd1 && !cpu_cycle_next) begin
-            $display("%t WAIT ERROR: CPU given a cycle that is not 0 or 2", $realtime);
-            wait_errors = wait_errors + 1;
-        end
+        // A CPU request may be served earlier, in a spare cycle (dmac rule
+        // 4); its data then comes back sooner, which bus_if allows
+        if (dut.go && dut.sched.win[4] && !cpu_cycle_next) cpu_spare = cpu_spare + 1;
     end
 
     // (2) The core: at the cen edge that ends T2 of a memory read (opcode
@@ -921,8 +920,8 @@ module tb #(
                      reads_rom, reads_sram, writes_sram, ios);
             $display("---- Z80: register page %0d reads, %0d writes; %0d reads of NONE or reserved pages (%0d MB build)",
                      reads_regs, writes_regs, reads_none, CHIPMB);
-            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d turned away",
-                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_refused);
+            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d spare, %0d turned away",
+                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_spare, cpu_refused);
             $display("---- never waited: %0d errors", wait_errors + cpu_refused);
             $display("---- DMA: %0d reads, %0d writes, %0d errors", dma_reads, dma_writes, dma_errors);
             $display("---- SRAM timing errors: %0d, FT232H errors: %0d, send-immediate pulses: %0d",

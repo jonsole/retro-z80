@@ -273,7 +273,7 @@ module retroz80 #(
     wire [21:1] go_addr;
     wire [15:0] go_wdata;
     wire [1:0]  go_be;
-    wire [2:0]  go_tag, m_cycle, m_rtag;
+    wire [2:0]  m_cycle;
     wire        bpl_req, bpl_urgent, bpl_ack, bpl_rvalid;
     wire [21:1] bpl_addr;
     wire [9:0]  bpl_deadline;
@@ -291,24 +291,35 @@ module retroz80 #(
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
     // SRAM keeps its contents across a reset, spec 7, section 3.2)
-    dmac #(.CPU_CYCLES(5'b00101), .HARD_CYCLES(5'b01010), .AUD_CYCLES(5'b10000),
-           .CPU_FIRST(1), .NASTY(0), .HIGH(0)) sched (
-        .clk(clk), .rst(por), .start_next(m_start), .next_cycle(m_cycle),
-        .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr), .cpu_wdata(cpu_wdata),
-        .cpu_be(cpu_be), .cpu_ack(cpu_ack), .cpu_rvalid(cpu_rvalid),
-        .bpl_req(bpl_req), .bpl_addr(bpl_addr), .bpl_deadline(bpl_deadline), .bpl_urgent(bpl_urgent),
-        .bpl_ack(bpl_ack), .bpl_rvalid(bpl_rvalid),
-        .spr_req(spr_req), .spr_addr(spr_addr), .spr_deadline(spr_deadline), .spr_urgent(spr_urgent),
-        .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
-        .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
-        .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be), .blt_high(1'b0), .blt_share(2'd0),
-        .blt_ack(blt_ack), .blt_rvalid(blt_rvalid),
-        .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata),
-        .port_be(dma_be), .port_ack(dma_ack), .port_rvalid(dma_rvalid),
+    //
+    // Requesters, numbered as retro-hw's dmac spec 4.1 (the number is the
+    // priority): 0 layers, 1 sprites, 2 audio (none yet), 3 copper, 4 CPU,
+    // 5 DMA engine, 6 DMA port. The slot plan is fixed (design plan,
+    // branch 25): CPU in slots 0 and 2, both locked, so nothing takes a
+    // cycle the Z80 asks for; the display in 1 and 3; audio in 4. The
+    // copper at COPCON.PRI 1 or more is high: first in spare cycles.
+    localparam DM_N = 7;
+    localparam [5*DM_N-1:0] DM_OWNER = {7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000};
+    localparam [4:0]        DM_LOCK  = 5'b00101;
+    wire [DM_N-1:0] dm_ack, dm_rvalid;
+    dmac #(.N(DM_N), .S(5)) sched (
+        .clk(clk), .rst(por), .start_next(m_start), .next_slot(m_cycle),
+        .slot_owner(DM_OWNER), .slot_lock(DM_LOCK),
+        .req   ({dma_req, blt_req, cpu_req, cop_req, 1'b0, spr_req, bpl_req}),
+        .urgent({1'b0, 1'b0, 1'b0, 1'b0, 1'b0, spr_urgent, bpl_urgent}),
+        .high  ({1'b0, 1'b0, 1'b0, |cop_pri, 1'b0, 1'b0, 1'b0}),
+        .we    ({dma_we, blt_we, cpu_we, 4'b0000}),
+        .addr  ({dma_addr, blt_addr, cpu_addr, cop_addr, 21'd0, spr_addr, bpl_addr}),
+        .wdata ({dma_wdata, blt_wdata, cpu_wdata, 64'd0}),
+        .be    ({dma_be, blt_be, cpu_be, 8'd0}),
+        .ack(dm_ack), .rvalid_o(dm_rvalid),
         .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(go_wdata), .go_be(go_be),
-        .go_tag(go_tag), .rvalid(m_rvalid), .rtag(m_rtag)
+        .rvalid(m_rvalid)
     );
+    assign {dma_ack, blt_ack, cpu_ack, cop_ack}       = dm_ack[6:3];
+    assign {spr_ack, bpl_ack}                         = dm_ack[1:0];
+    assign {dma_rvalid, blt_rvalid, cpu_rvalid, cop_rvalid} = dm_rvalid[6:3];
+    assign {spr_rvalid, bpl_rvalid}                   = dm_rvalid[1:0];
     assign dma_rdata = mem_rdata;
 
     // A 2 MB build ignores physical address bit 21, for every master, so
@@ -319,8 +330,8 @@ module retroz80 #(
     sram_ctl mem (
         .clk(clk), .rst(por), .sc(sc),
         .go(go), .go_we(go_we), .go_addr(sram_addr), .go_wdata(go_wdata), .go_be(go_be),
-        .go_tag(go_tag), .start_next(m_start), .next_cycle(m_cycle),
-        .rvalid(m_rvalid), .rtag(m_rtag), .rdata(mem_rdata),
+        .start_next(m_start), .next_cycle(m_cycle),
+        .rvalid(m_rvalid), .rdata(mem_rdata),
         .sram_a(sram_a), .sram_ce_n(sram_ce_n), .sram_ub_n(sram_ub_n), .sram_lb_n(sram_lb_n),
         .sram_oe_n_r(sram_oe_n_r), .sram_oe_n_f(sram_oe_n_f),
         .sram_we_n_r(sram_we_n_r), .sram_we_n_f(sram_we_n_f),

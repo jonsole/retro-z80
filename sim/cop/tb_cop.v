@@ -78,42 +78,37 @@ module tb_cop;
     reg         busy = 1'b0;            // the CPU and layer channels ask for every cycle
     wire        go, go_we;
     wire [21:1] go_addr;
-    wire [2:0]  go_tag;
     wire        cop_req, cop_ack, cop_rvalid;
     wire [21:1] cop_addr;
     wire [1:0]  cop_pri;
     reg  [15:0] mem [0:(1<<21)-1];
     reg  [3:0]  rv_p = 4'd0;
-    reg  [2:0]  rt_p [0:3];
     reg  [15:0] rd_p [0:3];
     wire        rvalid = rv_p[3];
-    wire [2:0]  rtag = rt_p[3];
     wire [15:0] rdata = rd_p[3];
     integer     k;
     always @(posedge clk) begin
         rv_p <= {rv_p[2:0], go};
-        rt_p[0] <= go_tag; rd_p[0] <= mem[go_addr];
-        for (k = 1; k < 4; k = k + 1) begin rt_p[k] <= rt_p[k-1]; rd_p[k] <= rd_p[k-1]; end
+        rd_p[0] <= mem[go_addr];
+        for (k = 1; k < 4; k = k + 1) rd_p[k] <= rd_p[k-1];
     end
 
-    dmac #(.CPU_CYCLES(5'b00101), .HARD_CYCLES(5'b01010), .AUD_CYCLES(5'b10000),
-           .CPU_FIRST(1), .NASTY(0), .HIGH(0)) sched (
-        .clk(clk), .rst(rst), .start_next(start_next), .next_cycle(next_cycle),
-        .cpu_req(busy), .cpu_we(1'b0), .cpu_addr(21'd0), .cpu_wdata(16'd0), .cpu_be(2'b11),
-        .cpu_ack(), .cpu_rvalid(),
-        .bpl_req(busy), .bpl_addr(21'd0), .bpl_deadline(10'd500), .bpl_urgent(1'b0),
-        .bpl_ack(), .bpl_rvalid(),
-        .spr_req(1'b0), .spr_addr(21'd0), .spr_deadline(10'd0), .spr_urgent(1'b0),
-        .spr_ack(), .spr_rvalid(),
-        .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
-        .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(1'b0), .blt_we(1'b0), .blt_addr(21'd0), .blt_wdata(16'd0), .blt_be(2'b00), .blt_high(1'b0), .blt_share(2'd0),
-        .blt_ack(), .blt_rvalid(),
-        .port_req(1'b0), .port_we(1'b0), .port_addr(21'd0), .port_wdata(16'd0), .port_be(2'b00),
-        .port_ack(), .port_rvalid(),
-        .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(), .go_be(), .go_tag(go_tag),
-        .rvalid(rvalid), .rtag(rtag)
+    // retro-z80's plan (retroz80.v): 0 layers, 1 sprites, 2 audio, 3 copper,
+    // 4 CPU, 5 DMA engine, 6 DMA port; CPU in slots 0 and 2 (locked), the
+    // display in 1 and 3, audio in 4; the copper high at PRI 1 or more
+    wire [6:0] dm_ack, dm_rvalid;
+    dmac #(.N(7), .S(5)) sched (
+        .clk(clk), .rst(rst), .start_next(start_next), .next_slot(next_cycle),
+        .slot_owner({7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000}), .slot_lock(5'b00101),
+        .req({1'b0, 1'b0, busy, cop_req, 1'b0, 1'b0, busy}),
+        .urgent(7'd0), .high({3'b000, |cop_pri, 3'b000}), .we(7'd0),
+        .addr({63'd0, cop_addr, 63'd0}), .wdata(112'd0), .be(14'd0),
+        .ack(dm_ack), .rvalid_o(dm_rvalid),
+        .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(), .go_be(),
+        .rvalid(rvalid)
     );
+    assign cop_ack    = dm_ack[3];
+    assign cop_rvalid = dm_rvalid[3];
 
     reg  dma_on = 1'b1;
     wire irq;
