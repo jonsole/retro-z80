@@ -6,7 +6,8 @@
 // the MMU gives the page, and the access goes where the page says:
 //   SRAM     a request to the scheduler, standing from E + 3; the scheduler
 //            gives the CPU the first of cycles 0 and 2 that comes (E + 4 or
-//            E + 5 at 20 MHz), and its data comes back 4 clocks later
+//            E + 5 at 20 MHz), or a spare cycle before it, and its data
+//            comes back 4 clocks later
 //   boot ROM the block RAM answers in one clock; no SRAM cycle
 //   REGS     the register page (spec 1, section 5.7): one register bus
 //            strobe the clock after rd_n or wr_n goes low, at A12-A0, as

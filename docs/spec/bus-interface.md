@@ -195,7 +195,7 @@ M-cycles longer than these (extra T-states for internal work) change nothing her
 
 ### 5.2 Which cycle an access uses
 
-The CPU owns **cycles 0 and 2** of every slot, issued at slot edges 0 and 4 (spec 2, section 3). A request must stand in the clock before its cycle's issue edge. The bus interface needs 3 clocks after a cen edge to decode the cycle type, look up the MMU and load cpu_req.
+The CPU owns **cycles 0 and 2** of every slot, issued at slot edges 0 and 4 (spec 2, section 3). A request must stand in the clock before its cycle's issue edge. The bus interface needs 3 clocks after a cen edge to decode the cycle type, look up the MMU and load cpu_req. Cycles 0 and 2 are locked to the CPU (spec 2, section 5.2), so its request always gets the first of them that comes. The scheduler may serve it sooner, in a spare cycle; the data then comes back earlier and waits at di, which never makes the Z80 wait.
 
 | Access | Cycle used | Then |
 |--------|------------|------|

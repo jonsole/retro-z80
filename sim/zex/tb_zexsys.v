@@ -232,14 +232,14 @@ module tb_zexsys (input clk);
     //     at the next edge.
     //     Spec 1, section 13 ("one CPU cycle per slot"): the CPU never gets
     //     both cycles of one slot (cycle 0 and then cycle 2).
-    reg  [63:0] cpu_cycles = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
+    reg  [63:0] cpu_cycles = 0, cpu_spare = 0, cpu_refused = 0, cpu_issue0 = 0, cpu_issue2 = 0, wait_errors = 0;
     reg  [63:0] both_cycles = 0;
     reg     slot_had0 = 1'b0;
     wire    cpu_cycle_next = sc == 4'd9 || sc == 4'd3;
     always @(posedge clk) if (!por) begin
         if (sc == 4'd9) slot_had0 = 1'b0;               // a new slot starts at the next edge
         if (dut.cpu_req && !dut.cpu_ack && cpu_cycle_next) begin
-            if (dut.go && dut.go_tag == 3'd1) begin
+            if (dut.go && dut.sched.win[4]) begin
                 cpu_cycles = cpu_cycles + 1;
                 if (sc == 4'd9) begin
                     cpu_issue0 = cpu_issue0 + 1;
@@ -260,10 +260,8 @@ module tb_zexsys (input clk);
             if (wait_errors < 10) $display("WAIT ERROR: the core took a byte before it was at di, clock %0d", cycles);
             wait_errors = wait_errors + 1;
         end
-        if (dut.go && dut.go_tag == 3'd1 && !cpu_cycle_next) begin
-            if (wait_errors < 10) $display("WAIT ERROR: CPU given a cycle that is not 0 or 2, clock %0d", cycles);
-            wait_errors = wait_errors + 1;
-        end
+        // A CPU request may be served earlier, in a spare cycle (dmac rule 4)
+        if (dut.go && dut.sched.win[4] && !cpu_cycle_next) cpu_spare = cpu_spare + 1;
     end
 
     // (2) MMU model (spec 2, section 9), as tb.v's: eight windows, each with
@@ -427,8 +425,8 @@ module tb_zexsys (input clk);
             $display("---- %0d clocks, %0d T-states", cycles, tstates);
             $display("---- Z80: %0d reads from the boot ROM, %0d from SRAM, %0d of other pages, %0d writes to SRAM",
                      reads_rom, reads_sram, reads_other, writes_sram);
-            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d turned away, %0d slots with both",
-                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_refused, both_cycles);
+            $display("---- scheduler: %0d CPU cycles (%0d in cycle 0, %0d in cycle 2), %0d spare, %0d turned away, %0d slots with both",
+                     cpu_cycles, cpu_issue0, cpu_issue2, cpu_spare, cpu_refused, both_cycles);
             $display("---- never waited: %0d errors; read data at di %0d+ clocks before taken",
                      wait_errors + cpu_refused, spare);
             $display("---- speed: %0d errors; DMA: %0d reads, %0d writes, %0d errors",

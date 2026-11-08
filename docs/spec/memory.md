@@ -108,46 +108,51 @@ The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so 
 
 ### 5.1 Channels
 
-One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalent of the Amiga's Agnus), decides who gets every memory cycle. Each user is a **channel** that holds a request (address, read or write, data) until it is granted; read data comes back 40 ns after the issue (section 3). Hard-deadline channels give, with each request, the time left until the data is needed, and say when it is **urgent** (about to be late).
+One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalent of the Amiga's Agnus), decides who gets every memory cycle. Each user is a **channel** with a number. It holds a request (address, read or write, data) until it is granted; read data comes back 40 ns after the issue (section 3). The number is the channel's priority: wherever two channels meet in the same rule, the lower number wins. Hard-deadline channels say when a request is **urgent** (about to be late).
 
-| Channel | What | Kind |
-|---------|------|------|
-| CPU | The Z80 through the bus interface (spec 1) | Cycles 0 and 2; at 3.57 MHz the first of them that comes (spec 1, section 5.4) |
-| BPL | Layer fetch: L0–L2 and the attribute layer (spec 4) | Hard deadline |
-| SPR | Sprites: the 8 sprite FIFOs (spec 5) | Hard deadline |
-| AUD | Audio (spec 13, parked; tied off) | Soft |
-| SEQ | Sprite sequencer: its list (spec 17, a retro-z80 extra) | Best effort, with a soft deadline |
-| COP | Copper: its list (spec 6) | Best effort |
-| BLT | DMA engine: its 4 channels take turns inside the engine (spec 14) | Best effort |
-| PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests | Best effort |
+| No. | Channel | What | Kind |
+|-----|---------|------|------|
+| 0 | BPL | Layer fetch: L0–L2 and the attribute layer (spec 4) | Hard deadline |
+| 1 | SPR | Sprites: the 8 sprite FIFOs (spec 5) | Hard deadline |
+| 2 | AUD | Audio (spec 13, parked; tied off) | Soft |
+| 3 | COP | Copper: its list (spec 6) | Best effort; high at COPCON.PRI 1 |
+| 4 | CPU | The Z80 through the bus interface (spec 1) | Cycles 0 and 2, locked; at 3.57 MHz the first of them that comes (spec 1, section 5.4) |
+| 5 | BLT | DMA engine: its 4 channels take turns inside the engine (spec 14) | Best effort |
+| 6 | PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests | Best effort |
+
+The sprite sequencer (spec 17, a retro-z80 extra) is not built yet and has no number (open point M13).
 
 ### 5.2 Rules
 
-For each cycle, the first rule that finds a request wins:
+Each cycle of the slot has owners and may be **locked**. This is the slot plan:
 
-0. **The CPU's own cycle.** In cycles 0 and 2, a CPU request gets the cycle. Nothing overrides this.
-1. **An urgent hard-deadline request** gets the cycle, whatever its number (except as rule 0). Earliest deadline first.
-2. **The cycle's default owner:**
+| Cycle | Owners | Locked |
+|-------|--------|--------|
+| 0, 2 | CPU | Yes |
+| 1, 3 | Layer fetch, sprites | No |
+| 4 | Audio | No |
 
-   | Cycle | Default owner |
-   |-------|---------------|
-   | 0, 2 | CPU (rule 0) |
-   | 1, 3 | Hard-deadline channels, earliest deadline first |
-   | 4 | Audio; then the copper at COPCON.PRI 1 (spec 6) |
+For each cycle, the first rule that finds a request wins, and within a rule the lowest number:
 
-3. **The free order:** hard-deadline channels (earliest deadline first), audio, the sprite sequencer, copper, DMA engine, the DMA port. The sequencer goes before the copper at PRI 0, since its few reads have a deadline (the gap line), and after the copper at PRI 1 (spec 17, section 5.4). The copper at COPCON.PRI 1 (high) moves to the front of this order, as in retro68k. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
+1. **The owner of a locked cycle.** In cycles 0 and 2, a CPU request gets the cycle. Nothing overrides this.
+2. **An urgent request** (layer fetch before sprites).
+3. **The cycle's owner.**
+4. **The free order:** first a high request (the copper at COPCON.PRI 1), then any request, by number: layer fetch, sprites, audio, copper, CPU, DMA engine, the DMA port. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
 
-So no cycle is wasted: whatever its owner leaves goes to the next channel that wants one. In particular the display can use a cycle 0 or 2 the CPU is not using, and cycle 4 when audio and the copper leave it.
+So no cycle is wasted: whatever its owner leaves goes to the next channel that wants one. In particular the display can use a cycle 0 or 2 the CPU is not using, and cycle 4 when audio leaves it. The copper at PRI 1 gets cycle 4 before the display, as it did when it was cycle 4's second owner.
 
-The CPU's request stands in the clock before its cycle is issued (spec 1, section 5), as every channel's does, so a cycle 0 or 2 the CPU has not asked for by then goes to the others. The bus interface always asks in time for the cycle it needs, and is never turned away.
+The CPU's request stands in the clock before its cycle is issued (spec 1, section 5), as every channel's does, so a cycle 0 or 2 the CPU has not asked for by then goes to the others. The bus interface always asks in time for the cycle it needs, and is never turned away. A CPU request may also be served earlier, in a spare cycle by rule 4. Its data then comes back sooner and is held at di until the core takes it (spec 1, section 5.3).
+
+The plan is fixed in the hardware (design plan, branch 25). The KS3 makes it a register, as retro68k's.
 
 ### 5.3 Urgent fetches and the Z80
 
 In retro68k an urgent display fetch may take the CPU's cycle 0, and the 68000 then waits one slot. Here that would break the rule that the Z80 never waits, so rule 0 comes first. This costs the display little:
 
-- The cycle after each CPU cycle is a display cycle: 0 is followed by 1, and 2 by 3. So an urgent fetch that finds the CPU in its cycle waits at most one memory cycle, **20 ns**.
+- The cycle after each CPU cycle is a display cycle: 0 is followed by 1, and 2 by 3. So an urgent layer fetch that finds the CPU in its cycle waits at most one memory cycle, **20 ns**.
+- An urgent sprite fetch can also lose cycle 1 to an urgent layer fetch, between the CPU's cycles 0 and 2. Its worst case is then 3 cycles: 12 clocks from asking to the data (retro-hw's dmac spec, 4.6), against 8 for the layer fetch.
 - The CPU uses at most one of cycles 0 and 2 per slot, so an urgent run of fetches still gets at least 4 cycles in every 5.
-- Spec 4 sets the urgent mark one memory cycle (2 clocks) earlier than retro68k's to cover the 20 ns (open point M5).
+- Spec 4 sets the urgent mark one memory cycle (2 clocks) earlier than retro68k's to cover the 20 ns (open point M5), and spec 5 the sprites' one unit (8 clocks) earlier (URGENT 6).
 
 A screen within the display budget (section 7) is rarely urgent at all. On a screen over budget, late data shows as in retro68k (spec 4), and the CPU is not slowed.
 
@@ -157,16 +162,14 @@ As in retro68k, one register, **DMACON**, turns the memory users on and off with
 
 ### 5.5 Shared core
 
-The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dmac.md)), and the slot counter `sc` (section 3) is retro-hw's `timebase` ([spec](../../fpga/retro-hw/docs/spec/timebase.md)). Both are in `fpga/retro-hw/rtl/`. retro-z80's cycle owners (section 4) are `dmac`'s parameters:
+The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dmac.md)), and the slot counter `sc` (section 3) is retro-hw's `timebase` ([spec](../../fpga/retro-hw/docs/spec/timebase.md)). Both are in `fpga/retro-hw/rtl/`. retro-z80's plan (section 5.2) goes to `dmac` as fixed values, with N = 7 channels numbered as in section 5.1 and S = 5 slots, one for each cycle:
 
-| Parameter | Value | Meaning |
-|-----------|-------|---------|
-| CPU_CYCLES | `00101` | The CPU owns cycles 0 and 2 |
-| HARD_CYCLES | `01010` | Cycles 1 and 3 are the display's |
-| AUD_CYCLES | `10000` | Cycle 4 is audio's, then the free pool |
-| CPU_FIRST | 1 | Rule 0: the CPU is never overridden, not even by an urgent fetch (section 5.3) |
-| NASTY | 0 | No nasty copper: COPCON.PRI 2 and 3 act as 1 (spec 6) |
-| HIGH | 0 | No HIGH mode: the DMA engine never takes the CPU's cycles (`blt_high`, `blt_share` tied to 0) |
+| Port | Value | Meaning |
+|------|-------|---------|
+| `slot_owner` | `{7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000}` | Cycle 0 CPU, 1 display, 2 CPU, 3 display, 4 audio (cycle 0's mask last) |
+| `slot_lock` | `00101` | Cycles 0 and 2: the CPU is never overridden, not even by an urgent fetch (section 5.3) |
+| `high` | The copper's bit: COPCON.PRI not 0 | No nasty copper; the DMA engine is never high (no HIGH mode) |
+| `next_slot` | `sram_ctl`'s `next_cycle` | The cycle's number in the slot |
 
 `timebase` runs without its `ph` output (left unconnected), as tv80 runs on the system clock. retro-z80 keeps the rest: DMACON (section 5.4, spec 4), each unit's requests, and the CPU channel in the bus interface (spec 1).
 
@@ -264,7 +267,7 @@ The tight points are tHZOE (write after read) and tPWE. retro68k meets timing at
 
 ### 8.5 Shared core
 
-The SRAM controller is retro-hw's `sram_ctl` core ([spec](../../fpga/retro-hw/docs/spec/sram_ctl.md)), in `fpga/retro-hw/rtl/sram_ctl.v`. It has no parameters. retro-z80 keeps the pins and their pad flip-flops and DDR registers in each board's top level (`fpga/ks2/top_ks2.v`), and the tags it hands back go to `dmac` (section 5.5).
+The SRAM controller is retro-hw's `sram_ctl` core ([spec](../../fpga/retro-hw/docs/spec/sram_ctl.md)), in `fpga/retro-hw/rtl/sram_ctl.v`. It has no parameters. retro-z80 keeps the pins and their pad flip-flops and DDR registers in each board's top level (`fpga/ks2/top_ks2.v`), `dmac` knows whose each read is, as the controller's latency is fixed (section 5.5).
 
 ## 9. The MMU
 
@@ -570,7 +573,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 
 | Item | Resource |
 |------|----------|
-| Scheduler and SRAM controller (retro-hw's `dmac.v` with HIGH 0, and `sram_ctl.v`) | Estimate 150–250 LUTs |
+| Scheduler and SRAM controller (retro-hw's `dmac.v` with a fixed plan, and `sram_ctl.v`) | Estimate 150–250 LUTs |
 | MMU: 16 × 10-bit page registers, held low bytes, page decode | Estimate 100–150 LUTs |
 | Interrupt pages and stack capture: both sets' pages, saved pages and held bytes in distributed RAM (2 × (8 × 20 + 8 × 20 + 16 × 18) bits, section 9.9), the copy engine, one more load path into the MMU (a 20-bit bus into all 16 page registers) and the save path out of it, two masks and their noted copies, the depth, the NMI's two capture registers, the read-back of page `0x01` | Estimate 190–330 LUTs, of which about 60 are distributed RAM, and about 100 flip-flops (open point M10) |
 | Boot ROM | 16 block RAMs (spec 7) |
@@ -612,3 +615,4 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
 | M11 | IPDEPTH stays at 255 when pushed past it, with no flag, so a runaway nest restores early. A sticky overflow bit could be added if it is ever needed |
 | M12 | Saved pages are a snapshot of all 16 page registers at the switch, but only the windows in the mask are put back. Proposed: as written (the monitor reads the program's whole map from one place) |
+| M13 | The sprite sequencer (spec 17) needs a channel number when it is built. Its few reads have a soft deadline, so it would go between audio and the copper (spec 17, section 5.4 had it before the copper at PRI 0 and after the copper at PRI 1). The numbers after it then move up by one |
