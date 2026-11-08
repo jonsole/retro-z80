@@ -423,7 +423,16 @@ Fourteen words: 2 for the WAIT and 4 + 4 + 3 + 1 MOVEs. At the copper's PRI 1 ra
 
 ## 8. FPGA resources
 
-The sprite RTL is retro68k's `sprites.v` and `sprite_pix.v`, with a byte register front end. retro68k's measured figures (Yosys, XC7A35T):
+The sprite engine is retro-hw's, in `fpga/retro-hw/rtl/`; `fpga/rtl/sprites.v` is retro-z80's wrapper round it.
+
+| Core | What | Parameters | Spec |
+|------|------|------------|------|
+| `sprite_fetch` | Line starts, the fetcher, deadlines, the 8 FIFOs, collisions | NS = `NSPRITES` (below), PW 22, SWAP_BYTES 1 (little-endian SRAM), URGENT 6, MANUAL 0 | [sprite_fetch](../../fpga/retro-hw/docs/spec/sprite_fetch.md) |
+| `sprite_pix` | One sprite's pixel side, one per sprite built | None | [sprite_pix](../../fpga/retro-hw/docs/spec/sprite_pix.md) |
+
+The wrapper keeps this spec's registers (section 6): the 16 bytes per sprite, written byte by byte into its RAMs; SPRxCTL as the byte written (BPP 3 taken as 8 bpp); SPRxPT bytes merged into the core's line start, and SPRxPT0's capture; SPRDMA as two bytes; SPRCOLL0–3 cleared by byte. The mixing with the layers is in the video unit (spec 4).
+
+The sprite RTL was retro68k's `sprites.v` and `sprite_pix.v`, with a byte register front end. retro68k's measured figures (Yosys, XC7A35T):
 
 | Item | LUTs |
 |------|------|

@@ -795,10 +795,10 @@ module video #(
     genvar g;
     generate for (g = 0; g < 3; g = g + 1) begin : lay
         if (g < NL) begin : on
-        layer_pix u (
+        layer_pix #(.PLANAR(0), .TILES(1)) u (
             .clk_pix(clk_pix), .clk_pix5(clk_pix5), .en(en_p), .hc(hc), .hn(hn),
             .line_start(hc == HVIS), .ready(buf_ready),
-            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .lb(c_lb[g]),
+            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .planar(1'b0), .lb(c_lb[g]), .planes(3'd0),
             .hs(c_hs[g]), .pos0(c_pos0[g]), .transp(c_transp[g]), .palofs(c_palofs[g]),
             .tile(c_tile[g]),
             .dat(dat[128*g +: 128]), .attr(at[10*g +: 10]), .fill_t(fill_t[g]), .take_t(take_t[g]),

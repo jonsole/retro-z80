@@ -88,7 +88,7 @@ module retroz80 #(
 );
     // ---------------------------------------------------------------- timebase
     wire [3:0] sc;
-    timebase tb0 (.clk(clk), .rst(por), .sc(sc));
+    timebase tb0 (.clk(clk), .rst(por), .ph(), .sc(sc));
     assign dbg_sc = sc;
 
     reg [6:0] us_div;
@@ -291,7 +291,8 @@ module retroz80 #(
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
     // SRAM keeps its contents across a reset, spec 7, section 3.2)
-    dmac sched (
+    dmac #(.CPU_CYCLES(5'b00101), .HARD_CYCLES(5'b01010), .AUD_CYCLES(5'b10000),
+           .CPU_FIRST(1), .NASTY(0), .HIGH(0)) sched (
         .clk(clk), .rst(por), .start_next(m_start), .next_cycle(m_cycle),
         .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr), .cpu_wdata(cpu_wdata),
         .cpu_be(cpu_be), .cpu_ack(cpu_ack), .cpu_rvalid(cpu_rvalid),
@@ -301,7 +302,7 @@ module retroz80 #(
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .aud_req(1'b0), .aud_addr(21'd0), .aud_ack(), .aud_rvalid(),
         .cop_req(cop_req), .cop_addr(cop_addr), .cop_pri(cop_pri), .cop_ack(cop_ack), .cop_rvalid(cop_rvalid),
-        .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be),
+        .blt_req(blt_req), .blt_we(blt_we), .blt_addr(blt_addr), .blt_wdata(blt_wdata), .blt_be(blt_be), .blt_high(1'b0), .blt_share(2'd0),
         .blt_ack(blt_ack), .blt_rvalid(blt_rvalid),
         .port_req(dma_req), .port_we(dma_we), .port_addr(dma_addr), .port_wdata(dma_wdata),
         .port_be(dma_be), .port_ack(dma_ack), .port_rvalid(dma_rvalid),

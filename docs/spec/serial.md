@@ -58,7 +58,7 @@ The FT232H runs in **asynchronous 245 FIFO mode**; its EEPROM is set for this on
 
 Pins are the same as retro68k's KS3 build (checked on the KS2, open point U2): `accel_io[7:0]` D7–D0, `[8]` RXF#, `[9]` TXE#, `[10]` RD#, `[11]` WR#, `[12]` SIWU# (open point U2). The accelerator port has pull-ups, so with no module RXF# and TXE# read "not ready" and the link is simply idle.
 
-The interface logic is retro68k's `serial.v`, unchanged in its timing: both machines run it on a 100 MHz system clock (10 ns), so its RD#/WR# pulse and gap counts already meet the FT232H's minimum timings.
+The interface logic is retro-hw's `ft232h_if.v` (retro68k's, unchanged in its timing; section 7.1): both machines run it on a 100 MHz system clock (10 ns), so its RD#/WR# pulse and gap counts already meet the FT232H's minimum timings.
 
 **Flow control:**
 
@@ -218,6 +218,19 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 - SERDATA and SERDROP are registers where reading has an effect (spec 3): SERDATA takes a byte, SERDROP clears.
 - **After reset:** link off, CTLEN on, CTLLOCK clear, both FIFOs empty, flags and SERDROP clear. The FT232H and the PC's port are not disturbed, so a terminal stays connected while the computer restarts (spec 7); bytes the PC sends meanwhile wait in the FT232H until the boot ROM sets EN.
 
+### 7.1 Shared cores
+
+The link's engine is retro-hw's, in `fpga/retro-hw/rtl/`. `fpga/rtl/serial.v` is retro-z80's wrapper round it.
+
+| Core | What | Parameters | Spec |
+|------|------|------------|------|
+| `serial_link` | The two FIFOs and the command decoder, with flow control | AW 11 (2 KB each way), RX_MARGIN 18, KEY_CMD 1 (KEY, section 4) | [serial_link](../../fpga/retro-hw/docs/spec/serial_link.md) |
+| `slip_rx` | The command and escape decoder (section 4), inside `serial_link` | KEY_CMD from `serial_link` | [slip_rx](../../fpga/retro-hw/docs/spec/slip_rx.md) |
+| `fifo8` | Each FIFO, inside `serial_link` | AW from `serial_link` | [fifo8](../../fpga/retro-hw/docs/spec/fifo8.md) |
+| `ft232h_if` | The FT232H interface (section 3) | None | [ft232h_if](../../fpga/retro-hw/docs/spec/ft232h_if.md) |
+
+The wrapper keeps this spec's registers (the table above): the saturating counts, SERDATA's empty `0x00`, the level codes, SERTIME's 16 µs steps, SERDROP, the flushes and the interrupt flags. It also keeps the resets: the decoder and the FT232H interface by power-on only, the FIFOs by a device reset and the flushes (spec 7).
+
 ## 8. FPGA resources
 
 | Item | Resource |
@@ -241,7 +254,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 - **Flush:** RXFLUSH and TXFLUSH empty their FIFO and set the counts.
 - **DMA:** port 1 jobs each way at full speed; a stalled port does not hold up other channels.
 - **Latency:** a single byte reaches the PC in well under 16 ms (SIWU#).
-- **Timing:** in simulation against retro68k's FT232H model at 100 MHz; on the board, measure throughput both ways.
+- **Timing:** in simulation against retro-hw's FT232H model (`fpga/retro-hw/sim/ft232h_model.v`) at 100 MHz; on the board, measure throughput both ways.
 
 ## 10. Open points
 

@@ -84,8 +84,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxspeed dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dtest zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxint dmxspeed dtest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dmxint dtest zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -122,7 +122,7 @@ HW_RTL    := $(HW)/rtl
 TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
-SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v timebase.v dmac.v              bootrom.v serial.v sysregs.v intc.v layer_pix.v bpldma.v sprites.v sprite_pix.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
+SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v bootrom.v serial.v sysregs.v intc.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
              $(wildcard $(HW_RTL)/*.v)
 SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
@@ -175,8 +175,8 @@ intc: $(BUILD)/tb_intc.vvp
 	@grep -q "^TEST PASSED" $(BUILD)/intc.log
 
 # The serial unit on its own: escapes and control commands (spec 10, section 4)
-$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW)/sim/ft232h_model.v
+$(BUILD)/tb_serial.vvp: serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW_RTL)/serial_link.v $(HW_RTL)/slip_rx.v $(HW_RTL)/ft232h_if.v $(HW)/sim/ft232h_model.v $(RTL)/regmap.vh | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_serial -o $@ serial/tb_serial.v $(RTL)/serial.v $(HW_RTL)/fifo8.v $(HW_RTL)/serial_link.v $(HW_RTL)/slip_rx.v $(HW_RTL)/ft232h_if.v $(HW)/sim/ft232h_model.v
 
 serial: $(BUILD)/tb_serial.vvp
 	cd $(BUILD) && $(VVP) -n tb_serial.vvp | tee serial.log
@@ -260,7 +260,7 @@ boing: $(VL_TB) $(BUILD)/boot.hex
 # The copper on its own (ticket #32): cop/tb_cop.v runs the lists of
 # cop/coptest.asm on copper.v and the scheduler, cop/copcheck.py checks the
 # log against its model of spec 6
-COP_RTL := $(addprefix $(RTL)/,copper.v dmac.v timebase.v)
+COP_RTL := $(RTL)/copper.v $(addprefix $(HW_RTL)/,dmac.v timebase.v copper_engine.v)
 $(BUILD)/vl_cop/vcop: cop/tb_cop.v $(COP_RTL) $(RTL)/regmap.vh | $(BUILD)
 	$(VERILATOR) --binary --timing -Wall -Wno-fatal $(VL_OPT) -I$(RTL) --top-module tb_cop 	    --Mdir $(BUILD)/vl_cop -o vcop cop/tb_cop.v $(COP_RTL) > $(BUILD)/vl_cop.log
 
@@ -282,6 +282,14 @@ $(BUILD)/dmxtest.bin: dmx/dmxtest.asm $(INC)/hw.inc | $(BUILD)
 dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxtest.hex +timeout=10000 | tee dmx.log
 	@grep -q "^TEST PASSED" $(BUILD)/dmx.log
+
+# DMXINT's race (spec 14, section 8.4): the engine alone, the interrupt
+# coming due in the clock a write clears it
+$(BUILD)/tb_dmxint.vvp: dmxint/tb_dmxint.v $(RTL)/dmx.v $(HW_RTL)/dmx_core.v | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_dmxint -o $@ $^
+dmxint: $(BUILD)/tb_dmxint.vvp
+	cd $(BUILD) && $(VVP) -n tb_dmxint.vvp | tee dmxint.log
+	@grep -q "^TEST PASSED" $(BUILD)/dmxint.log
 
 # The DMA engine's speed (spec 14, section 6.3; ticket #78): each job's time
 # in microseconds, from RUN to BUSY clear, printed before PASS. Not a check:
@@ -462,8 +470,8 @@ geom: $(BUILD)/tb_geom.vvp $(BUILD)/geom_vec.txt
 .PHONY: input bootkeys
 all: input
 
-$(BUILD)/tb_input.vvp: input/tb_input.v $(HW)/sim/ps2_model.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
-	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v $(HW)/sim/ps2_model.v \
+$(BUILD)/tb_input.vvp: input/tb_input.v $(HW)/sim/ps2_model.v $(HW_RTL)/ps2_core.v $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v regmap.vh) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_input -o $@ input/tb_input.v $(HW)/sim/ps2_model.v $(HW_RTL)/ps2_core.v \
 	    $(addprefix $(RTL)/,ps2kb.v ps2map.v keys.v joy.v)
 
 input: $(BUILD)/tb_input.vvp
@@ -482,9 +490,9 @@ bootkeys: $(BUILD)/tb.vvp $(BUILD)/boot.hex
 .PHONY: fe
 all: fe
 
-$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v regmap.vh) | $(BUILD)
+$(BUILD)/tb_fe.vvp: fe/tb_fe.v $(addprefix $(RTL)/,video.v bpldma.v sprites.v audio.v regmap.vh) $(wildcard $(HW_RTL)/*.v) | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_fe -o $@ fe/tb_fe.v \
-	    $(addprefix $(RTL)/,video.v layer_pix.v bpldma.v sprites.v sprite_pix.v audio.v)
+	    $(addprefix $(RTL)/,video.v bpldma.v sprites.v audio.v) $(wildcard $(HW_RTL)/*.v)
 
 fe: $(BUILD)/tb_fe.vvp
 	cd $(BUILD) && $(VVP) -n tb_fe.vvp | tee fe.log
