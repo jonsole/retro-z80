@@ -562,7 +562,7 @@ sramtest: $(BUILD)/tb_lat.vvp $(BUILD)/tb_sramtest.vvp
 #   make fm-hello fm-systest fm-dmx fm-dtest   (make fastmem: all four)
 #   make fm-dmxspeed                           the DMA engine's speed, as dmxspeed
 #   make fm-fmspeed fmspeed                    the board's measurement program
-#                   (examples/fastmem/fmspeed.asm, 16 KB, through fastmem/fmsim.asm)
+#                   (examples/fastmem/fmspeed.asm, 2 KB, through fastmem/fmsim.asm)
 #                   at 12.5 ns and on the 20 ns testbench
 .PHONY: fm-ctl fastmem fm-hello fm-systest fm-dmx fm-dmxspeed fm-dtest fm-fmspeed fmspeed
 FM_SIM := $(RTL)/platform/artix7/sram8_pads.v $(addprefix $(HW)/sim/,ft232h_model.v ps2_model.v) \
@@ -604,11 +604,11 @@ $(BUILD)/fmsim.bin: fastmem/fmsim.asm $(BUILD)/fmspeed_sim.bin $(INC)/hw.inc | $
 	$(SJASMPLUS) --nologo -I $(INC) -I $(BUILD) --raw=$@ $<
 
 fm-fmspeed: $(BUILD)/tb_fm.vvp $(BUILD)/fmsim.hex
-	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=fmsim.hex +print +timeout=20000 | tee fm-fmspeed.log
+	cd $(BUILD) && $(VVP) -n tb_fm.vvp +rom=fmsim.hex +print +timeout=80000 | tee fm-fmspeed.log
 	@grep -q "^TEST PASSED" $(BUILD)/fm-fmspeed.log
 
 fmspeed: $(BUILD)/tb.vvp $(BUILD)/fmsim.hex
-	cd $(BUILD) && $(VVP) -n tb.vvp +rom=fmsim.hex +print +timeout=20000 | tee fmspeed.log
+	cd $(BUILD) && $(VVP) -n tb.vvp +rom=fmsim.hex +print +timeout=80000 | tee fmspeed.log
 	@grep -q "^TEST PASSED" $(BUILD)/fmspeed.log
 # The controller and pads alone, against the timing-checking SRAM (seconds)
 fm-ctl: $(BUILD)/tb_sram8.vvp

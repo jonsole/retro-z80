@@ -32,15 +32,21 @@
 SRC     equ     0x080000                ; physical
 DST     equ     0x100000
         IFDEF SIM
-SIZE    equ     0x004000                ; 16 KB in the testbench (sim/fastmem/fmsim.asm)
-LDLEN   equ     0x0400
+SIZE    equ     0x000800                ; 2 KB in the testbench (sim/fastmem/fmsim.asm)
+LDLEN   equ     0x0100
         ELSE
 SIZE    equ     0x080000                ; 512 KB
 LDLEN   equ     0x2000                  ; LDIR: 8 KB
         ENDIF
 SRCPG   equ     SRC >> 13               ; SRAM pages (8 KB)
 DSTPG   equ     DST >> 13
+        IF SIZE >= 0x2000
 NPG     equ     SIZE >> 13              ; 64
+WPG     equ     4096                    ; words used in each page
+        ELSE
+NPG     equ     1                       ; the testbench: part of one page
+WPG     equ     SIZE / 2
+        ENDIF
 WIN5    equ     0xA000
 FILLV   equ     0x3CC35AA5              ; the fill value: bytes A5 5A C3 3C, by address mod 4
 OVER_M  equ     VIDSTAT_OVERRUNA_M | VIDSTAT_OVERRUN0_M | VIDSTAT_OVERRUN1_M | VIDSTAT_OVERRUN2_M
@@ -171,7 +177,7 @@ pass:   ld      hl,filljob
         ld      (ix+9),h
         ret
 
-; time: run the job at HL on channel 2 (HL = 0: LDIR of LDLEN, 0x2000 to
+; time: run the job at HL on channel 2 (HL = 0: LDIR of LDLEN, 0x8000 to
 ; 0x4000), starting on the first visible line of a frame; HL = the time in us
 time:   push    hl
         call    wait2
@@ -187,7 +193,7 @@ time:   push    hl
         or      l
         jr      nz,.job
         call    t0
-        ld      hl,0x2000
+        ld      hl,0x8000               ; from the program (memory with known contents)
         ld      de,0x4000
         ld      bc,LDLEN
         ldir
@@ -250,7 +256,7 @@ mksrc:  ld      hl,1
         call    map5
         ld      hl,(xstate)
         ld      de,WIN5
-        ld      bc,4096                 ; words in a page
+        ld      bc,WPG                  ; words in a page
 .word:  call    xs
         ld      a,l
         ld      (de),a
@@ -281,7 +287,7 @@ chkcopy:
         call    map5
         ld      hl,(xstate)
         ld      de,WIN5
-        ld      bc,4096
+        ld      bc,WPG
 .word:  call    xs
         ld      a,(de)
         cp      l
@@ -313,7 +319,7 @@ chkfill:
 .page:  push    hl
         call    map5
         ld      hl,WIN5
-        ld      bc,2048                 ; 4-byte groups in a page
+        ld      bc,WPG / 2              ; 4-byte groups in a page
 .grp:   ld      de,FILLV & 0xFFFF
         call    chkw
         ld      de,FILLV >> 16

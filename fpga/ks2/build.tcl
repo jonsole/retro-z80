@@ -74,8 +74,15 @@ report_utilization -file utilization_synth.txt
 # The machine fills nearly 90% of the XC7A15T since the copper (issue #32):
 # placement and physical optimisation work harder, and once more after
 # routing if a path is still short
+# The fast-memory build (issue #91) fills 96% of the LUTs and, with its
+# clock nets left alone (ks2_fastmem.xdc), meets timing placed spread out:
+# with ExtraTimingOpt or AltSpreadLogic_high a DMA engine path missed
 opt_design
-place_design -directive ExtraTimingOpt
+if {$fmem} {
+    place_design -directive AltSpreadLogic_medium
+} else {
+    place_design -directive ExtraTimingOpt
+}
 phys_opt_design -directive AggressiveExplore
 route_design -directive Explore
 if {[get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]] < 0} {

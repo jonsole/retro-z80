@@ -1,7 +1,7 @@
 ; The fast-memory measurement (examples/fastmem/fmspeed.asm, issue #91) in
 ; the system testbench, in place of the boot ROM (tb.v +rom=fmsim.hex
 ; +print). This ROM sets up the program map, copies the program, built with
-; -DSIM (16 KB in place of 512 KB, no waits for the frame, a short LDIR), to
+; -DSIM (2 KB in place of 512 KB, no waits for the frame, a short LDIR), to
 ; 0x8000 and calls it; the ROM calls it uses (RST 08h PUTC, RST 18h PUTS,
 ; RST 28h function 0x08 PUTDEC) print on the serial link. Then "PASS" if
 ; the program found no wrong words, else "FAIL".

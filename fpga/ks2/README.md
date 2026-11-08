@@ -381,6 +381,41 @@ python tools/sramtest.py                # the whole sweep, a few minutes; writes
 
 **Results of the build** (Vivado 2026.1, 7 November 2026): 2,084 LUTs (20%), 3,804 flip-flops, 41 OSERDESE2, 16 ISERDESE2, 16 IDELAYE2, 2 IDELAYCTRL (Vivado puts one in each clock region with IDELAYs), 5 BUFG, 1 MMCM. Timing met: worst setup +0.299 ns (the 100 to 200 MHz gearbox), worst hold +0.034 ns. No critical warnings; DRC has only the RPBF-3 warnings on the FT232H's one-way pins, as the computer's build. The build takes about 13 minutes. The board results go in `docs/notes/sram-ks2.md`.
 
+## The fast-memory experiment
+
+Issue #91, design plan branch 24: the SRAM at 12.5 ns cycles, 8 in each 100 ns slot in place of 5, on the SRAM tester's SERDES pads. The 100 MHz clock and the slot stay, so CPU and video timing hold. The XC7A15T is full, so the experiment is a **cut-down build**: the CPU, MMU, boot ROM, serial, timers, interrupts, video with one layer and the DMA engine; no sprites, copper or geometry unit. The same cut-down build at 20 ns is the one to compare it with.
+
+**Build and run.** From the repository root, the board on, the FT232H on COM3:
+
+```
+VIVADO=/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat bash fpga/ks2/build.sh --fastmem --program          # 12.5 ns: build/fastmem/
+VIVADO=/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat bash fpga/ks2/build.sh --fastmem --slow --program   # 20 ns:   build/fastmem-slow/
+sjasmplus --nologo -I firmware/include --raw=build/fmspeed.bin examples/fastmem/fmspeed.asm
+python tools/rlink.py -p COM3 upload build/fmspeed.bin --load 8000 --term
+```
+
+Load one bitstream, run the program, then the other. `fmspeed.asm` writes 512 KB of test data, then times a 512 KB fill and a 512 KB copy with the DMA engine and an 8 KB `LDIR`, with the examples' 360 × 288 8 bpp screen showing and with the layers' fetches off. After each job the Z80 reads all 512 KB back and checks it. It prints the times in µs and MB/s, the words read back wrong (0 expected) and whether the display ever overran. The `LDIR` time must be the same on both builds: the Z80 never waits. It takes about 15 seconds, most of it the Z80 making and checking the data.
+
+**How it works.** `sram_ctl8.v` makes each SRAM pin's next 8 steps of 1.25 ns every clock, and `sram8_pads.v` (the tester's pads, with /LB and /UB apart, the IDELAYs fixed at 8 taps and the ISERDESE2 outputs not registered) sends them out. A cycle is 10 steps. Cycle k starts at step 2 + 10k of the slot, so the word made at slot edge m holds the start of at most one cycle:
+
+| Slot edge | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|-----------|---|---|---|---|---|---|---|---|---|---|
+| Cycle given out | 0 | 1 | 2 | – | 3 | 4 | 5 | 6 | – | 7 |
+| Owner | free (audio) | display | free | – | CPU | free | display | free | – | CPU |
+| Read data in the clock after edge | 4 | 5 | 7 | – | 8 | 9 | 0 | 2 | – | 3 |
+
+(Cycle 7, the CPU's, is given out at edge 9; its data is in the clock after edge 3 of the next slot.) A read's latency is 4 clocks, 5 for cycles 2 and 6, against sram_ctl's 3; no two results meet. The CPU's cycles are given out at slot edges 4 and 9, so a read started on slot edge 0 or 5 has its byte at di one clock before the core takes it, as the 20 ns build's T1-on-edge-5 case (spec 1, section 5.3). The display keeps two cycles 50 ns apart; the other four go to the free pool, the DMA engine first after the display's early fetches. `dmac8.v` is retro-hw's dmac for 8 cycles; since cycles now come on back-to-back edges, it ignores a channel in the clock of its ack (its request is still the old one).
+
+The waveform, in steps from the address leaving the FPGA, at the middle of the windows the tester measured at 12.5 ns (`docs/notes/sram-ks2.md`): /OE low 2–10; DQ sampled at step 13 with 8 IDELAY taps (15.6 ns, window 10.0–21.3 ns); /WE low 3–7; DQ driven 2–10, or 3–10 after a read. The simulations use /WE 2–8 (the tester's default, also clean on the board), since 3–7 is shorter than the -8 part's datasheet tPWE of 6.5 ns. `top_ks2.v`'s FM_WE_LO and FM_WE_HI set it.
+
+**Build notes.** The cut-down builds fill 96% (12.5 ns) and 92% (20 ns) of the LUTs; the DMA engine alone is a third. The 12.5 ns build is placed with AltSpreadLogic_medium (`build.tcl`): with ExtraTimingOpt or AltSpreadLogic_high one of the DMA engine's EDGES paths missed by 0.08–0.13 ns. `ks2_fastmem.xdc` keeps the 100 MHz BUFG and its nets as they are: left alone, phys_opt_design put a second BUFG in front of it to clock a few DMA engine registers early, which skews the ISERDESE2s' CLKDIV against CLK (DRC REQP-1580).
+
+**Simulation.** `make -C sim fm-ctl` checks the controller and pads alone (seconds); `make -C sim fastmem` runs `hello`, `systest`, `dmx` and `dtest` on the cut-down 12.5 ns build, with the tester's primitive models and timing-checking SRAM (slow: the pins are modelled every 125 ps). `make -C sim fm-fmspeed` and `fmspeed` run the measurement program (2 KB) at 12.5 and 20 ns.
+
+**Results of the builds** (Vivado 2026.1, 8 November 2026). 12.5 ns: 9,960 LUTs (95.8%), 6,063 flip-flops, 11 block RAMs, 49 OSERDESE2 (41 SRAM, 8 HDMI), 16 ISERDESE2, 16 IDELAYE2, 2 IDELAYCTRL, 8 BUFG; worst setup +0.014 ns (a DMA engine path), hold +0.026 ns, the 100 to 200 MHz gearbox +0.378 ns; DRC only the usual DSP pipelining and RPBF-3 warnings. 20 ns: 9,611 LUTs (92.4%), 5,803 flip-flops; worst setup +0.013 ns, hold +0.018 ns. The board results are still to come.
+
+**What to expect.** The DMA engine holds one memory request until it is taken and makes the next the clock after its ack, so it can use at most one cycle every 2 clocks: 5 a slot, 100 MB/s for a fill, 50 MB/s for a copy (one read and one write a word), against 83 and 44 MB/s measured on the 20 ns build with the screen off (guide, Table 6-21). The other free cycles stay unused until the engine (retro-hw's `dmx_core.v`) can keep two requests in flight.
+
 ## Files
 
 | File | What |
@@ -391,11 +426,14 @@ python tools/sramtest.py                # the whole sweep, a few minutes; writes
 | `ks2.xdc` | Pins and configuration settings shared by all three builds (from the Next's `zxnext_pins_issue4.xdc`), the 50 MHz clock |
 | `ks2_clocks.xdc` | The computer's and the pattern's two MMCMs as asynchronous clock groups |
 | `ks2_sramtest.xdc` | The SRAM tester's own: the accelerator header, false paths |
-| `ks2_machine.xdc` | The computer's own: buttons, the accelerator header, the PS/2 keyboard, membrane columns and joystick pins, false paths, the SRAM input flip-flops, the audio pads' flip-flops, tv80's multicycle paths |
+| `ks2_machine.xdc` | The computer's own: buttons, the accelerator header, the PS/2 keyboard, membrane columns and joystick pins, false paths, the audio pads' flip-flops, tv80's multicycle paths |
 | `top_ks2.v` | The computer's top level: clocks, power-on reset, buttons, SRAM pads, FT232H, the open-drain PS/2 lines and keyboard rows, HDMI and VGA, the audio pads |
 | `top_ks2_pattern.v` | The test pattern's top level |
 | `top_ks2_sramtest.v` | The SRAM tester's top level: its MMCM, reset, the FT232H pads, the other pins held. The tester itself is in `fpga/rtl/sramtest/` and `fpga/rtl/platform/artix7/sramt_pads.v` |
 | `lint_stub_sramtest.v` | Stand-ins for the SRAM tester's Xilinx primitives, for `fpga/lint.sh` |
+| `ks2_sram20.xdc` | The computer's 20 ns SRAM: read data in the input pad flip-flops (every build but the fast-memory one) |
+| `ks2_fastmem.xdc` | The fast-memory build's SRAM (issue #91): nothing to constrain, as the tester |
+| `lint_stub_fastmem.v` | ODDR, with `lint_stub_sramtest.v`, for linting `top_ks2.v` |
 
 The board parts are in `fpga/rtl/platform/artix7/`: `ks2_clocks.v` (two MMCMs), `hdmi_out.v` (TMDS encoders and serialisers, with `fpga/rtl/tmds_encoder.v`), `oddr.v`. They and the flow come from retro68k's KS3 build (`fpga/rtl/PROVENANCE.md`).
 
