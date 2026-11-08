@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # retro-z80: build the computer for the KS2 (issue #11), or the test pattern
-# (issue #10), and load it over JTAG.
+# (issue #10), or the SRAM tester (issue #90), and load it over JTAG.
 #
 #   fpga/ks2/build.sh                 build fpga/ks2/build/retroz80_ks2.bit
 #   fpga/ks2/build.sh --program       build, then load it over JTAG with Vivado
@@ -11,6 +11,9 @@
 #                                     --geom, build/geom-nocopper/)
 #   fpga/ks2/build.sh --pattern ...   the same for the test pattern
 #                                     (fpga/ks2/build/pattern/ks2_pattern.bit)
+#   fpga/ks2/build.sh --sramtest ...  the same for the SRAM timing tester
+#                                     (fpga/ks2/build/sramtest/ks2_sramtest.bit;
+#                                     issue #90, tools/sramtest.py)
 #
 # Needs Vivado 2026.1 (the free edition covers the XC7A15T) on the PATH or
 # in $VIVADO; for the computer also sjasmplus (PATH or $SJASMPLUS) and
@@ -34,11 +37,12 @@ copper=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --pattern)      what=pattern ;;
+        --sramtest)     what=sramtest ;;
         --geom)         geom=1 ;;
         --no-copper)    copper=0 ;;
         --program)      do_program=1 ;;
         --program-only) do_program=1; do_build=0 ;;
-        -h|--help)      sed -n '2,22p' "$0"; exit 0 ;;
+        -h|--help)      sed -n '2,25p' "$0"; exit 0 ;;
         *)              echo "build.sh: unknown option $1 (try --help)" >&2; exit 1 ;;
     esac
     shift
@@ -47,6 +51,9 @@ done
 if [ "$what" = pattern ]; then
     out="$here/build/pattern"
     bit="$out/ks2_pattern.bit"
+elif [ "$what" = sramtest ]; then
+    out="$here/build/sramtest"
+    bit="$out/ks2_sramtest.bit"
 else
     out="$here/build"
     [ "$geom" = 1 ] && out="$here/build/geom"

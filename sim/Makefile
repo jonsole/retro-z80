@@ -532,3 +532,31 @@ $(BUILD)/linkprog.bin: link/linkprog.asm | $(BUILD)
 link: $(BUILD)/vl_link/vlink $(BUILD)/mon_rom.hex $(BUILD)/linkprog.bin link/session.py link/simlink.py
 	$(PYTHON) link/session.py $(BUILD) | tee $(BUILD)/link.result
 	@grep -q "^TEST PASSED" $(BUILD)/link.result
+
+# ---- SRAM timing tester (issue #90): the KS2 test bitstream's top level
+#   make sramtest   top_ks2_sramtest.v over the FT232H model against a
+#                   timing-checking SRAM (sramtest/sram_timed.v; SRAMTEST_PART
+#                   8 or 10, default 10): the 20 ns defaults pass every
+#                   pattern, a capture sweep, 15 and 35 ns cycles, and
+#                   settings outside the datasheet fail. First the Xilinx
+#                   primitive models (sramtest/xilinx_models.v) are checked
+#                   against Vivado's unisims (sramtest/lat.ref, from xsim)
+.PHONY: sramtest
+all: sramtest
+SRAMTEST_PART ?= 10
+SRT_RTL := $(ROOT)/fpga/ks2/top_ks2_sramtest.v $(addprefix $(RTL)/sramtest/,sramt_engine.v sramt_wave.v sramt_link.v) \
+           $(RTL)/platform/artix7/sramt_pads.v
+SRT_SIM := $(addprefix sramtest/,xilinx_models.v sram_timed.v ft_model.v)
+
+$(BUILD)/tb_lat.vvp: sramtest/tb_lat.v sramtest/xilinx_models.v | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -s tb_lat -o $@ sramtest/tb_lat.v sramtest/xilinx_models.v
+
+$(BUILD)/tb_sramtest.vvp: sramtest/tb_sramtest.v $(SRT_SIM) $(SRT_RTL) | $(BUILD)
+	$(IVERILOG) -g2005 -Wall -Wno-timescale -Wno-implicit-dimensions -DPART=$(SRAMTEST_PART) -s tb_sramtest -o $@ \
+	    sramtest/tb_sramtest.v $(SRT_SIM) $(SRT_RTL)
+
+sramtest: $(BUILD)/tb_lat.vvp $(BUILD)/tb_sramtest.vvp
+	cd $(BUILD) && $(VVP) -n tb_lat.vvp | grep -E "rises|falls|Q8" > lat.out
+	diff sramtest/lat.ref $(BUILD)/lat.out && echo "SERDES models agree with the unisims"
+	cd $(BUILD) && $(VVP) -n tb_sramtest.vvp | tee sramtest.log
+	@grep -q "^TEST PASSED" $(BUILD)/sramtest.log

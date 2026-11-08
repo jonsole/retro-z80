@@ -24,6 +24,7 @@ make speeds     # the speed test ROM: "hello" at every CPUSPEED setting, T-state
 make failshow   # the boot ROM's failure screen: check 45 shown as 5 white stripes (about 4 minutes; not in make all)
 make -j3 vtest  # the video test: L0 bitmaps checked pixel by pixel against a Python model (minutes; not in make all)
 make fe         # port 0xFE writes on their own: mid-line border changes 7-60 ns after the write, BGCOLOR's rules, the beeper's sigma-delta streams (seconds)
+make sramtest   # the KS2's SRAM timing tester against a timing-checking SRAM, after checking the SERDES models (under a minute)
 make lint       # Verilator lint of the RTL (fpga/lint.sh)
 make zexhello   # the ZEX testbench's own checks (seconds): a CP/M program that must pass,
                 # one that must fail, and the R register test
@@ -96,6 +97,18 @@ Ticket #29. `link/tb_link.v` is the whole computer in Verilator, as `mon/tb_mon.
 **The adapter.** `link/simlink.py` gives the socket the shape of `rlink.SerialLink`: `SimLink(port)` has `write(bytes)` and `read_some(timeout)`, so `tools/rz80bridge` and `rlink.py` run on it unchanged; `start_sim(build)` starts `vlink` and returns its port.
 
 **The session.** `link/session.py BUILD` drives a debug session through the bridge's own session code (`rz80bridge.session.Session`) on a `SimLink`, against the boot ROM's debug stub (`firmware/boot/stub.asm`) and loader (`link.asm`): it launches `link/linkprog.asm` (UPLOAD, the upload with ACTION 0, HELLO at the prompt); reads the target description, the registers, the program's bytes and the MMU windows; sets a breakpoint in RAM and continues to it; steps; sets one in ROM (`RST 08h`'s entry) and continues; stops on a read watchpoint with a breakpoint whose page does not match standing by; asks QUERY; checks the refusals (codes 1-8), a damaged command frame answered `C` and sent again, and a repeated SEQ of a write not done twice; writes memory and a register; runs monitor commands over CONSOLE (`D`, and `G`, `N`, `T` refused); pauses a running program with BREAK; detaches, attaches to the stopped program, detaches leaving it running, attaches to it with BREAK, and detaches. Then it runs the same session against the bridge's stub model (`tools/rz80bridge/model.py`) and compares the two step by step. Differences that are the model's to change are listed in the script's `KNOWN` and reported on every run; any other difference fails the test. `session.py BUILD sim` or `BUILD model` runs one side only; `RZ80_TOOLS=DIR` takes the bridge and the model from another copy of `tools/`. What the machine sent on the link (its console text) goes to `build/link.console`. The Verilator build takes about a minute, the session about 10 seconds (130 ms of simulated time).
+
+## The SRAM timing tester (`make sramtest`)
+
+Issue #90. `sramtest/tb_sramtest.v` runs the tester's KS2 top level (`fpga/ks2/top_ks2_sramtest.v`) over the FT232H model, sending the bytes `tools/sramtest.py` sends, against `sramtest/sram_timed.v`: a 1M x 16 SRAM that checks tAA, tOHA, tDOE, tHZOE (as bus contention), tPWE, tAW and tSD, stores undefined data on a bad write, and holds old data for tOHA (`SRAMTEST_PART=8` for the -8 part's figures, default 10). The pads add 2.5 ns out and 1 ns in. It checks that the 20 ns defaults pass every sequence and pattern with no timing error, that the scope sees the FPGA's own drive 4.1 ns late (steps 7 and 8), a capture sweep (window steps 12-19: tAA after the address, until /OE rises), 15 ns and 35 ns cycles, and that settings outside the datasheet fail: a capture at step 6, a 6.25 ns /WE pulse, and driving DQ as /OE rises after a read.
+
+**The primitive models.** Icarus cannot run Vivado's unisims, so `sramtest/xilinx_models.v` has behavioural OSERDESE2 (4:1 DDR), ISERDESE2 (8:1 DDR, networking), IDELAYE2 (VAR_LOAD), IDELAYCTRL, IOBUF, BUFG, OBUFDS and MMCME2_BASE for the modes the tester uses. Their latencies come from the unisims: `sramtest/tb_lat.v` sends a marker in each of the 8 step positions of a word (with 0 and 16 IDELAY taps), and `sramtest/lat.ref` is what Vivado's xsim printed for it on the real models. `make sramtest` first runs it on the behavioural models and compares, line by line. To make `lat.ref` again (in a scratch folder, from PowerShell):
+
+```
+xvlog <repo>/sim/sramtest/tb_lat.v C:/AMDDesignTools/2026.1/Vivado/data/verilog/src/glbl.v
+xelab -L unisims_ver -L secureip tb_lat glbl -s lat
+xsim lat -R | Select-String "rises|falls|Q8" | % { $_.Line }
+```
 
 ## The disassembler (`make dis`)
 

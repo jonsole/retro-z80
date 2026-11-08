@@ -2,8 +2,9 @@
 # Pin locations, I/O standards and drive from the Next's own
 # zxnext_pins_issue4.xdc (https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA,
 # cores/zxnext/src), as are the configuration settings. These are the pins
-# both KS2 builds (the computer and the test pattern) use or hold;
-# ks2_machine.xdc adds the computer's own. The rest are pulled up.
+# the KS2 builds (the computer, the test pattern and the SRAM tester) use or
+# hold; ks2_machine.xdc adds the computer's own, ks2_sramtest.xdc the
+# tester's. The rest are pulled up.
 
 # ---- configuration, as the Next's (SPI flash, 4 bits wide, 32-bit addresses)
 set_property CFGBVS VCCO [current_design]
@@ -117,13 +118,5 @@ set_property -dict {PACKAGE_PIN E17 IOSTANDARD LVCMOS33 DRIVE 4 PULLDOWN true} [
 # ---- clocks
 create_clock -name clk50 -period 20.000 [get_ports clock_50_i]
 
-# The pixel clocks (MMCM 2, 576p) and the system clock (MMCM 1) come from the
-# same oscillator but have no designed phase relation: every signal between
-# them goes through a synchroniser (the pattern's heartbeat; VIDCON.EN, the
-# start of a frame, resets) or is a setting that only changes between lines
-# (BGCOLOR) or is sampled until two samples agree (the beam line; spec 4,
-# section 3.1)
-set_clock_groups -asynchronous \
-    -group [get_clocks -of_objects [get_pins clocks/mmcm_sys/CLKOUT*]] \
-    -group [get_clocks -of_objects [get_pins clocks/mmcm_pix/CLKOUT*]]
-
+# ks2_clocks.xdc relates the two MMCMs of ks2_clocks.v (the computer and the
+# test pattern; the SRAM tester has one MMCM of its own).
