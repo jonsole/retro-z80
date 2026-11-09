@@ -8,11 +8,17 @@ VARIANT is a fixed set of bands ("a": bitmaps at every depth and scale,
 windows off the edges, fine scroll, negative and zero stride, pointer wrap
 within a line, TRANSP, PALOFS; "t": tile maps at every depth, scale and map
 size, with X and Y scroll round the map, fine scroll, TRANSP, PALOFS; "s",
-"h" and "q": the sprite screens, below) or a
+"h" and "q": the sprite screens, below; "m": mid-line CTRL writes, below) or a
 seed for random bands ("b", "c", ...: the same kinds of settings at random,
 bitmaps and tile maps, with PRIO and BGCOLOR changed between bands). A tile
 band's map and patterns are random data too, so its entries have every
 TILE, PAL, XFLIP, YFLIP and PRI.
+"m" (issue #100) is bitmap bands with CTRL writes inside the lines they
+show: a depth change both ways, a wider scale (set back after the window
+has ended), and PALOFS and TRANSP. Depth and scale act from the next group
+the fetch starts; PALOFS and TRANSP from the next pixel (retro-hw's layer
+spec revision 2). vmodel.py works out which group or pixel each one took
+effect at, within a few of the write.
 Writes OUTDIR/vbands.inc (the band code, timed from the start of each
 frame, and the palette data for vtest.asm) and OUTDIR/ram.hex (16-bit
 words for the testbench's +ram=).
@@ -97,6 +103,36 @@ def bands_t():
     return B
 
 
+def bands_m():
+    """Mid-line CTRL writes (issue #100): each band's "mid" is a list of
+    (beam pixel, CTRL0 or CTRL1 value) written on every other line it shows."""
+    B = []
+    def band(**k):
+        d = dict(bpp=0, hs=0, vs=0, transp=0, palofs=0, wrap=0, xs=144, xe=864, sx=0, stride=0, off=0)
+        d.update(k)
+        B.append(d)
+    c0 = lambda bpp, hs, transp=0: 1 | (bpp << 2) | (transp << 4) | (hs << 6)
+    # Depth 4 -> 1 -> 4 bits across a full-width line (the group count is the same)
+    band(ys=55, ye=115, bpp=2, sx=3, stride=360, palofs=2,
+         mid=[(400, 0x00, c0(0, 0)), (845, 0x00, c0(2, 0))])
+    # Depth 1 -> 8 bits, at 2x
+    band(ys=121, ye=181, bpp=0, hs=1, xs=180, xe=820, sx=9, stride=90, transp=1,
+         mid=[(330, 0x00, c0(3, 1, 1)), (850, 0x00, c0(0, 1, 1))])
+    # Scale 1x -> 2x mid-line (groups wider: the last ones go unshown), back to 1x after the window
+    band(ys=187, ye=247, bpp=1, xs=144, xe=600, stride=200, palofs=5,
+         mid=[(300, 0x00, c0(1, 1)), (840, 0x00, c0(1, 0))])
+    # Scale 2x -> 8x and depth 8 -> 2 bits in one write; back after the window
+    band(ys=253, ye=313, bpp=3, hs=1, xs=200, xe=700, sx=5, stride=400,
+         mid=[(450, 0x00, c0(1, 3)), (845, 0x00, c0(3, 1))])
+    # PALOFS and TRANSP, live from the next pixel; back after the window
+    band(ys=319, ye=379, bpp=1, xs=160, xe=780, stride=180, palofs=1,
+         mid=[(350, 0x01, 7 << 4), (560, 0x00, c0(1, 0, 1)), (800, 0x01, 1 << 4), (845, 0x00, c0(1, 0))])
+    # All of it at 4x on 2-line copies
+    band(ys=385, ye=445, bpp=2, hs=2, vs=1, xs=150, xe=760, stride=100, palofs=11,
+         mid=[(380, 0x00, c0(0, 2)), (600, 0x01, (14 << 4) | 1), (800, 0x00, c0(2, 2)), (845, 0x01, (11 << 4) | 1)])
+    return B
+
+
 def bands_random(rnd):
     """Random bands with gaps of 4-9 lines, PRIO and BGCOLOR now and then."""
     B = []
@@ -149,6 +185,8 @@ class Code:
             p = self.px(self.t + 27)
             if kind == "line" and (p >= 815 or p <= 50):
                 pass                                # near beam pixel 0: the line settings' copy
+            elif kind == "mid" and (p >= 856 or p <= 8):
+                pass                                # a mid-line write: only away from the copy itself
             elif kind == "pic" and 105 <= p <= 185:
                 pass                                # near beam pixel 144: PRIO and BGCOLOR
             else:
@@ -249,11 +287,12 @@ def sprites_main(variant, out, rnd):
         spr_write(code, 5, r5, order)
         # L0 a tile map from line 300 (PRI tiles), off on lines 298-299
         at(297, 600)
-        tl = [(0x00, 0), (0x01, 1), (0x03, 1 | (0 << 2)), (0x0C, 0x23), (0x0D, 0), (0x0E, 0x45), (0x0F, 0),
+        # EN off with the rest as they are: depth, scale and TRANSP act mid-line (issue #100)
+        tl = [(0x00, (2 << 2) | (1 << 4) | (1 << 6)), (0x01, 1), (0x03, 1 | (0 << 2)), (0x0C, 0x23), (0x0D, 0), (0x0E, 0x45), (0x0F, 0),
               (0x18, SL0_MAP & 0xFF), (0x19, (SL0_MAP >> 8) & 0xFF), (0x1A, SL0_MAP >> 16),
               (0x1C, SL0_PAT & 0xFF), (0x1D, (SL0_PAT >> 8) & 0xFF), (0x1E, SL0_PAT >> 16)]
         for o, v in tl:
-            code.write(L0 + o, v, "line", "L0: a tile map from line 300" if o == 0 and v == 0 else "")
+            code.write(L0 + o, v, "line", "L0 off: a tile map from line 300" if o == 0 else "")
         code.write(L0 + 0x00, 1 | (2 << 2) | (1 << 4) | (1 << 5) | (1 << 6), "line", "L0 on: tiles, 4 bits, TRANSP, 2x")
         # sprite 3 from line 320: 2x across, twice as wide, while it is drawn
         at(319)
@@ -303,13 +342,13 @@ def main():
     if variant in ("s", "h", "q"):
         sprites_main(variant, out, rnd)
         return
-    B = bands_a() if variant == "a" else bands_t() if variant == "t" else bands_random(rnd)
+    B = bands_a() if variant == "a" else bands_t() if variant == "t" else bands_m() if variant == "m"         else bands_random(rnd)
 
     # Each band's data in the random area: its own 64 KB for the fixed bands;
     # random bands start in the middle (0x060000-0x09FFFF), so 90 lines at
     # any stride stay inside it
     for k, b in enumerate(B):
-        b["ptr"] = (DATA_LO + k * 0x10000 if variant == "a" else 0x060000 + (k % 4) * 0x10000) + b["off"]
+        b["ptr"] = (DATA_LO + k * 0x10000 if variant in ("a", "m") else 0x060000 + (k % 4) * 0x10000) + b["off"]
         # Tiles: a map of up to 32 KB and patterns of up to 32 KB, each in its own 64 KB
         if variant == "t":
             b["mappt"] = DATA_LO + k * 0x10000 + b.get("mapoff", 0)
@@ -356,6 +395,12 @@ def main():
         code.write(L0 + 0x00, ctrl0, "line", "L0 on")
         last = (code.t - 2) // LINE_T + (1 if code.px(code.t) >= 815 else 0)
         assert last < b["ys"] - 1, "band %d: its writes end in line %d, it starts at %d" % (k, last, b["ys"])
+        for ln in range(b["ys"], b["ye"], 2) if "mid" in b else ():     # every other line: the ROM is 16 KB
+            for px, o, v in b["mid"]:
+                t = ln * LINE_T + (px * 20) // 27 - 27     # the write lands 27 T-states in
+                assert t >= code.t, "band %d: mid-line writes too close together (line %d)" % (k, ln)
+                code.wait_until(t)
+                code.write(L0 + o, v, "mid")
         prev_end = b["ye"]
     code.lines.append("        ret")
     assert code.t < FRAME_T - 3 * LINE_T

@@ -21,6 +21,13 @@ The model is written from the spec, not from the RTL:
     picture of the line they are written in if written before its beam
     pixel 144, else from the next; a write too close to either moment is an
     error of the test, not of the design
+  - CTRL0's BPP and HSCALE written in a line the layer shows act on that
+    line from the next group the fetch starts (retro-hw's layer spec
+    revision 2, issue #100); CTRL0.TRANSP and CTRL1.PALOFS from the next
+    pixel. The fetch's timing is not modelled: the model takes the first
+    group 1-3 after the one on screen at the write, or the first pixel up
+    to 12 after it, that makes the line match, and reports the spread
+    (bitmaps only; EN, MODE and VSCALE must not change mid-line)
   - BPL0PT and BPLSTRIDE are live; the test writes them only on lines the
     layer does not fetch, so a write in line L is line L + 1's start
   - the pointer: each line's start + BPLSTRIDE after the last copy of a
@@ -93,6 +100,103 @@ def load_ppm(path):
     return w, h, [(v[i] << 16) | (v[i + 1] << 8) | v[i + 2] for i in range(0, len(v), 3)]
 
 
+def compose(x, lop, lidx, sline, prio, bg, pal, share, vidcon, shown, lpri=False):
+    """The colour at picture pixel x, back to front (spec 4, 4.8)"""
+    col = bg
+    if not vidcon & 4:
+        here = sline.get(x, [])
+        for pl in (3, 2, 1, 0):
+            for sn, sidx, sdep in reversed(here):
+                if sdep == pl:
+                    col = pal[(0 if share else 3) * 256 + sidx]
+            if pl > 0 and lop and ((prio >> (2 * (pl - 1))) & 3) == 0:
+                col = pal[lidx]
+            if pl == 1 and lop and lpri and shown:
+                col = pal[lidx]
+    return col
+
+
+def mid_row(evs, c, row, colour, byte, spread_g, spread_p):
+    """A bitmap line with CTRL0 or CTRL1 writes in it (issue #100): L0's
+    (opaque, index) across the line. BPP and HSCALE act from a group the
+    fetch starts after the write, TRANSP and PALOFS from a pixel after it;
+    EN, MODE and VSCALE only from the next line. Tries group 1-3 after the
+    one on screen at the write, and pixel 0-12 after it, and keeps the
+    first that matches the frame's row."""
+    import itertools
+    X, sx, xs, xe, groups, wadd, ptr = X0, c["sx"], c["xs"], c["xe"], c["groups"], c["wadd"], c["ptr"]
+    st = dict(lb=c["lb"], hs=c["hs"], transp=c["transp"], palofs=c["palofs"])
+    gev, pev = [], []                         # (picture x, new settings), in the order written
+    for bh, o, v in sorted(evs):
+        if o == 0x090:
+            if ((v >> 2) & 3, v >> 6) != (st["lb"], st["hs"]):
+                st.update(lb=(v >> 2) & 3, hs=v >> 6)
+                gev.append((bh - X, (st["lb"], st["hs"])))
+            if (v >> 4) & 1 != st["transp"]:
+                st["transp"] = (v >> 4) & 1
+                pev.append((bh - X, (st["transp"], st["palofs"])))
+        elif v >> 4 != st["palofs"]:
+            st["palofs"] = v >> 4
+            pev.append((bh - X, (st["transp"], st["palofs"])))
+
+    def render(ks, xsw):
+        out = [(False, 0)] * W
+        gl, gh, g, pp, woff, x = c["lb"], c["hs"], 0, sx, 0, xs
+        starts = []
+        while x < xe and g < groups:
+            if pp == (sx if g == 0 else 0):
+                for i, (_, (nlb, nhs)) in enumerate(gev):
+                    if ks[i] <= g:
+                        gl, gh = nlb, nhs
+                starts.append(x)
+            bp = 1 << gl
+            bo = pp * bp
+            a = wadd(ptr, 2 * (woff + (bo >> 4)))
+            wv = (byte(a) << 8) | byte(a + 1)
+            v = (wv >> (16 - bp - (bo & 15))) & ((1 << bp) - 1)
+            for _ in range(1 << gh):
+                if x >= xe:
+                    break
+                tr, po = c["transp"], c["palofs"]
+                for j, (_, (ntr, npo)) in enumerate(pev):
+                    if xsw[j] <= x:
+                        tr, po = ntr, npo
+                if not (tr and v == 0):
+                    out[x] = (True, v if bp == 8 else po * 16 + v)
+                x += 1
+            pp += 1
+            if pp == 16:
+                woff += 1 << gl
+                g, pp = g + 1, 0
+        return out, starts
+
+    _, starts = render([groups + 1] * len(gev), [W] * len(pev))
+    def gb_of(xw):                            # the group on screen at the write (-1 before the window)
+        if xw >= xe:
+            return groups
+        return max([-1] + [gi for gi, s0 in enumerate(starts) if s0 <= xw])
+    gc = [sorted({min(gb_of(xw) + dd, groups) for dd in (1, 2, 3)}) for xw, _ in gev]
+    pc = [sorted({min(max(xw + dd, xs), xe) for dd in range(13)}) for xw, _ in pev]
+    first = None
+    for ks in itertools.product(*gc):
+        if list(ks) != sorted(ks):
+            continue
+        for xsw in itertools.product(*pc):
+            out, _ = render(ks, xsw)
+            if first is None:
+                first = out
+            if row is not None and all(colour(x, *out[x]) == row[x] for x in range(W)):
+                for (xw, _), k in zip(gev, ks):
+                    if k < groups:
+                        spread_g[k - gb_of(xw)] = spread_g.get(k - gb_of(xw), 0) + 1
+                for (xw, _), xx in zip(pev, xsw):
+                    if xs < xx < xe:
+                        spread_p[xx - xw] = spread_p.get(xx - xw, 0) + 1
+                return out
+    print("vmodel: line %d: no place for its mid-line writes makes it match" % c["L"])
+    return first
+
+
 class Fail(Exception):
     pass
 
@@ -112,6 +216,7 @@ def main():
     pic_fx = []                        # (frame, line, "prio" / "bg", value)
     live = []                          # (frame, line, offset, value, write line): pointer and stride
     spr_ev = []                        # (frame, line, offset, value): sprite registers, SPRDMA, from that line
+    mids = {}                          # (frame, line): [(beam pixel, offset, value)]: CTRL0 and CTRL1 in that line
     for n, row in enumerate(open(d + "/vlog.txt")):
         f, bv, bh, on, a, v = row.split()
         f, bv, bh, on, a, v = int(f), int(bv), int(bh), int(on), int(a, 16), int(v, 16)
@@ -166,6 +271,8 @@ def main():
                 live.append(nxt + (o, v, (f, bv)))
             else:
                 line_fx.append(nxt + (o, v))
+            if o in (0x090, 0x091) and on:
+                mids.setdefault((f, bv), []).append((bh, o, v))
     if errors:
         raise Fail(errors)
 
@@ -187,6 +294,8 @@ def main():
     tox = lambda v: 0 if v < X0 else W if v > HTOT else v - X0
     toy = lambda v: 0 if v < Y0 else H if v > VTOT else v - Y0
     fetched = {}                                     # (frame, line): the layer fetched on it
+    fw, fh, got = load_ppm(d + "/frame.ppm")
+    spread_g, spread_p = {}, {}                      # mid-line writes: groups / pixels after the write
     share = (vidcon >> 5) & 1
     # The sprites: their registers as written (16 bytes each), and each one's state
     SR = [[0] * 16 for _ in range(8)]
@@ -335,10 +444,25 @@ def main():
             if f == G and nl < H:
                 y = nl
                 shown = 0 in ((prio >> 4) & 3, (prio >> 2) & 3, prio & 3) and not vidcon & 4
+                evs = mids.get((f, L), [])                    # used if one changes BPP, TRANSP, HSCALE or PALOFS
+                if not any((e[1] == 0x090 and (e[2] & 0xDC) != (c0 & 0xDC)) or (e[1] == 0x091 and e[2] >> 4 != palofs)
+                           for e in evs):
+                    evs = []
+                l0 = None
+                if act and evs:
+                    if mode:
+                        raise Fail(["CTRL written mid-line on a tile line (not modelled): line %d" % L])
+                    l0 = mid_row(evs, dict(lb=lb, hs=hs, transp=transp, palofs=palofs, en=en, mode=mode, vs=vs,
+                                           sx=sx, xs=xs_c, xe=xe_c, groups=groups, ptr=ptr, wadd=wadd, L=L),
+                                 got[y * W:(y + 1) * W] if (fw, fh) == (W, H) else None,
+                                 lambda x, lop, lidx: compose(x, lop, lidx, sline, prio, bg, pal, share, vidcon, shown),
+                                 byte, spread_g, spread_p)
                 for x in range(W):
                     col = bg
                     lop, lidx, lpri = False, 0, False
-                    if act and xs_c <= x < xe_c and mode:
+                    if l0 is not None:
+                        lop, lidx = l0[x]
+                    elif act and xs_c <= x < xe_c and mode:
                         ty = (syt + srcn) % (8 * mh)
                         xm = (sxt + ((x - xs_c) >> hs)) % (8 * mw)
                         ea = mappt + ((ty >> 3) * mw + (xm >> 3)) * 2
@@ -382,8 +506,10 @@ def main():
                 sval = stride - 0x10000 if stride & 0x8000 else stride
                 ptr = wadd(ptr, sval if vs_n == vmax else 0)
 
-    fw, fh, got = load_ppm(d + "/frame.ppm")
     diffs = 0
+    if spread_g or spread_p:
+        print("vmodel: mid-line writes acted %s groups and %s pixels after the write (count)"
+              % (dict(sorted(spread_g.items())), dict(sorted(spread_p.items()))))
     if (fw, fh) != (W, H):
         print("vmodel: frame is %dx%d" % (fw, fh))
         diffs += 1

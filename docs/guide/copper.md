@@ -237,7 +237,7 @@ To wait for beam line 600, pixel 808: line 600 is `0x258` and pixel 808 is `0x32
         CWAIT   149,504                 ; the middle of picture line 100
 ```
 
-A WAIT for line n, pixel 0 ends at the start of line n's horizontal blank, 144 pixels before its picture: the place for changes that must be in place for line n's picture, such as BGCOLOR, PRIO and the palette. A layer's line settings (CTRL, the window, SCROLLX) are taken at that moment, so those must be written during line n − 1.
+A WAIT for line n, pixel 0 ends at the start of line n's horizontal blank, 144 pixels before its picture: the place for changes that must be in place for line n's picture, such as BGCOLOR, PRIO and the palette. A layer's line settings (CTRL0.EN, CTRL0.MODE, VSCALE, the window, SCROLLX) are taken at that moment, so those must be written during line n − 1. A layer's depth and horizontal scale act from its next group of 16 source pixels, so a change for line n alone goes at the very end of line n − 1, after the layer's last group has begun showing (Table 5-20).
 
 ### Beam positions through the frame
 
@@ -1096,11 +1096,13 @@ The copper's writes take effect exactly as the Z80's do (Table 5-20).
 |-----------|-------------|
 | Palette entries (PALDAT), VIDCON.DIRECT, VIDCON.BLANKALL | At once, from the next pixel |
 | BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1 |
-| CTRL, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
+| CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
+| CTRL0.BPP, CTRL0.HSCALE | From the layer's next group of 16 source pixels, one or two groups past the beam: a split mid-line. For line L alone, write at the end of line L − 1, after the layer's last group has begun showing |
+| CTRL0.TRANSP, CTRL1.PALOFS, CTRL2.WRAP | At once: the next pixel (WRAP: the next pointer move) |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144): write in line L's horizontal blank, or earlier |
 | Sprite registers | A CTL write starts the sprite, from the next line inside its window. The others act on a running sprite from the next line |
 
-A good rule: make changes for line L in its horizontal blank, after `CWAIT L,0`, except the line settings (CTRL, the window, SCROLLX), which go in the line before, and pointers, which have their own gap at the end of the line before.
+A good rule: make changes for line L in its horizontal blank, after `CWAIT L,0`, except the line settings (CTRL, the window, SCROLLX), which go in the line before (depth and scale at its very end), and pointers, which have their own gap at the end of the line before.
 
 ### How fast the copper runs
 

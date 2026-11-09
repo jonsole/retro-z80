@@ -805,7 +805,7 @@ WIN_Y       equ     VID_Y0+(VID_H-WIN_H)/2  ; 145
 
 ### When window changes take effect
 
-WINX and WINY are line settings, read at the start of each line's horizontal blank, as CTRL0–CTRL3 and the scroll are: to change line L, write during line L − 1 or earlier (Table 3-44). This lets you move a window or change a layer's format partway down the screen.
+WINX and WINY are line settings, read at the start of each line's horizontal blank, as CTRL0.EN, CTRL0.MODE, VSCALE and the scroll are: to change line L, write during line L − 1 or earlier (Table 3-44). This lets you move a window or change a layer's format partway down the screen.
 
 ### How much is fetched
 
@@ -1313,7 +1313,7 @@ A tile layer uses these registers; BPL0PT, BPLSTRIDE and CTRL2.WRAP are not used
 | MAPPT | `+0x18` | 3 | The map's first entry (column 0, row 0) |
 | PATPT | `+0x1C` | 3 | Tile 0's first byte |
 
-MAPPT, PATPT and SCROLLY are line settings, like CTRL0: the hardware reads them at the start of each line, so a change acts from the next line and never in the middle of one.
+MAPPT, PATPT and SCROLLY are line settings, like CTRL0.EN and CTRL0.MODE: the hardware reads them at the start of each line, so a change acts from the next line and never in the middle of one.
 
 ### Scrolling round the map
 
@@ -2446,7 +2446,10 @@ Table 3-44 gives when each register's write reaches the screen.
 
 | Registers | Take effect |
 |-----------|-------------|
-| CTRL0–CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL | At the start of each line's horizontal blank (beam pixel 0), before its picture. **To change line L, write during the visible part of line L − 1 or earlier** |
+| CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL | At the start of each line's horizontal blank (beam pixel 0), before its picture. **To change line L, write during the visible part of line L − 1 or earlier** |
+| CTRL0.BPP, CTRL0.HSCALE | From the layer's next group of 16 source pixels, one or two groups past the beam. To change line L only, write at the end of line L − 1, after its last group has begun showing (see "Changing Depth and Scale Mid-Line") |
+| CTRL0.TRANSP, CTRL1.PALOFS | At once: the next pixel |
+| CTRL2.WRAP | At once: the next pointer move |
 | BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the line's saved start. BPLSTRIDE is used with the line's last fetch |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes that line |
 | Port `0xFE` border | At once (see "Spectrum Extras") |
@@ -2454,6 +2457,18 @@ Table 3-44 gives when each register's write reaches the screen.
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once. DMACON stops or starts the next fetch |
 
 A write that lands in the same few clocks as the hardware's copy of the line settings (at beam pixel 0) may take effect a line later.
+
+### Changing Depth and Scale Mid-Line
+
+A layer's depth (CTRL0.BPP) and horizontal scale (CTRL0.HSCALE) can be changed in the middle of a line. The hardware fetches and shows a layer in groups of 16 source pixels, and each group keeps the depth and scale it was fetched with. So a write changes the picture from a group boundary, one or two groups to the right of where the beam was. A copper list can split a line into a part at one depth or scale and a part at another.
+
+- **Where the change shows.** It lands on a group boundary, one or two groups past the beam. Allow for that when placing the WAIT.
+- **To change only the next line,** write at the very end of the line before: after the layer's last group has begun showing (its window's last 16 source pixels, or after its window) and before beam pixel 0.
+- **A wider scale mid-line** makes the groups wider, so the window ends before all the line's groups are shown. The rest are not shown, and the next line starts where it should.
+- **A narrower scale mid-line** makes the groups narrower, so the line runs out of groups before the window ends. The layer is transparent from there to the window's end, and VIDSTAT's OVERRUN bit is set. Set a narrower scale for the next line only, as above.
+- **TRANSP and PALOFS** act from the next pixel. One pixel may show a mix of the old and new PALOFS bits while they change.
+
+The number of groups a line fetches is set at its start from that moment's HSCALE. Nothing else about a line's fetch changes mid-line: EN, MODE, VSCALE and the window are line settings.
 
 ---
 
