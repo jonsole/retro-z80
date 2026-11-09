@@ -93,7 +93,7 @@ module tb_fe;
         .frame_tick(), .line_tick(), .irq(), .irq_err(),
         .disp_req(), .disp_urgent(), .disp_addr(),
         .disp_ack(1'b0), .disp_rvalid(1'b0), .disp_rdata(16'd0),
-        .spr_req(), .spr_urgent(), .spr_deadline(), .spr_addr(),
+        .spr_req(), .spr_urgent(), .spr_addr(),
         .spr_ack(1'b0), .spr_rvalid(1'b0),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5),
         .rgb(rgb), .hsync(hs), .vsync(vs), .de(de)

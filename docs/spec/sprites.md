@@ -175,7 +175,7 @@ Each sprite has a **FIFO of 32 words**, its data registers. The fetcher pushes t
 
 **Which image line.** The sprite's first line shows the image line at SPRxPT. Each further line it shows moves on by the source lines YSTEP gives (section 3.4): k lines, k × ⌈source width × BPP ÷ 16⌉ words, with the source width of that line's settings. When the sprite is bigger down (YSTEP below `0x0800`), k is often 0 and the line is fetched again; when it is smaller, lines in between are skipped: neither fetched nor shown. **A write to SPRxPT** while the sprite runs sets exactly where its next image line starts (not moved on by YSTEP that time); the lines after it move on from there. So an image can be switched from one line to the next.
 
-**Changing a sprite while it is drawn.** Writes to SPRxH, SPRxV, SPRxSTEP and SPRxPT act on a running sprite from the next line that starts after the write; CTL's settings (BPP, DEPTH, PAL) likewise, but a CTL write also starts the sprite again. A stopped sprite takes them when it is started. So a copper list can move a sprite across on every line (a wobble), change XSTEP and the window on every line (a zoom, perspective), or switch its image part way down.
+**Changing a sprite while it is drawn.** Writes to SPRxH, SPRxV, SPRxSTEP and SPRxPT act on a running sprite from the next line that starts after the write; CTL's settings (BPP, DEPTH, PAL) likewise, but a CTL write also starts the sprite again. A stopped sprite takes them when it is started. The fetch reads a sprite's settings once every NS clocks, one sprite ahead, through a register. A write that lands in the clock its sprite's settings are taken is seen at that sprite's next visit, so a write right at a line's start may act one line later. So a copper list can move a sprite across on every line (a wobble), change XSTEP and the window on every line (a zoom, perspective), or switch its image part way down.
 
 Each byte is written directly, with no latch (spec 3), and the others keep their values:
 
@@ -427,7 +427,7 @@ The sprite engine is retro-hw's, in `fpga/retro-hw/rtl/`; `fpga/rtl/sprites.v` i
 
 | Core | What | Parameters | Spec |
 |------|------|------------|------|
-| `sprite_fetch` | Line starts, the fetcher, deadlines, the 8 FIFOs, collisions | NS = `NSPRITES` (below), PW 22, SWAP_BYTES 1 (little-endian SRAM), URGENT 6, MANUAL 0 | [sprite_fetch](../../fpga/retro-hw/docs/spec/sprite_fetch.md) |
+| `sprite_fetch` | Line starts, the fetcher, deadlines, the 8 FIFOs, collisions | NS = `NSPRITES` (below), PW 22, AW 21, LITTLE 1 (little-endian SRAM), URGENT 6, MANUAL 0 | [sprite_fetch](../../fpga/retro-hw/docs/spec/sprite_fetch.md) |
 | `sprite_pix` | One sprite's pixel side, one per sprite built | None | [sprite_pix](../../fpga/retro-hw/docs/spec/sprite_pix.md) |
 
 The wrapper keeps this spec's registers (section 6): the 16 bytes per sprite, written byte by byte into its RAMs; SPRxCTL as the byte written (BPP 3 taken as 8 bpp); SPRxPT bytes merged into the core's line start, and SPRxPT0's capture; SPRDMA as two bytes; SPRCOLL0–3 cleared by byte. The mixing with the layers is in the video unit (spec 4).

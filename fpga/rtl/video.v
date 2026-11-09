@@ -106,7 +106,6 @@ module video #(
     // The scheduler's sprite channel (the same read data)
     output wire        spr_req,
     output wire        spr_urgent,
-    output wire [9:0]  spr_deadline,
     output wire [21:1] spr_addr,
     input  wire        spr_ack,
     input  wire        spr_rvalid,
@@ -723,7 +722,7 @@ module video #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(spr_q), .rb_hit(spr_hit), .rb_cdata(spr_cdata), .rb_cap(spr_cap),
         .dma_on(vidcon[0] && dmacon[6] && dmacon[2]), .vblank(frame_tick), .beam_v(s_vline), .beam_h(s_hpix),
-        .mem_req(spr_req), .mem_addr(spr_addr), .mem_deadline(spr_deadline), .mem_urgent(spr_urgent),
+        .mem_req(spr_req), .mem_addr(spr_addr), .mem_urgent(spr_urgent),
         .mem_ack(spr_ack), .mem_rvalid(spr_rvalid), .mem_rdata(disp_rdata),
         .p_hs(sp_hs), .p_xe(sp_xe), .p_act(sp_act), .p_lb(sp_lb),
         .p_xstep(sp_xstep), .p_depth(sp_depth), .p_pal(sp_pal), .p_dma(sp_dma),

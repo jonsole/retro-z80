@@ -18,6 +18,11 @@
 // (lst_cur) and writes it back whole (lst_wr). A write to SPRxCTL starts
 // the sprite (start). SPRCOLL is the core's coll, cleared by byte.
 //
+// The core registers the settings at its input, with set_sel one sprite
+// ahead (retro-hw#8), so the m_s/m_h/m_v reads here stay combinational. A
+// settings write that lands in its own sprite's hand-over clock is seen at
+// that sprite's next visit, NS clocks later.
+//
 // Registers (spec 5, section 6), sprite n at custom 0x010 + n x 0x10:
 //   +0x0-0x2  SPRxPT    bits 21-1: where the next image line starts. Read:
 //                       the start of the line being drawn, or the value
@@ -38,7 +43,7 @@
 // written (BPP 3 is taken as 8 bpp where it is used); no manual mode (the
 // core's MANUAL off: no SPRxDAT, no FIFO writes from the bus, no FIFO
 // count read); 22-bit pointers (PW 22); each word's even byte to the FIFO
-// word's high half (SWAP_BYTES: the SRAM is little-endian, spec 5, section
+// word's high half (LITTLE: the SRAM is little-endian, spec 5, section
 // 3.5); the urgent mark one unit (8 clocks) earlier (URGENT 6), as an
 // urgent fetch never takes the CPU's cycles (spec 2); NS sprites built (the
 // others never start, fetch or show).
@@ -67,7 +72,6 @@ module sprites #(
     // Scheduler: the sprite channel
     output wire        mem_req,
     output wire [21:1] mem_addr,
-    output wire [9:0]  mem_deadline,
     output wire        mem_urgent,
     input  wire        mem_ack,
     input  wire        mem_rvalid,
@@ -130,7 +134,7 @@ module sprites #(
     wire [31:0] coll_clr = (rb_wr && rb_addr >= `RM_SPRCOLL0 && rb_addr <= `RM_SPRCOLL3)
                            ? ({24'd0, rb_wdata} << {rb_addr[1:0], 3'b000}) : 32'd0;
 
-    sprite_fetch #(.NS(NS), .PW(22), .SWAP_BYTES(1), .URGENT(6), .MANUAL(0)) core (
+    sprite_fetch #(.NS(NS), .PW(22), .AW(21), .LITTLE(1), .URGENT(6), .MANUAL(0)) core (
         .clk(clk), .rst(rst),
         .set_sel(cs),
         .set_hstart(m_h[cs][10:0]), .set_hstop(m_h[cs][21:11]),
@@ -142,7 +146,7 @@ module sprites #(
         .sel(sn), .lst_cur(lst), .lst_wr(w_pt), .lst_new(lst_new),
         .fifo_count(), .dat_wr(1'b0), .dat(16'd0),
         .vblank(vblank), .beam_v(beam_v), .beam_h(beam_h),
-        .mem_req(mem_req), .mem_addr(mem_addr), .mem_deadline(mem_deadline), .mem_urgent(mem_urgent),
+        .mem_req(mem_req), .mem_addr(mem_addr), .mem_urgent(mem_urgent),
         .mem_ack(mem_ack), .mem_rvalid(mem_rvalid), .mem_rdata(mem_rdata),
         .p_hs(p_hs), .p_xe(p_xe), .p_act(p_act), .p_lb(p_lb), .p_xstep(p_xstep),
         .p_depth(p_depth), .p_pal(p_pal), .p_dma(p_dma),
