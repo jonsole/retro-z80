@@ -276,7 +276,6 @@ module retroz80 #(
     wire [2:0]  m_cycle;
     wire        bpl_req, bpl_urgent, bpl_ack, bpl_rvalid;
     wire [21:1] bpl_addr;
-    wire [9:0]  bpl_deadline;
     wire        spr_req, spr_urgent, spr_ack, spr_rvalid;
     wire [21:1] spr_addr;
     wire [9:0]  spr_deadline;
@@ -393,7 +392,7 @@ module retroz80 #(
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid), .rb_cop(cw_req),
         .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_line(irq_line), .irq_err(irq_viderr),
         .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on),
-        .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_deadline(bpl_deadline), .disp_addr(bpl_addr),
+        .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),

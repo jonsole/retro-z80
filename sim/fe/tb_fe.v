@@ -91,7 +91,7 @@ module tb_fe;
         .rb_cop(1'b0),                 // the CPU's writes only: no copper here
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(), .rb_cap(),
         .frame_tick(), .line_tick(), .irq(), .irq_err(),
-        .disp_req(), .disp_urgent(), .disp_deadline(), .disp_addr(),
+        .disp_req(), .disp_urgent(), .disp_addr(),
         .disp_ack(1'b0), .disp_rvalid(1'b0), .disp_rdata(16'd0),
         .spr_req(), .spr_urgent(), .spr_deadline(), .spr_addr(),
         .spr_ack(1'b0), .spr_rvalid(1'b0),
