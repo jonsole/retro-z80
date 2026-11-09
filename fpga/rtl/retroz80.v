@@ -278,7 +278,6 @@ module retroz80 #(
     wire [21:1] bpl_addr;
     wire        spr_req, spr_urgent, spr_ack, spr_rvalid;
     wire [21:1] spr_addr;
-    wire [9:0]  spr_deadline;
     wire        cop_req, cop_ack, cop_rvalid;
     wire [21:1] cop_addr;
     wire [1:0]  cop_pri;
@@ -394,7 +393,7 @@ module retroz80 #(
         .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
-        .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_deadline(spr_deadline), .spr_addr(spr_addr),
+        .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_addr(spr_addr),
         .spr_ack(spr_ack), .spr_rvalid(spr_rvalid),
         .clk_pix(clk_pix), .clk_pix5(clk_pix5),
         .rgb(vid_rgb), .hsync(vid_hsync), .vsync(vid_vsync), .de(vid_de)
