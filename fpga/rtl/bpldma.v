@@ -22,8 +22,11 @@
 // also sets the saved line start and wins over the fetch's own move.
 //
 // The core takes MAPPT and PATPT at the start of each line; BPLSTRIDE when
-// the line's last word is asked for. The other line settings come from
-// video.v, loaded once a line.
+// the line's last word is asked for. Depth (BPP) and scale (HSCALE) come
+// straight from CTRL0 and are taken at each group's start (retro-hw's
+// revision 2): the group carries them to layer_pix in gset, so a mid-line
+// write applies from the next group. WRAP is read live. The other line
+// settings come from video.v, loaded once a line.
 //
 // The ports keep three layers' width whatever NL is; the layers not built
 // are never fetched and read 0xFF.
@@ -49,9 +52,9 @@ module bpldma #(
     input  wire          line_t,
     input  wire [2:0]    act,          // the layer shows on the next line
     input  wire [2:0]    adv,          // ... and its pointer moves on after it (last copy of a source line)
-    input  wire [5:0]    lbpp,         // log2 of bits per pixel: words per group = 1 << lbpp
-    input  wire [5:0]    hscale,       // log2 of the horizontal scale (for the deadlines)
-    input  wire [11:0]   wrap,         // CTRL2.WRAP: 0 off, n = the pointer wraps in 2^(n+9) bytes
+    input  wire [5:0]    lbpp,         // live, CTRL0.BPP: log2 of bits per pixel (words a group = 1 << lbpp)
+    input  wire [5:0]    hscale,       // live, CTRL0.HSCALE: log2 of the horizontal scale
+    input  wire [11:0]   wrap,         // live, CTRL2.WRAP: 0 off, n = the pointer wraps in 2^(n+9) bytes
     input  wire [35:0]   ngroups,      // groups to fetch
     input  wire [2:0]    tile,         // CTRL0.MODE: a tile map
     input  wire [5:0]    mapw,         // CTRL3.MAPW: 32, 64, 128 (3 as 2) entries
@@ -63,6 +66,7 @@ module bpldma #(
     // To and from the pixel domain
     output wire [383:0]  dat,          // 3 layers x 8 data registers x 16 bits, layer 0 register 0 lowest
     output wire [29:0]   attr,         // tiles: the group's {PRI, PAL} for column 1 (9-5) and column 0 (4-0), a layer
+    output wire [17:0]   gset,         // the group's {hscale, depth, planar} as taken at its start, 6 bits a layer
     output wire [2:0]    fill_t,
     input  wire [2:0]    take_t,
 
@@ -166,6 +170,7 @@ module bpldma #(
     wire [128*NL-1:0] c_dat;
     wire [10*NL-1:0]  c_attr;
     wire [NL-1:0]     c_fill;
+    wire [6*NL-1:0]   c_gset;
     wire [20:0]       c_addr;
     layer_fetch #(.NL(NL), .AW(21), .PW(22), .PLANAR(0), .TILES(1), .DATWRITE(0), .LITTLE(1),
                   .URG_BASE(11'd17), .URG_WORD(11'd5)) core (
@@ -178,7 +183,7 @@ module bpldma #(
         .ptr_sel({rn[LW-1:0], 3'd0}), .ptr_wr(cpu_pw), .ptr_wdata(cpu_new), .ptr_rdata(pt_live),
         .dat_wr(1'b0), .dat_sel({(LW+3){1'b0}}), .dat_wdata(16'd0), .dat_be(2'b00),
         .dma_en({(8*NL){1'b1}}), .dat_rdata(),
-        .dat(c_dat), .attr(c_attr), .fill_t(c_fill), .take_t(take_t[NL-1:0]),
+        .dat(c_dat), .attr(c_attr), .gset(c_gset), .fill_t(c_fill), .take_t(take_t[NL-1:0]),
         .req(req), .urgent(urgent), .addr(c_addr), .ack(ack), .rvalid(rvalid), .rdata(rdata)
     );
     assign addr = c_addr;
@@ -186,10 +191,12 @@ module bpldma #(
     generate if (NL < 3) begin : pad
         assign dat    = {{(128*(3-NL)){1'b0}}, c_dat};
         assign attr   = {{(10*(3-NL)){1'b0}}, c_attr};
+        assign gset   = {{(6*(3-NL)){1'b0}}, c_gset};
         assign fill_t = {{(3-NL){1'b0}}, c_fill};
     end else begin : full
         assign dat    = c_dat;
         assign attr   = c_attr;
+        assign gset   = c_gset;
         assign fill_t = c_fill;
     end endgenerate
 endmodule

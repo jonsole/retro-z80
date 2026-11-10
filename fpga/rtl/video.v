@@ -591,18 +591,15 @@ module video #(
     reg  [11:0] n_groups [0:2];
     reg  [2:0] f_act, f_adv;
     reg  [11:0] f_groups [0:2];
-    reg  [1:0]  f_lb [0:2], f_hs [0:2];
-    reg  [3:0]  f_wrap [0:2];
     reg  [2:0]  f_tile;
     reg  [1:0]  f_mw [0:2];
     reg  [9:0]  f_ty [0:2];
     reg  [6:0]  f_tcol [0:2];
     reg         line_t;
     // This line's settings, for the layer units
-    reg  [2:0] c_act, c_transp, c_tile;
+    reg  [2:0] c_act, c_tile;
     reg  [10:0] c_xs [0:2], c_xe [0:2];
-    reg  [1:0]  c_lb [0:2], c_hs [0:2];
-    reg  [3:0]  c_pos0 [0:2], c_palofs [0:2];
+    reg  [3:0]  c_pos0 [0:2];
 
     always @(posedge clk_pix) begin : setup
         integer n;
@@ -653,9 +650,6 @@ module video #(
             c_act  <= b_act;
             for (n = 0; n < 3; n = n + 1) begin
                 f_groups[n] <= n_groups[n];
-                f_lb[n]     <= l_ctrl0[n][3:2];
-                f_hs[n]     <= l_ctrl0[n][7:6];
-                f_wrap[n]   <= l_ctrl2[n][7:4];
                 f_tile[n]   <= l_ctrl0[n][5];
                 f_mw[n]     <= l_ctrl3[n][1:0];
                 f_ty[n]     <= n_ty[n];
@@ -663,10 +657,6 @@ module video #(
                 c_tile[n]   <= l_ctrl0[n][5];
                 c_xs[n]     <= w_xs[n];
                 c_xe[n]     <= w_xe[n];
-                c_lb[n]     <= l_ctrl0[n][3:2];
-                c_transp[n] <= l_ctrl0[n][4];
-                c_hs[n]     <= l_ctrl0[n][7:6];
-                c_palofs[n] <= l_ctrl1[n][7:4];
                 c_pos0[n]   <= n_pos0[n];
             end
         end
@@ -681,14 +671,15 @@ module video #(
     wire [35:0] fv_groups;
     wire [5:0]  fv_mw;
     wire [29:0] fv_ty, at;
+    wire [17:0] gs;
     wire [20:0] fv_tcol;
     generate for (gw = 0; gw < 3; gw = gw + 1) begin : fvec
         assign fv_mw[2*gw +: 2]       = f_mw[gw];
         assign fv_ty[10*gw +: 10]     = f_ty[gw];
         assign fv_tcol[7*gw +: 7]     = f_tcol[gw];
-        assign fv_lb[2*gw +: 2]       = f_lb[gw];
-        assign fv_hs[2*gw +: 2]       = f_hs[gw];
-        assign fv_wrap[4*gw +: 4]     = f_wrap[gw];
+        assign fv_lb[2*gw +: 2]       = l_ctrl0[gw][3:2];   // live: taken at each group's start
+        assign fv_hs[2*gw +: 2]       = l_ctrl0[gw][7:6];
+        assign fv_wrap[4*gw +: 4]     = l_ctrl2[gw][7:4];   // live: on every pointer move
         assign fv_groups[12*gw +: 12] = f_groups[gw];
     end endgenerate
     bpldma #(.NL(NL)) dma (
@@ -699,7 +690,7 @@ module video #(
         .lbpp(fv_lb), .hscale(fv_hs), .wrap(fv_wrap), .ngroups(fv_groups),
         .tile(f_tile), .mapw(fv_mw), .ty(fv_ty), .tcol(fv_tcol),
         .line_go(line_go), .line_gen(line_gen),
-        .dat(dat), .attr(at), .fill_t(fill_t), .take_t(take_t),
+        .dat(dat), .attr(at), .gset(gs), .fill_t(fill_t), .take_t(take_t),
         .req(disp_req), .urgent(disp_urgent), .addr(disp_addr),
         .ack(disp_ack), .rvalid(disp_rvalid), .rdata(disp_rdata)
     );
@@ -796,10 +787,10 @@ module video #(
         layer_pix #(.PLANAR(0), .TILES(1)) u (
             .clk_pix(clk_pix), .clk_pix5(clk_pix5), .en(en_p), .hc(hc), .hn(hn),
             .line_start(hc == HVIS), .ready(buf_ready),
-            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .planar(1'b0), .lb(c_lb[g]), .planes(3'd0),
-            .hs(c_hs[g]), .pos0(c_pos0[g]), .transp(c_transp[g]), .palofs(c_palofs[g]),
+            .active(c_act[g]), .xs(c_xs[g]), .xe(c_xe[g]), .pos0(c_pos0[g]),
+            .transp(l_ctrl0[g][4]), .palofs(l_ctrl1[g][7:4]),     // live, a raw crossing (layer_pix spec 4.4)
             .tile(c_tile[g]),
-            .dat(dat[128*g +: 128]), .attr(at[10*g +: 10]), .fill_t(fill_t[g]), .take_t(take_t[g]),
+            .dat(dat[128*g +: 128]), .attr(at[10*g +: 10]), .gset(gs[6*g +: 6]), .fill_t(fill_t[g]), .take_t(take_t[g]),
             .opaque(bl_op[g]), .idx(bl_idx[8*g +: 8]), .pri(bl_pri[g]), .raw(), .overrun_t(ov_t[g])
         );
         end else begin : off               // not built: never fetched, never shown

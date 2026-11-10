@@ -721,7 +721,7 @@ The RTL was retro68k's `dmx.v`, ported and narrowed to this spec, and its test i
 
 ### 11.1 Shared core
 
-The engine is retro-hw's `dmx_core` ([spec](../../fpga/retro-hw/docs/spec/dmx_core.md)), in `fpga/retro-hw/rtl/dmx_core.v`: the four channels, their scheduler and the shared datapath (shifter, mask stream, minterm, ADD, colour key, edge masks, the C read and skip rules, LINE and EDGES). `fpga/rtl/dmx.v` is retro-z80's wrapper round it.
+The engine is retro-hw's `blitter` ([spec](../../fpga/retro-hw/docs/spec/blitter.md)), in `fpga/retro-hw/rtl/blitter.v`: the four channels, their scheduler and the shared datapath (shifter, mask stream, minterm, ADD, colour key, edge masks, the C read and skip rules, LINE and EDGES). `fpga/rtl/dmx.v` is retro-z80's wrapper round it.
 
 | Parameter | Value | Why |
 |-----------|-------|-----|

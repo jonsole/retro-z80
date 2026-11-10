@@ -234,7 +234,8 @@ $(VL_TB): $(TV80_CORE) $(SYS_RTL) $(SYS_SIM) $(RTL)/regmap.vh | $(BUILD)
 # Variant a is a fixed set of bands, t tile maps, the others random. The
 # sprite screens (ticket #31): s retro68k's spr screen, h the same with
 # VIDCON.SHAREPAL, q a quick one (four sprites, set in the vertical blank
-# only: the one to run locally). In the Verilator testbench, about a minute
+# only: the one to run locally); m mid-line CTRL writes and p split screens
+# (issue #100). In the Verilator testbench, about a minute
 # each (CI runs s and h); the variants run in parallel with make -j.
 VTESTS ?= a t b
 vtest: $(addprefix $(BUILD)/vtest_,$(addsuffix .ok,$(VTESTS)))
@@ -285,7 +286,7 @@ dmx: $(BUILD)/tb.vvp $(BUILD)/dmxtest.hex
 
 # DMXINT's race (spec 14, section 8.4): the engine alone, the interrupt
 # coming due in the clock a write clears it
-$(BUILD)/tb_dmxint.vvp: dmxint/tb_dmxint.v $(RTL)/dmx.v $(HW_RTL)/dmx_core.v | $(BUILD)
+$(BUILD)/tb_dmxint.vvp: dmxint/tb_dmxint.v $(RTL)/dmx.v $(HW_RTL)/blitter.v | $(BUILD)
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -I $(RTL) -s tb_dmxint -o $@ $^
 dmxint: $(BUILD)/tb_dmxint.vvp
 	cd $(BUILD) && $(VVP) -n tb_dmxint.vvp | tee dmxint.log

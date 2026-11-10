@@ -6,7 +6,9 @@
 # them goes through a synchroniser (the pattern's heartbeat; VIDCON.EN, the
 # start of a frame, resets) or is a setting that only changes between lines
 # (BGCOLOR) or is sampled until two samples agree (the beam line; spec 4,
-# section 3.1)
+# section 3.1), or is read raw on purpose: a layer's CTRL0.TRANSP and
+# CTRL1.PALOFS go to layer_pix live, and one pixel may show a mix of old
+# and new bits (retro-hw's layer_pix spec, section 4.4)
 set_clock_groups -asynchronous \
     -group [get_clocks -of_objects [get_pins clocks/mmcm_sys/CLKOUT*]] \
     -group [get_clocks -of_objects [get_pins clocks/mmcm_pix/CLKOUT*]]

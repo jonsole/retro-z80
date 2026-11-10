@@ -75,5 +75,5 @@ jobs:
           tar xJf sjasmplus.tar.xz -C sjasmplus-src --strip-components=1
           make -C sjasmplus-src -j4 > /dev/null
           echo "$PWD/sjasmplus-src" >> "$GITHUB_PATH"
-      - name: The sprite screens (retro68k's spr screen, and with SHAREPAL), pixel by pixel (sim/vtest, ticket #31)
-        run: make -C sim -j2 vtest VTESTS="s h"
+      - name: The sprite screens (retro68k's spr screen, and with SHAREPAL) the mid-line CTRL screen and the split screens, pixel by pixel (sim/vtest, tickets #31 and #100)
+        run: make -C sim -j2 vtest VTESTS="s h m p"
