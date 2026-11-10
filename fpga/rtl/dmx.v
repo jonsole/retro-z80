@@ -1,5 +1,5 @@
 // DMA engine and blitter (spec 14). 100 MHz. The registers on the 8-bit
-// register bus; the engine itself is retro-hw's dmx_core.v (the channels,
+// register bus; the engine itself is retro-hw's blitter.v (the channels,
 // the scheduler and the datapath), shared with retro68k.
 //
 // This wrapper keeps spec 14's register side:
@@ -107,7 +107,7 @@ module dmx #(
     wire        eng_jw_set;
     reg         eng_jw;
 
-    dmx_core #(.CHIP_WORDS({CHIPMB[4:0], 19'd0}), .LE(1), .MASKIMG(MASKIMG), .XPORT(0), .PORTJOB(0),
+    blitter #(.CHIP_WORDS({CHIPMB[4:0], 19'd0}), .LE(1), .MASKIMG(MASKIMG), .XPORT(0), .PORTJOB(0),
                .LINE(1), .EDGES(1)) core (
         .clk(clk), .rst(rst),
         .enable(blt_on), .pause(pause),

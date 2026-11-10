@@ -8,7 +8,9 @@ VARIANT is a fixed set of bands ("a": bitmaps at every depth and scale,
 windows off the edges, fine scroll, negative and zero stride, pointer wrap
 within a line, TRANSP, PALOFS; "t": tile maps at every depth, scale and map
 size, with X and Y scroll round the map, fine scroll, TRANSP, PALOFS; "s",
-"h" and "q": the sprite screens, below; "m": mid-line CTRL writes, below) or a
+"h" and "q": the sprite screens, below; "m": mid-line CTRL writes, below;
+"p": split screens, BPL0PT written after the layer's last fetch on a line,
+which starts the next line as written) or a
 seed for random bands ("b", "c", ...: the same kinds of settings at random,
 bitmaps and tile maps, with PRIO and BGCOLOR changed between bands). A tile
 band's map and patterns are random data too, so its entries have every
@@ -130,6 +132,22 @@ def bands_m():
     # All of it at 4x on 2-line copies
     band(ys=385, ye=445, bpp=2, hs=2, vs=1, xs=150, xe=760, stride=100, palofs=11,
          mid=[(380, 0x00, c0(0, 2)), (600, 0x01, (14 << 4) | 1), (800, 0x00, c0(2, 2)), (845, 0x01, (11 << 4) | 1)])
+    return B
+
+
+def bands_p():
+    """Split screens (issue #100): BPL0PT written by the CPU after the
+    layer's last fetch on line L, every n lines ("split": (n, beam pixel of
+    the first byte)); line L + 1 starts there, as written."""
+    B = []
+    def band(**k):
+        d = dict(bpp=0, hs=0, vs=0, transp=0, palofs=0, wrap=0, xs=144, xe=864, sx=0, stride=0, off=0)
+        d.update(k)
+        B.append(d)
+    band(ys=55, ye=135, bpp=2, xe=560, stride=208, palofs=3, split=(4, 640))
+    band(ys=141, ye=221, bpp=3, hs=1, xs=200, xe=600, sx=5, stride=240, split=(3, 680))
+    band(ys=227, ye=307, bpp=1, vs=1, xs=160, xe=640, stride=-160, off=0x6000, palofs=6, split=(3, 720))
+    band(ys=313, ye=393, bpp=0, hs=2, xs=150, xe=500, sx=9, stride=40, transp=1, split=(2, 600))
     return B
 
 
@@ -342,13 +360,13 @@ def main():
     if variant in ("s", "h", "q"):
         sprites_main(variant, out, rnd)
         return
-    B = bands_a() if variant == "a" else bands_t() if variant == "t" else bands_m() if variant == "m"         else bands_random(rnd)
+    B = {"a": bands_a, "t": bands_t, "m": bands_m, "p": bands_p}.get(variant, lambda: bands_random(rnd))()
 
     # Each band's data in the random area: its own 64 KB for the fixed bands;
     # random bands start in the middle (0x060000-0x09FFFF), so 90 lines at
     # any stride stay inside it
     for k, b in enumerate(B):
-        b["ptr"] = (DATA_LO + k * 0x10000 if variant in ("a", "m") else 0x060000 + (k % 4) * 0x10000) + b["off"]
+        b["ptr"] = (DATA_LO + k * 0x10000 if variant in ("a", "m", "p") else 0x060000 + (k % 4) * 0x10000) + b["off"]
         # Tiles: a map of up to 32 KB and patterns of up to 32 KB, each in its own 64 KB
         if variant == "t":
             b["mappt"] = DATA_LO + k * 0x10000 + b.get("mapoff", 0)
@@ -401,6 +419,13 @@ def main():
                 assert t >= code.t, "band %d: mid-line writes too close together (line %d)" % (k, ln)
                 code.wait_until(t)
                 code.write(L0 + o, v, "mid")
+        if "split" in b:                            # a new BPL0PT after the last fetch, every n lines
+            n, px = b["split"]
+            for j, ln in enumerate(range(b["ys"], b["ye"] - 1, n)):
+                pt = b["ptr"] + 0x8000 - j * 0x300 + (j & 1) * 0x2A
+                code.wait_until(ln * LINE_T + (px * 20) // 27 - 27)
+                for i in range(3):
+                    code.write(L0 + 0x14 + i, (pt >> (8 * i)) & 0xFF, "mid", "split" if i == 0 else "")
         prev_end = b["ye"]
     code.lines.append("        ret")
     assert code.t < FRAME_T - 3 * LINE_T

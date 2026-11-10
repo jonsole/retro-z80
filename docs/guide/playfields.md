@@ -930,7 +930,7 @@ Other strides show the picture differently:
 - BPLSTRIDE = 0 shows the same source line on every screen line.
 - BPLSTRIDE = −(row stride) steps **back** one row each line. Point the pointer at the picture's last line and the picture appears upside down.
 
-The stride is live. The hardware reads it when it fetches the line's last word, about two groups (32 source pixels) before the window's right edge. A value written at the start of a line, or in the horizontal blank before it, applies at the end of that line. Example 3-9 uses this for a reflection.
+The stride is live. The hardware reads it at the end of each line, as the horizontal blank starts. A value written at any time during a line applies at the end of that line. Example 3-9 uses this for a reflection.
 
 ---
 
@@ -1790,7 +1790,7 @@ The copper does the same with no CPU time: a WAIT for line 560 and two 2-byte MO
 
 ### Changing the stride partway down
 
-Because the stride is used at the end of each line, changing BPLSTRIDE during line L changes where line L + 1 starts. The write can land anywhere in line L before its last fetch, which is easy to hit from an interrupt.
+Because the stride is used at the end of each line, changing BPLSTRIDE during line L changes where line L + 1 starts. The write can land anywhere in line L, which is easy to hit from an interrupt.
 
 - To jump to another part of memory at line L + 1, set BPLSTRIDE during line L to (address wanted − line L's start), then put the row stride back during line L + 1.
 - To repeat a line, set BPLSTRIDE to 0 for as many lines as you want it repeated.
@@ -2450,7 +2450,7 @@ Table 3-44 gives when each register's write reaches the screen.
 | CTRL0.BPP, CTRL0.HSCALE | From the layer's next group of 16 source pixels, one or two groups past the beam. To change line L only, write at the end of line L − 1, after its last group has begun showing (see "Changing Depth and Scale Mid-Line") |
 | CTRL0.TRANSP, CTRL1.PALOFS | At once: the next pixel |
 | CTRL2.WRAP | At once: the next pointer move |
-| BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the line's saved start. BPLSTRIDE is used with the line's last fetch |
+| BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the line's saved start. BPLSTRIDE is used at the end of the line |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes that line |
 | Port `0xFE` border | At once (see "Spectrum Extras") |
 | VIDCON, palette entries | At once: the next pixel |

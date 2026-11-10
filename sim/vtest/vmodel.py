@@ -29,7 +29,9 @@ The model is written from the spec, not from the RTL:
     to 12 after it, that makes the line match, and reports the spread
     (bitmaps only; EN, MODE and VSCALE must not change mid-line)
   - BPL0PT and BPLSTRIDE are live; the test writes them only on lines the
-    layer does not fetch, so a write in line L is line L + 1's start
+    layer does not fetch, or after its last fetch (48 beam pixels past its
+    window: a split screen, issue #100), so a write in line L is line
+    L + 1's start, as written
   - the pointer: each line's start + BPLSTRIDE after the last copy of a
     source line, back to the start after the others, wrapping in its
     2^(n+9)-byte block (CTRL2.WRAP); windows clamped to the picture; each
@@ -61,9 +63,11 @@ The model is written from the spec, not from the RTL:
     end is the frame's (the test starts sprites only in the frame checked)
 Exits 1 on any difference, an ambiguous write, OVERRUN or SPRUNDER.
 """
+import os
 import sys
 
 X0, Y0 = 144, 49
+NS = int(os.environ.get("VMODEL_NS", "8"))      # sprites built (VMODEL_NS=2 for the KS2's)
 W, H = 720, 576
 HTOT, VTOT = 864, 625
 
@@ -268,7 +272,7 @@ def main():
             if bh <= 4 or bh >= 862:
                 errors.append("write %d (%03x) at beam pixel %d: too close to the line's start" % (n, o, bh))
             if o in (0x0A0, 0x0A1, 0x0A4, 0x0A5, 0x0A6):
-                live.append(nxt + (o, v, (f, bv)))
+                live.append(nxt + (o, v, (f, bv), bh))
             else:
                 line_fx.append(nxt + (o, v))
             if o in (0x090, 0x091) and on:
@@ -327,7 +331,7 @@ def main():
                     lst[n] = (lst[n] & ~(0xFF << sh)) | ((v & (0xFE, 0xFF, 0x3F)[k]) << sh)
                     pend[n] = False
                 if k == 11:                         # CTL: starts it
-                    run[n], pend[n], syf[n] = True, False, 0
+                    run[n], pend[n], syf[n] = n < NS, False, 0   # a sprite not built never runs
                     fed[n] = bool((sprdma >> n) & 1 and dmacon & 0x44 == 0x44)
         if L == 0:
             for n in range(8):
@@ -386,10 +390,12 @@ def main():
             else:
                 R[o] = v
         while vi < len(live) and live[vi][:2] <= (f, L):
-            o, v, wl = live[vi][2:]
+            o, v, wl, wbh = live[vi][2:]
             vi += 1
-            if fetched.get(wl):
-                raise Fail(["pointer or stride written in line %s, where the layer fetches" % (wl,)])
+            fl = fetched.get(wl)                     # (fetched, the window's end on the beam)
+            if fl and fl[0] and wbh < fl[1] + 48:
+                raise Fail(["pointer or stride written in line %s at beam pixel %d, before the layer's last fetch"
+                            % (wl, wbh)])
             if o >= 0x0A4:                           # BPL0PT: bits 21-1
                 sh = 8 * (o - 0x0A4)
                 ptr = (ptr & ~(0xFF << sh)) | ((v & (0xFE, 0xFF, 0x3F)[sh // 8]) << sh)
@@ -435,7 +441,7 @@ def main():
                 vsub = vs_n
             fetch = bool(dmacon & 0x40 and dmacon & 0x20)
             act = en and nl < H and inwin and fetch
-            fetched[(f, L)] = act
+            fetched[(f, L)] = (act, xe_c + X0)
             bpp = 1 << lb
             m = (1 << (wrap + 9)) - 1 if wrap else 0x3FFFFF
             wadd = lambda a, dd: (a & ~m) | ((a + dd) & m)

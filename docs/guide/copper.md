@@ -986,7 +986,7 @@ To scroll, or to swap screen buffers, the Z80 changes the address **in the list*
 
 ### Pointers and split screens
 
-A pointer is live, and its bytes act when they are written, so new pointers partway down the screen must go where the layer is not fetching: after the layer's last fetch on line L and before line L + 1 starts. A pointer written there is used as written for line L + 1. The layer's last fetch on a line comes about 32 source pixels before its window's right edge (64 beam pixels at 2× across), so the gap is near the end of the line, and the three MOVEs must all fit in it. Set COPCON.PRI to 1 for such a burst ("Copper Timing"). With a layer 2× tall, write after the **last** copy of a source line.
+A pointer is live, and its bytes act when they are written, so new pointers partway down the screen must go where the layer is not fetching: after the layer's last fetch on line L and before line L + 1 starts. A pointer written there is used as written for line L + 1. The layer's last fetch on a line comes about 32 source pixels before its window's right edge (64 beam pixels at 2× across), so the gap is near the end of the line, and the three MOVEs must all fit in it. Write all three bytes, even when only one changes: a pointer written in the gap is not moved on at the end of the line, so a byte written alone joins the pointer as the fetch left it, past the end of the line, not the next line's start. Set COPCON.PRI to 1 for such a burst ("Copper Timing"). With a layer 2× tall, write after the **last** copy of a source line.
 
 The Playfield Hardware chapter's Example 3-13 shows a Spectrum screen this way: the copper writes BPL0PT at the start of each of the 24 character rows, after the layer's last fetch on the line before.
 

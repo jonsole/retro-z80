@@ -87,7 +87,8 @@
 // spec 7, section 6.1). The summary gives the measured rate at each speed.
 `timescale 1ns/1ps
 module tb #(
-    parameter [5:0] CHIPMB = 6'd4             // the build's SRAM size (spec 2, section 11)
+    parameter [5:0] CHIPMB = 6'd4,            // the build's SRAM size (spec 2, section 11)
+    parameter NSPRITES = 8                    // sprites built (the KS2 builds 2)
 );
     reg clk = 1'b1;
     always #5 clk = ~clk;                       // 100 MHz
@@ -165,7 +166,7 @@ module tb #(
     reg [8*128-1:0] romfile;
     initial if (!$value$plusargs("rom=%s", romfile)) romfile = "boot.hex";
 
-    retroz80 #(.CHIPMB(CHIPMB)) dut (
+    retroz80 #(.CHIPMB(CHIPMB), .NSPRITES(NSPRITES)) dut (
         .clk(clk), .por(por),
         .btn_reset_n(1'b1), .buttons({1'b0, tb_nmibtn}),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
