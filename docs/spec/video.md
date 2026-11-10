@@ -366,7 +366,7 @@ The display (layers, the attribute layer and sprites) is one **hard-deadline** u
 |----------------|-------|-------------|
 | 0, 2 | CPU | Only when the CPU leaves the cycle (free order) |
 | 1, 3 | Display | Always the display's first, earliest deadline first; the free order when no layer or sprite wants it |
-| 4 | Audio (reserved) and the free pool | Free order: hard-deadline users first, then the copper and the DMA engine (spec 2) |
+| 4 | Audio (reserved) and the free pool | Free order: hard-deadline users first, then the copper and the blitter (spec 2) |
 
 - **Order: earliest deadline first.** When a layer's shifters take a group, the layer's countdown loads the time that group lasts: 16 source pixels × HSCALE, about 59 system clocks at 1× (593 ns), 118 at 2×. Each word goes to the layer or sprite whose deadline is nearest; layers with equal deadlines take turns. The line's first take (the group loaded in the horizontal blank) sets no deadline.
 - **Urgent.** A request whose deadline is about to pass (the words its group still needs, at about 50 ns each, plus about 140 ns for the read and the crossing back) is **urgent**. An urgent request goes first in every cycle except a CPU cycle (0 or 2) that the CPU has asked for: unlike retro68k, it never takes the CPU's cycle, because the Z80 never waits for SRAM (spec 2, section 5.3). Such a fetch waits at most one memory cycle (20 ns), since cycles 0 and 2 are each followed by a display cycle, so the urgent mark is set one memory cycle (2 clocks) earlier than retro68k's (spec 2, open point M5).
@@ -404,7 +404,7 @@ A layer needs, per screen pixel:
 | Direct colour 24-bit at 2× | **1.5** | **No** (just over) |
 | Two 8-bit bitmaps at 1× | **2.0** | **No** |
 
-The 1.48 is what cycles 1 and 3 guarantee. The scheduler also gives the display any cycle nobody else wants: cycle 4 (audio is not built) before the copper and the DMA engine, and the CPU's cycles 0 and 2 when the Z80 leaves them, which at 20 MHz is most of them (a memory access every 3 or 4 T-states, 1.5 or 2 slots). So a screen a little over the budget usually shows correctly, at the copper's and the DMA engine's expense; unlike retro68k it cannot borrow from the CPU. How far beyond 1.48 a screen can go is to be measured in simulation (open point V9). Windows help: a status panel below a game area, not on top of it, adds nothing on the game's lines.
+The 1.48 is what cycles 1 and 3 guarantee. The scheduler also gives the display any cycle nobody else wants: cycle 4 (audio is not built) before the copper and the blitter, and the CPU's cycles 0 and 2 when the Z80 leaves them, which at 20 MHz is most of them (a memory access every 3 or 4 T-states, 1.5 or 2 slots). So a screen a little over the budget usually shows correctly, at the copper's and the blitter's expense; unlike retro68k it cannot borrow from the CPU. How far beyond 1.48 a screen can go is to be measured in simulation (open point V9). Windows help: a status panel below a game area, not on top of it, adds nothing on the game's lines.
 
 Each layer has one group of time in hand. Close to the budget, 8-bit layers at 1× (8 words per group, or 10 for tiles) are the first to run short.
 
@@ -475,7 +475,7 @@ All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O
 | 6 | DMAEN | Master enable for everything below | 9 |
 | 5 | BPLEN | Layer and attribute fetch (with VIDCON.EN and each CTRL0.EN) | 8 |
 | 4 | COPEN | Copper (spec 6) | 7 |
-| 3 | BLTEN | DMA engine (spec 14) | 6 |
+| 3 | BLTEN | Blitter (spec 14) | 6 |
 | 2 | SPREN | Sprites (spec 5) | 5 |
 | 1 | AUDEN | Audio, reserved (spec 13) | 3–0 (AUD0EN–AUD3EN) |
 | 0 | – | Reserved | 4 (unused) |
@@ -545,7 +545,7 @@ Layer n (0–2) is at `0x090 + n × 0x20`: L0 at `0x090`–`0x0AF` (ports `0x901
 
 ### 6.5 Palettes
 
-**Through ports.** PALIDX is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number (0–2 PALETTE0–2, 3 SPRPALETTE), so the index is retro68k's palette address ÷ 4. Each byte of PALIDX acts when it is written, and writing either byte resets PALDAT's byte counter. **Each master (the CPU, the copper, the DMA engine) has its own PALIDX and byte counter**, as retro68k keeps its palette's held half per writer: a master's PALIDX and PALDAT writes move only its own, and the CPU reads its own PALIDX (spec 6, open point C14). PALDAT reads or writes the entry at the index, one byte at a time: blue, green, red. Blue and green writes go into the master's **colour assembly buffer**: one each for the CPU, the copper and the DMA engine, shared by PALDAT, the register page palettes and BGCOLOR, not a latch per entry (spec 3, rule 7). So the CPU's and the copper's colours never mix, whatever order their writes come in. The **red write changes the entry whole**, with the buffer's blue and green, and steps the index by 1 (from 255 of one palette to 0 of the next; from `0x3FF` to 0). A red read steps it too. So a loop of `OUT (C),r` with B fixed at PALDAT's register writes a palette, 3 bytes per entry. `OTIR` cannot be used: it counts B down, and B is the register number (spec 3; open point V4).
+**Through ports.** PALIDX is a 10-bit index: bits 7–0 the entry, bits 9–8 the palette number (0–2 PALETTE0–2, 3 SPRPALETTE), so the index is retro68k's palette address ÷ 4. Each byte of PALIDX acts when it is written, and writing either byte resets PALDAT's byte counter. **Each master that writes colours (the CPU, the copper) has its own PALIDX and byte counter**, as retro68k keeps its palette's held half per writer: a master's PALIDX and PALDAT writes move only its own, and the CPU reads its own PALIDX (spec 6, open point C14). PALDAT reads or writes the entry at the index, one byte at a time: blue, green, red. Blue and green writes go into the master's **colour assembly buffer**: one each for the CPU, the copper and the DMA engine, shared by PALDAT, the register page palettes and BGCOLOR, not a latch per entry (spec 3, rule 7). So the CPU's and the copper's colours never mix, whatever order their writes come in. The **red write changes the entry whole**, with the buffer's blue and green, and steps the index by 1 (from 255 of one palette to 0 of the next; from `0x3FF` to 0). A red read steps it too. So a loop of `OUT (C),r` with B fixed at PALDAT's register writes a palette, 3 bytes per entry. `OTIR` cannot be used: it counts B down, and B is the register number (spec 3; open point V4).
 
 **Through the register page.** The palettes are memory in the register page (spec 2, section 10.2), 3 bytes per entry, packed:
 
@@ -558,7 +558,7 @@ Layer n (0–2) is at `0x090 + n × 0x20`: L0 at `0x090`–`0x0AF` (ports `0x901
 
 Entry i of palette p is at `0x1400 + p × 0x300 + 3i`: blue, green, red. The blue and green bytes go into the colour assembly buffer and the red byte changes the entry whole, as through PALDAT. This path does not use or change PALIDX. `LDIR` copies a palette (it writes rising addresses, so red comes last in each entry). The palettes have no I/O port of their own: the register page offsets `0x1400`–`0x1FFF` lie beyond the custom pages (`0x1000`–`0x13FF`) and match no port (open point V3).
 
-**Copper and DMA engine.** The copper reaches the palettes through PALIDX and PALDAT: a colour change is five MOVEs, three when PALIDX already points at the entry. The DMA engine's palette destination is spec 14's.
+**Copper.** The copper reaches the palettes through PALIDX and PALDAT: a colour change is five MOVEs, three when PALIDX already points at the entry. The blitter cannot reach the palettes (spec 14, section 4).
 
 ## 7. Spectrum extras
 
@@ -608,7 +608,7 @@ As on a Spectrum, a write to port `0xFE` sets the border colour, which here is t
 - The write sets all three bytes of BGCOLOR at once, as a write of BGCOLOR's red byte does; BGCOLOR then reads back the new value. The CPU's colour assembly buffer is not changed.
 - BGCOLOR and port `0xFE` set the same register, so the later write wins. A program that wants other border colours (BRIGHT ones, say) writes BGCOLOR.
 - **A port `0xFE` write acts at once**, as on a Spectrum, so a program that changes the border in the middle of a line (a tape loader's stripes) shows the change in the middle of the line. The write sends the colour to the pixel side as well as to BGCOLOR: the 3 bits cross as a toggle through two flip-flops at 135 MHz, as "full" does (section 5.7, 7–22 ns), and the pixel side takes the colour at its next pixel (up to 37 ns). So the new colour shows from the pixel being shown about 10–60 ns after the write reaches the register bus, one or two pixels late. At the start of the next line's picture the pixel side reads BGCOLOR as usual, which holds the same colour.
-- **BGCOLOR written as a register keeps retro68k's rule**: it is read at the start of each line's picture (section 5.6), so its changes land on whole lines. This holds for the CPU, the copper and the DMA engine. A port `0xFE` write after a BGCOLOR write in the same line shows at once; a BGCOLOR write after a port `0xFE` write shows from the next line's picture.
+- **BGCOLOR written as a register keeps retro68k's rule**: it is read at the start of each line's picture (section 5.6), so its changes land on whole lines. This holds for the CPU and the copper. A port `0xFE` write after a BGCOLOR write in the same line shows at once; a BGCOLOR write after a port `0xFE` write shows from the next line's picture.
 - The background shows wherever no layer and no sprite is opaque. With the Spectrum screen of section 7.3 (TRANSP clear) that is everywhere outside the 256 × 192 window, as a Spectrum's border.
 - The copper cannot write port `0xFE`; it writes BGCOLOR.
 
@@ -702,7 +702,7 @@ Parts of the video are retro-hw's cores, in `fpga/retro-hw/`. `fpga/rtl/video.v`
 - **Palettes:** PALIDX/PALDAT write and read every entry of the four palettes, the index steps across palettes after the red byte, a blue or green write alone changes nothing; either PALIDX byte resets the byte counter; a copper or DMA colour between the CPU's blue and red does not mix with it or move the CPU's index (one PALIDX, byte counter and buffer per master); BGCOLOR's red byte commits it; the register page offsets do the same without touching PALIDX; `LDIR` loads a palette; the default palette after configuration, and unchanged by reset.
 - **Border:** `OUT (0xFE),A` with each of the 8 values sets BGCOLOR to the table's colour, shown from the pixel being shown 10–60 ns after the write, with the pixel clock at many phases; writes every few microseconds through a line give stripes that change mid-line, as a tape loader's; a BGCOLOR write mid-line shows from the next line's picture; BGCOLOR and port `0xFE` writes in either order, the later wins, and BGCOLOR reads back the later value.
 - **Spectrum screen:** a .scr file shown through the copper's pointer writes (both ways of section 7.3) and the attribute layer, against the model; flash every 16 frames.
-- **Budget:** each example of section 5.4 that fits, with the CPU at 20 MHz making random accesses, the copper and the DMA engine running, and sprites: no OVERRUN. Find how far beyond 1.48 bytes per pixel tile and bitmap screens go without OVERRUN, also at 25 MHz (open point V9). An over-budget screen sets the right OVERRUN bit and shows transparent pixels only for the late groups.
+- **Budget:** each example of section 5.4 that fits, with the CPU at 20 MHz making random accesses, the copper and the blitter running, and sprites: no OVERRUN. Find how far beyond 1.48 bytes per pixel tile and bitmap screens go without OVERRUN, also at 25 MHz (open point V9). An over-budget screen sets the right OVERRUN bit and shows transparent pixels only for the late groups.
 - **Beam and interrupts:** BEAMPOS reads are consistent and match the display beam; VBLANK and LINE fire at the right positions; FRAMECOUNT counts; INVBLANK; flags clear on writing 1; the request follows VIDSTAT and VIDINTEN.
 - **DMACON:** set and clear each bit; with BPLEN or DMAEN clear no layer or attribute fetches.
 - **Clock crossing:** the pixel clock at an odd phase that sweeps along each line; no lost or doubled groups.

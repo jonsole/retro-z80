@@ -109,7 +109,7 @@ Watchpoint n (0–1) matches a CPU **data access** while the unit is live:
 | IO = 1 | I/O reads and writes (`IN`, `OUT`, `INI` and the others), with the full 16-bit port on A15–A0. Not the interrupt acknowledge |
 | READ, WRITE | Which directions; both for either. Neither: the watchpoint matches nothing |
 
-It matches when (A AND DBGWPn_MASK) = (DBGWPn_ADDR AND DBGWPn_MASK). A mask bit of 1 is compared; `0xFFFF` watches one address, `0xFF00` a 256-byte page. Only the CPU's accesses are watched: the copper, the DMA engine and the sprite sequencer are not.
+It matches when (A AND DBGWPn_MASK) = (DBGWPn_ADDR AND DBGWPn_MASK). A mask bit of 1 is compared; `0xFFFF` watches one address, `0xFF00` a 256-byte page. Only the CPU's accesses are watched: the copper, the blitter and the sprite sequencer are not.
 
 ### 6.2 Stopping after the instruction
 
@@ -138,7 +138,7 @@ The unit's request is the interrupt controller's third NMI source (spec 8, secti
 
 ## 8. Registers
 
-I/O page `0x02` (spec 3, section 4.14): port = register × 256 + `0x02`, register page offset `0x0200` + register. Registers `0x3D`–`0xFF` are reserved (read `0xFF`). Like the MMU and page `0x01`, these are system registers: the copper and the DMA engine cannot reach them. Wide registers are written directly, byte by byte (spec 3, rule 2); the stub writes them while the unit is not live, so a half-written address is never compared.
+I/O page `0x02` (spec 3, section 4.14): port = register × 256 + `0x02`, register page offset `0x0200` + register. Registers `0x3D`–`0xFF` are reserved (read `0xFF`). Like the MMU and page `0x01`, these are system registers: the copper and the blitter cannot reach them. Wide registers are written directly, byte by byte (spec 3, rule 2); the stub writes them while the unit is not live, so a half-written address is never compared.
 
 | Register | Port | Name | Access | Bits | Reset | Meaning |
 |----------|------|------|--------|------|-------|---------|
@@ -205,7 +205,7 @@ The KS2's XC7A15T has 10,400 LUTs; the bring-up build is about 2,000 (design pla
 
 ## 11. Test plan
 
-- **Registers:** every register at its port and at register page offset `0x0200` + register, reset values, DBGSTAT write 1 to clear, DBGCTL.LIVE reads and is cleared by a write of 0, reserved registers read `0xFF`; the copper and the DMA engine cannot reach page `0x02` (spec 3).
+- **Registers:** every register at its port and at register page offset `0x0200` + register, reset values, DBGSTAT write 1 to clear, DBGCTL.LIVE reads and is cleared by a write of 0, reserved registers read `0xFF`; the copper and the blitter cannot reach page `0x02` (spec 3).
 - **Step** (`sim/dbg`, Verilator, at 20, 3.57 and 2.5 MHz): a step of each instruction class (1 to 4 bytes, each prefix, `DD CB d op`, a 23-T instruction, `HALT`, `EI`, `DI`, a `JP`, a `CALL`, a `RET`, `LDIR`) runs exactly one instruction, checked against the testbench's own count of instruction starts; NMICAPPC is the next instruction.
 - **Hold-off:** with a timer interrupt pending, a step with STEPINT = 0 takes no interrupt, and the interrupt is taken after a continue; with STEPINT = 1 the step stops at the handler's first instruction, with the handler's address in NMICAPPC.
 - **Breakpoints:** each of the 4 stops before its instruction, in RAM and in ROM; with the page match it stops only with that page in the window; never on a continuation byte (an address that is the second byte of `CB`, `ED`, `DD`, `FD` instructions, or a `DD CB d op` operand), the acknowledge or an NMI dummy fetch; going on from a breakpoint runs the instruction and stops at the next hit, not at once; R off by one only.
@@ -231,5 +231,5 @@ Accepted as proposed on 25 October 2026. DU1 is done (the shared spec's section 
 | DU5 | Timing on the KS2: the breakpoint compare and the `NOP` multiplexer at di between E + 3 and E + 8 at 20 MHz (spec 1, section 5.3: 10 ns spare when T1 is on slot edge 5) |
 | DU6 | With STEPINT, an interrupt taken at the resume point stops at its handler's first instruction: that tv80 takes the step NMI at the end of the interrupt response, before the handler's first fetch, is to be confirmed in simulation |
 | DU7 | Watchpoint MASK resets to `0xFFFF` (one address); a mask bit of 1 means "compared". Proposed: as written |
-| DU8 | Only the CPU's accesses are watched. Watching the DMA engine's or the copper's writes would need compares on the scheduler's port |
+| DU8 | Only the CPU's accesses are watched. Watching the blitter's or the copper's writes would need compares on the scheduler's port |
 | DU9 | **Screen capture** (design plan, branch 18, future, not built): a separate unit that sends the final picture over the link on debug.md's VIDEO channel. Not part of this unit |

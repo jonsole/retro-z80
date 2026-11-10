@@ -24,7 +24,7 @@ module regmap_test;
         a = `RM_TIME0;       check(`RM_IS_CAP(a) && `RM_CAP_N(a) == 4, "TIME captures 4");
         a = `RM_TIME1;       check(!`RM_IS_CAP(a), "TIME1 does not capture");
         a = 13'h005D;        check(`RM_IS_CAP(a) && `RM_CAP_N(a) == 2, "SDCOUNT captures 2");
-        a = 13'h1160;        check(`RM_IS_CAP(a) && `RM_CAP_N(a) == 3, "DMX0 CHDESC captures 3");
+        a = 13'h1160;        check(`RM_IS_CAP(a) && `RM_CAP_N(a) == 3, "BLTDESC captures 3");
         a = 13'h0051;        check(!`RM_IS_CAP(a), "SERSTAT0 does not capture");
         a = 13'h1006;        check(`RM_IS_COLR(a) && `RM_IS_COLR_RED(a), "BGCOLOR red commits");
         a = 13'h1004;        check(`RM_IS_COLR(a) && !`RM_IS_COLR_RED(a), "BGCOLOR blue waits");

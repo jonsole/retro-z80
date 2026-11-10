@@ -12,17 +12,16 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 |------|-------|
 | Hardware | An FT232H USB module (e.g. FTDI UM232H-B) on the accelerator port (`accel_io`, 3.3 V), as an 8-bit parallel FIFO in asynchronous 245 FIFO mode. Powered from its own USB cable |
 | On the PC | A normal serial port (e.g. `/dev/ttyUSB1` or `COM5`); the baud rate setting is ignored |
-| Link speed | Up to about 8 MB/s each way in the FT232H; the Z80 is the limit (section 6), the DMA engine is not |
+| Link speed | Up to about 8 MB/s each way in the FT232H; the Z80 is the limit (section 6) |
 | Flow control | In hardware, both ways: no byte is lost; no XON/XOFF or RTS/CTS |
 | Buffers | 2 KB receive and 2 KB transmit FIFOs in block RAM, plus the FT232H's own 1 KB each way |
 | CPU access | SERDATA for bytes; SERSTAT with the counts (0–255, saturating); interrupts on levels and a timeout |
 | Fast transfers | `INIR` / `OTIR` on port `0x53`, with B taken straight from SERSTAT: 21 T-states a byte, about 0.95 MB/s at 20 MHz |
-| DMA | Port 1 of the DMA engine (spec 14), as retro68k: bulk transfers with no CPU work, paced by the FIFOs |
 | Low delay | The FPGA tells the FT232H to send at once when the transmit FIFO empties |
 | Interrupt | Source SERIAL (spec 8): data waiting, timeout, room to send, overflow |
 | Control commands | `C0 c ~c` from the PC gives BREAK (NMI), RESET or UPLOAD, even when the Z80 has hung. The PC escapes `C0` and `DB` in everything else it sends, SLIP-style; the hardware takes the escapes out |
 | Registers | Page `0x00`, registers `0x50`–`0x57` and `0x5C` (ports `0x5000`–`0x5700`, `0x5C00`); SERDATA also on port `0x53` with any high byte |
-| Memory cycles | None by the CPU; DMA jobs use the DMA engine's (spec 14) |
+| Memory cycles | None |
 
 ## 2. Comparison with retro68k
 
@@ -41,7 +40,7 @@ This is retro68k's link (its spec 14, its guide chapter "The USB Serial Link" an
 | No keys from the PC | KEY, `C0 04 b ~b` (section 4): a PS/2 byte from the PC | Typing on the board from VS Code and MCP (ticket #44). Agreed with retro68k (its #25), which keeps 04 for KEY; the same there, into its FIFO (it has no mapper) |
 | Control commands: a 16-byte sequence (`00 FF "R68K-CTL" …`) found in the raw stream; matching bytes held back | `C0 c ~c`, with the PC's other bytes escaped SLIP-style (section 4). Nothing waits for a next byte | Found on the KS2: a frame whose CRC ended in `0x00` waited for the next byte, so the stub dropped it after 1 s and the debugger stalled (about 1 frame in 256). Proposed to retro68k |
 
-Everything else is as in retro68k: the FT232H interface and its timing (the same 100 MHz system clock), flow control, SIWU#, the command codes, CTLEN and CTLLOCK, TXDROP, the four interrupt flags and their meanings, and DMA engine port 1.
+Everything else is as in retro68k: the FT232H interface and its timing (the same 100 MHz system clock), flow control, SIWU#, the command codes, CTLEN and CTLLOCK, TXDROP, and the four interrupt flags and their meanings. Neither machine has DMA engine port 1 any more: it went with the engine's port jobs (spec 14, D4).
 
 ## 3. The FIFO link
 
@@ -88,7 +87,7 @@ While recognition is on (CTLEN or CTLLOCK set), the bytes from the PC are SLIP-s
 | `0x04` | – | KEY | `C0 04 b ~b`: the byte b is taken as if the PS/2 keyboard had sent it (spec 12, section 3.1). Only while CTLEN is set |
 
 - The commands and escapes are handled in hardware, so commands work when the Z80 has crashed or runs with interrupts disabled.
-- The command's 3 bytes and the escape bytes are removed from the stream; software and the DMA engine see only the data, in order.
+- The command's 3 bytes and the escape bytes are removed from the stream; software sees only the data, in order.
 - **No data byte waits for the next one.** Only a `DB` or a command's bytes are held, and the PC always sends what completes them at once: a `C0` with nothing after it would wait, but the PC tools never send one. (retro68k's 16-byte sequence held back any bytes that might start it, so a message ending in `0x00` was seen only when the next byte came.)
 - The decoder's state (in an escape, in a command) is cleared at power-on only, like the FT232H interface, so the link survives other resets. A reset cannot come in the middle of a command: the command itself causes it.
 - **Terminals:** a plain terminal program sends its bytes unescaped. That is fine for ASCII. In UTF-8, `C0` never appears, but `DB` is a lead byte (U+06C0–U+06FF), so such a character would be decoded wrongly. For binary or non-ASCII text use `rlink.py term` or the bridge's console, which escape.
@@ -160,11 +159,9 @@ The timeout counts in steps of 16 µs, from the microsecond tick that the timers
 | Transmit | TXREADY enabled only while software has data queued; otherwise it interrupts for ever |
 | Wait for the FIFO to drain | TXLEVEL code 12 (2048 bytes of room): TXREADY means the transmit FIFO is empty |
 
-### 5.5 Bulk transfers with the DMA engine
+### 5.5 Bulk transfers
 
-The DMA engine's **port 1** is this link, as in retro68k (spec 14). A channel copies bytes from the receive FIFO to SRAM, or from SRAM to the transmit FIFO, one byte at a time, paced by the FIFOs: when the FIFO is empty (receive) or full (transmit) the channel waits and the other channels go on. The CPU does other work meanwhile. Commands and escapes are handled during DMA too: the engine sees only the data.
-
-While a DMA job uses port 1 in one direction, the CPU must not read (receive) or write (transmit) SERDATA in that direction; the counts, flags and the other direction stay usable.
+The CPU moves every byte through SERDATA, fastest with `INIR` and `OTIR` (section 6). (Version 1's DMA engine could copy between this link and SRAM, as its port 1; that went with the engine's port jobs, as in retro68k. A FIFO mover may come back: spec 14, open point D4.)
 
 ## 6. Fast transfers with INIR and OTIR
 
@@ -187,14 +184,13 @@ SERDATA is port `0x53` whatever A15–A8 hold (spec 3), so the Z80's block I/O i
         otir
 ```
 
-A count never goes down by itself while it is being used (bytes only arrive, and room only grows), so a block of that length never under- or overruns the FIFO. A DMA job on port 1 in the same direction would break this; see section 5.5.
+A count never goes down by itself while it is being used (bytes only arrive, and room only grows), so a block of that length never under- or overruns the FIFO.
 
 | Method | T-states per byte | At 20 MHz | At 3.57 MHz |
 |--------|-------------------|-----------|-------------|
 | `INIR` / `OTIR` | 21 | 0.95 MB/s | 170 KB/s |
 | Unrolled `INI` / `OUTI` | 16 | 1.25 MB/s | 223 KB/s |
 | Polled loop (`IN`, test, store) | about 40–50 | 0.4–0.5 MB/s | 71–89 KB/s |
-| DMA engine, port 1 | none | Limited by the FT232H and the PC, several MB/s | The same |
 
 The FT232H moves bytes faster than the Z80, so the receive FIFO stays topped up during an upload. A 48 KB program arrives in about 52 ms with `INIR` at 20 MHz. Control-command recognition goes on during block transfers.
 
@@ -236,13 +232,13 @@ The wrapper keeps this spec's registers (the table above): the saturating counts
 | Item | Resource |
 |------|----------|
 | Receive and transmit FIFOs, 2 KB each | 2 block RAMs |
-| FT232H interface, command and escape decoder, timeout, SERDROP, registers, DMA port 1 handshake | Estimate 200–300 LUTs |
+| FT232H interface, command and escape decoder, timeout, SERDROP, registers | Estimate 200–300 LUTs |
 | Pins | 13 on the accelerator port |
-| Request lines | SERIAL (level) to spec 8; BREAK pulse to the NMI logic (spec 8); RESET and UPLOAD pulses to the reset logic (spec 7); port 1 ready/take to the DMA engine (spec 14) |
+| Request lines | SERIAL (level) to spec 8; BREAK pulse to the NMI logic (spec 8); RESET and UPLOAD pulses to the reset logic (spec 7) |
 
 ## 9. Test plan
 
-- **Loopback:** a PC test sends megabytes of random data; the computer echoes it; it arrives complete and in order, with software reading slowly, with `INIR`, with unrolled `INI`, and with DMA jobs on port 1 both ways.
+- **Loopback:** a PC test sends megabytes of random data; the computer echoes it; it arrives complete and in order, with software reading slowly, with `INIR`, and with unrolled `INI`.
 - **Flow control:** stop reading for seconds while the PC sends; nothing is lost.
 - **Counts:** RXCOUNT and TXSPACE are exact from 0 to 254 and read 255 from 255 to 2048; an `INIR` of RXCOUNT bytes never reads an empty FIFO; an `OTIR` of TXSPACE bytes never overruns.
 - **Ports:** SERDATA answers at `0x53` with every high byte (as `INIR` with B from 255 down to 1 uses), at `0x5300` and at register page offset `0x0053`; the other serial registers answer only in their page form (`0x5000` and so on); `IN A,(0x50)` reaches reserved page `0x50` and reads `0xFF`.
@@ -252,7 +248,6 @@ The wrapper keeps this spec's registers (the table above): the saturating counts
 - **On the board:** an upload of every byte value; 40 debugger steps from VS Code with registers read after each (before this change, a register read whose CRC ended in `0x00` stalled).
 - **KEY** (`make -C sim serial`, `make -C sim input`): KEY among data with b = `C0` and ~b = `DB` escaped; a wrong inverse or a `C0` inside dropped; none with CTLLOCK alone or with recognition off; the keyboard takes b into the FIFO and the mapper (port `0xFE`), with EN off only the mapper, with the receiver off nothing; a real byte on the same clock kept, first. On the board: typing at the monitor from the Show Screen tab and over MCP.
 - **Flush:** RXFLUSH and TXFLUSH empty their FIFO and set the counts.
-- **DMA:** port 1 jobs each way at full speed; a stalled port does not hold up other channels.
 - **Latency:** a single byte reaches the PC in well under 16 ms (SIWU#).
 - **Timing:** in simulation against retro-hw's FT232H model (`fpga/retro-hw/sim/ft232h_model.v`) at 100 MHz; on the board, measure throughput both ways.
 
@@ -264,7 +259,7 @@ The wrapper keeps this spec's registers (the table above): the saturating counts
 | U2 | Checked on the KS2 (issue 4 schematic, sheets 2 and 5): `accel_io[n]` is Pi GPIO n on header J2, through 200 ohm, with no level shifting; D0-D7 on pins 27, 28, 3, 5, 7, 29, 31, 26, RXF# 24, TXE# 21, RD# 19, WR# 23, SIWU# 32 (wiring in `fpga/ks2/README.md`). Still shared with retro68k (its U6); the KS3's issue 5 pin file puts these on the same FPGA pins |
 | U3 | Agreed with retro68k (28 October 2026): the SLIP-style commands and escapes (section 4) replace the 16-byte sequence on both machines, built and tried on the KS2 first. Open until retro68k has ported it, so that one PC tool serves both machines again. The tool knows which machine it talks to from the loader's ready line (shared spec, section 6.1) |
 | U4 | Closed: the upload protocol is the shared spec "Monitor and upload protocol" (`monitor.md`), the same in retro68k: frames with a CRC-32, a reply to each, the image header; spec 16 gives retro-z80's limits |
-| U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help DMA jobs on port 1; shared with retro68k's U5. The CPU cannot use it |
+| U5 | Synchronous 245 FIFO mode (about 40 MB/s, two more pins) could help a FIFO mover, if one comes (spec 14, D4); shared with retro68k's U5. The CPU cannot use it |
 | U6 | Closed: SERDROP is at register `0x5C` of page `0x00` (branch 11) |
 | U7 | Closed (spec 7): a reset clears SERCON and the FIFOs but does not disturb the FT232H or the PC, so the terminal stays connected. Still open in retro68k ("the serial link surviving a reset"); the two should end up the same |
 | U8 | Closed: software checks RXCOUNT before reading SERDATA (branch 11); an empty read gives `0x00` and no flag |

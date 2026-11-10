@@ -17,7 +17,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 | Cycles 0 and 2 | CPU. A cycle the CPU has asked for is never given to anyone else |
 | Cycles 1 and 3 | Display fetch: layers L0–L2, the attribute layer, sprites (hard-deadline channels, earliest deadline first) |
 | Cycle 4 | Audio (reserved, spec 13); while audio is parked, the free pool |
-| Free pool | The copper and the DMA engine, plus any cycle its owner leaves (section 5) |
+| Free pool | The copper and the blitter, plus any cycle its owner leaves (section 5) |
 | Z80 waits | Never (spec 1, section 5) |
 | Bandwidth | 100 MB/s in all; display 40 MB/s (1,280 bytes per line, as retro68k); free pool at least about 47 MB/s |
 | On and off | DMACON (spec 4) turns each memory user on and off, as retro68k's |
@@ -33,7 +33,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 |-------------------|-----------|-----|
 | Cycle 0 CPU; 1 and 3 display; 2 audio and peripherals; 4 free pool | Cycles 0 and 2 CPU; 1 and 3 display; 4 audio (reserved) and free pool | Z80: a read must be served 100 ns after its address appears, from either of the two T-state phases in a slot. Cycles 0 and 2 (40 and 60 ns apart) give every phase a cycle in time (spec 1, section 5) |
 | An urgent hard-deadline fetch, or a copper at PRI 2 (nasty), may take the CPU's cycle 0; the CPU waits one slot | Nobody takes a cycle the CPU has asked for. An urgent fetch may take cycle 0 or 2 only when the CPU has not asked for it; otherwise it waits for the next cycle, a display cycle 20 ns later (section 5.3). No nasty copper | The Z80 never waits (design plan, branch 11) |
-| DMA engine HIGH mode may take the CPU's cycle 0, leaving it 1 in 2, 4 or 8 (`blt_high`, `blt_share`) | Left out | Design plan, branch 11 (no HIGH, no CPUSHARE) |
+| A slot plan (MEMSLOT0–4) may make the blitter owner of the CPU's cycle 0 (version 1: the DMA engine's HIGH mode) | Left out: the CPU's cycles 0 and 2 are locked | Design plan, branch 11 (the Z80 never waits) |
 | CPU uses at most 10 MB/s (one access per 200 ns bus cycle) | CPU uses at most 6.67 M accesses a second (one per 3 T-states at 20 MHz), one byte each | Z80 |
 | Free pool typically 50–65 MB/s | At least about 47 MB/s, plus display cycles no layer needs | The Z80's two cycle numbers, of which it uses at most one per slot |
 | Audio owns cycle 2 | Audio is parked (spec 13); cycle 4 is kept for it and is free pool meanwhile | Sound still open (design plan, Q1) |
@@ -49,12 +49,12 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 
 | Memory | Where | Who can use it |
 |--------|-------|----------------|
-| **SRAM** ("Chip RAM" in retro68k) | The board's 4 MB (or 2 MB) SRAM | The Z80 through the MMU; the display, sprites, copper and DMA engine by physical address |
-| **Boot ROM** | 32 KB of block RAM, loaded with the bitstream (spec 7) | The Z80, through MMU pages `0x3FC`–`0x3FF`; the DMA engine reads it (spec 14), as retro68k's does. Uses no SRAM cycle |
-| **Register page** | Not memory: page `0x3F8` shows the registers and the palettes (section 10) | The Z80 through the MMU; the DMA engine through the register bus (spec 1, section 4.2). Uses no SRAM cycle |
-| **Other block RAM** | Palettes, sprite FIFOs, serial and keyboard FIFOs, descriptor RAM if built (spec 14) | Through registers; uses no memory cycles |
+| **SRAM** ("Chip RAM" in retro68k) | The board's 4 MB (or 2 MB) SRAM | The Z80 through the MMU; the display, sprites, copper and blitter by physical address |
+| **Boot ROM** | 32 KB of block RAM, loaded with the bitstream (spec 7) | The Z80, through MMU pages `0x3FC`–`0x3FF`. Uses no SRAM cycle |
+| **Register page** | Not memory: page `0x3F8` shows the registers and the palettes (section 10) | The Z80 through the MMU. Uses no SRAM cycle |
+| **Other block RAM** | Palettes, sprite FIFOs, serial and keyboard FIFOs | Through registers; uses no memory cycles |
 
-There is no other RAM. All RAM is chip RAM, and the CPU gets it at full speed. Of the chipset, only the DMA engine can read the boot ROM, as in retro68k: through the ROM's second block RAM port, one byte per clock, with no SRAM cycle; it cannot write it. The display, sprites and copper cannot read it, so the boot ROM copies anything they need (such as the console font) into SRAM.
+There is no other RAM. All RAM is chip RAM, and the CPU gets it at full speed. No chipset unit can read the boot ROM (version 1's DMA engine could, through the ROM's second block RAM port; the blitter reaches SRAM only, spec 14), so the boot ROM copies anything they need (such as the console font) into SRAM.
 
 ## 3. Clocks and slots
 
@@ -92,7 +92,7 @@ Both MMCMs run from the same oscillator, so every line is exactly 320 slots. The
 | 1 | 20 ns | Display fetch | Layers L0–L2, the attribute layer and sprites: the hard-deadline channels (spec 4, spec 5), earliest deadline first. If none needs it, free pool |
 | **2** | 40 ns | **CPU** | As cycle 0 |
 | 3 | 60 ns | Display fetch | As cycle 1. The display's two cycles are 40 and 60 ns apart, as in retro68k |
-| 4 | 80 ns | Audio (reserved) | Spec 13, parked. Until then, the free pool: the copper and the DMA engine |
+| 4 | 80 ns | Audio (reserved) | Spec 13, parked. Until then, the free pool: the copper and the blitter |
 
 The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so it uses at most one of its two cycles in any slot, and at most two in any three slots (spec 1, section 5.5). The other is always free for the pool.
 
@@ -102,7 +102,7 @@ The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so 
 - CPU: cycles 0 and 2 offer 20 M cycles a second; a 20 MHz Z80 uses at most 6.67 M of them (one byte each), typically about 5 M. Its other cycles go to the free pool.
 - Display fetch: **40 MB/s** (cycles 1 and 3), as retro68k: 1,280 bytes per line, 1.48 bytes per pixel of the 864-pixel line.
 - Cycle 4: 20 MB/s, reserved for audio; free pool meanwhile.
-- Free pool (copper, DMA engine): cycle 4 (20 MB/s) plus at least 13.3 M unused CPU cycles a second (26.7 MB/s), plus the display cycles no layer needs: **at least about 47 MB/s**, typically 55–70 MB/s.
+- Free pool (copper, blitter): cycle 4 (20 MB/s) plus at least 13.3 M unused CPU cycles a second (26.7 MB/s), plus the display cycles no layer needs: **at least about 47 MB/s**, typically 55–70 MB/s.
 
 ## 5. The scheduler
 
@@ -117,7 +117,7 @@ One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalen
 | 2 | AUD | Audio (spec 13, parked; tied off) | Soft |
 | 3 | COP | Copper: its list (spec 6) | Best effort; high at COPCON.PRI 1 |
 | 4 | CPU | The Z80 through the bus interface (spec 1) | Cycles 0 and 2, locked; at 3.57 MHz the first of them that comes (spec 1, section 5.4) |
-| 5 | BLT | DMA engine: its 4 channels take turns inside the engine (spec 14) | Best effort |
+| 5 | BLT | The blitter (spec 14) | Best effort |
 | 6 | PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests | Best effort |
 
 The sprite sequencer (spec 17, a retro-z80 extra) is not built yet and has no number (open point M13).
@@ -137,7 +137,7 @@ For each cycle, the first rule that finds a request wins, and within a rule the 
 1. **The owner of a locked cycle.** In cycles 0 and 2, a CPU request gets the cycle. Nothing overrides this.
 2. **An urgent request** (layer fetch before sprites).
 3. **The cycle's owner.**
-4. **The free order:** first a high request (the copper at COPCON.PRI 1), then any request, by number: layer fetch, sprites, audio, copper, CPU, DMA engine, the DMA port. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
+4. **The free order:** first a high request (the copper at COPCON.PRI 1), then any request, by number: layer fetch, sprites, audio, copper, CPU, blitter, the DMA port. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
 
 So no cycle is wasted: whatever its owner leaves goes to the next channel that wants one. In particular the display can use a cycle 0 or 2 the CPU is not using, and cycle 4 when audio leaves it. The copper at PRI 1 gets cycle 4 before the display, as it did when it was cycle 4's second owner.
 
@@ -158,7 +158,7 @@ A screen within the display budget (section 7) is rarely urgent at all. On a scr
 
 ### 5.4 Turning users on and off
 
-As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (DMA engine), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
+As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (blitter), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
 
 ### 5.5 Shared core
 
@@ -168,7 +168,7 @@ The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dm
 |------|-------|---------|
 | `slot_owner` | `{7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000}` | Cycle 0 CPU, 1 display, 2 CPU, 3 display, 4 audio (cycle 0's mask last) |
 | `slot_lock` | `00101` | Cycles 0 and 2: the CPU is never overridden, not even by an urgent fetch (section 5.3) |
-| `high` | The copper's bit: COPCON.PRI not 0 | No nasty copper; the DMA engine is never high (no HIGH mode) |
+| `high` | The copper's bit: COPCON.PRI not 0 | No nasty copper; the blitter is never high |
 | `next_slot` | `sram_ctl`'s `next_cycle` | The cycle's number in the slot |
 
 `timebase` runs without its `ph` output (left unconnected), as tv80 runs on the system clock. retro-z80 keeps the rest: DMACON (section 5.4, spec 4), each unit's requests, and the CPU channel in the bus interface (spec 1).
@@ -205,7 +205,7 @@ During vertical blanking (49 of the 625 lines) there is no display fetch, so cyc
 | Audio | Parked | Cycle 4 is kept for it |
 | Copper | 2 cycles per two-word instruction, 1 per MOVE (spec 6) | The free pool, after the hard-deadline channels and audio; first with high priority |
 | Sprite sequencer | 8 words per sprite reused (spec 17) | The free pool, after the hard-deadline channels and audio, before the copper at PRI 0 |
-| DMA engine | – | The rest of the free pool (spec 14) |
+| Blitter | – | The rest of the free pool (spec 14); it uses only a part of it, its own steps setting its speed (spec 14, section 7) |
 
 There are no line buffers: display data is fetched just in time into each layer's data registers, as in retro68k (spec 4). Nothing is stored for a whole line.
 
@@ -262,7 +262,7 @@ The tight points are tHZOE (write after read) and tPWE. retro68k meets timing at
 ### 8.4 Byte and word access
 
 - **Reads** always read the whole 16-bit word (/UB and /LB both low). Chipset units use both bytes; the CPU keeps the byte chosen by address bit 0.
-- **Writes** come from the CPU and the DMA engine. A byte write drives the byte on both halves of the data bus and pulls only /LB (even address) or /UB (odd address) low, so the other byte is unchanged. A word write pulls both low.
+- **Writes** come from the CPU and the blitter. A byte write drives the byte on both halves of the data bus and pulls only /LB (even address) or /UB (odd address) low, so the other byte is unchanged. A word write pulls both low.
 - The memory is little-endian: the byte at an even address is the low half of its word.
 
 ### 8.5 Shared core
@@ -288,7 +288,7 @@ The MMU registers are in the system page `0x00` (spec 3), registers `0x80`–`0x
 | 6 | `0xC000`–`0xDFFF` | MMU6 (`0x8C`, `0x8D`) | MMU6W (`0x9C`, `0x9D`) |
 | 7 | `0xE000`–`0xFFFF` | MMU7 (`0x8E`, `0x8F`) | MMU7W (`0x9E`, `0x9F`) |
 
-The MMU registers are system registers, so the copper and the DMA engine cannot reach them: a runaway list or job cannot page memory.
+The MMU registers are system registers, so the copper and the blitter cannot reach them: a runaway list or job cannot page memory.
 
 ### 9.2 Register format
 
@@ -421,7 +421,7 @@ Writing **IPDEPTH** sets the depth and changes no window: writing 0 abandons the
 - A nested interrupt pushes onto the handler's own stack, and its `RETI` pops from there.
 - `DI`, `EI`, `HALT` and `IM` change nothing in either set. A `HALT` in a handler waits for the next interrupt, which nests.
 - An NMI inside a maskable handler, or the reverse, uses its own set on top: the inner one saves the pages it finds (the outer handler's) and its return puts them back, then the outer return puts the program's back. This holds as long as the returns come in reverse order.
-- The copper, the DMA engine and the sprite sequencer use physical addresses (section 11), so the switch does not affect them; page `0x01` is outside their reach (spec 3). A window can switch to any page, the register page and the boot ROM included.
+- The copper, the blitter and the sprite sequencer use physical addresses (section 11), so the switch does not affect them; page `0x01` is outside their reach (spec 3). A window can switch to any page, the register page and the boot ROM included.
 - A posted write goes to the page mapped in its own T1 (spec 1, section 5.2), so the handler's last write before `RETI` goes to the interrupt page.
 
 **The NMI's defaults** are the old NMI monitor paging, with one change: NMIMASK = `0x01`, NMIP0 = `0x3FF` (boot ROM page 3, the monitor page), NMIP0W = `0x0FF` (the monitor's workspace page, spec 16, section 5.3; the old paging had NONE), EN on. So an NMI fetches `0x0066` from the monitor page, the program's PC and SP are in NMICAPPC and NMICAPSP, and `RETN` puts window 0 back and returns. Writes to window 0 go to the workspace page, so the monitor page saves registers and sets up a stack there before it maps anything else: with the capture, an NMI writes nothing in the program's memory. Spec 7, section 10.1 and spec 16, section 8.6 use this.
@@ -450,7 +450,7 @@ A handler with its own bank in window 6, for every maskable interrupt:
 
 ### 9.8 Interrupt page registers
 
-Registers `0x40`–`0xFF` of I/O page `0x01` (spec 3, section 4.13): port = register × 256 + `0x01`, and register page offset `0x0100` + register (section 10). Registers `0x00`–`0x3F` of page `0x01` are reserved through I/O; their register page offsets hold KEYROW0–7 (memory only) and free space. Like the MMU, these are system registers: the copper and the DMA engine cannot reach them.
+Registers `0x40`–`0xFF` of I/O page `0x01` (spec 3, section 4.13): port = register × 256 + `0x01`, and register page offset `0x0100` + register (section 10). Registers `0x00`–`0x3F` of page `0x01` are reserved through I/O; their register page offsets hold KEYROW0–7 (memory only) and free space. Like the MMU, these are system registers: the copper and the blitter cannot reach them.
 
 The page registers sit at the MMU's own register numbers, in another page: IPn is at `0x80` + 2n of page `0x01` as MMUn is at `0x80` + 2n of page `0x00`.
 
@@ -497,7 +497,7 @@ The two sets' page registers are not flip-flops. Each set keeps them in **distri
 - **The switch** takes 8 clocks. In clock k the copy writes window k's two MMU page registers into word k of the saved pages and, if window k is in the mask, loads them from word k of the pages. So all 16 page registers are saved (open point M12) and the masked windows are loaded.
 - **The restore** takes 8 clocks too: in clock k, if window k is in the noted mask, it loads window k from word k of the saved pages.
 - **Timing.** The switch starts in the clock after the response is seen, in the response M1, and is done more than 20 clocks before the first push's T1 at 20 MHz. The restore starts at the second stack read's T2 and is done 3 clocks before the T1 of the fetch at the return address at 20 MHz, the tightest point. So all eight windows fit, at every speed (spec 1, section 8.5), and no set needs fewer windows.
-- **One copy at a time.** One copy engine (a 3-bit count) serves both sets. Two copies never overlap, and the CPU never writes the MMU or page `0x01` during one: the CPU is in the response M1, in a stack read, or just past the IPRESTORE write, and its next register access is at least one M-cycle later (spec 1, section 8.5). The copper and the DMA engine cannot reach either. So each RAM needs only one port.
+- **One copy at a time.** One copy engine (a 3-bit count) serves both sets. Two copies never overlap, and the CPU never writes the MMU or page `0x01` during one: the CPU is in the response M1, in a stack read, or just past the IPRESTORE write, and its next register access is at least one M-cycle later (spec 1, section 8.5). The copper and the blitter cannot reach either. So each RAM needs only one port.
 - **CPU access.** A read of a page register reads its word and picks the byte. A byte 0 write writes only the held bytes. A byte 1 write commits: it reads the word, puts in the new page (bits 7–0 from the held byte if its flag is set, otherwise the current ones), writes the word back in the same clock and clears the flag. A read page commit writes both halves of the word and clears both flags, which is the rule that the write page follows.
 - **Reset.** A RAM cannot be cleared at once, so while reset is held the copy engine writes the reset values of section 9.8 into the pages and saved pages and clears the held flags, one word per clock (16 clocks; reset is held far longer, spec 7).
 
@@ -539,7 +539,7 @@ retro68k's 4-byte entries (`0x00RRGGBB`) would need 4 KB, which does not fit bes
 
 ### 10.3 Rules
 
-- **No SRAM cycle:** register page accesses go to the register bus (spec 1, section 4.2), as I/O accesses do, and the CPU's memory cycle goes to the free pool. On that bus the copper goes first, then the CPU, then the DMA engine (spec 3, section 3.2).
+- **No SRAM cycle:** register page accesses go to the register bus (spec 1, section 4.2), as I/O accesses do, and the CPU's memory cycle goes to the free pool. On that bus the copper goes first, then the CPU, then the sprite sequencer (spec 3, section 3.2).
 - **Side effects are the same as for I/O:** reading a FIFO data register (SERDATA, KBDATA, SDDATA) through the register page takes a byte. The bus interface sends the strobe only for a real read or write (spec 1, section 5.7).
 - **Opcode fetches** from the register page read `0xFF` (`RST 38h`) and have no side effect.
 - **Write order:** registers are written directly (spec 3, rule 2), so any instruction works on them, in any order: `LD (nn),HL`, `LDI`, `LDIR`, `PUSH`, `LDDR`. Two exceptions need the low byte first: the MMU page registers and the interrupt pages (byte 1 commits, sections 9.2 and 9.8) and the colours (the red byte commits, section 10.2). Use `LD (nn),HL`, `LD (nn),DE`, `LDI` or `LDIR` for them, not `PUSH` or `LDDR`.
@@ -547,14 +547,14 @@ retro68k's 4-byte entries (`0x00RRGGBB`) would need 4 KB, which does not fit bes
 
 ## 11. Physical addresses
 
-The display, sprites, copper and DMA engine address the SRAM with 22-bit physical byte addresses, without the MMU. Their pointer registers are 3 bytes (spec 3); bits 23–22 are ignored.
+The display, sprites, copper and blitter address the SRAM with 22-bit physical byte addresses, without the MMU. Their pointer registers are 3 bytes (spec 3); bits 23–22 are ignored.
 
 | Physical address | 4 MB build | 2 MB build |
 |------------------|------------|------------|
 | `0x000000`–`0x1FFFFF` | SRAM pages `0x000`–`0x0FF` | SRAM, all of it |
 | `0x200000`–`0x3FFFFF` | SRAM pages `0x100`–`0x1FF` | Mirror of `0x000000`–`0x1FFFFF` (bit 21 ignored) |
 
-- Any unit can use any part of the SRAM: screens, tiles, sprite images, copper lists and DMA descriptors can be anywhere.
+- Any unit can use any part of the SRAM: screens, tiles, sprite images, copper lists and blitter descriptors can be anywhere.
 - The SRAM page holding an address is address ÷ `0x2000`, so a program finds the physical address of anything it has mapped from the MMU register.
 - **2 MB and 4 MB:** the design is the same for both. **SYSCFG.CHIPMB is a build constant** (spec 7): 4, or 2 for a build made for a 2 MB board. It is not measured. A 1M × 16 SRAM has no A20, so on a 2 MB board the top half mirrors the bottom whatever the build says; software uses CHIPMB and must not use pages `0x100`–`0x1FF` when it reads 2.
 
@@ -567,7 +567,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | Sprites (spec 5) | As the layers, earliest deadline first among them | The 8 sprite FIFOs |
 | Audio (spec 13) | 4 (reserved) | Parked |
 | Copper (spec 6) | Free pool, after the hard-deadline channels and audio | Its instruction words |
-| DMA engine (spec 14) | Free pool, after the copper | Its jobs' SRAM reads and writes, and descriptors |
+| Blitter (spec 14) | Free pool, after the copper and the CPU | Its jobs' SRAM reads and writes, and descriptors |
 
 ## 13. FPGA resources
 
@@ -581,12 +581,12 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 ## 14. Test plan
 
 - **Cycle table:** each owner gets its cycles at the same `hslot` and slot edge on every line; the slot counter restarts each line; unused cycles go to the free pool in the order of section 5.2.
-- **CPU never loses a cycle:** with every layer, sprite, the copper and the DMA engine busy, and layers set to make urgent fetches, every CPU request is issued in the cycle it asked for; checked at every CPUSPEED setting, including 3.57 MHz.
+- **CPU never loses a cycle:** with every layer, sprite, the copper and the blitter busy, and layers set to make urgent fetches, every CPU request is issued in the cycle it asked for; checked at every CPUSPEED setting, including 3.57 MHz.
 - **Urgent fetches:** an urgent fetch takes a cycle 0 or 2 the CPU did not ask for and cycle 4; when the CPU has the cycle, the fetch is issued in the next cycle; no layer goes late on a screen within the budget, with the CPU running at 20 MHz.
-- **Free pool:** the copper and the DMA engine get cycle 4 and every unused CPU and display cycle; with everything else busy the DMA engine may get only cycle 4s the copper leaves, and nothing else is slowed.
+- **Free pool:** the copper and the blitter get cycle 4 and every unused CPU and display cycle; with everything else busy the blitter may get only cycle 4s the copper leaves, and nothing else is slowed.
 - **DMACON:** each user turned off asks for no cycles, and its cycles go to the others; DMAEN off turns all of them off; the CPU is not affected.
 - **SRAM model:** run the controller against retro68k's SRAM simulation model with the datasheet checks on (set-up, hold, pulse widths, bus turnaround), at 20 ns cycles, with every mix of reads and writes back to back.
-- **Byte writes:** writing an even or odd byte changes only that byte, from the CPU and from the DMA engine; chipset word reads see even bytes in the low half.
+- **Byte writes:** writing an even or odd byte changes only that byte, from the CPU and from the blitter; chipset word reads see even bytes in the low half.
 - **MMU:** reset state; a byte 0 write alone changes nothing; the byte 1 write commits both; byte 1 written alone keeps bits 7–0; a write to another register between the two bytes changes nothing; read back; committing a read page also sets the write page; a later write-page commit splits the window, and reads and writes then go to their own pages; NONE ignores writes; ROM pages ignore writes unless ROMWE; reserved pages read `0xFF`; pages `0x100`–`0x1FF` mirror on a 2 MB build; ports `0x8000`–`0x9F00` and register page offsets `0x0080`–`0x009F` reach the same registers; `IN A,(0x00)` with A = `0x80` reads MMU0_0.
 - **Register page:** every page `0x00` register answers at its offset with the same value and side effects as through I/O; every custom register answers at `0x1000` + its offset as at its port; KEYROW0–7 at `0x0100`–`0x0107` match port `0xFE`; palette entries at `0x1400` + 0x300p + 3i commit on the red byte, and an `LDIR` of 768 bytes copies a palette without touching PALIDX; reserved offsets read `0xFF`; opcode fetches read `0xFF` with no side effect; `LD (nn),HL` writes a 2-byte register in one instruction; `PUSH` writes a 2-byte custom register correctly; no SRAM cycle is used.
 - **Interrupt pages, maskable:** with each IPMASK pattern (none, one window, all eight, the window holding SP, the window holding the IM 2 table, window 0), in IM 2 and IM 1, at 20 MHz, 3.57 MHz and n = 8: the two pushes go through the switched map (into the interrupt page with SP in a switched window, onto the program's stack otherwise); the table read (or the fetch at `0x0038`) and the handler come from the interrupt pages; IPSAV0–7 and IPSAV0W–7W hold the old pages; MMUn reads the interrupt pages; windows outside the mask are unchanged; `RETI` pops through the switched map and restores after its second stack read, before the fetch at the return address (SP in a switched window and elsewhere); a switched window holding SP with different read and write pages loses the return address, as section 9.7 warns; `DD ED 4D` counts, `ED 45`, `ED 5D`, `CB ED` followed by `4D`, and `DD CB d ED` followed by `4D` behave as spec 1, section 8.4 says.
@@ -597,7 +597,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 - **NMI set:** the defaults give the old NMI paging (spec 7, section 13), now with capture and with window 0's writes going to page `0x0FF`; an NMI and the monitor page's entry change no byte outside page `0x0FF`; NMIMASK patterns as above; an NMI inside a maskable handler and an interrupt inside an NMI handler each restore in reverse order; with EN 0 an NMI switches no window but still captures, and INNMI is 1 until its `RETN`.
 - **Interrupt page registers:** every register of page `0x01` at port r × 256 + `0x01` and at register page offset `0x0100` + r; registers `0x00`–`0x3F` and reserved `0x44`–`0x47` and `0x4A`–`0x4B` read `0xFF` through I/O; the page registers commit on byte 1 and a read page commit sets its write page; each keeps its own held byte (byte 0 of IP0, byte 0 and 1 of IP1, then byte 1 of IP0 commits with IP0's held byte); an entry between the two bytes of IPn uses the old IPn; reset values.
 - **Physical addresses:** a pattern written by the CPU through every page is read by the DMA port at page × `0x2000` + offset; bits 23–22 of pointers are ignored.
-- **Board test:** a full RAM test from the CPU at 20 MHz and from the DMA engine at once, with the display, sprites and copper busy.
+- **Board test:** a full RAM test from the CPU at 20 MHz and from the blitter at once, with the display, sprites and copper busy.
 
 ## 15. Open points
 
@@ -611,7 +611,7 @@ The display, sprites, copper and DMA engine address the SRAM with 22-bit physica
 | M6 | Closed: the register page read fits easily at 20 MHz (spec 1, section 5.7) |
 | M7 | Audio (spec 13, parked) has cycle 4 kept for it, as retro68k gives audio a cycle of its own (there cycle 2) |
 | M8 | Closed: palettes packed at `0x1400`–`0x1FFF` (section 10.2); KEYROW0–7 at `0x0100`–`0x0107`. `0x0108`–`0x0FFF` is free for later tables |
-| M9 | A descriptor RAM for the DMA engine (spec 14), if block RAM allows, would need a place in the register page; `0x0240`–`0x0FFF` is free for it |
+| M9 | Closed (10 November 2026, #103): no descriptor RAM; the blitter's descriptors live in SRAM, as retro68k's (spec 14) |
 | M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
 | M11 | IPDEPTH stays at 255 when pushed past it, with no flag, so a runaway nest restores early. A sticky overflow bit could be added if it is ever needed |
 | M12 | Saved pages are a snapshot of all 16 page registers at the switch, but only the windows in the mask are put back. Proposed: as written (the monitor reads the program's whole map from one place) |

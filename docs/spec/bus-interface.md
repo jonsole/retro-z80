@@ -17,7 +17,7 @@ It follows retro68k's spec 1, with tv80 in place of fx68k. The memory side (the 
 | Memory | Every opcode fetch, read and write goes through the MMU (spec 2): reads to the window's read page, writes to its write page. An SRAM access uses one CPU memory cycle (cycle 0 or 2); boot ROM and register page accesses use none |
 | Wait states | None, ever. wait_n is tied high. Every access has a CPU cycle in time at every speed (section 5) |
 | I/O | Port = register (A15–A8) : page (A7–A0). Page `0x00` the system block, registers `0x40`–`0xFF` of page `0x01` the interrupt pages, pages `0x10`–`0x13` the custom block. Low-byte-only ports `0x1F`, `0x53`, `0x5B`, `0x62`, `0xFE`. Others read `0xFF` (section 6) |
-| Register bus | 8-bit, one clock per access; masters the copper (first), the CPU, the sprite sequencer, the DMA engine (last) (section 4.2) |
+| Register bus | 8-bit, one clock per access; masters the copper (first), the CPU, the sprite sequencer (last) (section 4.2) |
 | Refresh | The core's refresh cycles (T3–T4 of every M1) are ignored. The R register still counts |
 | Interrupts | IM 2: the interrupt controller (spec 8) puts VECBASE + 2 × source on the bus in the acknowledge cycle. IM 1: the handler reads INTID. No IM 0 |
 | Interrupt pages, stack capture | A retro-z80 extra: an interrupt or NMI can switch chosen windows (at the acknowledge, before its two pushes), and an NMI always keeps its pushed PC in registers instead of memory; `RETN` takes its stack reads from the capture and `RETI` through the same switched map, then each puts the program's windows back before the fetch at the return address (sections 8.3–8.6) |
@@ -36,7 +36,7 @@ It follows retro68k's spec 1, with tv80 in place of fx68k. The memory side (the 
 | Writes posted to the next slot's cycle 0, with an early /DTACK | Writes posted to the next CPU cycle after the data is valid (T2); they end before the next M-cycle's access | The same idea; tv80 has no /DTACK, and needs none |
 | Wait states: 2 when an urgent display fetch or a nasty copper takes cycle 0 | None, ever: nobody takes a cycle the CPU has asked for (spec 2, section 5.3) | The Z80 never waits (design plan, branch 11) |
 | Registers in the memory map: custom block `0xE00000`, system block `0xF00000` | I/O ports in register:page form; both blocks also in the register page (spec 2, section 10) | Z80: 64 KB address space, I/O instructions |
-| 32-bit register bus; the CPU first, then the copper, then the DMA engine | 8-bit register bus; the copper first, then the CPU, then the DMA engine | The Z80's I/O cycle has room for a clock's delay, and the copper's writes then always land on their pixel |
+| 32-bit register bus; the CPU first, then the copper, then the DMA engine | 8-bit register bus; the copper first, then the CPU, then the sprite sequencer; the blitter is not a master | The Z80's I/O cycle has room for a clock's delay, and the copper's writes then always land on their pixel |
 | Bus errors: unmapped addresses, ROM writes, user mode (SYSCON.PROTECT); BUSERRADDR, BUSERRWHY | None: unmapped ports and pages read `0xFF` and ignore writes | Z80: no bus error input, no user mode |
 | Interrupt acknowledge: level on A3–A1, vector number from the controller, 7 levels | IM 2 acknowledge on one /INT line: vector byte VECBASE + 2 × source, fixed priority; IM 1 reads INTID (spec 8) | Z80: one /INT line |
 | The RESET instruction resets the devices | No such instruction: a soft reset is a write to SYSRESET (spec 7) | Z80 |
@@ -156,19 +156,17 @@ The MMU sends SRAM pages to the scheduler, boot ROM pages to the ROM's block RAM
 | rb_hit | Some unit decoded the address. If none did, the master gets `0xFF` |
 | rb_cdata[31:0], rb_cap | With a read of a capturing register's low byte (spec 3, rule 4): the register's whole value and a flag that it is one. The reading master stores it in its one tagged capture and answers that register's higher bytes from it |
 
-Every unit decodes rb_addr, so one address names a register however it is reached. The bus has four masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
+Every unit decodes rb_addr, so one address names a register however it is reached. The bus has three masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
 
 | Order | Master | What it reaches | Spec |
 |-------|--------|-----------------|------|
 | 1 | **Copper** | Writes only: custom offsets (rb_addr `0x1000`–`0x13FF`), `0x000`–`0x0EF` by MOVE, any by MOVEF | 6 |
 | 2 | **CPU** (this bus interface) | Everything: I/O cycles and register page accesses | – |
 | 3 | **Sprite sequencer** | Writes only: the registers of the sprites SEQMASK gives it (custom `0x010`–`0x08F`), 16 bytes per list entry, in the line before the entry's first line | 17 |
-| 4 | **DMA engine** | Reads and writes of the custom block, the palettes (`0x1400`–`0x1FFF`) and the stream registers SERDATA and SDDATA for its port jobs, paced by each unit's ready signal; spec 14 lists what a job may name and stops a channel that names anything else | 14 |
 
 - The copper goes first, so its writes always land on their pixel. It writes at most once every 2 clocks (spec 6), so the CPU's strobe moves at most one clock, which every CPU access has room for (sections 5.7 and 6).
 - The sprite sequencer (a retro-z80 extra) waits a clock whenever the copper or the CPU has the bus, so it never delays either of them. In any 40 clocks it gets at least 17, enough for an entry's 16 writes (spec 17, section 5.3).
-- The DMA engine waits a clock whenever the copper, the CPU or the sequencer has the bus. It never delays any of them.
-- The DMA engine reaches the registers only through this bus, one byte per clock, and uses no memory cycle for them. Its SRAM accesses go through the scheduler. It reads the boot ROM, as retro68k's engine does, through the ROM's second block RAM port, one byte per clock, not through this bus (spec 2, section 2; spec 14).
+- The blitter is not a master: it reaches SRAM only, through the scheduler, and never the registers or the boot ROM (spec 14, section 4). Version 1's DMA engine was a fourth master, last; it went when the blitter replaced it (10 November 2026, #103).
 
 ### 4.3 A 6502 later
 
@@ -370,7 +368,7 @@ A register in page `0x00`, read:
         in   a,(0x00)              ; page 0x00: A = INTID
 ```
 
-The copper, the DMA engine and the register page reach the same registers by address; only the CPU's I/O instructions use the port form. Full I/O access is kept alongside the register page, because the MMU must be reachable before any window shows the page.
+The copper, the sprite sequencer and the register page reach the same registers by address; only the CPU's I/O instructions use the port form. Full I/O access is kept alongside the register page, because the MMU must be reachable before any window shows the page.
 
 ## 7. Refresh
 
@@ -569,7 +567,7 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 ## 13. Test plan
 
 - **Speeds:** at every CPUSPEED setting, count clocks per T-state (5n, or 28); at n = 1–8 every cen falls on slot edge 0 or 5; a change takes effect at the first T1 of an M-cycle, never inside an M-cycle and not at a repeated T1; from 3.57 MHz to a locked speed every T-state up to that T1 is 28–32 clocks and ends on slot edge 0 or 5. Done in simulation for all nine settings (ticket #6).
-- **No waits:** run code from SRAM at every speed with the display (layers at their budget, urgent fetches), sprites, the copper and the DMA engine all busy; check that every read and write is issued in the cycle of section 5.2, that wait_n is never used, and that the data is at di before the core takes it.
+- **No waits:** run code from SRAM at every speed with the display (layers at their budget, urgent fetches), sprites, the copper and the blitter all busy; check that every read and write is issued in the cycle of section 5.2, that wait_n is never used, and that the data is at di before the core takes it.
 - **Both phases:** at 20 MHz, reads, fetches and writes with T1 on slot edges 0 and 5 use cycles 2 and 0 as in section 5.3; at 3.57 MHz, T1 on every slot edge 0–9. A T-state of 28 clocks moves 8 slot edges, so one stretch at 3.57 MHz puts T1 on only five edges, all even or all odd: the test enters 3.57 MHz from both slot phases, as the speed test ROM (`sim/speeds`) does.
 - **One CPU cycle per slot:** over a long run of every instruction, the CPU never asks for both cycles of one slot. Done over the whole of ZEXDOC at 20 MHz (ticket #7).
 - **Writes:** byte writes to even and odd addresses change only that byte; a read straight after a write sees the new data; a posted write goes to the page mapped in its own T1.
@@ -577,7 +575,7 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 - **Register page:** reads and writes through REGS give one strobe each, at all speeds and with a copper write in the same clock; a FIFO read through memory takes one byte; an opcode fetch from REGS gives `0xFF` and no strobe; `LD (nn),HL` writes a 2-byte register, low byte first, in one instruction.
 - **I/O decode:** every page `0x00` register at port r × 256, every custom offset at its port in pages `0x10`–`0x13`, with the same value as at its register page offset; `INC B` steps registers; `IN A,(0x00)` with A = r reads register r; the five low-byte-only ports answer with any high byte, and port `0xFE` gets A15–A8; other pages read `0xFF` with no strobe; `OUT (0xFE),A` sets the border.
 - **Block I/O:** `INIR` and `OTIR` with C = `0x53` stream B bytes through SERDATA; with C = a page, `INI` reads register B and `OUTI` writes register B − 1 (B8); three `OUTI`s with C = a custom page write a 3-byte register from a table held high byte first.
-- **Register bus:** a copper write in the same clock as a CPU strobe goes first; the CPU's strobe moves one clock and its access still completes in time; a DMA engine access waits for both and never delays them.
+- **Register bus:** a copper write in the same clock as a CPU strobe goes first; the CPU's strobe moves one clock and its access still completes in time; a sprite sequencer write waits for both and never delays them.
 - **Instruction tests:** ZEXDOC and ZEXALL in Verilator, from SRAM and from the boot ROM, at 20 MHz and 3.57 MHz (design plan, Q3). Done for ZEXDOC from SRAM at 20 MHz on the whole system, with the never-waited checks of the system testbench (ticket #7, `sim/zex/RESULTS.md`); ZEXDOC and ZEXALL also pass on the bare core (ticket #2).
 - **Refresh:** no memory requests during refresh; `LD A,R` returns a counting value.
 - **Interrupts:** in IM 2 each source's vector (VECBASE + 2 × source) reaches the core and one int_ack is sent; IM 1 runs `RST 0x38` and INTID names the source; NMI from the button and from USB BREAK reaches `0x0066`.

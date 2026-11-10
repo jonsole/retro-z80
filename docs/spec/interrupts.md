@@ -21,7 +21,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | RETI | Not needed by the controller (section 8); the interrupt pages count it (spec 2, section 9.7) |
 | Interrupt pages | A retro-z80 extra in the MMU and bus interface: an interrupt or NMI can switch chosen windows and keep its return address in registers (spec 2, section 9.7). The controller does not take part |
 | Registers | System page `0x00`, registers `0x00`–`0x0E` (`0x0F` reserved): port = register × 256, `0x0000`–`0x0E00`. Also at register page offsets `0x0000`–`0x000F` |
-| Who can write them | The CPU only. The copper cannot reach the system page, and a DMA job that tries is stopped with an error (spec 14, section 4) |
+| Who can write them | The CPU only. The copper cannot reach the system page, and the blitter reaches SRAM only (spec 14, section 4) |
 | Memory cycles | None |
 
 ## 2. Comparison with retro68k
@@ -36,7 +36,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | Spurious | Vector 24, the 68000's spurious vector | Source number 23 (NONE): entry VECBASE + 46 | Forced: the Z80 has no spurious vector |
 | INTENA | Two 16-bit set/clear halves (bits 15 and 31) | Three 8-bit set/clear bytes, bit 7 SETCLR in each | Forced: 8-bit ports |
 | INTID | For debugging only | Also how an IM 1 handler finds its source | Forced: IM 1 gives no vector. It replaces the earlier draft's INTHIGH port |
-| DMA sources | DMA0–DMA3 (4–7) | The same | – |
+| Blitter source | BLT (4); 5–7 not used | The same | – |
 | AUDIO | Source 9 | Source 9 reserved | Sound is parked (design plan Q1) |
 | SD | Source 16, from SDIRQ; not used in version 1 | Source 16, not used in version 1: the SD controller is polled (spec 11) | As retro68k's version 1 |
 | Reserved 19–23 | Free | 19 reserved for the geometry unit (spec 15, branch 10), 20 free | Geometry unit is retro-z80 only |
@@ -73,10 +73,9 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 | 1 | LINE | Video: line compare, at the start of display beam line LINECMP | VIDSTAT.LINE and VIDINTEN.LINE (spec 4) | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ and COPCON.IRQEN (spec 6) | COPSTAT.IRQ |
 | 3 | VIDERR | Video problems: a layer's fetch was late (OVERRUN), a sprite's FIFO ran dry (SPRUNDER, spec 5), the sprite sequencer skipped an entry (spec 17, section 4.4) | VIDSTAT error bits and their VIDINTEN bits (spec 4); SEQSTAT.SKIP and SEQCON.IRQEN (spec 17) | VIDSTAT; SEQSTAT.SKIP |
-| 4 | DMA0 | DMA engine channel 0: a descriptor with IRQ finished, or an error | DMXINT.CH0 and DMXINTEN.CH0 (spec 14) | DMXINT.CH0 |
-| 5 | DMA1 | DMA engine channel 1 | DMXINT.CH1 and DMXINTEN.CH1 | DMXINT.CH1 |
-| 6 | DMA2 | DMA engine channel 2 | DMXINT.CH2 and DMXINTEN.CH2 | DMXINT.CH2 |
-| 7 | DMA3 | DMA engine channel 3 | DMXINT.CH3 and DMXINTEN.CH3 | DMXINT.CH3 |
+| 4 | BLT | The blitter: a job with IRQ ended, or the blitter stopped (the chain's end, STOP, an error) | DMXINT.BLT and DMXINTEN.BLT (spec 14) | DMXINT.BLT |
+| 5 | – | Not used: kept for the rasteriser (spec 14, open point D3). Was DMA engine channel 1 | – | – |
+| 6–7 | – | Not used (were DMA engine channels 2 and 3) | – | – |
 | 8 | – | Not used, as in retro68k | – | – |
 | 9 | AUDIO | Reserved for sound (spec 13, parked) | – | – |
 | 10 | – | Not used, as in retro68k | – | – |
@@ -95,7 +94,7 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 
 Reserved sources request nothing, so their INTRAW bits read 0.
 
-**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the DMA engine's channels, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
+**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the blitter, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
 
 ## 5. IM 2 vectors
 
@@ -272,7 +271,7 @@ vbl:    push af
 
 ## 14. Test plan
 
-- **Vectors:** each source in use, raised by its unit (SOFT by software; DMA0–DMA3 by a job with IRQ on each channel), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
+- **Vectors:** each source in use, raised by its unit (SOFT by software; BLT by a blitter job with IRQ), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
 - **Priority:** with several sources pending, they are served lowest number first; INTID agrees with the vector at every step.
 - **IM 1:** `RST 38h` with INTID dispatch serves every source; a spurious acknowledge gives INTID = 23.
 - **Request path:** INTRAW follows unit flag AND unit enable; INTPEND follows INTRAW AND INTENA AND MASTER; reserved sources read 0.
@@ -297,4 +296,4 @@ vbl:    push af
 | I5 | Closed: no IM 0 option (design plan, branch 11). Software sets IM 1 or IM 2 before the first `EI` (section 7) |
 | I6 | Closed: IM 1 uses INTID (the source at the last acknowledge) instead of a separate "highest pending" port. INTHIGH is gone |
 | I7 | Deferred (design plan, branch 11): interrupts from accelerator-port pins (retro68k I1). Source 20 is kept free for it |
-| I8 | Closed: the four DMA engine channels are sources 4–7, DMA0–DMA3, as retro68k (spec 14) |
+| I8 | Closed: the blitter is source 4, BLT, as retro68k; sources 5–7 (version 1's DMA1–DMA3) are not used, and 5 is kept for the rasteriser (10 November 2026, #103; spec 14) |

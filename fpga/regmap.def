@@ -51,7 +51,7 @@ reg  0x1F KEMPSTON 1 R       12/8.5 RIGHT=0 LEFT=1 DOWN=2 UP=3 FIRE1=4 FIRE2=5 A
 # Time counter, timers and watchdog (spec 9)
 reg  0x20 TIME     4 R,CAP   9/3
 array TMR 4 0x28 8 9/6
-  reg 0x0 CTRL     1 RW      9/6    EN=0 REPEAT=1 SRC=3:2 IRQ=4 DMA=5 DMACH=7:6
+  reg 0x0 CTRL     1 RW      9/6    EN=0 REPEAT=1 SRC=3:2 IRQ=4
   reg 0x1 PRESCALE 2 RW      9/4.2
   reg 0x3 RELOAD   2 RW      9/4.1
   reg 0x5 COUNT    2 RW,CAP  9/4.1
@@ -262,31 +262,22 @@ reg  0x131 ATADDR   3 RW      4/7.1  ADDR=21:1
 reg  0x134 ATSTRIDE 1 RW      4/7.1  STRIDE=7:1
 reg  0x135 ATSCROLL 1 RW      4/7.1  FINEX=3:0 FINEY=6:4
 
-# DMA engine channels 0-3 (spec 14)
-array DMX 4 0x140 0x40 14/8.1
-  reg 0x00 CTRL      3 RW,BUSY     14/3   OP=2:0 YMAJOR=3 SAT=4 SIGNED=5 XNEG=6 YNEG=7 BPP=9:8 DESC=10 IRQ=11 BCONST=12 MASK=14:13
-  reg 0x03 MINTERM   1 RW,BUSY     14/3.1
-  reg 0x04 APT       3 RW,BUSY     14/3
-  reg 0x07 BPT       3 RW,BUSY     14/3
-  reg 0x0A DPT       3 RW,BUSY     14/3
-  reg 0x0D WIDTH     3 RW,BUSY     14/3
-  reg 0x10 HEIGHT    2 RW,BUSY     14/3
-  reg 0x12 SHIFT     2 RW,BUSY     14/3   ABIT=2:0 BBIT=6:4 DBIT=10:8
-  reg 0x14 ABSTRIDE  2 RW,BUSY     14/3
-  reg 0x16 CDSTRIDE  2 RW,BUSY     14/3
-  reg 0x18 VALUE     4 RW,BUSY     14/3
-  reg 0x1C NEXT      3 RW,BUSY     14/3
-  reg 0x20 CHDESC    3 RW,BUSY,CAP 14/8.1
-  reg 0x24 CHCTRL    1 S           14/8.2 START=0 RUN=1 STOP=2 PAUSE=3
-  reg 0x28 CHSTAT    1 RW1C        14/8.3 BUSY=0 DONE=1 ERR=2 PAUSED=3
-  reg 0x2C CHERR     3 R           14/8.1
-end
-reg  0x230 DMXINT   1 W1C     14/8.4 CH0=0 CH1=1 CH2=2 CH3=3
-reg  0x234 DMXINTEN 1 RW      14/8.4 fields=DMXINT
-reg  0x238 CLIPXMIN 2 RW      14/8.4
-reg  0x23A CLIPXMAX 2 RW      14/8.4
-reg  0x23C CLIPYMIN 2 RW      14/8.4
-reg  0x23E CLIPYMAX 2 RW      14/8.4
+# Blitter (spec 14). The job registers are laid out as a descriptor: eight
+# 4-byte words, low byte first, written while no job runs (BUSY)
+reg  0x140 BLTCTRL   4 RW,BUSY  14/3   KEY=7:0 BPP=9:8 RTL=10 IRQ=12 BCONST=13 MASK=18:17 MINTERM=31:24
+reg  0x144 BLTBPT    4 RW,BUSY  14/3   ADDR=23:0 BIT=26:24
+reg  0x148 BLTDPT    4 RW,BUSY  14/3   ADDR=23:0 BIT=26:24
+reg  0x14C BLTSIZE   4 RW,BUSY  14/3   WIDTH=15:0 HEIGHT=31:16
+reg  0x150 BLTAPT    4 RW,BUSY  14/3   ADDR=23:0 BIT=26:24
+reg  0x154 BLTSTRIDE 4 RW,BUSY  14/3   DSTRIDE=15:0 BSTRIDE=31:16
+reg  0x158 BLTVALUE  4 RW,BUSY  14/3   VALUE=15:0 ASTRIDE=31:16
+reg  0x15C BLTNEXT   4 RW,BUSY  14/3   ADDR=23:0
+reg  0x160 BLTDESC   3 RW,BUSY,CAP 14/8 ADDR=23:0
+reg  0x164 BLTCMD    1 S        14/8   START=0 RUN=1 STOP=2
+reg  0x168 BLTSTAT   1 R        14/8   BUSY=0 ERR=2
+# 0x16C-0x22F reserved (the rasteriser's registers to come)
+reg  0x230 DMXINT   1 W1C     14/8   BLT=0
+reg  0x234 DMXINTEN 1 RW      14/8   fields=DMXINT
 
 # Audio 0x240-0x2FF: reserved for spec 13.
 
@@ -325,10 +316,7 @@ const INT_VBLANK  0
 const INT_LINE    1
 const INT_COPPER  2
 const INT_VIDERR  3
-const INT_DMA0    4
-const INT_DMA1    5
-const INT_DMA2    6
-const INT_DMA3    7
+const INT_BLT     4
 const INT_AUDIO   9  "Reserved for sound"
 const INT_TIMER0  11
 const INT_TIMER1  12

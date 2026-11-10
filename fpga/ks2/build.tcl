@@ -46,7 +46,8 @@ if {$what eq "pattern"} {
         $rtl/ps2kb.v $rtl/ps2map.v $rtl/keys.v $rtl/joy.v $rtl/audio.v \
         $rtl/retroz80.v $root/fpga/ks2/top_ks2.v \
         $rtl/platform/artix7/ks2_clocks.v $hw/platform/artix7/hdmi_out.v \
-        $hw/platform/artix7/oddr.v ] [glob $hw/rtl/*.v]
+        $hw/platform/artix7/oddr.v ] [lsearch -all -inline -not [glob $hw/rtl/*.v] */geom.v]
+    # (retro-hw's geom.v is left out until it replaces ours: issue #108)
     read_xdc $root/fpga/ks2/ks2.xdc
     read_xdc $root/fpga/ks2/ks2_clocks.xdc
     read_xdc $root/fpga/ks2/ks2_machine.xdc

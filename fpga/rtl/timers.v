@@ -18,9 +18,8 @@
 // Every reset but power-on resets the timers and the watchdog (spec 7,
 // section 3): every reset is a full one here. TIME runs on.
 //
-// A timer underflows on the tick after COUNT = 0: STAT.UNDER is set, a
-// pulse goes to the DMA start line CTRL.DMACH if CTRL.DMA, and the next
-// timer (SRC 3) gets a tick in the following clock. Writing CTRL with EN
+// A timer underflows on the tick after COUNT = 0: STAT.UNDER is set and
+// the next timer (SRC 3) gets a tick in the following clock. Writing CTRL with EN
 // going from 0 to 1 starts the prescaler again, so the first SRC 0 period
 // is full length.
 `include "regmap.vh"
@@ -44,7 +43,6 @@ module timers (
     input  wire        frame_tick,     // 1 clock at the start of each frame
 
     output wire [3:0]  irq,            // TIMER0-3 (spec 8: sources 11-14)
-    output reg  [3:0]  dma_start,      // 1 clock: start DMA engine channel n (spec 14)
     output reg         wd_reset        // 1 clock: the watchdog resets the computer
 );
     // ---------------------------------------------------------------- decode
@@ -64,7 +62,7 @@ module timers (
         else if (us_tick) time_c <= time_c + 1'b1;
 
     // ---------------------------------------------------------------- general timers
-    reg [7:0]  ctrl     [0:3];         // DMACH (7-6), DMA (5), IRQ (4), SRC (3-2), REPEAT (1), EN (0)
+    reg [7:0]  ctrl     [0:3];         // IRQ (4), SRC (3-2), REPEAT (1), EN (0); 7-5 reserved
     reg [15:0] prescale [0:3];
     reg [15:0] pre_c    [0:3];         // the prescaler's own count
     reg [15:0] reload   [0:3];
@@ -93,7 +91,6 @@ module timers (
 
     always @(posedge clk) begin
         uf        <= 4'd0;
-        dma_start <= 4'd0;
         wd_reset  <= 1'b0;
         if (us_tick) ms_div <= (ms_div == 10'd999) ? 10'd0 : ms_div + 1'b1;
         if (rst) begin
@@ -125,7 +122,6 @@ module timers (
                     if (count[n] == 16'd0) begin
                         uf[n]    <= 1'b1;
                         under[n] <= 1'b1;
-                        if (ctrl[n][5]) dma_start[ctrl[n][7:6]] <= 1'b1;
                         if (ctrl[n][1]) count[n]   <= reload[n];
                         else            ctrl[n][0] <= 1'b0;   // one-shot: stop
                     end else
@@ -134,7 +130,7 @@ module timers (
             end
             if (rb_wr && is_tmr) case (toff)
                 3'd0: begin
-                    ctrl[t] <= rb_wdata;
+                    ctrl[t] <= {3'd0, rb_wdata[4:0]};   // bits 7-5 reserved
                     if (rb_wdata[0] && !ctrl[t][0]) pre_c[t] <= prescale[t];
                 end
                 3'd1: prescale[t][7:0]  <= rb_wdata;

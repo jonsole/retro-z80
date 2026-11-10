@@ -13,23 +13,25 @@
 set -e
 cd "$(dirname "$0")/.."
 VERILATOR=${VERILATOR:-verilator}
+# retro-hw's cores, but its geom.v until it replaces ours (issue #108)
+HWRTL=$(ls fpga/retro-hw/rtl/*.v | grep -v '/geom\.v$')
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
     -DTV80_REFRESH -Ifpga/rtl --top-module retroz80 fpga/lint.vlt \
     fpga/third_party/tv80/tv80_core.v fpga/third_party/tv80/tv80_alu.v \
     fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
-    fpga/rtl/*.v fpga/retro-hw/rtl/*.v
+    fpga/rtl/*.v $HWRTL
 # ... and with all three video layers built (the KS2 builds one)
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
     -DTV80_REFRESH -Ifpga/rtl --top-module retroz80 -GNLAYERS=3 fpga/lint.vlt \
     fpga/third_party/tv80/tv80_core.v fpga/third_party/tv80/tv80_alu.v \
     fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
-    fpga/rtl/*.v fpga/retro-hw/rtl/*.v
+    fpga/rtl/*.v $HWRTL
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC     --top-module top_ks2_pattern fpga/ks2/top_ks2_pattern.v fpga/retro-hw/rtl/tmds_encoder.v     fpga/rtl/platform/artix7/ks2_clocks.v fpga/retro-hw/platform/artix7/hdmi_out.v fpga/retro-hw/platform/artix7/lint_stub.v
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \
     -DTV80_REFRESH -Ifpga/rtl --top-module top_ks2 fpga/lint.vlt \
     fpga/third_party/tv80/tv80_core.v fpga/third_party/tv80/tv80_alu.v \
     fpga/third_party/tv80/tv80_mcode.v fpga/third_party/tv80/tv80_reg.v \
-    fpga/rtl/*.v fpga/retro-hw/rtl/*.v fpga/ks2/top_ks2.v fpga/rtl/platform/artix7/ks2_clocks.v \
+    fpga/rtl/*.v $HWRTL fpga/ks2/top_ks2.v fpga/rtl/platform/artix7/ks2_clocks.v \
     fpga/retro-hw/platform/artix7/hdmi_out.v fpga/retro-hw/platform/artix7/oddr.v fpga/retro-hw/platform/artix7/lint_stub.v
 # The SRAM tester (issue #90), with its own stand-ins (fpga/ks2/lint_stub_sramtest.v)
 $VERILATOR --lint-only --default-language 1364-2005 -Wall -Wno-style -Wno-fatal -Werror-WIDTHTRUNC \

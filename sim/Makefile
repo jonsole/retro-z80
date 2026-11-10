@@ -53,9 +53,10 @@
 #                   with each mask, XOR, 4 bpp shifts, ADD, a backwards
 #                   copy, a chain with IRQ, errors and registers (dmx/;
 #                   seconds)
-#   make dtest      the DMA engine's random test (ticket #40): random jobs on
-#                   all 4 channels and all 256 minterms, the SRAM afterwards
-#                   checked byte by byte against a Python model (dtest/;
+#   make dtest      the blitter's random test (ticket #40): 4 chains of random
+#                   jobs (every depth, mask kind, direction and stride sign),
+#                   the SRAM afterwards checked byte by byte against a Python
+#                   model (dtest/;
 #                   DTEST_SEEDS, three seeds by default; a minute or so each)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
@@ -123,7 +124,8 @@ TV80      := $(ROOT)/fpga/third_party/tv80
 INC       := $(ROOT)/firmware/include
 TV80_CORE := $(addprefix $(TV80)/,tv80_core.v tv80_alu.v tv80_mcode.v tv80_reg.v)
 SYS_RTL   := $(addprefix $(RTL)/,z80_cpu.v cpu_cen.v bus_if.v dbgunit.v mmu.v intpages.v bootrom.v serial.v sysregs.v intc.v bpldma.v sprites.v video.v copper.v dmx.v geom.v retroz80.v timers.v ps2kb.v ps2map.v keys.v joy.v audio.v) \
-             $(wildcard $(HW_RTL)/*.v)
+             $(filter-out $(HW_RTL)/geom.v,$(wildcard $(HW_RTL)/*.v))
+# (retro-hw's geom.v is left out until it replaces ours: issue #108)
 SYS_SIM   := $(HW)/platform/sim/oddr.v $(addprefix $(HW)/sim/,sram_model.v ft232h_model.v ps2_model.v) tb.v
 
 BOOT_SRC  := $(addprefix $(ROOT)/firmware/boot/,boot.asm rom.inc console.asm keys.asm calls.asm monitor.asm \
@@ -301,7 +303,7 @@ dmxspeed: $(BUILD)/tb.vvp $(BUILD)/dmxspeed.hex
 	cd $(BUILD) && $(VVP) -n tb.vvp +rom=dmxspeed.hex +print +timeout=20000 | tee dmxspeed.log
 	@grep -q "^TEST PASSED" $(BUILD)/dmxspeed.log
 
-# The DMA engine's random test (ticket #40): dgen.py writes the SRAM and the
+# The blitter's random test (ticket #40): dgen.py writes the SRAM and the
 # jobs, dtest.asm starts them, dmodel.py checks the SRAM dumped at the end
 DTEST_SEEDS ?= 11 12 13
 $(BUILD)/dtest.bin: dtest/dtest.asm $(INC)/hw.inc | $(BUILD)

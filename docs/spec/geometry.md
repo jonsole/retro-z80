@@ -4,7 +4,7 @@ Status: **draft**
 
 The geometry unit does a 3D engine's arithmetic for the Z80, which has no multiply. It turns a vertex by the camera and the object, projects it onto the screen, and tests which way a face looks. It also does a plain multiply and divide. It is a retro-z80 extra (design plan, branch 10): retro68k has no geometry unit, since a 68000 has MULS and DIVS.
 
-The target is flat-shaded polygons (one colour each), as in Elite or Starglider 2, at 25–50 frames a second. There is no Z-buffer: software sorts faces back to front. Drawing help (a span fill or a triangle job in the DMA engine) is decided later, from measurements of this unit (section 10, open point G1).
+The target is flat-shaded polygons (one colour each), as in Elite or Starglider 2, at 25–50 frames a second. There is no Z-buffer: software sorts faces back to front. Drawing help is decided (open point G1): lines and triangles by retro-hw's raster core, beside the blitter (design plan, branch 10, "Drawing: raster"), in a ticket of its own.
 
 The jobs were chosen by what a software engine spends its time on. In the fast3d engine (a Spectrum 128K, wireframe, 40 objects; [zx-spectrum-emulator/examples/fast3d](https://github.com/jonsole/zx-spectrum-emulator/tree/master/examples/fast3d)) an average frame of 468,000 T-states goes on culling (23%), objects' matrices (9%), vertices (28%, more than half of it projecting), lines (15%), clipping (6%) and clearing (8%). A vertex costs about 2,330 T-states there; here it costs 316 with the loop of section 6.2 and 172 with a tight one, both measured on the KS2.
 
@@ -21,10 +21,10 @@ The jobs were chosen by what a software engine spends its time on. In the fast3d
 | Registers | System page `0x00`, registers `0xA0`–`0xBF`: port = register × 256. A 24-byte window (`0xA0`–`0xB7`) shows one of five banks: camera, object, view, operands, and the product (read only). Also at register page offsets `0x00A0`–`0x00BF` |
 | Starting a job | Writing the high byte of a job's last operand starts it: VZ1 a vertex, F2Y1 a face sign, MB1 a multiply, DVS1 a divide |
 | Speed | Every job is done within 24 clocks (240 ns) of its start, before the CPU can read the result (at most 22 measured). GEOSTAT.BUSY is kept for safety |
-| Who can reach it | The CPU only (ports and the register page). It is a system register block, out of the copper's and the DMA engine's reach |
+| Who can reach it | The CPU only (ports and the register page). It is a system register block, out of the copper's and the blitter's reach |
 | Memory cycles | None |
 | Interrupt | None in this version. Interrupt 19 (GEOM) stays reserved for a list mode (open point G2) |
-| Builds | The KS3 always. On the KS2 a build option, `GEOM = 1`, builds the unit in place of the DMA engine (section 8) |
+| Builds | The KS3 always. On the KS2 a build option, `GEOM = 1`, builds the unit in place of the blitter (section 8) |
 
 ## 2. Comparison with retro68k
 
@@ -35,7 +35,7 @@ retro68k has no geometry unit. A 68000 multiplies 16 × 16 in about 70 cycles (M
 | Geometry unit | None | Section 1 | A Z80 has no multiply (design plan, branch 10) |
 | Registers | – | System page `0xA0`–`0xBF`, banked | Kept in its own block, as the Spectrum extras are |
 | Interrupt 19 | – | Reserved (GEOM) | For a list mode later |
-| 3D drawing | DMA engine OP 6 (span fill) and OP 7 (triangle) reserved | The same, agreed (spec 14, open point D6) | Shared, so both machines draw the same way |
+| 3D drawing | retro-hw's raster core (lines, triangles), to come | The same, to come (spec 14, open point D3; version 1's reserved OP 6 and OP 7 are gone) | Shared, so both machines draw the same way |
 
 retro68k could take the unit on later as a memory-mapped block. Nothing in it is Z80-specific except the register layout.
 
@@ -289,7 +289,7 @@ That is 316 T-states a vertex as written (1,024 vertices in 16,160 µs on the KS
 | Block RAM | None |
 | Lines out | None (interrupt 19 reserved) |
 
-The KS2 has no room for the unit beside the DMA engine: that build already has 2 sprites and no mask image (design plan, branch 21). So `top_ks2.v` takes a build option, **`GEOM = 1`**, that builds the geometry unit and leaves the DMA engine out. The default KS2 build stays as it is. Without the unit (`GEOM = 0`) its registers read `0xFF` and ignore writes, as any reserved register. The KS3 builds both.
+The KS2 has no room for the unit beside the blitter (version 1's DMA engine when this was decided): that build already has 2 sprites and no mask image (design plan, branch 21). So `top_ks2.v` takes a build option, **`GEOM = 1`**, that builds the geometry unit and leaves the blitter out (`DMX = 0`). The default KS2 build stays as it is. Without the unit (`GEOM = 0`) its registers read `0xFF` and ignore writes, as any reserved register. The KS3 builds both.
 
 ## 9. Test plan
 
@@ -315,10 +315,10 @@ The KS2 has no room for the unit beside the DMA engine: that build already has 2
 | The unit, back faces removed (face sign) | 278,338 | 50 |
 | Software at 3.57 MHz (CPUSPEED.SPECTRUM, the builds' default) | 474,395 | 7.5 |
 | The unit at 3.57 MHz | 269,244 | 13.1 |
-| Software, lines by the DMA engine's LINE job (spec 14, section 3.4; KS2 without the copper) | 432,850 | 41.8 |
-| Software, each object's edges by one EDGES job (spec 14, section 3.5; the same build) | 351,912 | 47.5 |
-| Software, cleared by a BLIT fill (spec 14, section 3.1; 31 October 2026) | 433,002 (153,140, 723,420) | 41.5 |
-| Software, EDGES and the BLIT fill (KS2 without the copper) | 311,801 (124,460, 514,980) | 48.4 |
+| Software, lines by version 1's DMA engine LINE job (gone since #103; KS2 without the copper) | 432,850 | 41.8 |
+| Software, each object's edges by one version 1 EDGES job (gone since #103; the same build) | 351,912 | 47.5 |
+| Software, cleared by a version 1 BLIT fill (31 October 2026) | 433,002 (153,140, 723,420) | 41.5 |
+| Software, version 1's EDGES and BLIT fill (KS2 without the copper) | 311,801 (124,460, 514,980) | 48.4 |
 
 With the unit, the culling and the vertices go through it (CAM for each object's centre, PROJ for its vertices); fast3d's `compute_matrix` still makes each matrix from three angles, and the lines are drawn, clipped and cleared in software. 5.2 objects are drawn a picture on average (fast3d: 5.1; the unit's cull rounds in world units).
 
@@ -337,7 +337,7 @@ Where the time goes, in T-states a picture:
 | Other (the loops, the boxes, the flip) | 50,856 (11%) | 51,757 (19%) | 43,391 |
 | Total | 473,866 | 269,195 | 279,254 |
 
-**Clearing by the DMA engine** (ticket #74, `--dmaclear`): the vertical blank interrupt, as it flips, starts a BLIT fill (8 bpp, BCONST, VALUE 0, CDSTRIDE 32) of the box last drawn on the screen it has stopped showing, on channel 2. The fill runs while the Z80 works out the next picture, and `render_frame` waits for it before drawing; it has always finished by then. Clearing goes from 40,679 T-states a picture to 74 (the wait and its marks), and the picture from 473,311 to 433,002, 8.5% faster. Starting the fill costs about 200 T-states in the interrupt, once a picture.
+**Clearing by the DMA engine** (ticket #74, `--dmaclear`; version 1's engine, measured before the blitter replaced it in #103): the vertical blank interrupt, as it flips, starts a BLIT fill (8 bpp, BCONST, VALUE 0, CDSTRIDE 32) of the box last drawn on the screen it has stopped showing, on channel 2. The fill runs while the Z80 works out the next picture, and `render_frame` waits for it before drawing; it has always finished by then. Clearing goes from 40,679 T-states a picture to 74 (the wait and its marks), and the picture from 473,311 to 433,002, 8.5% faster. Starting the fill costs about 200 T-states in the interrupt, once a picture.
 
 So the unit takes the geometry from 276,000 T-states a picture to 69,000, and the picture from 473,000 to 268,000, 1.76 times as fast. What is left is drawing: lines, clipping and clearing are 149,000, 55% of a picture, and most of "other" is the drawing loop's fetching of edge ends. A vertex costs about 320 T-states in the flight (six bytes in, four out, the NEAR test and the stores), 6% of a picture, so a list mode (G2) would save about 5%. Removing back faces with the face sign costs more than it saves here, as it does in software (fast3d: 539,000 against 468,000): copying the three points of each face into the unit is about 530 T-states a face, and these objects are small on the screen.
 
@@ -345,7 +345,7 @@ So the unit takes the geometry from 276,000 T-states a picture to 69,000, and th
 
 | # | Item |
 |---|------|
-| G1 | Decided (30 October 2026), from the benchmark (section 10): drawing is most of a picture once vertices are cheap. First, clear with the DMA engine's BLIT fill (software only; the KS2's `GEOM = 1` build has no engine, the KS3 has both). Next, an Amiga-style line job in the DMA engine (spec 14, D3, shared with retro68k), for the lines and their clipping. OP 6 span fill and OP 7 triangle stay reserved for filled 3D (spec 14, D6). The line job and the triangle job are separate jobs of the one engine, each with its own layout, sharing the engine's address units, minterm and memory access: the line job is not shaped for triangle edges, nor the triangle built from line steps (30 October 2026) |
+| G1 | Superseded in part (10 November 2026, #103): the line and triangle jobs below are now retro-hw's raster core, beside the blitter, in a ticket of its own (design plan, branch 10, "Drawing: raster"); LINE, EDGES and the reserved OP 6 and OP 7 are gone with the DMA engine (spec 14). Decided (30 October 2026), from the benchmark (section 10): drawing is most of a picture once vertices are cheap. First, clear with the DMA engine's BLIT fill (software only; the KS2's `GEOM = 1` build has no engine, the KS3 has both). Next, an Amiga-style line job in the DMA engine (spec 14, D3, shared with retro68k), for the lines and their clipping. OP 6 span fill and OP 7 triangle stay reserved for filled 3D (spec 14, D6). The line job and the triangle job are separate jobs of the one engine, each with its own layout, sharing the engine's address units, minterm and memory access: the line job is not shaped for triangle edges, nor the triangle built from line steps (30 October 2026) |
 | G2 | A list mode: the unit as a bus master that turns a vertex list in SRAM and writes the screen points back, with interrupt 19 (GEOM) at the end. About 300–500 LUTs and a scheduler client. Kept open (30 October 2026): in the wireframe flight it would save about 5% of a picture (section 10); to be looked at again with filled faces or bigger models |
 | G3 | The 30-clock limit is set by the fastest CPU read after a write (section 4.6). A faster CPU (design plan, Q9) would need a check again |
 | G4 | A dot product (n·v of two 3-vectors) for testing faces against the eye in 3D and for lighting. Left out for now: the inverse turn and a few multiplies do it |

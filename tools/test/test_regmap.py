@@ -76,7 +76,7 @@ class BrokenDefinition(unittest.TestCase):
         ("fields overlap", "PRIO     1 RW      4/4.8  FRONT=1:0", "PRIO     1 RW      4/4.8  FRONT=2:0", "overlaps"),
         ("group register moved", "  reg 0xB CTL      1 RW", "  reg 0xA CTL      1 RW", "SPR"),
         ("group stride", "array L 3 0x090 0x20", "array L 3 0x090 0x24", "L"),
-        ("element count", "array DMX 4 0x140", "array DMX 3 0x140", "CHCTRL"),
+        ("element count", "array TMR 4", "array TMR 3", "TMR"),
         ("beyond copper MOVE", "array SPR 8 0x010 0x10", "array SPR 8 0x070 0x10", "copper"),
         ("low-byte port", "port SDDATA   0x5B 0x5B", "port SDDATA   0x5A 0x5A", "0x5"),
         ("interrupt number", "const INT_KEYB    17", "const INT_KEYB    16", "INT_KEYB"),
@@ -134,7 +134,7 @@ class Names(unittest.TestCase):
     def test_byte_names(self):
         for name, value in [("TIME0", 0x20), ("TIME3", 0x23), ("SDCON1", 0x59), ("WDTIME1", 0x4A),
                             ("SPRDMA1", 0x121), ("TMR0_COUNT0", 0x2D), ("SPR0_PT0", 0x010),
-                            ("L1_BPL0PT2", 0x0C6), ("DMX2_CHDESC0", 0x1E0),
+                            ("L1_BPL0PT2", 0x0C6), ("BLTDESC0", 0x160),
                             ("MMU0_0", 0x80), ("MMU0_1", 0x81), ("MMU0W_0", 0x90), ("MMU0W_1", 0x91),
                             ("IP0_1", 0x81), ("IP7W_0", 0x9E), ("NMISAV0W_1", 0xF1), ("NMICAPPC1", 0x4D)]:
             self.assertEqual(self.syms.get(name), value, name)
@@ -143,7 +143,7 @@ class Names(unittest.TestCase):
 
     def test_ports(self):
         for name, value in [("SYSID_P", 0x7000), ("BGCOLOR_P", 0x0410), ("SPR0_PT_P", 0x1010),
-                            ("COPCON_P", 0x0011), ("DMX3_CTRL_P", 0x0012), ("MMU0W_1_P", 0x9100),
+                            ("COPCON_P", 0x0011), ("DMXINT_P", 0x3012), ("MMU0W_1_P", 0x9100),
                             ("SERDATA_PORT", 0x53), ("ULA_PORT", 0xFE), ("KBDATA_PORT", 0x62),
                             ("NMICTL_P", 0x4801), ("IP0_1_P", 0x8101), ("NMIP0W_P", 0xD001)]:
             self.assertEqual(self.syms.get(name), value, name)
