@@ -513,7 +513,7 @@ DMACON is a set/clear register: written with bit 7 (SETCLR) set, it sets the bit
 | 4 | COPEN | The copper |
 | 3 | BLTEN | The DMA engine |
 | 2 | SPREN | The sprites |
-| 1 | AUDEN | Audio: reserved |
+| 1 | AUDEN | Sound (with each channel's AUDDMA bit) |
 | 0 | – | Reserved |
 
 ### What happens in each frame

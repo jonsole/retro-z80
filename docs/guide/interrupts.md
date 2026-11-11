@@ -98,7 +98,7 @@ Table 2-1 lists every source, in priority order.
 | 18 | SOFT | The program itself, through SOFTINT | SOFTINT.CLR |
 | 23 | NONE | Not a source: the controller had nothing to give (below) | – |
 
-Numbers 8–10, 16, 19 and 20 are not used, or kept for later units (sound at 9, the geometry unit at 19); they never ask.
+Numbers 8, 10, 16, 19 and 20 are not used, or kept for later units (the geometry unit at 19); they never ask.
 
 **The number is the priority.** When several are pending, the lowest number goes first: the video before the DMA engine, the DMA engine before the timers, the link and the keyboard after them (their FIFOs can wait), and SOFT last. `hw.inc` names them `INT_VBLANK` … `INT_SOFT`, and `INT_NONE` (23).
 
@@ -348,7 +348,7 @@ Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0
 | 5 | TIMER1 | Source 12 |
 | 4 | TIMER0 | Source 11 |
 | 3 | – | Source 10, not used |
-| 2 | AUDIO | Source 9, kept for sound |
+| 2 | AUDIO | Source 9: sound |
 | 1 | – | Source 8, not used |
 | 0 | DMA3 | Source 7 |
 

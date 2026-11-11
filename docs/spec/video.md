@@ -43,7 +43,7 @@ The video makes one 576p picture, sent over HDMI and VGA at once. It is retro68k
 | Palette write state per master | The held high half, one per writer (CPU, copper, DMA) | PALIDX, PALDAT's byte counter and the colour assembly buffer, one each per master | The same idea for 3-byte colours through an index port: the masters' writes never mix (spec 6, C14) |
 | Palette contents after configuration | Undefined | Spectrum colours in entries 0–15, black elsewhere (section 7.4) | Spectrum extra (branch 11) |
 | Urgent fetches | May take the CPU's cycle 0 | Never take a cycle the CPU uses; they go first in every other cycle | The Z80 never waits for SRAM (spec 2) |
-| Memory cycle owners | 0 CPU, 1 and 3 display, 2 audio, 4 free pool | 0 and 2 CPU, 1 and 3 display, 4 audio (reserved) and the free pool | Spec 2 (branch 11) |
+| Memory cycle owners | 0 CPU, 1 and 3 display, 2 audio, 4 free pool | 0 and 2 CPU, 1 and 3 display, 4 audio and the free pool | Spec 2 (branch 11) |
 | Text | Drawn into a 1-plane bitmap | A 1 bpp tile layer, one map entry per character (section 8) | One 2-byte write per character, which a Z80 can afford |
 | Attribute layer, port `0xFE` border | – | Spectrum extras (section 7) | Spectrum screens and programs |
 
@@ -366,7 +366,7 @@ The display (layers, the attribute layer and sprites) is one **hard-deadline** u
 |----------------|-------|-------------|
 | 0, 2 | CPU | Only when the CPU leaves the cycle (free order) |
 | 1, 3 | Display | Always the display's first, earliest deadline first; the free order when no layer or sprite wants it |
-| 4 | Audio (reserved) and the free pool | Free order: hard-deadline users first, then the copper, the blitter and the rasteriser (spec 2) |
+| 4 | Audio (spec 13) and the free pool | Free order: hard-deadline users first, then the copper, the blitter and the rasteriser (spec 2) |
 
 - **Order: earliest deadline first.** When a layer's shifters take a group, the layer's countdown loads the time that group lasts: 16 source pixels × HSCALE, about 59 system clocks at 1× (593 ns), 118 at 2×. Each word goes to the layer or sprite whose deadline is nearest; layers with equal deadlines take turns. The line's first take (the group loaded in the horizontal blank) sets no deadline.
 - **Urgent.** A request whose deadline is about to pass (the words its group still needs, at about 50 ns each, plus about 140 ns for the read and the crossing back) is **urgent**. An urgent request goes first in every cycle except a CPU cycle (0 or 2) that the CPU has asked for: unlike retro68k, it never takes the CPU's cycle, because the Z80 never waits for SRAM (spec 2, section 5.3). Such a fetch waits at most one memory cycle (20 ns), since cycles 0 and 2 are each followed by a display cycle, so the urgent mark is set one memory cycle (2 clocks) earlier than retro68k's (spec 2, open point M5).
@@ -404,7 +404,7 @@ A layer needs, per screen pixel:
 | Direct colour 24-bit at 2× | **1.5** | **No** (just over) |
 | Two 8-bit bitmaps at 1× | **2.0** | **No** |
 
-The 1.48 is what cycles 1 and 3 guarantee. The scheduler also gives the display any cycle nobody else wants: cycle 4 (audio is not built) before the copper and the blitter, and the CPU's cycles 0 and 2 when the Z80 leaves them, which at 20 MHz is most of them (a memory access every 3 or 4 T-states, 1.5 or 2 slots). So a screen a little over the budget usually shows correctly, at the copper's and the blitter's expense; unlike retro68k it cannot borrow from the CPU. How far beyond 1.48 a screen can go is to be measured in simulation (open point V9). Windows help: a status panel below a game area, not on top of it, adds nothing on the game's lines.
+The 1.48 is what cycles 1 and 3 guarantee. The scheduler also gives the display any cycle nobody else wants: cycle 4 when audio leaves it (most of it: spec 13) before the copper and the blitter, and the CPU's cycles 0 and 2 when the Z80 leaves them, which at 20 MHz is most of them (a memory access every 3 or 4 T-states, 1.5 or 2 slots). So a screen a little over the budget usually shows correctly, at the copper's and the blitter's expense; unlike retro68k it cannot borrow from the CPU. How far beyond 1.48 a screen can go is to be measured in simulation (open point V9). Windows help: a status panel below a game area, not on top of it, adds nothing on the game's lines.
 
 Each layer has one group of time in hand. Close to the budget, 8-bit layers at 1× (8 words per group, or 10 for tiles) are the first to run short.
 
@@ -477,7 +477,7 @@ All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O
 | 4 | COPEN | Copper (spec 6) | 7 |
 | 3 | BLTEN | Blitter (spec 14) and rasteriser (spec 19) | 6 |
 | 2 | SPREN | Sprites (spec 5) | 5 |
-| 1 | AUDEN | Audio, reserved (spec 13) | 3–0 (AUD0EN–AUD3EN) |
+| 1 | AUDEN | Sound, all four channels; each also needs its AUDDMA bit (spec 13) | 3–0 (AUD0EN–AUD3EN) |
 | 0 | – | Reserved | 4 (unused) |
 
 ### 6.2 Read-only status (`0x0F0`–`0x0FF`)
@@ -725,7 +725,7 @@ Parts of the video are retro-hw's cores, in `fpga/retro-hw/`. `fpga/rtl/video.v`
 | V11 | ATADDR and ATSTRIDE are now even and ATSCROLL's fine X is 0–15, so an attribute group is one word; the previous draft allowed odd addresses |
 | V12 | The default palette fills all four palettes the same way (section 7.4) |
 | V13 | CTRL0–CTRL3 are separate byte registers, not one value (spec 3, section 3.1) |
-| V14 | DMACON is one byte with retro68k's enables in the same order but not the same bit numbers; the four audio enables are one reserved bit, AUDEN, until sound is decided (spec 13) |
+| V14 | DMACON is one byte with retro68k's enables in the same order but not the same bit numbers; the four audio enables are one bit, AUDEN, audio's master bit, with the channels' own enables in AUDDMA (spec 13, open point AU3) |
 | V15 | Pointers and the stride are even, as in retro68k, so a bitmap line cannot start at an odd byte. A Spectrum screen and every 16-pixel-aligned picture are unaffected |
 | V16 | Closed: VIDSIZE fits in the read-only area with BEAMPOS and FRAMECOUNT (`0x0F0`–`0x0F9`) |
 | V17 | Closed: software sees the display beam, as retro68k (branch 11); the draw beam, line buffer, FIFOs and repeat buffers are gone |

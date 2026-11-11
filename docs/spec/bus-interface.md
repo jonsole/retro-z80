@@ -155,6 +155,7 @@ The MMU sends SRAM pages to the scheduler, boot ROM pages to the ROM's block RAM
 | rb_rdata[7:0] | Read data, valid the clock after rb_rd: the OR of all units' outputs (a unit not addressed outputs 0) |
 | rb_hit | Some unit decoded the address. If none did, the master gets `0xFF` |
 | rb_cdata[31:0], rb_cap | With a read of a capturing register's low byte (spec 3, rule 4): the register's whole value and a flag that it is one. The reading master stores it in its one tagged capture and answers that register's higher bytes from it |
+| rb_late | In the clock after rb_rd: the unit answers a clock later, with rb_rdata, rb_hit, rb_cdata and rb_cap in the clock after this one. Only sound's channel registers do (spec 13, section 6): the unit registers the read, to keep the bus decode out of its core's settings RAM. The bus interface waits for that clock |
 
 Every unit decodes rb_addr, so one address names a register however it is reached. The bus has three masters. Each access takes one clock, and in each clock the first of these that wants the bus gets it:
 
@@ -294,7 +295,7 @@ A memory access whose page is REGS (`0x3F8`, spec 2, section 10) becomes one reg
 
 | Access | What the bus interface does (20 MHz) |
 |--------|---------------------------------------|
-| Read | One rb_rd with rb_addr = A12–A0 and rb_hi = `0x00` at E + 6, the clock after rd_n goes low. The data is on rb_rdata at E + 7 and held at di; the core takes it at E + 10. If the copper has the bus at E + 6, the strobe moves to E + 7 and the data is at di by E + 8: still 2 clocks to spare |
+| Read | One rb_rd with rb_addr = A12–A0 and rb_hi = `0x00` at E + 6, the clock after rd_n goes low. The data is on rb_rdata at E + 7 and held at di; the core takes it at E + 10. If the copper has the bus at E + 6, the strobe moves to E + 7 and the data is at di by E + 8: still 2 clocks to spare. A sound channel register (rb_late, section 4.2) answers a clock later: 1 clock to spare with the copper (spec 13, AU5) |
 | Write | One rb_wr with rb_addr = A12–A0 at E + 6, the clock after wr_n goes low and dout is valid (E + 7 if the copper has the bus) |
 | Opcode fetch | No strobe. di = `0xFF` (`RST 38h`), so code that runs into the register page by mistake traps instead of reading FIFOs |
 
@@ -313,7 +314,7 @@ tv80 with `IOWait = 1` makes a 4-T-state I/O cycle. A real Z80 adds an automatic
 | E + 1–4 | 10–40 | | Bus interface decodes the port into rb_addr and rb_hi (section 6.1) |
 | E + 5 | 50 | T1 (repeated: the wait state) | iorq_n and rd_n or wr_n low; dout valid for OUT |
 | E + 6 | 60 | | One rb_rd or rb_wr (E + 7 if the copper has the bus) |
-| E + 7 | 70 | | Read data on rb_rdata (or `0xFF` if rb_hit is low), held at di (E + 8 at the latest) |
+| E + 7 | 70 | | Read data on rb_rdata (or `0xFF` if rb_hit is low), held at di (E + 8 at the latest; E + 9 for a sound channel register, section 4.2) |
 | E + 10 | 100 | T2 | |
 | E + 15 | 150 | T3 | Core takes the byte (end of T2): at least 7 clocks to spare |
 | E + 20 | 200 | T1 | Next M-cycle |
@@ -550,11 +551,11 @@ At 25 MHz the core takes read data 80 ns (8 clocks) after T1 starts. Data is usa
 |-----------------|-----------------------|-------|----------------------|
 | 0 | Edge 4: cycle 2 | CPU | Yes |
 | 2 | Edge 6: cycle 3 | Display | No |
-| 4 | Edge 8: cycle 4 | Audio (reserved) / free pool | No |
+| 4 | Edge 8: cycle 4 | Audio (spec 13) / free pool | No |
 | 6 | Edge 10: cycle 0 | CPU | Yes |
 | 8 | Edge 12: cycle 1 | Display | No |
 
-So three phases in five have no CPU cycle in time, and the Z80 would wait unless the cycle owners changed. The only way without waits is for the CPU to **take the cycle issued at E + 4, whoever owns it**, and give its own next cycle (20 or 40 ns later) to that owner: the cycle swap of the earlier draft, back again. Cycle 4 costs nothing guaranteed while audio is parked; a display cycle would come up to 40 ns late, and spec 4 would set its urgent mark 4 clocks earlier. The read path would have no clock to spare, tv80's paths would get 4 clocks instead of 5, and a 2-clock request path would not help (edges 2, 4 and 8 still miss). Writes and I/O fit easily. The gain is 25 %.
+So three phases in five have no CPU cycle in time, and the Z80 would wait unless the cycle owners changed. The only way without waits is for the CPU to **take the cycle issued at E + 4, whoever owns it**, and give its own next cycle (20 or 40 ns later) to that owner: the cycle swap of the earlier draft, back again. Cycle 4 is audio's (spec 13), which could take it a little later; a display cycle would come up to 40 ns late, and spec 4 would set its urgent mark 4 clocks earlier. The read path would have no clock to spare, tv80's paths would get 4 clocks instead of 5, and a 2-clock request path would not help (edges 2, 4 and 8 still miss). Writes and I/O fit easily. The gain is 25 %.
 
 ## 12. FPGA resources
 
@@ -592,7 +593,7 @@ So three phases in five have no CPU cycle in time, and the Z80 would wait unless
 | B3 | Closed: no hardware debugger (design plan, branch 11) |
 | B4 | Closed: an NMI pages the boot ROM's monitor page into window 0 and `RETN` restores it (section 8.2; spec 7), now as the NMI set's default of the interrupt pages (design plan, branch 17) |
 | B5 | Closed: the 28 MHz swap is gone. At 20 MHz and below every access has a CPU cycle in time (section 5) |
-| B6 | Closed: the register page read has 2 clocks to spare at 20 MHz, with a copper write in the same clock (section 5.7) |
+| B6 | Closed: the register page read has 2 clocks to spare at 20 MHz (1 for a sound channel register, spec 13), with a copper write in the same clock (section 5.7) |
 | B7 | The NMI response is now spotted by its M1, the only opcode fetch with a repeated T1 (section 8.2), instead of by the fetch at `0x0066`. Read from `tv80_core.v` (Auto_Wait for NMICycle in M1); to be confirmed in simulation, also from `HALT` and with the edge on every T-state of a `PUSH` |
 | B8 | tv80 must put B on A15–A8 as a real Z80 does in the block I/O instructions: after the decrement for `OUTI`/`OTIR`/`OUTD`/`OTDR`, before it for `INI`/`INIR`/`IND`/`INDR` (section 6.2). Check in simulation against a known-good Z80 model |
 | B9 | Closed: the page decode (section 6.1) has 4 clocks before the strobe |

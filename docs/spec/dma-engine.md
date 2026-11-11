@@ -220,9 +220,9 @@ The blitter never reaches the custom registers, the palettes, the boot ROM, the 
 
 ## 5. Memory cycles and priority
 
-The blitter is requester 5 (BLT) of the memory scheduler (spec 2, section 5.1; retro-hw's `dmac`), ahead of the rasteriser (6, spec 19) and the DMA port (7). Each 100 ns slot has 5 memory cycles of 20 ns: 0 and 2 the CPU's, 1 and 3 the display's, 4 audio's (reserved while sound is parked) and the free pool's.
+The blitter is requester 5 (BLT) of the memory scheduler (spec 2, section 5.1; retro-hw's `dmac`), ahead of the rasteriser (6, spec 19) and the DMA port (7). Each 100 ns slot has 5 memory cycles of 20 ns: 0 and 2 the CPU's, 1 and 3 the display's, 4 audio's (spec 13) and the free pool's.
 
-- **The free pool** is cycle 4 and every cycle its owner leaves: cycles 0 and 2 the Z80 does not use (it makes a memory access at most every 3 T-states, and none in I/O and register page accesses or internal T-states), cycles 1 and 3 no layer or sprite needs (all of them in the vertical blank), and cycle 4 while audio is parked. The free order is: the copper at PRI 1, then by number: layers, sprites, audio, the copper, the CPU, **the blitter**, the rasteriser, the DMA port. So the blitter never delays anyone, and gets whatever is left.
+- **The free pool** is cycle 4 and every cycle its owner leaves: cycles 0 and 2 the Z80 does not use (it makes a memory access at most every 3 T-states, and none in I/O and register page accesses or internal T-states), cycles 1 and 3 no layer or sprite needs (all of them in the vertical blank), and cycle 4 when audio leaves it (it uses under 1 MB/s of its 20; spec 13). The free order is: the copper at PRI 1, then by number: layers, sprites, audio, the copper, the CPU, **the blitter**, the rasteriser, the DMA port. So the blitter never delays anyone, and gets whatever is left.
 - **No priority over the CPU.** The blitter never takes the CPU's cycles 0 and 2: they are locked to it. The Z80 never waits for SRAM.
 - **One memory cycle** reads or writes 2 bytes at an even address, with byte selects for single bytes (spec 2, section 8.4).
 - **A descriptor** takes 16 read cycles (32 bytes) to load.

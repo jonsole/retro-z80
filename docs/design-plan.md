@@ -44,7 +44,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 9 | Sprites | **retro68k's 8 sprites:** SPRxPT, SPRxH, SPRxV, SPRxCTL; any size (a window per sprite), 2/4/8 bpp, magnify ×1/2/4 across and down, DEPTH among the layers, own palette, collisions. Fetched whole rows into a line buffer inside, for bandwidth. Fractional scaling, flips and the attribute table are dropped |
 | 9 | Copper | **retro68k's copper instructions and names in 16-bit words with 8-bit data:** MOVE is one word (register and 8-bit data); WAIT, SKIP and JUMP take two; MOVR, the ALU (8-bit R0–R7, flags Z N C), SKIPC, CALL/RET; COP1LC/COP2LC, COPJMP1/2, COPCON. Same macros as retro68k |
 | 9 | DMA engine | ~~retro68k's DMA engine (its version-1 decision), narrowed: one channel, copy and fill in 1D and 2D, SRAM only, spare memory cycles. Specified now~~ see branches 11 and 21 |
-| 9 | Sound | Still parked (Q1); its ports and interrupt reserved under retro68k's names |
+| 9 | Sound | ~~Still parked (Q1); its ports and interrupt reserved under retro68k's names~~ **Decided (Q1, 11 November 2026, #113): retro-hw's shared `audio_engine`** (revision 3, locked), as retro68k's audio (its spec 6, branch `hw-audio`): 4 sample channels (NCH 4), interpolation (INTERP 1, each channel can still choose nearest), read-back (RDBACK 1), LE 1, AW 21. Registers narrowed to bytes at custom `0x244`–`0x2F6` (retro68k's offsets less `0x1C0`); interrupt source 9 (AUDIO); DMACON.AUDEN as audio's master bit with the channel enables in AUDDMA; scheduler requester 2 (AUD), the owner of memory cycle 4. The beeper stays, mixed in with clipping (spec 7, section 10.2). Spec 13 |
 | 9 | Interrupts | retro68k's model: each unit keeps its own flags and enables; the controller has INTCON.MASTER, INTENA (set/clear), INTPEND, INTRAW, VECBASE, SOFTINT, NMICON, NMISTAT; retro68k's source names and order. Fixed priority (one /INT line); IM 2 vector = VECBASE + 2 × source |
 | 9 | Timers | retro68k's model at 16 bits: 4 timers, each CTRL, PRESCALE, RELOAD, COUNT, STAT, with retro68k's sources and chaining; a watchdog |
 | 9 | Register map | retro68k's block order and names, narrowed to bytes. **System block** on 8-bit ports (A15–A8 ignored, so `OUT (n),A` and `OTIR` work), in retro68k's order: `0x00`–`0x0F` interrupts, `0x20`–`0x4F` timers and watchdog, `0x50`–`0x57` serial, `0x58`–`0x5F` SD, `0x60`–`0x6F` keyboard and joysticks, `0x70`–`0x7F` system, `0x80`–`0x9F` MMU read and write pages, `0xA0`–`0xBF` geometry unit (branch 10). Spectrum extras at `0x1F` (Kempston) and `0xFE` |
@@ -172,7 +172,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 21 | Rasteriser: registers | **retro68k's job, as 32 bytes little-endian:** RASCTRL (VALUE, BPP, IRQ, TRI, NOLAST, MINTERM), RASP0–RASP2 (Y in bits 15–0, X in 31–16, signed), RASDPT (the byte holding pixel (0, 0)), RASSTRIDE, RASPAT, RASNEXT at custom `0x180`–`0x19F`; RASDESC `0x1A0`, RASCMD `0x1A4` (START, RUN, STOP), RASSTAT `0x1A8` (BUSY, ERR); the clip window RASCLIPMIN `0x1AC` and RASCLIPMAX `0x1B0`, inclusive, signed, shared by every job, not reset. A reserved RASCTRL bit is an error (stored, read 0); other reserved bits are not stored (11 November 2026, #110, as retro68k, provisional) |
 | 21 | Rasteriser: shared with the blitter | **As retro68k:** DMXINT and DMXINTEN gain RAS (bit 1), and both units feed interrupt source 4 (BLT); source 5 is no longer kept. DMACON.BLTEN with DMAEN enables both; there is no bit of its own. The copper's WAIT with B waits until both are idle (11 November 2026, #110, provisional) |
 | 21 | Rasteriser: memory | **Its own scheduler requester, 6 (RAS);** the DMA port moves to 7, as retro68k. Free cycles only, like the blitter: the slot plan stays fixed, with no owner bit for it (branch 25). A blit and a raster job can run at once; where their destinations overlap the order of the writes is unspecified (11 November 2026, #110) |
-| 21 | Rasteriser: KS2 | **Triangles if the full build fits** (`DMX_TRI = 1`), lines only (`DMX_TRI = 0`: a TRI job is an error) otherwise, as branch 10, "Drawing: raster"; to be measured in Vivado (spec 19, RA3). `GEOM = 1` leaves the blitter and the rasteriser out (11 November 2026, #110) |
+| 21 | Rasteriser: KS2 | ~~Triangles if the full build fits (`DMX_TRI = 1`), lines only otherwise; to be measured in Vivado~~ **Lines only** (`DMX_TRI = 0`: a TRI job is an error), to make room for sound (branch 9); the KS3 builds triangles (11 November 2026, #113; closes spec 19, RA3). `GEOM = 1` leaves the blitter and the rasteriser out (11 November 2026, #110) |
 
 ## 2. Key decisions
 
@@ -221,7 +221,7 @@ Defined in [spec 2: memory](spec/memory.md). retro68k's memory system (its spec 
   | 1 | Display (layers, sprites, attribute layer), earliest deadline first |
   | 2 | CPU |
   | 3 | Display |
-  | 4 | Audio (reserved); free pool |
+  | 4 | Audio (spec 13); free pool |
 
   A cycle its owner does not use goes to the free pool: hard-deadline display channels first, then audio, the copper and the blitter. A cycle the CPU asked for is never taken, so **the Z80 never waits**; it uses at most one of cycles 0 and 2 in a slot.
 - **MMU.** Eight 8 KB windows, each with a **read page** (registers `0x80`–`0x8F` of the system page) and a **write page** (`0x90`–`0x9F`). Setting the read page also sets the write page; setting the write page afterwards splits the window. 10-bit page numbers: `0x000`–`0x1FF` SRAM (on a 2 MB board the top half mirrors the bottom), `0x3F8` the register page, `0x3FB` NONE, `0x3FC`–`0x3FF` the 32 KB boot ROM. Reset: windows 0–1 = ROM, 2–7 = SRAM pages 0–5.
@@ -319,7 +319,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | `0x120`–`0x12F` | Sprite globals | MOVEF |
 | `0x130`–`0x13F` | Attribute layer (Spectrum extra) | MOVEF |
 | `0x140`–`0x23F` | Blitter (`0x140`), rasteriser (`0x180`), DMXINT and DMXINTEN (`0x230`) | MOVEF |
-| `0x240`–`0x2FF` | Audio (reserved) | MOVEF |
+| `0x240`–`0x2FF` | Audio: AUDRATE, AUDSTAT, AUDINTEN, AUDSTART, AUDSTOP, AUDDMA; channels 0–3 at `0x280` (spec 13) | MOVEF |
 | `0x300`–`0x30F` | Sprite sequencer (branch 14) | MOVEF |
 
 ## 4. Specs
@@ -338,7 +338,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | 10 | [USB serial](spec/serial.md) | Draft |
 | 11 | [SD card](spec/sd-card.md) | Draft |
 | 12 | [Input](spec/input.md) | Draft |
-| 13 | Sound | Waiting for Q1 |
+| 13 | [Sound](spec/sound.md) | Draft (#113): retro-hw's audio engine, four sample channels |
 | 14 | [Blitter](spec/dma-engine.md) | Draft, version 2 (#103): retro-hw's blitter in place of the DMA engine |
 | 15 | [Geometry unit (3D)](spec/geometry.md) | Draft (branch 10) |
 | 16 | [Boot ROM](spec/boot-rom.md) | Draft (branch 16): ROM pages, start-up, the program environment, the RST calls, the Z80 parts of the monitor and loader, BASIC as a resident image |
@@ -359,7 +359,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | **4. Games machine** | Copper, sprites, blitter, joysticks | A demo with scrolling tiles, magnified sprites reused down the screen and a Spectrum-style screen drawn by the copper |
 | **5. Home computer** | SD card, keyboards, BBC BASIC | Boot to BASIC, load and save a program |
 | **6. Next core** | Package and install as a Next core | The KS3 boots retro-z80 from its core menu |
-| **Later** | Sound (if not before), geometry unit, CP/M 3, a 6502 version | |
+| **Later** | CP/M 3, a 6502 version | |
 
 ## 6. Open questions
 
@@ -367,7 +367,7 @@ Each spec has its own open points; these are the ones that matter for the whole 
 
 | # | Item | Plan |
 |---|------|------|
-| Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | Parked; custom offsets `0x180`–`0x1FF` and source AUDIO (9) reserved under retro68k's names; retro68k's audio narrowed would be the default |
+| Q1 | Sound hardware: retro68k's 4 sample channels, AY-style chip(s), or both | **Closed (11 November 2026, #113):** retro-hw's `audio_engine`, retro68k's 4 sample channels narrowed to bytes (branch 9; spec 13). The beeper stays |
 | Q2 | 6502 version: build option here or its own repo | To be decided; the chipset stays CPU-independent. A 6502 sees the registers through the register page, as the Z80 can; the slots would serve it with no waits as they serve the Z80 |
 | Q3 | Is tv80 exact enough (flags, undocumented instructions, interrupts)? | ZEXDOC and ZEXALL in Verilator in phase 1; fallback T80 (VHDL) |
 | Q4 | Does the path from tv80's cycle signals through the MMU to the SRAM pads meet 100 MHz (multicycle)? | On the KS2 (issue #11): yes, even single-cycle (+0.89 ns from tv80's IR to the bus interface's address register), with tv80's own paths as 5-clock multicycle paths. Check again on the KS3 build (spec 1, B1); fallback: start a read speculatively in every T1 |

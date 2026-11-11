@@ -16,7 +16,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 | Slot | 100 ns = 5 memory cycles (numbered 0–4) = 2 Z80 T-states at 20 MHz. A 576p line is exactly 320 slots |
 | Cycles 0 and 2 | CPU. A cycle the CPU has asked for is never given to anyone else |
 | Cycles 1 and 3 | Display fetch: layers L0–L2, the attribute layer, sprites (hard-deadline channels, earliest deadline first) |
-| Cycle 4 | Audio (reserved, spec 13); while audio is parked, the free pool |
+| Cycle 4 | Audio (spec 13); the free pool when audio leaves it |
 | Free pool | The copper, the blitter and the rasteriser, plus any cycle its owner leaves (section 5) |
 | Z80 waits | Never (spec 1, section 5) |
 | Bandwidth | 100 MB/s in all; display 40 MB/s (1,280 bytes per line, as retro68k); free pool at least about 47 MB/s |
@@ -31,12 +31,12 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 
 | retro68k (spec 5) | retro-z80 | Why |
 |-------------------|-----------|-----|
-| Cycle 0 CPU; 1 and 3 display; 2 audio and peripherals; 4 free pool | Cycles 0 and 2 CPU; 1 and 3 display; 4 audio (reserved) and free pool | Z80: a read must be served 100 ns after its address appears, from either of the two T-state phases in a slot. Cycles 0 and 2 (40 and 60 ns apart) give every phase a cycle in time (spec 1, section 5) |
+| Cycle 0 CPU; 1 and 3 display; 2 audio and peripherals; 4 free pool | Cycles 0 and 2 CPU; 1 and 3 display; 4 audio and free pool | Z80: a read must be served 100 ns after its address appears, from either of the two T-state phases in a slot. Cycles 0 and 2 (40 and 60 ns apart) give every phase a cycle in time (spec 1, section 5) |
 | An urgent hard-deadline fetch, or a copper at PRI 2 (nasty), may take the CPU's cycle 0; the CPU waits one slot | Nobody takes a cycle the CPU has asked for. An urgent fetch may take cycle 0 or 2 only when the CPU has not asked for it; otherwise it waits for the next cycle, a display cycle 20 ns later (section 5.3). No nasty copper | The Z80 never waits (design plan, branch 11) |
 | A slot plan (MEMSLOT0–4) may make the blitter or the rasteriser owner of the CPU's cycle 0 (version 1: the DMA engine's HIGH mode); bit 6 is the rasteriser's owner bit, and the DMA port (requester 7) has none | Left out: the slot plan is fixed and the CPU's cycles 0 and 2 are locked. The blitter, the rasteriser and the DMA port own no cycle | Design plan, branches 11 and 25 (the Z80 never waits) |
 | CPU uses at most 10 MB/s (one access per 200 ns bus cycle) | CPU uses at most 6.67 M accesses a second (one per 3 T-states at 20 MHz), one byte each | Z80 |
 | Free pool typically 50–65 MB/s | At least about 47 MB/s, plus display cycles no layer needs | The Z80's two cycle numbers, of which it uses at most one per slot |
-| Audio owns cycle 2 | Audio is parked (spec 13); cycle 4 is kept for it and is free pool meanwhile | Sound still open (design plan, Q1) |
+| Audio owns cycle 2 | Audio owns cycle 4 (spec 13) | The CPU has cycles 0 and 2 |
 | 24-bit CPU addresses; 4 MB of Chip RAM in the CPU's map | 64 KB through the MMU: eight 8 KB windows with read and write pages (section 9) | Z80: 64 KB address space |
 | Custom and system blocks in the CPU's memory map | I/O ports in register:page form (spec 1, section 6), and the register page in any window (section 10) | Z80: 64 KB address space, I/O instructions |
 | Palettes at `0xE04000`, 4-byte entries `0x00RRGGBB` | Register page `0x1400`–`0x1FFF`, packed 3-byte entries (blue, green, red) | 8 KB page: four palettes at 4 bytes per entry would not fit beside the custom block (section 10.2) |
@@ -92,7 +92,7 @@ Both MMCMs run from the same oscillator, so every line is exactly 320 slots. The
 | 1 | 20 ns | Display fetch | Layers L0–L2, the attribute layer and sprites: the hard-deadline channels (spec 4, spec 5), earliest deadline first. If none needs it, free pool |
 | **2** | 40 ns | **CPU** | As cycle 0 |
 | 3 | 60 ns | Display fetch | As cycle 1. The display's two cycles are 40 and 60 ns apart, as in retro68k |
-| 4 | 80 ns | Audio (reserved) | Spec 13, parked. Until then, the free pool: the copper, the blitter and the rasteriser |
+| 4 | 80 ns | Audio | Spec 13: at most 8 reads per output sample. The rest is the free pool: the copper, the blitter and the rasteriser |
 
 The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so it uses at most one of its two cycles in any slot, and at most two in any three slots (spec 1, section 5.5). The other is always free for the pool.
 
@@ -101,7 +101,7 @@ The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so 
 - Total: 5 cycles × 2 bytes per 100 ns = **100 MB/s**.
 - CPU: cycles 0 and 2 offer 20 M cycles a second; a 20 MHz Z80 uses at most 6.67 M of them (one byte each), typically about 5 M. Its other cycles go to the free pool.
 - Display fetch: **40 MB/s** (cycles 1 and 3), as retro68k: 1,280 bytes per line, 1.48 bytes per pixel of the 864-pixel line.
-- Cycle 4: 20 MB/s, reserved for audio; free pool meanwhile.
+- Cycle 4: 20 MB/s, audio's; under 1 MB/s of it used, the rest the free pool's.
 - Free pool (copper, blitter, rasteriser): cycle 4 (20 MB/s) plus at least 13.3 M unused CPU cycles a second (26.7 MB/s), plus the display cycles no layer needs: **at least about 47 MB/s**, typically 55–70 MB/s.
 
 ## 5. The scheduler
@@ -114,7 +114,7 @@ One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalen
 |-----|---------|------|------|
 | 0 | BPL | Layer fetch: L0–L2 and the attribute layer (spec 4) | Hard deadline |
 | 1 | SPR | Sprites: the 8 sprite FIFOs (spec 5) | Hard deadline |
-| 2 | AUD | Audio (spec 13, parked; tied off) | Soft |
+| 2 | AUD | Sound (spec 13) | Soft |
 | 3 | COP | Copper: its list (spec 6) | Best effort; high at COPCON.PRI 1 |
 | 4 | CPU | The Z80 through the bus interface (spec 1) | Cycles 0 and 2, locked; at 3.57 MHz the first of them that comes (spec 1, section 5.4) |
 | 5 | BLT | The blitter (spec 14) | Best effort |
@@ -159,7 +159,7 @@ A screen within the display budget (section 7) is rarely urgent at all. On a scr
 
 ### 5.4 Turning users on and off
 
-As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (blitter and rasteriser), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
+As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (blitter and rasteriser), SPREN (sprites) and AUDEN (sound, with a channel's bit in AUDDMA, spec 13). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
 
 ### 5.5 Shared core
 
@@ -182,7 +182,7 @@ Every slot of every line has the same owners, so the allocation per line is the 
 |-------|--------|-----------------------------|-----------|
 | CPU | 0, 2 | 640 | 20 M cycles a second offered; the Z80 uses at most a third (section 4.2) |
 | Display fetch | 1, 3 | 640 | 40 MB/s: 1,280 bytes a line |
-| Audio (reserved) | 4 | 320 | 20 MB/s; free pool meanwhile |
+| Audio | 4 | 320 | 20 MB/s; under 1 MB/s used, the rest to the free pool |
 | Free pool | – | At least 747 (320 from cycle 4, 427 from the CPU's) | At least about 47 MB/s, plus display cycles no layer needs |
 
 **The CPU's needs.** A Z80 makes at most one access every 3 T-states:
@@ -203,7 +203,7 @@ During vertical blanking (49 of the 625 lines) there is no display fetch, so cyc
 |-------|-------|------|
 | Display (layers, attribute layer) | Depends on the layers (spec 4) | Cycles 1 and 3: 1,280 bytes a line, retro68k's budget of 1.48 bytes per pixel |
 | Sprites | Their FIFOs (spec 5) | Display cycles a layer leaves, then the free pool, first; urgent when a FIFO runs low |
-| Audio | Parked | Cycle 4 is kept for it |
+| Audio | 1 or 2 words per playing channel per output sample: at most 8 every 20.8 µs at 48 kHz (spec 13) | Cycle 4, its own |
 | Copper | 2 cycles per two-word instruction, 1 per MOVE (spec 6) | The free pool, after the hard-deadline channels and audio; first with high priority |
 | Sprite sequencer | 8 words per sprite reused (spec 17) | The free pool, after the hard-deadline channels and audio, before the copper at PRI 0 |
 | Blitter | – | The rest of the free pool (spec 14); it uses only a part of it, its own steps setting its speed (spec 14, section 7) |
@@ -567,7 +567,7 @@ The display, sprites, copper, blitter and rasteriser address the SRAM with 22-bi
 | CPU (spec 1) | 0 and 2 (at most one per slot) | Opcode fetches, reads, writes. Never waits |
 | Layers and attribute layer (spec 4) | 1 and 3; any cycle when urgent, except one the CPU asked for; free pool first | Just-in-time fetch into each layer's data registers |
 | Sprites (spec 5) | As the layers, earliest deadline first among them | The 8 sprite FIFOs |
-| Audio (spec 13) | 4 (reserved) | Parked |
+| Audio (spec 13) | 4 | Its samples |
 | Copper (spec 6) | Free pool, after the hard-deadline channels and audio | Its instruction words |
 | Blitter (spec 14) | Free pool, after the copper and the CPU | Its jobs' SRAM reads and writes, and descriptors |
 | Rasteriser (spec 19) | Free pool, after the blitter | Its jobs' SRAM reads and writes, and descriptors |
@@ -612,7 +612,7 @@ The display, sprites, copper, blitter and rasteriser address the SRAM with 22-bi
 | M4 | Closed: the 28 MHz swap is gone. At 20 MHz and below every CPU access has a CPU cycle in time (spec 1, section 5). It would come back only for 25 MHz (spec 1, B10) |
 | M5 | Spec 4 must set the urgent mark one memory cycle (2 clocks) earlier than retro68k's (`bpldma.v`: 14 + 5 × words left), to cover a fetch that finds the CPU in its cycle (section 5.3). To be checked in simulation with the CPU making an access every 3 T-states |
 | M6 | Closed: the register page read fits easily at 20 MHz (spec 1, section 5.7) |
-| M7 | Audio (spec 13, parked) has cycle 4 kept for it, as retro68k gives audio a cycle of its own (there cycle 2) |
+| M7 | Closed (11 November 2026, #113): audio (spec 13) owns cycle 4, as retro68k gives audio a cycle of its own (there cycle 2) |
 | M8 | Closed: palettes packed at `0x1400`–`0x1FFF` (section 10.2); KEYROW0–7 at `0x0100`–`0x0107`. `0x0108`–`0x0FFF` is free for later tables |
 | M9 | Closed (10 November 2026, #103): no descriptor RAM; the blitter's descriptors live in SRAM, as retro68k's (spec 14) |
 | M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |

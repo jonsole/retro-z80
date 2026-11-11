@@ -175,7 +175,7 @@ Each 100 ns slot has five memory cycles of 20 ns. Each cycle has an owner, who g
 | 1 | 20 ns | The display: layers, the attribute layer and sprites | The free pool |
 | 2 | 40 ns | The Z80 | The free pool |
 | 3 | 60 ns | The display | The free pool |
-| 4 | 80 ns | Audio (reserved; sound is not specified yet) | The free pool |
+| 4 | 80 ns | Sound | The free pool |
 
 The **free pool** goes, in order, to display fetches that want more, the sprite sequencer, the copper and the DMA engine. The copper at COPCON.PRI 1 goes first and owns cycle 4.
 

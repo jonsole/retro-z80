@@ -411,7 +411,7 @@ The CPU and the chipset share the SRAM, but the Z80 **never waits** for it. Memo
 |-------|------------|
 | 0, 2 | The CPU. A cycle the CPU asks for is never given to anyone else |
 | 1, 3 | The display: the layers and the sprites |
-| 4 | Sound (later); meanwhile the free pool |
+| 4 | Sound; the free pool when sound leaves it |
 
 The **free pool**, the copper and the DMA engine, gets cycle 4 and every cycle its owner leaves. The Z80 uses at most one memory cycle in three T-states, so it leaves more than half of its own; the display leaves what its layers do not need. In all the free pool has at least about 47 MB/s, while the CPU always runs at full speed.
 
