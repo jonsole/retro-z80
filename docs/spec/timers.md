@@ -12,7 +12,7 @@ The timers give software a sense of time: a steady tick for an operating system 
 | General timers | 4 (TMR0–TMR3), each a 16-bit down counter with a 16-bit prescaler |
 | What they count | The 100 MHz system clock ÷ (PRESCALE + 1), display lines, display frames, or the previous timer's underflow (chaining) |
 | Modes | One-shot or repeating |
-| At underflow | STAT.UNDER is set; an interrupt (TIMER0–TIMER3, spec 8) if CTRL.IRQ; a START of DMA engine channel CTRL.DMACH if CTRL.DMA (spec 14); a tick for the next timer |
+| At underflow | STAT.UNDER is set; an interrupt (TIMER0–TIMER3, spec 8) if CTRL.IRQ; a tick for the next timer |
 | Watchdog | Resets the computer if software stops kicking it in time; RESETWHY.WATCHDOG says so afterwards (spec 7) |
 | Registers | System page `0x00`, registers `0x20`–`0x4B` (`0x24`–`0x27` and `0x4C`–`0x4F` reserved): port = register × 256. Also at register page offsets `0x0020`–`0x004F` |
 | Who can write them | The CPU only |
@@ -30,11 +30,11 @@ The earlier draft's frame counter is FRAMECOUNT in the video block (spec 4).
 | Prescaler | 16 bits, from 100 MHz | The same | – |
 | Longest period | About 32 days | 42.9 seconds (one timer); longer by chaining | 16-bit counter |
 | Line and frame ticks | The display beam | The same | – |
-| DMA start | CTRL.DMA starts channel CTRL.DMACH (0–3), as a START write | The same | – |
+| DMA start | Version 1: CTRL.DMA started DMA engine channel CTRL.DMACH | Gone in both: bits 7–5 reserved (section 4.5) | The DMA engine's channels went when the blitter replaced it (spec 14; design plan, branch 21) |
 | Register layout | 32-bit registers, timer n at `0x140 + n × 0x20` | 8 registers per timer, timer n at register `0x28 + n × 8` of the system page | Forced: 8-bit registers |
 | WDTIME | 16 bits, ms | 16 bits, ms, two registers | – |
 | WDKICK | Write `0x5A5A` (16 or 32 bits); a byte write is a wrong kick | Write `0x5A` (one byte) | Forced: 8-bit registers |
-| Interrupt levels | Timers at level 6 by default | Fixed priority: TIMER0–TIMER3 are sources 11–14, after the video and DMA sources | Forced: one /INT line (spec 8) |
+| Interrupt levels | Timers at level 6 by default | Fixed priority: TIMER0–TIMER3 are sources 11–14, after the video and blitter sources | Forced: one /INT line (spec 8) |
 | Capture mode | Open point T2 | Deferred (open point T7) | As retro68k |
 
 ## 3. Time counter
@@ -70,7 +70,6 @@ Each timer has a 16-bit **COUNT** that goes down by 1 on each tick of its source
 
 - STAT.UNDER is set.
 - If CTRL.IRQ is on, the timer raises its interrupt request (TIMER0–TIMER3, spec 8) while STAT.UNDER is set.
-- If CTRL.DMA is on, the timer starts DMA engine channel CTRL.DMACH (section 4.5).
 - The next timer gets a tick, if it is counting this one (SRC 3).
 - In **repeating** mode (CTRL.REPEAT = 1), COUNT is loaded from **RELOAD** and counting goes on.
 - In **one-shot** mode (CTRL.REPEAT = 0), the timer stops: CTRL.EN clears itself and COUNT stays at 0.
@@ -99,7 +98,7 @@ PRESCALE matters only for SRC 0. Lines and frames come from the video timing, wh
 
 ### 4.3 Chaining
 
-With SRC 3 a timer counts the underflows of the timer before it: timer 1 counts timer 0, timer 2 counts timer 1, timer 3 counts timer 2, and timer 0 counts timer 3. A timer counts the previous one's underflows whatever that timer's IRQ and DMA settings, but only while the previous timer is running.
+With SRC 3 a timer counts the underflows of the timer before it: timer 1 counts timer 0, timer 2 counts timer 1, timer 3 counts timer 2, and timer 0 counts timer 3. A timer counts the previous one's underflows whatever that timer's IRQ setting, but only while the previous timer is running.
 
 Two chained timers make a 32-bit down counter: the low timer counts the clock with RELOAD `0xFFFF`, the high one counts its underflows. Read high, low, high again, and try again if the high count changed.
 
@@ -117,7 +116,6 @@ Two chained timers make a 32-bit down counter: the low timer counts the clock wi
 | Every 3 frames | SRC 2, RELOAD 2, repeating, IRQ |
 | After n more lines | SRC 1, COUNT n − 1, one-shot |
 | One interrupt a second | Timer 0 at 1000 Hz (above), timer 1 SRC 3, RELOAD 999, repeating, IRQ |
-| Start a DMA chain every frame, 10 lines after the start | Timer 2 SRC 1, RELOAD 624, COUNT set at a VBLANK to 9, repeating, DMA, DMACH = the channel (CHDESC set first) |
 
 **Setting up a timer:**
 
@@ -179,9 +177,9 @@ tick:   push af                      ; the handler
         reti
 ```
 
-### 4.5 Starting a DMA engine channel
+### 4.5 No DMA starts
 
-With CTRL.DMA set, each underflow acts as a write of **START** to the CHCTRL of DMA engine channel **CTRL.DMACH** (0–3), exactly as a CPU write would (spec 14, section 9.4), as in retro68k. The channel loads the descriptor at its CHDESC and runs it; if the channel is busy, the start is ignored, as for a CPU write. Set up the descriptor and CHDESC first. This is independent of the interrupt: either, both or neither.
+Timers no longer start jobs. In version 1, CTRL.DMA (bit 5) and CTRL.DMACH (bits 7–6) made an underflow start a DMA engine channel; they went with the channels when the blitter replaced the engine (10 November 2026, ticket #103; spec 14), as in retro68k. Bits 7–5 are reserved: they are not stored and read 0. To start a blitter job at a time, use the timer's interrupt, or the copper at a beam position (spec 14, section 9.2).
 
 ## 5. Watchdog
 
@@ -214,7 +212,7 @@ Registers of the system page `0x00` (spec 3): port = (register << 8) | `0x00`, w
 
 | Offset | Name | Access | Bits | Reset | Description |
 |--------|------|--------|------|-------|-------------|
-| `+0` | TMR_CTRL | RW | EN (0), REPEAT (1), SRC (3–2), IRQ (4), DMA (5), DMACH (7–6) | `0x00` | Running (cleared by a one-shot underflow); repeating; source (section 4.2); interrupt request while UNDER; start DMA engine channel DMACH at underflow (section 4.5) |
+| `+0` | TMR_CTRL | RW | EN (0), REPEAT (1), SRC (3–2), IRQ (4); 7–5 reserved | `0x00` | Running (cleared by a one-shot underflow); repeating; source (section 4.2); interrupt request while UNDER. Bits 7–5 were DMA and DMACH (section 4.5): not stored, read 0 |
 | `+1` | TMR_PRESCALE0 | RW | 7–0 | `0x00` | PRESCALE bits 7–0 |
 | `+2` | TMR_PRESCALE1 | RW | 7–0 | `0x00` | PRESCALE bits 15–8. SRC 0 ticks at 100 MHz ÷ (PRESCALE + 1) |
 | `+3` | TMR_RELOAD0 | RW | 7–0 | `0x00` | RELOAD bits 7–0 |
@@ -247,7 +245,7 @@ Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` �
 |------|----------|
 | 32-bit time counter, 1 µs and 1 ms dividers, 4 timers with prescalers, watchdog (the CPU's one capture is spec 3's, rule 4) | Estimate 250–350 LUTs |
 | Block RAM, DSP | None |
-| Lines out | TIMER0–TIMER3 request lines (spec 8); 4 DMA start lines, one per channel (spec 14); watchdog reset (spec 7) |
+| Lines out | TIMER0–TIMER3 request lines (spec 8); watchdog reset (spec 7) |
 
 ## 8. Test plan
 
@@ -259,7 +257,7 @@ Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` �
 - **Reads:** COUNT0 then COUNT1 while the count crosses a high-byte boundary gives a consistent value.
 - **Chaining:** each timer with SRC 3 counts the one before it (timer 0 counts timer 3), only while that timer runs; the 1-second example works.
 - **Interrupts and polling:** UNDER is set with IRQ off; with IRQ on, each timer gives its own vector and the request drops when UNDER is cleared.
-- **DMA start:** with CTRL.DMA, an underflow starts channel DMACH (each of 0–3) as a CPU START would, with no CPU work; it is ignored while that channel is busy.
+- **Reserved bits:** CTRL bits 7–5 written as 1 read 0, and an underflow starts no job.
 - **Watchdog:** expiry resets and sets RESETWHY.WATCHDOG; a wrong kick value resets at once; kicks while off are ignored; LOCK blocks changes until reset; off after reset; fires between WDTIME and WDTIME + 1 ms after the last kick.
 
 ## 9. Open points
@@ -270,6 +268,6 @@ Names in `fpga/regmap.def`, as retro68k's `hw.inc`: `TMR0` … `TMR3` (`0x28` �
 | T2 | Closed: the frame counter moves to the video block as FRAMECOUNT (spec 4) |
 | T3 | Closed: there is a watchdog, as in retro68k; RESETWHY.WATCHDOG is bit 1 (spec 7) |
 | T4 | Deferred (design plan, branch 11): a 48-bit TIME (8.9 years) would fit in registers `0x24`–`0x25` |
-| T5 | Closed: an underflow with CTRL.DMA acts as a START write to channel DMACH's CHCTRL, and is ignored while that channel is busy (spec 14, section 9.4), as retro68k |
+| T5 | Closed, then superseded (10 November 2026, #103): timer DMA starts are gone with the DMA engine's channels, as retro68k; CTRL bits 7–5 are reserved (section 4.5). Whether timers should start a blitter job is retro68k's open point T3 |
 | T6 | Real-time clock: the KS3 has a battery-backed clock on I2C; spec 7 has the I2C master (retro68k T1) |
 | T7 | Deferred (design plan, branch 11): capture mode (save COUNT when a pin changes), as retro68k T2 |

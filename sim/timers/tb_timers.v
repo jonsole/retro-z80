@@ -1,13 +1,16 @@
 // Unit test of the timers (fpga/rtl/timers.v, spec 9) through their own
 // ports: the register bus with its capture path (rb_cdata, rb_cap), the
-// microsecond, line and frame ticks, the interrupt requests, the DMA start
-// lines and the watchdog's reset. The whole machine (the bus interface's
+// microsecond, line and frame ticks, the interrupt requests and the
+// watchdog's reset. The whole machine (the bus interface's
 // capture, the interrupts taken, the real beam, the watchdog resetting the
 // computer) is tested by sim/timertest/timertest.asm in tb.v; this test
 // measures every rate to the clock, which a program cannot.
 //
-// Underflows are seen on the DMA start lines: with CTRL.DMA each underflow
-// is a 1-clock pulse on line CTRL.DMACH, so periods are counted in clocks.
+// Underflows are counted to the clock on probe lines kept by this test: the
+// timers' DMA start lines are gone (issue #103), so the test keeps their old
+// routing itself. A CTRL written with bit 5 (DMA) sends that timer's
+// underflows (its 1-clock uf pulse) to probe line CTRL bits 7-6 (DMACH).
+// The timers no longer store those bits: they read 0.
 `timescale 1ns/1ps
 `include "regmap.vh"
 
@@ -22,7 +25,8 @@ module tb_timers;
     wire        rb_hit, rb_cap;
     wire [31:0] rb_cdata;
     reg         line_tick = 0, frame_tick = 0;
-    wire [3:0]  irq, dma_start;
+    wire [3:0]  irq;
+    reg  [3:0]  dma_start;             // the probe lines (see the top)
     wire        wd_reset;
 
     // The microsecond tick, as retroz80.v makes it
@@ -35,7 +39,7 @@ module tb_timers;
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rb_rdata), .rb_hit(rb_hit), .rb_cdata(rb_cdata), .rb_cap(rb_cap),
         .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
-        .irq(irq), .dma_start(dma_start), .wd_reset(wd_reset)
+        .irq(irq), .wd_reset(wd_reset)
     );
 
     integer errors = 0, checks = 0;
@@ -92,6 +96,19 @@ module tb_timers;
     function [12:0] T(input integer n, input [7:0] off);   // timer n's register
         T = `RM_TMR_BASE + n * `RM_TMR_SPAN + off;
     endfunction
+    // The probe lines: each timer's routing as last written, and its underflows
+    reg  [7:0]  route [0:3];
+    integer pn;
+    initial for (pn = 0; pn < 4; pn = pn + 1) route[pn] = 8'd0;
+    always @(posedge clk) begin
+        for (pn = 0; pn < 4; pn = pn + 1)
+            if (rb_wr && rb_addr == T(pn, `RM_TMR_CTRL)) route[pn] <= rb_wdata;
+    end
+    always @(*) begin
+        dma_start = 4'd0;
+        for (pn = 0; pn < 4; pn = pn + 1)
+            if (dut.uf[pn] && route[pn][5]) dma_start[route[pn][7:6]] = 1'b1;
+    end
     task tset(input integer n, input [7:0] ctrl, input [15:0] pre, input [15:0] rel, input [15:0] cnt);
         begin
             wr(T(n, `RM_TMR_CTRL), 8'h00);
@@ -220,7 +237,7 @@ module tb_timers;
         wr(T(3, `RM_TMR_COUNT), 8'h00);
         rd(T(3, `RM_TMR_COUNT)); check("COUNT0 alone changes bits 7-0 only", rd_cd, 32'h5600);
         wr(T(0, `RM_TMR_CTRL), 8'hFE);
-        rdchk("CTRL keeps every bit", T(0, `RM_TMR_CTRL), 8'hFE);
+        rdchk("CTRL keeps bits 4-0; 7-5 are reserved", T(0, `RM_TMR_CTRL), 8'h1E);
         wr(T(0, `RM_TMR_CTRL), 8'h00);
         for (n = 0; n < 4; n = n + 1)
             for (k = 1; k < 7; k = k + 1) wr(T(n, k), 8'h00);
@@ -279,7 +296,7 @@ module tb_timers;
         tset(2, EN | DMA | CH(2) | SRC(1), 0, 7, 3);
         line(10);
         check("one-shot: one underflow", pulses[2], 1);
-        rdchk("one-shot: EN cleared", T(2, `RM_TMR_CTRL), DMA | CH(2) | SRC(1));
+        rdchk("one-shot: EN cleared", T(2, `RM_TMR_CTRL), SRC(1));
         rd(T(2, `RM_TMR_COUNT)); check("one-shot: COUNT stays 0", rd_cd, 0);
         // Starting again from 0: one tick to the next underflow
         wr(T(2, `RM_TMR_CTRL), EN | DMA | CH(2) | SRC(1));

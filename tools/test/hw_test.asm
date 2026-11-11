@@ -26,7 +26,7 @@
         assert TIME0 = 0x20 && TIME3 = 0x23 && TIME3_P = 0x2300
         assert SDCON1 = 0x59 && SPRDMA1 = 0x121 && WDTIME1 = 0x4A
         assert TMR0_COUNT0 = 0x2D && TMR2_COUNT1 = 0x3E
-        assert SPR0_PT0 = 0x010 && L1_BPL0PT2 = 0x0C6 && DMX2_CHDESC0 = 0x1E0
+        assert SPR0_PT0 = 0x010 && L1_BPL0PT2 = 0x0C6 && BLTDESC0 = 0x160
         assert MMU0_0 = 0x80 && MMU0_1 = 0x81 && MMU0W_0 = 0x90 && MMU0W_1 = 0x91
         assert MMU7_1_P = 0x8F00 && MMU6 = 0x8C
         assert KEYMAP6 = 0x16 && SERSTAT1 = 0x52 && SPRCOLL3 = 0x127
@@ -39,8 +39,8 @@
         assert SPR0 = 0x010 && SPR7 = 0x080 && SPR_H = 0x3 && SPR_STEP = 0xC
         assert SPR_CTL_PAL_B = 4 && SPR_STEP_YSTEP_B = 16
         assert TMR_NUM = 4 && TMR_SPAN = 8 && TMR2_COUNT = 0x3D
-        assert DMX0 = 0x140 && DMX3 = 0x200 && DMX_CHCTRL = 0x24
-        assert DMX2_CHCTRL_P = 0xE411 && DMX3_CHCTRL_P = 0x2412
+        assert BLTCTRL = 0x140 && BLTNEXT = 0x15C && BLTCMD = 0x164
+        assert BLTCMD_P = 0x6411 && BLTDESC2_P = 0x6211 && BLTCTRL_MINTERM_B = 24
         assert DMXINT_P = 0x3012 && DMXINTEN_P = 0x3412
 
         ; widths

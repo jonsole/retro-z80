@@ -236,7 +236,7 @@ The shared spec gives the shape (its section 10); this is retro-z80's content. I
 | MMU | The program map (section 5.1) |
 | Boot ROM | ROMWE clear; ROMLOCK set, unless D was held at power-on |
 | Video | L0 the console (1 bpp tile map, 640 × 480 window, MAPPT `0x1FC000`, PATPT `0x1FE000`); L1, L2 off; sprites off; PRIO as reset; BGCOLOR black; PALETTE0's colour pairs 0–14 (entries 16(p + 1) and 16(p + 1) + 1, spec 7, section 5.1) the console's, entries 0–15 the Spectrum colours; the other palettes as left by reset (spec 4) |
-| Copper, DMA engine, sprite sequencer | Stopped |
+| Copper, blitter, sprite sequencer | Stopped |
 | Timers | All four stopped; the watchdog off and unlocked; TIME counting |
 | Serial | SERCON = EN, CTLEN, TXDROP; interrupts off |
 | PS/2 keyboard | KBCON.EN on (receiving), its interrupt off |
@@ -435,7 +435,7 @@ The shared spec gives the commands. Here are the Z80's parts.
 | BEAMPOS0 (custom `0x0F0`) | `0xF010` | `P7F10F0` | Captures |
 | FRAMECOUNT0 (custom `0x0F4`) | `0xF410` | `P7F10F4` | Captures |
 | COPPC0 (custom `0x10A`) | `0x0A11` | `P7F110A` | Captures |
-| CHDESC0 of DMA channel n = 0–3 (custom `0x160` + n × `0x40`) | `0x6011`, `0xA011`, `0xE011`, `0x2012` | `P7F1160` + n × `0x40` | Captures |
+| BLTDESC0 (custom `0x160`) | `0x6011` | `P7F1160` | Captures |
 | SEQPT0 (custom `0x308`) | `0x0813` | `P7F1308` | Captures |
 
 - **Captures:** reading a capturing register's low byte replaces the CPU's one capture (spec 3, rule 4), which the stopped program may have been part-way through reading. The higher bytes have no side effect, so they are shown.
@@ -487,7 +487,7 @@ When the monitor is entered while a program is running (a break, a breakpoint, a
 1. It saves the registers (after an NMI into the workspace's NMI save area through window 0, section 8.6; otherwise a few bytes on the program's stack first, then into the workspace), the 16 page registers (after an NMI, from NMISAV0–7 and NMISAV0W–7W, the program's map at the NMI), CPUSPEED, and the interrupt state, IPDEPTH included. After an NMI the program's PC and SP are NMICAPPC and NMICAPSP (spec 2, section 9.8), not words on its stack.
 2. It moves to its own map (section 5.2) and its stack in the workspace, sets CPUSPEED 0, and keeps interrupts off.
 3. If the console's state or the workspace is broken, it sets them up again (section 5.3).
-4. It **takes the screen**: it saves L0's 32 registers, PRIO, DMACON, BGCOLOR, COPCON, VIDCON, PALIDX, PALETTE0's 30 entries of the console's colour pairs (section 6), and the console's CONMODE and colour pair; stops the copper (so a copper list does not rewrite L0), puts L0 back as the console in front of the other layers, the beam on, the border black, CONMODE all on and pair 0. Sprites, L1, L2 and the DMA engine are left as they are (open point B5).
+4. It **takes the screen**: it saves L0's 32 registers, PRIO, DMACON, BGCOLOR, COPCON, VIDCON, PALIDX, PALETTE0's 30 entries of the console's colour pairs (section 6), and the console's CONMODE and colour pair; stops the copper (so a copper list does not rewrite L0), puts L0 back as the console in front of the other layers, the beam on, the border black, CONMODE all on and pair 0. Sprites, L1, L2 and the blitter are left as they are (open point B5).
 5. It kicks a running watchdog while it waits (WDKICK; a locked watchdog cannot be stopped).
 
 `G` puts all of it back, in reverse, and goes on: with `RET` after a break, a breakpoint or a trap; with `RETN` after an NMI, so the hardware puts window 0 and the PC back (spec 7, section 10.1). After an NMI, `G addr` or a changed PC is written to NMICAPPC, a changed window to NMISAVn, and SP is set to NMICAPSP − 2 before the `RETN`. A copper list starts again from COP1LC at the next frame.
@@ -643,7 +643,7 @@ The ROM is built in this order, each step a ticket:
 | B2 | Development over JTAG: every JTAG load is a power-on, so D must be held as it ends, or the ROM built with `-DDEVROM` (never sets ROMLOCK) |
 | B3 | BASIC's memory map: pages `0x0F8`–`0x0FB` (32 KB) at `0x2000`–`0x9FFF`, leaving `0x8000`–`0xFFFF` with a 24 KB image. To confirm with the BASIC tickets (design plan, branch 13) |
 | B4 | The key codes 130–139 and 145–156 are those BBC BASIC's line editor is believed to expect (Dean Belfield's ports); check against the host layer before it is written |
-| B5 | Taking the screen at a break leaves sprites, L1, L2 and the DMA engine running; whether the monitor should also pause them (and which of their registers read back, spec 4) |
+| B5 | Taking the screen at a break leaves sprites, L1, L2 and the blitter running; whether the monitor should also pause them (and which of their registers read back, spec 4) |
 | B6 | The ROM budget: 32 KB for the console, keyboards, monitor, disassembler (about 5 KB), loader, FAT32 reader and CRC table. Measure as each step is built. After step 1 (ticket #22): page 0 2.9 KB of 8 (the entry table, start-up, the console and keyboard core, the ROM calls, the monitor's entry and exit, the IM 2 table at the top); page 1 6.0 KB (the monitor 5.0 KB: the rest of start-up, the entry, the command line and the commands; the self-test 0.9 KB; the tape demo 0.1 KB); page 2 2.7 KB (the font 2 KB, the help 0.7 KB); page 3 empty. 11.6 KB of the 32 in all. After ticket #23: page 2 5.5 KB (adding the disassembler 1.8 KB, `I` 0.3 KB, `T` 0.7 KB and two help lines, 2.9 KB in all), 2.5 KB of page 2 left; 14.6 KB of the 32 in all, 17.4 KB left (page 0 5.1 KB, page 1 1.9 KB, page 2 2.5 KB, page 3 8 KB). After ticket #31 (and #27, #28): page 0 2.9 KB, page 1 6.6 KB, page 2 5.7 KB, page 3 3.0 KB (the NMI page 0.25 KB, the sprite demo 2.8 KB with its IM 2 table); 18.7 KB of the 32 in all, 13.3 KB left (page 0 5.1 KB, page 1 1.4 KB, page 2 2.3 KB, page 3 5.0 KB). After ticket #29: page 0 6.8 KB (adding the link and the loader 1.7 KB, the stub 2.0 KB, the watch for HELLO and CONSOLE's capture 0.2 KB), page 1 6.6 KB, page 2 6.7 KB (the CRC table 1 KB), page 3 3.0 KB; 23.2 KB of the 32 in all, 8.8 KB left (page 0 1.2 KB, page 1 1.4 KB, page 2 1.3 KB, page 3 5.0 KB). The SD card and FAT32 (step 3) and the loader's other targets will mostly go in page 3, whose code then needs a window of its own (it runs in window 2 now) |
 | B7 | SRAM page 0 under the ROM and pages `0x0FC`–`0x0FD` are free; the ROM may later want them (for example for CP/M 3, design plan branch 7) |
 | B8 | CP/M 3 (later) has its own BIOS in place of the RST calls; how it sits with the boot ROM is for its own spec |

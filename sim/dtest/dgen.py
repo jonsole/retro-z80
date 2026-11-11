@@ -1,35 +1,28 @@
 #!/usr/bin/env python3
-"""Random test for the DMA engine (spec 14): SRAM contents and job chains
-for the 4 channels, for dtest.asm to start and dmodel.py to check.
-retro68k's sim/dtest/dgen.py (ac7b75a), for spec 14: 32-byte descriptors,
-all in SRAM (no descriptor RAM), a control table the Z80 can see, and a
-chain of all 256 minterms.
+"""Random test for the blitter (spec 14; retro-hw's blitter core): SRAM
+contents and chains of jobs, for dtest.asm to start and dmodel.py to check.
+retro68k's sim/dtest/dgen.py (blitter2, 63df9a7), with the descriptors and
+the SRAM little-endian and the control table where the Z80 can see it.
 
     dgen.py OUTDIR [SEED]
 
 Writes OUTDIR/ram.hex (the SRAM at the start, $readmemh of 16-bit words,
-the even byte in bits 7-0) and OUTDIR/jobs.json (each channel's jobs in
-order, for dmodel.py).
+the even byte in bits 7-0) and OUTDIR/jobs.json (the jobs in the order
+they run, for dmodel.py).
 
-Each channel works in its own 256 KB of SRAM (sources in the first half:
-B in the first 64 KB, mask images in the next; destinations in the second
-half, and the overlapping copies), so the channels can run in any order.
-Channel 0's chain ends with 256 jobs, one per minterm, each on two pixels
-that between them have every combination of A, B and C.
+The jobs: one for every depth, mask kind, row direction (RTL) and stride
+sign; random ones; copies whose source and destination overlap, in every
+direction; and jobs of no width or height. They are shuffled into chains,
+which run one after another. Sources are in the first half of a chain's
+256 KB (B in the first 64 KB, mask images in the next) and destinations in
+the second half, except for the overlapping copies.
 
 The control table at physical 0x00A000 (Z80 0xE000 in the map after
 reset) tells dtest.asm what to start (keep in step with dtest.asm):
-  +0x00  channel 0's first descriptor (3 bytes; +0x03 spare)
-  +0x04  channel 1's, +0x08 channel 2's
-  +0x0C  the DMXINT bits to expect at the end
-  +0x10  channel 3's first job (32 bytes), written into its job registers
-         and started with RUN
-  +0x30  the LINE clip rectangle: CLIPXMIN, CLIPXMAX, CLIPYMIN, CLIPYMAX
-         (8 bytes), written before anything starts
-
-Each channel's chain has LINE jobs too (spec 14, section 3.4): lines on a
-"screen" of 128-byte rows in its destination half, from and to points on
-and well off the clip rectangle, every octant and BPP, with patterns.
+  +0x00  the number of chains (1 byte; +0x01-0x03 spare)
+  +0x04  for each chain, 36 bytes: the first descriptor's address (3 bytes
+         and a spare, START), or 0 and the first job's 32 bytes for the job
+         registers (RUN)
 """
 import json
 import os
@@ -39,164 +32,98 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dmodel import encode  # noqa: E402
 
-CTL = 0x00A000
+CTL = 0x00A000                       # the control table
 DESCS = 0x0F1000                     # descriptors
-MTDATA = 0x0FC000                    # the minterm jobs' A and B
-MTDEST = 0x0FD000                    # ... and their destinations, 2 bytes each
-REGION = 0x100000                    # channel n at REGION + n x 0x40000
+REGION = 0x100000                    # chain n's data at REGION + n x 0x40000
 CHECK = [0x0F0000, 0x200000]
+NCHAINS = 4
+
+MINTERMS = [0xCC, 0xCC, 0xCA, 0xEE, 0x88, 0x66, 0x22, 0x55, 0x00, 0xFF, 0x0A]
 
 
 def place(rng, lo, size, rows, stride, rowbytes):
     """A first-row address so every row lies in [lo, lo + size)."""
     span_lo = min(0, (rows - 1) * stride)
     span_hi = max(0, (rows - 1) * stride) + rowbytes
-    a_lo = lo - span_lo
-    a_hi = lo + size - span_hi
-    return rng.randrange(a_lo, a_hi)
+    return rng.randrange(lo - span_lo, lo + size - span_hi)
 
 
-MINTERMS = [0xCC, 0xCC, 0xCA, 0xEE, 0x88, 0x66, 0x22, 0x55, 0x00, 0xFF, 0x0A]
+def last_pixel(addr, bit, w, b):
+    """The row's last pixel, from its first at (addr, bit)."""
+    off = (bit + w - 1) * b
+    return addr + (off >> 3), (off & 7) // b
 
 
-def make_job(rng, area, kind=None):
-    """A random job. kind: None, 'KEY' (cookie-cut with a key colour),
-    'MASK' (a 1 bpp mask image), 'ADD' or 'C' (a minterm that reads C)."""
-    b = rng.choice([1, 2, 4, 8, 8])
+def make_job(rng, area, bpp=None, mask=None, rtl=None, neg=None):
+    """A job with its source, mask and destination apart. bpp, mask, rtl and
+    neg (rows bottom-up: negative strides) are random unless given."""
+    b = bpp or rng.choice([1, 2, 4, 8, 8])
     ppb = 8 // b
-    if b == 8 and rng.random() < 0.25:
-        w, h = rng.randrange(1, 700), 1                    # a linear job
+    if b == 8 and rng.random() < 0.2:
+        w, h = rng.randrange(1, 700), 1                    # one long row
     else:
         w = rng.randrange(1, 90 if b == 8 else 200)
         h = rng.randrange(1, 9)
-    bbit = rng.randrange(ppb) if b < 8 else 0
-    dbit = rng.randrange(ppb) if b < 8 else 0
-    abit = rng.randrange(8)
+    bbit, dbit, abit = rng.randrange(ppb), rng.randrange(ppb), rng.randrange(8)
     brow = (bbit * b + w * b + 7) // 8
     drow = (dbit * b + w * b + 7) // 8
     arow = (abit + w + 7) // 8
-    j = {"op": "BLIT", "bpp": b, "width": w, "height": h, "abit": abit, "bbit": bbit, "dbit": dbit,
-         "desc": int(rng.random() < 0.3), "value": rng.getrandbits(32), "sat": 0, "signed": 0,
+    j = {"bpp": b, "width": w, "height": h,
+         "mask": rng.choice([0, 0, 1, 2]) if mask is None else mask,
+         "rtl": rng.randrange(2) if rtl is None else rtl,
+         "bconst": int(rng.random() < 0.25),
          "minterm": rng.choice(MINTERMS) if rng.random() < 0.7 else rng.getrandbits(8),
-         "mask": rng.choice([0, 0, 1, 2]), "bkind": "value" if rng.random() < 0.25 else "mem"}
-    if kind == "ADD" or (kind is None and rng.random() < 0.15):
-        j["op"] = "ADD"
-        j["sat"], j["signed"] = rng.randrange(2), rng.randrange(2)
-    if kind == "KEY":
-        j["mask"], j["minterm"], j["bkind"] = 2, 0xCA, "mem"
-    if kind == "MASK":
-        j["mask"] = 1
-        j["minterm"] = rng.choice([0xCA, 0x0A, 0xE2, rng.getrandbits(8)])
-    if kind == "C":
-        j["minterm"] = rng.choice([0x66, 0x88, 0xEE, 0x55])
-    if j["mask"] == 2:
-        j["value"] = 0 if rng.random() < 0.7 else rng.getrandbits(8)
-    ss = rng.choice([1, 1, 1, -1]) * (max(brow, arow) + rng.randrange(0, 24))
-    if rng.random() < 0.1:
-        ss = 0                                             # the same source row every time
-    ds = rng.choice([1, 1, 1, -1]) * (drow + rng.randrange(0, 24))
-    j["abstride"], j["cdstride"] = ss, ds
-    j["bpt"] = place(rng, area, 0x10000, h, ss, brow)
-    j["apt"] = place(rng, area + 0x10000, 0x10000, h, ss, arow)
-    j["dpt"] = place(rng, area + 0x20000, 0x20000, h, ds, drow)
+         "key": 0 if rng.random() < 0.7 else rng.getrandbits(8)}
+    if mask:                                               # asked for: mostly a cut-out
+        j["minterm"] = rng.choice([0xCA, 0xCA, 0x0A, 0xE2, rng.getrandbits(8)])
+    if mask == 2:
+        j["bconst"] = 0
+    # the constant: a plain colour in every pixel, or a pattern
+    j["value"] = rng.getrandbits(b) * (0xFFFF // ((1 << b) - 1)) if rng.random() < 0.5 else rng.getrandbits(16)
+    sign = rng.choice([1, 1, 1, -1]) if neg is None else (-1 if neg else 1)
+    j["bstride"] = sign * (brow + rng.randrange(0, 24))
+    j["astride"] = sign * (arow + rng.randrange(0, 24))
+    j["dstride"] = (rng.choice([1, 1, 1, -1]) if neg is None else sign) * (drow + rng.randrange(0, 24))
+    if neg is None and rng.random() < 0.1:
+        j["bstride"] = 0                                   # the same source row every time
+    if neg is None and rng.random() < 0.1:
+        j["astride"] = 0
+    ba = place(rng, area, 0x10000, h, j["bstride"], brow)
+    aa = place(rng, area + 0x10000, 0x10000, h, j["astride"], arow)
+    da = place(rng, area + 0x20000, 0x20000, h, j["dstride"], drow)
+    if j["rtl"]:
+        ba, bbit = last_pixel(ba, bbit, w, b)
+        da, dbit = last_pixel(da, dbit, w, b)
+        aa, abit = last_pixel(aa, abit, w, 1)
+    j.update(bpt=ba, bbit=bbit, apt=aa, abit=abit, dpt=da, dbit=dbit)
     return j
 
 
-def make_overlap(rng, area):
-    """A copy whose source and destination overlap: DESC when the
-    destination is after the source, forwards when before."""
+def make_overlap(rng, area, dx, dy):
+    """A copy within one picture, the destination dx pixels to the right
+    and dy rows below the source, worked in the direction that needs
+    (spec 11, section 3.4): rows bottom-up when the destination is below,
+    right to left when it is to the right in the same rows."""
     b = rng.choice([1, 2, 4, 8])
-    ppb = 8 // b
     w = rng.randrange(8, 120)
     h = rng.randrange(1, 6)
-    bit = rng.randrange(ppb) if b < 8 else 0
-    row = (bit * b + w * b + 7) // 8
-    stride = row + rng.randrange(0, 8)
-    delta_px = rng.choice([1, 2, 3, 5, 17, 40]) * rng.choice([1, -1])
-    src = area + 0x30000 + rng.randrange(0, 0x1000)
-    dpix = bit + delta_px
-    dst = src + (dpix * b) // 8
-    dbit = (dpix * b % 8) // b
-    if delta_px > 0 and rng.random() < 0.5:                # a whole row down, too
-        dst += stride
-    after = (dst, dbit) > (src, bit)
-    return {"op": "BLIT", "minterm": 0xCC, "mask": 0, "bpp": b, "width": w, "height": h,
-            "abit": 0, "bbit": bit, "dbit": dbit, "desc": int(after), "bkind": "mem", "value": 0,
-            "abstride": stride, "cdstride": stride, "apt": 0, "bpt": src, "dpt": dst}
+    sx = 64 + rng.randrange(8 // b)                         # the source's first pixel in its row
+    stride = ((64 + 8 + w + 40) * b + 7) // 8 + 1 + rng.randrange(0, 8)
+    base = area + 0x30000 + rng.randrange(0, 0x1000) + 2 * stride
+    up = dy > 0 if dy else bool(rng.randrange(2))           # rows bottom-up
+    rtl = dx > 0 if dy == 0 else bool(rng.randrange(2))
+    row0 = h - 1 if up else 0
+    px = w - 1 if rtl else 0
 
+    def at(row, pix):
+        return base + row * stride + ((pix * b) >> 3), ((pix * b) & 7) // b
 
-CLIP = (4, 100, 3, 60)                 # the clip rectangle, in every channel's screen
-LSTRIDE = 128                          # its rows
-
-
-def make_line(rng, area, far=False):
-    """A random LINE job on the channel's screen at area + 0x38000."""
-    b = rng.choice([1, 2, 4, 8])
-    screen = area + 0x38000
-    pt = lambda: (rng.randrange(-70, 170), rng.randrange(-50, 110))
-    (x0, y0), (x1, y1) = pt(), pt()
-    if rng.random() < 0.15:
-        x1, y1 = x0 + rng.choice([0, 3, -3]), y0           # short, flat or a single pixel
-    if rng.random() < 0.1:
-        x1 = x0 + (y1 - y0)                                # 45 degrees
-    if far:                                                # from so far above that DPT wraps
-        x0, y0 = rng.randrange(-20, 120), -16300 - rng.randrange(200)
-        x1, y1 = rng.randrange(-20, 120), rng.randrange(20, 80)
-        if rng.random() < 0.5:
-            (x0, y0), (x1, y1) = (x1, y1), (x0, y0)        # or down to it
-    ax, ay = abs(x1 - x0), abs(y1 - y0)
-    ymaj = int(ay > ax)
-    off = x0 * b                                           # bits from the row's start
-    j = {"op": "LINE", "bpp": b, "ymaj": ymaj, "xneg": int(x1 < x0), "yneg": int(y1 < y0),
-         "width": max(ax, ay) + 1, "height": min(ax, ay), "lx": x0, "ly": y0,
-         "dpt": (screen + y0 * LSTRIDE + (off >> 3)) & 0x7FFFFF, "dbit": (off & 7) // b, "cdstride": LSTRIDE,
-         "minterm": rng.choice([0xCA, 0xCA, 0xEA, 0x6A, 0xCC, 0xF0, rng.getrandbits(8)]),
-         "value": (rng.choice([0xFFFF, 0xF0F0, 0xAAAA, rng.getrandbits(16)]) << 16) | rng.getrandbits(8),
-         "bconst": rng.randrange(2), "desc": 0, "mask": 0, "bkind": "value"}
-    return j
-
-
-def make_edges(rng, area, mem, slot):
-    """A random EDGES job: an object of points and edges written into mem
-    at area + 0x3C000 + slot x 0x400, drawn on the LINE screen."""
-    b = rng.choice([1, 2, 4, 8])
-    ppb = 8 // b
-    base = area + 0x3C000 + slot * 0x400
-    n = rng.randrange(2, 48)
-    pts = []
-    for _ in range(n):
-        r = rng.random()
-        if r < 0.06:
-            p = (0x8000 - 0x10000, rng.randrange(-50, 110))            # behind the eye
-        elif r < 0.10:
-            p = (rng.choice([16384, -16385, 20000]), rng.randrange(-50, 110))  # out of range
-        elif r < 0.11:
-            p = (rng.randrange(-16384, 16384), rng.randrange(-16384, 16384))  # far off (rare: slow to step)
-        else:
-            p = (rng.randrange(-70, 170), rng.randrange(-50, 110))
-        pts.append(p)
-    for i, (x, y) in enumerate(pts):
-        mem[base + 4 * i:base + 4 * i + 4] = (x & 0xFFFF).to_bytes(2, "little") + (y & 0xFFFF).to_bytes(2, "little")
-    edges = base + 0x200
-    ne = rng.randrange(0, 60)
-    for k in range(ne):
-        mem[edges + 2 * k] = rng.randrange(n)
-        mem[edges + 2 * k + 1] = rng.randrange(n)
-    return {"op": "EDGES", "bpp": b, "apt": base, "bpt": edges, "width": ne,
-            "dpt": area + 0x38000 + rng.randrange(0, 4), "dbit": rng.randrange(ppb), "cdstride": LSTRIDE,
-            "minterm": rng.choice([0xCA, 0xCA, 0xEA, 0x6A, rng.getrandbits(8)]),
-            "value": (rng.choice([0xFFFF, 0xF0F0, rng.getrandbits(16)]) << 16) | rng.getrandbits(8),
-            "desc": 0, "mask": 0, "bkind": "value"}
-
-
-def minterm_jobs():
-    """One 8 bpp job per minterm on two pixels: A = 1, 0 (the mask byte
-    0x80 at MTDATA), B = 0xCC, 0xCC, C = 0xAA, 0xAA (written by dgen), so
-    each pixel's 8 bits see B and C as 11, 10, 01, 00 twice over."""
-    return [{"op": "BLIT", "minterm": m, "mask": 1, "bpp": 8, "width": 2, "height": 1,
-             "abit": 0, "bbit": 0, "dbit": 0, "desc": 0, "bkind": "mem", "value": 0,
-             "sat": 0, "signed": 0, "abstride": 0, "cdstride": 0,
-             "apt": MTDATA, "bpt": MTDATA + 2, "dpt": MTDEST + 2 * m} for m in range(256)]
+    ba, bbit = at(row0, sx + px)
+    da, dbit = at(row0 + dy, sx + dx + px)
+    s = -stride if up else stride
+    return {"minterm": 0xCC, "mask": 0, "bpp": b, "width": w, "height": h, "rtl": int(rtl), "bconst": 0,
+            "value": 0, "key": 0, "astride": 0, "bstride": s, "dstride": s,
+            "apt": 0, "abit": 0, "bpt": ba, "bbit": bbit, "dpt": da, "dbit": dbit}
 
 
 def main():
@@ -205,74 +132,74 @@ def main():
     mem = bytearray(0x200000)
     for a in range(CHECK[0], CHECK[1]):
         mem[a] = 0 if rng.random() < 0.25 else rng.getrandbits(8)
-    for a in range(DESCS, MTDATA):
+    for a in range(CHECK[0], DESCS + 0x7000):
         mem[a] = 0
-    mem[MTDATA:MTDATA + 4] = bytes([0x80, 0x00, 0xCC, 0xCC])
-    for m in range(256):
-        mem[MTDEST + 2 * m:MTDEST + 2 * m + 2] = b"\xAA\xAA"
 
-    channels = []
-    for ch in range(4):
-        area = REGION + ch * 0x40000
-        jobs = [make_job(rng, area) for _ in range(7)]
-        jobs.insert(rng.randrange(1, 7), make_overlap(rng, area))
-        for kind in ("KEY", "MASK", "MASK", "ADD", "C"):
-            jobs.insert(rng.randrange(1, len(jobs)), make_job(rng, area, kind))
-        z = make_job(rng, area)
-        z["width"] = 0                                     # a job that does nothing
-        jobs.insert(rng.randrange(1, len(jobs)), z)
-        for _ in range(8):
-            jobs.insert(rng.randrange(1, len(jobs)), make_line(rng, area))
-        jobs.insert(rng.randrange(1, len(jobs)), make_line(rng, area, far=True))
-        for k in range(4):
-            jobs.insert(rng.randrange(1, len(jobs)), make_edges(rng, area, mem, k))
-        z = make_line(rng, area)
-        z["width"] = z["height"] = 0                       # a line that does nothing
-        jobs.insert(rng.randrange(1, len(jobs)), z)
-        if ch == 0:
-            jobs += minterm_jobs()
-        channels.append(jobs)
+    # (job maker, its arguments after the area)
+    makers = []
+    for b in (1, 2, 4, 8):
+        for mask in (0, 1, 2):
+            for rtl in (0, 1):
+                for neg in (0, 1):
+                    makers.append((make_job, (b, mask, rtl, neg)))
+    makers += [(make_job, ())] * 40
+    for dx, dy in ((1, 0), (-1, 0), (3, 0), (-5, 0), (17, 0), (-40, 0), (40, 0), (-17, 0),
+                   (0, 1), (0, -1), (2, 2), (-3, 1), (5, -2), (-1, -1)):
+        makers.append((make_overlap, (dx, dy)))
+    rng.shuffle(makers)
 
-    nxt_slot = [DESCS]
+    chains = [[] for _ in range(NCHAINS)]
+    for i, (fn, args) in enumerate(makers):
+        n = i % NCHAINS
+        chains[n].append(fn(rng, REGION + n * 0x40000, *args))
+    for n, (zw, zh) in enumerate(((1, 0), (0, 1), (1, 1))):  # jobs that do nothing, inside chains
+        z = make_job(rng, REGION + n * 0x40000)
+        if zw:
+            z["width"] = 0
+        if zh:
+            z["height"] = 0
+        chains[n].insert(rng.randrange(1, len(chains[n])), z)
 
-    def slot():
-        a = nxt_slot[0]
-        nxt_slot[0] += 32
-        return a
+    # The first job after reset reads C. The core does not reset the register
+    # that holds C, and a job that never reads it (an aligned fill, say)
+    # would write unknown bits in simulation (in hardware the bits cancel):
+    # the SRAM model counts those as errors (retro68k d3a4b46).
+    chains[0][0]["minterm"] = 0x66
 
-    ctl = bytearray(0x38)
-    for i, v in enumerate(CLIP):
-        ctl[0x30 + 2 * i:0x32 + 2 * i] = (v & 0xFFFF).to_bytes(2, "little")
-    expect = 0
-    for ch, jobs in enumerate(channels):
-        # channel 3's first job goes into its job registers
-        homes = [None if (ch == 3 and i == 0) else slot() for i in range(len(jobs))]
-        mid = rng.randrange(1, len(jobs) - 1)
+    def wl(a, v):
+        mem[a:a + 4] = v.to_bytes(4, "little")
+
+    slot = DESCS
+    wl(CTL, NCHAINS)
+    for n, jobs in enumerate(chains):
+        run = n % 2 == 1                                   # odd chains: the first job by RUN
+        homes = []
+        for i in range(len(jobs)):
+            if run and i == 0:
+                homes.append(None)
+            else:
+                homes.append(slot)
+                slot += 32 if rng.random() < 0.7 else 32 + 2 * rng.randrange(1, 9)   # even addresses
+        ent = CTL + 4 + 36 * n
+        wl(ent, 0 if run else homes[0])
         for i, j in enumerate(jobs):
             nxt = homes[i + 1] if i + 1 < len(jobs) else 0
-            irq = int(i == len(jobs) - 1 or i == mid)
-            d = encode(j, nxt, irq)
-            if homes[i] is None:
-                ctl[0x10:0x30] = d
-            else:
-                mem[homes[i]:homes[i] + 32] = d
-        expect |= 1 << ch
-        if ch < 3:
-            ctl[4 * ch:4 * ch + 3] = homes[0].to_bytes(3, "little")
-    ctl[0x0C] = expect
-    assert nxt_slot[0] <= MTDATA
+            h = ent + 4 if homes[i] is None else homes[i]
+            mem[h:h + 32] = encode(j, nxt, int(rng.random() < 0.3))
+    assert slot < DESCS + 0x7000
 
-    def words(f, lo, data):
+    def words(f, lo, hi):
         f.write("@%x\n" % (lo // 2))
-        for k in range(0, len(data), 2):
-            f.write("%04x\n" % (data[k] | (data[k + 1] << 8)))
+        for a in range(lo, hi, 2):
+            f.write("%04x\n" % (mem[a] | (mem[a + 1] << 8)))
 
     with open(os.path.join(out, "ram.hex"), "w", newline="\n") as f:
-        words(f, CTL, ctl)
-        words(f, CHECK[0], mem[CHECK[0]:CHECK[1]])
+        words(f, CTL, CTL + 4 + 36 * NCHAINS)
+        words(f, CHECK[0], CHECK[1])
+    jobs = [j for c in chains for j in c]
     with open(os.path.join(out, "jobs.json"), "w", newline="\n") as f:
-        json.dump({"check": CHECK, "clip": CLIP, "channels": channels}, f, indent=1)
-    print("dgen: %d jobs on 4 channels" % sum(len(c) for c in channels))
+        json.dump({"check": CHECK, "jobs": jobs}, f, indent=1)
+    print("dgen: %d jobs in %d chains" % (len(jobs), NCHAINS))
 
 
 if __name__ == "__main__":

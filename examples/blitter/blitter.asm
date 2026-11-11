@@ -1,6 +1,6 @@
-; The blitter on the board (ticket #39): a first look at the DMA engine.
+; The blitter on the board (tickets #39 and #103): a first look.
 ; It turns layer L0 into a 360 x 288 8 bpp bitmap at physical 0x020000,
-; then runs a chain of blitter jobs on channel 0:
+; then runs a chain of blitter jobs from descriptors in memory:
 ;   1. clear the screen to dark blue (a fill)
 ;   2. a green rectangle (a 2D fill)
 ;   3. a diamond with a transparent colour (cookie-cut, compare mask),
@@ -25,20 +25,21 @@ H       equ     288
         ld      a,xv
         out     (c),a
     ENDM
-    ; A job: CTRL0, CTRL1, MINTERM, APT, BPT, DPT, WIDTH, HEIGHT, SHIFT,
-    ; ABSTRIDE, CDSTRIDE, VALUE, NEXT
-    MACRO JOB c0, c1, mt, apt, bpt, dpt, wid, hgt, sh, abs, cds, val, nxt
-        db      c0, c1, 0, mt
-        d24     apt, bpt, dpt, wid
-        dw      hgt, sh, abs, cds
-        dd      val
-        d24     nxt
-        db      0
+    ; A job, as the job registers and a descriptor (spec 14, section 3):
+    ; BLTCTRL, BLTBPT, BLTDPT, BLTSIZE, BLTAPT, BLTSTRIDE, BLTVALUE, BLTNEXT,
+    ; each low byte first
+    MACRO JOB ctl, bpt, dpt, wid, hgt, dstr, bstr, val, nxt
+        dd      ctl, bpt, dpt
+        dw      wid, hgt
+        dd      0                       ; BLTAPT: no mask image
+        dw      dstr, bstr, val, 0
+        dd      nxt
     ENDM
 
-B8      equ     0x03                    ; CTRL1: 8 bpp
-BCONST  equ     0x10
-MKEY    equ     0x40                    ; mask from comparing B with the key colour
+B8      equ     3 << BLTCTRL_BPP_B      ; 8 bpp
+BCONST  equ     BLTCTRL_BCONST_M        ; B is VALUE, not memory
+MKEY    equ     2 << BLTCTRL_MASK_B     ; mask from comparing B with KEY (0 here)
+MT      equ     1 << BLTCTRL_MINTERM_B  ; MINTERM x: x * MT
 
 start:  di
         ; the palette: 0 black, 1 dark blue, 2 green, 3 white, 4 yellow, 5 red,
@@ -71,18 +72,18 @@ start:  di
 .l0done:
         WREG    DMACON_P, DMACON_SETCLR_M | DMACON_DMAEN_M | DMACON_BPLEN_M | DMACON_BLTEN_M
 
-        ; the chain, on channel 0
-        WREG    DMX0_CHDESC0_P, low (job1 + PHYS)
-        WREG    DMX0_CHDESC1_P, high (job1 + PHYS)
-        WREG    DMX0_CHDESC2_P, (job1 + PHYS) >> 16
-        WREG    DMX0_CHCTRL_P, DMX_CHCTRL_START_M
-        ld      bc,DMX0_CHSTAT_P
+        ; the chain
+        WREG    BLTDESC0_P, low (job1 + PHYS)
+        WREG    BLTDESC1_P, high (job1 + PHYS)
+        WREG    BLTDESC2_P, (job1 + PHYS) >> 16
+        WREG    BLTCMD_P, BLTCMD_START_M
+        ld      bc,BLTSTAT_P
 .wait:  in      a,(c)
         rra
         jr      c,.wait
         ld      e,0x00                  ; border: green, or red on an error
         ld      d,0xC0
-        and     DMX_CHSTAT_ERR_M >> 1
+        and     BLTSTAT_ERR_M >> 1
         jr      z,.ok
         ld      e,0xC0
         ld      d,0x00
@@ -139,12 +140,12 @@ l0regs: db      high L0_CTRL0_P, low L0_CTRL0_P, L_CTRL0_EN_M | (3 << L_CTRL0_BP
         db      0
 
         align   4
-job1:   JOB     0, B8|BCONST, 0xCC, 0, 0, SCREEN, W*H, 1, 0, 0, 0, 0x01010101, job2+PHYS
-job2:   JOB     0, B8|BCONST, 0xCC, 0, 0, SCREEN+60*W+40, 120, 80, 0, 0, W, 0x02020202, job3+PHYS
-job3:   JOB     0, B8|MKEY, 0xCA, 0, diamond+PHYS, SCREEN+130*W+150, 16, 16, 0, 16, W, 0, job4+PHYS
-job4:   JOB     0, B8|MKEY, 0xCA, 0, diamond+PHYS, SCREEN+52*W+152, 16, 16, 0, 16, W, 0, job5+PHYS
-job5:   JOB     0, B8|MKEY, 0xCA, 0, diamond+PHYS, SCREEN+200*W+250, 16, 16, 0, 16, W, 0, job6+PHYS
-job6:   JOB     0, B8|BCONST, 0x66, 0, 0, SCREEN+120*W+20, 200, 30, 0, 0, W, 0x07070707, 0
+job1:   JOB     B8|BCONST|0xCC*MT, 0, SCREEN, W, H, W, 0, 0x0101, job2+PHYS
+job2:   JOB     B8|BCONST|0xCC*MT, 0, SCREEN+60*W+40, 120, 80, W, 0, 0x0202, job3+PHYS
+job3:   JOB     B8|MKEY|0xCA*MT, diamond+PHYS, SCREEN+130*W+150, 16, 16, W, 16, 0, job4+PHYS
+job4:   JOB     B8|MKEY|0xCA*MT, diamond+PHYS, SCREEN+52*W+152, 16, 16, W, 16, 0, job5+PHYS
+job5:   JOB     B8|MKEY|0xCA*MT, diamond+PHYS, SCREEN+200*W+250, 16, 16, W, 16, 0, job6+PHYS
+job6:   JOB     B8|BCONST|0x66*MT, 0, SCREEN+120*W+20, 200, 30, W, 0, 0x0707, 0
 
 ; A 16 x 16 diamond, 8 bpp: white inside, yellow edge, 0 (transparent) outside
 diamond:

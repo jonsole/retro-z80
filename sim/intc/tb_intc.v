@@ -220,7 +220,7 @@ module tb_intc;
         ask; ack; check("first VIDERR (3)", v, 8'hD0 + 6);
         rdchk("INTID 3", `RM_INTID, 8'd3);
         req[3] = 0; settle;
-        ask; ack; check("then DMA0 (4)", v, 8'hD0 + 8);
+        ask; ack; check("then BLT (4)", v, 8'hD0 + 8);
         req[4] = 0; settle;
         ask; ack; check("then TIMER0 (11)", v, 8'hD0 + 22);
         req[11] = 0; settle;

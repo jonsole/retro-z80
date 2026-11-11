@@ -13,6 +13,8 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 
 ## 1a. Latest milestone (25 October 2026)
 
+**Ticket #103 (10 November 2026, in progress):** the DMA engine is replaced by retro-hw's shared **blitter** core (revision 2), as retro68k did on its branch `blitter2`: one job in the registers or a chain of 32-byte little-endian descriptors in SRAM, no channels, no ADD, LINE or EDGES, no timer starts, PAUSE or CHERR; interrupt source 4 (BLT); registers BLTCTRL…BLTNEXT, BLTDESC, BLTCMD, BLTSTAT at custom `0x140`–`0x168`, DMXINT and DMXINTEN unchanged. Spec 14 is rewritten as "Blitter" (version 2), the other specs and design plan branch 21 follow. VALUE is in pixel order (bits 15–8 the even byte), not the SRAM's byte order. Still to do: the KS2 build and board test, the speed measured (spec 14, D1 and D2), and the guide's chapter 6 (`docs/guide/blitter.md`) rewritten. The rasteriser (lines and triangles, retro-hw's `raster`) is the next ticket, with custom `0x16C`–`0x22F` and source 5 kept for it.
+
 **On the KS2, all confirmed by the user:** the HDMI test pattern (#10); the computer passing its self-test on the real 2 MB SRAM (#11); IM 2 interrupts from VBLANK (#16); timers and the watchdog (#17); layer L0 as a bitmap (palette chart, #13) and as a full-screen smoothly scrolling tile map (#14); the 80 x 30 boot console (#15); the membrane keyboard and port 0xFE (#19). 4,663 LUTs (45% of the XC7A15T), 100 MHz met. Still to check: VGA (#12), PS/2 and joysticks (#20). Phase 1 in simulation is complete, including ZEXDOC on the whole machine (#7). Build and load: `fpga/ks2/README.md`. Way of working: hardware first (CLAUDE.md).
 
 **Ticket #22 (built, to be tried on the KS2):** the boot ROM is now the monitor of spec 16 and the shared monitor spec: the RST calls and `RST 28h` functions 0x00-0x11, start-up with the self-test at power-on only, the commands D E F C V S G R P H with sizes, P addresses and the side-effect rule, breakpoints, RST 30h and the trap. The old bring-up demos are gone but the tape loader (EDIT or Tab on an empty line). In simulation: `make -C sim mon` (a scripted session over serial, in Verilator). The KS2 README has a "try this" session.
@@ -39,7 +41,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | `docs/spec/sprites.md` | Spec 5: retro68k's 8 sprites with fractional scaling |
 | `docs/spec/copper.md` | Spec 6: retro68k's copper in 16-bit words |
 | `docs/spec/system.md` … `input.md` | Specs 7–12: system and boot console, interrupts, timers, USB serial, SD card, input |
-| `docs/spec/dma-engine.md` | Spec 14: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm), adopted by retro68k. Built (ticket #39, `fpga/rtl/dmx.v`, `make dmx`, `examples/blitter`) and tried on the KS2, which builds 2 sprites and no mask image; next #40 (random-job test), #41 to #43. Compare with retro68k's merged rework once its PR #24 is in; guide chapter `docs/guide/blitter.md` |
+| `docs/spec/dma-engine.md` | Spec 14: the blitter (version 2, #103): retro-hw's `blitter` core wrapped by `fpga/rtl/dmx.v`, as retro68k's spec 11. Version 1, before #103: the DMA engine, 4 channels, with an Amiga-style blitter (A, B, C into D through a minterm), adopted by retro68k. Built (ticket #39, `fpga/rtl/dmx.v`, `make dmx`, `examples/blitter`) and tried on the KS2, which builds 2 sprites and no mask image; next #40 (random-job test), #41 to #43. Compare with retro68k's merged rework once its PR #24 is in; guide chapter `docs/guide/blitter.md` |
 | `docs/spec/boot-rom.md`, `monitor.md` | Spec 16: the boot ROM (draft); the shared spec "Monitor and upload protocol" (draft, for retro68k to adopt) |
 | Spec 13 | Not written: sound (parked). Spec 15, the geometry unit, is a draft (branch 10, 30 October 2026) |
 | `docs/guide/` | The programmer's guide, chapters 1–9 and appendix A, in the Amiga Hardware Reference Manual's style (numbered tables, bit tables top bit first, worked encodings). Written and checked with the skill `.claude/skills/writing-programmer-guide`. Every complete example in `examples/<topic>/` was run on the KS2 (MCP `screen_capture`, `read_console`) except chapters 3 and 4's (#54) |
@@ -63,7 +65,7 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 - **Video:** 576p HDMI + VGA; three layers, each a chunky bitmap or a tile map, 1×–8×, PRIO, direct colour; 24-bit palettes; 1.48 bytes per pixel.
 - **Sprites:** 8, any size, 2/4/8 bpp, fractional scaling, DEPTH, collisions.
 - **Copper:** MOVE/WAIT/SKIP/JUMP, MOVR, ALU, SKIPC, CALL/RET in 16-bit words.
-- **DMA engine:** 4 channels, COPY, FILL, KEYCOPY, LOGIC, ADD.
+- **Blitter:** one job or a chain of descriptors, D = minterm(A, B, C) at 1–8 bpp, SRAM only (#103; was the 4-channel DMA engine).
 - **I/O:** serial, SD, PS/2, joysticks (six-button pads), 4 timers, watchdog, I2C; Spectrum extras `0xFE`, `0x1F`, attribute layer, NMI monitor paging.
 
 ## 4. How decisions are made
@@ -78,8 +80,7 @@ The user prefers a **decision tree**: 1–4 multiple-choice questions per step (
 
 1. **Points for the user** from the branch 11 rewrite:
    - HSTART signed or unsigned (spec 5, S3): retro68k's RTL and guide are unsigned, its register table says signed.
-   - The DMA engine reads the boot ROM through the ROM's second block-RAM port (spec 1, spec 14).
-   - DMA port jobs go over the register bus, paced by each unit's ready signal (spec 3, R13).
+   - ~~The DMA engine reads the boot ROM; DMA port jobs over the register bus~~: gone with the DMA engine (#103). The blitter reaches SRAM only.
    - Byte names: L/H (MMUnL) or 0/1/2 (SPRxPT0)? Mixed today (spec 3, R10).
    - Video: port `0xFE` border colours change on whole lines (retro68k's BGCOLOR rule), not mid-line (spec 4, V7); no BPLxDAT/BPLDMA (V5); PALDAT as a stream port (spec 3, R12).
 2. **Programmer's guide:** chapters 1–9 and appendix A are written and in the manual's style. Still to do: chapters 3 and 4's examples as files run on the KS2 under the program map (#54); spec gaps: no generated names for WINX/WINY/BEAMPOS halves and MMU page numbers; level-sensitive VBLANK re-entering ported Spectrum handlers.

@@ -19,7 +19,7 @@ It is a retro-z80 extra (design plan, branch 14). retro68k has no sequencer; a s
 | Write order | H, V, STEP, PT, then CTL last, which starts the sprite (spec 5, section 4.2) |
 | Gap rule | A sprite can take a new entry whose VSTART is at least its old VSTOP + 1 (section 5.1) |
 | Skips | An entry whose start line comes with no sprite free is skipped for that frame: SEQSTAT.SKIP (sticky) and a count, SEQSKIP. Optional interrupt through VIDERR (section 4.4) |
-| Register bus | A fourth master, after the copper and the CPU, before the DMA engine: it never delays the CPU or the copper. 16 byte writes per entry, at most 40 clocks (section 5.3) |
+| Register bus | The third master, after the copper and the CPU: it never delays the CPU or the copper. 16 byte writes per entry, at most 40 clocks (section 5.3) |
 | Memory | Its own channel in the scheduler: 8 word reads per entry, from the free pool, after the hard-deadline channels and audio and before the copper at PRI 0 (section 5.4) |
 | Registers | Custom offsets `0x300`–`0x30F`, in a copper MOVEF's reach (section 8) |
 | Enable | SEQCON.EN, with DMACON.SPREN and DMACON.DMAEN |
@@ -85,7 +85,7 @@ Sprite n is **free** in beam line G when:
 1. SEQMASK bit n is set; and
 2. either it has not been started this frame (no write to its SPRxCTL, by any master, since the frame start), or its window has ended: G ≥ its VSTOP.
 
-The sequencer keeps what it needs to see this: a "started" bit for each sprite and a copy of each sprite's VSTOP. It sets them from its own writes and also from every other master's writes on the register bus: a CTL write by the copper, the CPU or the DMA engine sets the started bit, and a write to SPRxV2 or SPRxV3 changes the copy, byte by byte. So the sequencer always sees the sprite's live VSTOP. The frame start clears the started bits.
+The sequencer keeps what it needs to see this: a "started" bit for each sprite and a copy of each sprite's VSTOP. It sets them from its own writes and also from every other master's writes on the register bus: a CTL write by the copper or the CPU sets the started bit, and a write to SPRxV2 or SPRxV3 changes the copy, byte by byte. So the sequencer always sees the sprite's live VSTOP. The frame start clears the started bits.
 
 A sprite with VSTOP above 624 never ends in its frame, and is free again only at the next frame start.
 
@@ -151,14 +151,13 @@ Each entry takes its 16 writes (at most 40 clocks, 11 beam pixels) and, unless i
 
 ### 5.3 The register bus
 
-The sequencer is the third of four masters on the register bus (spec 3, section 3.2; spec 1, section 4.2). In each clock the first that wants the bus gets it:
+The sequencer is the last of three masters on the register bus (spec 3, section 3.2; spec 1, section 4.2). In each clock the first that wants the bus gets it:
 
 | Order | Master | |
 |-------|--------|-|
 | 1 | Copper | At most one write every 2 clocks |
 | 2 | CPU | At most one access every 15 clocks (a register page access is 3 T-states at 20 MHz; an I/O cycle 4) |
 | 3 | **Sprite sequencer** | Writes only: 16 byte writes per entry, no reads |
-| 4 | DMA engine | Waits for the other three |
 
 - The sequencer never delays the copper or the CPU, so the copper's writes still land on their pixel and the CPU's strobe still moves at most one clock (spec 1).
 - In any 40 clocks the copper takes at most 20 and the CPU at most 3, so the sequencer gets at least 17: an entry's 16 writes take 16–40 clocks (0.16–0.4 µs, 4–11 beam pixels).
@@ -168,7 +167,7 @@ The sequencer is the third of four masters on the register bus (spec 3, section 
 
 The sequencer has its own channel in the scheduler (spec 2, section 5). It reads the list one 16-bit word per memory cycle, 8 words per entry, into its buffer, and asks for a cycle only while the buffer is not full. Its place in the free order:
 
-> the copper at PRI 1; the hard-deadline channels (layers, sprites); audio; **the sprite sequencer**; the copper at PRI 0; the DMA engine; the DMA port.
+> the copper at PRI 1; the hard-deadline channels (layers, sprites); audio; **the sprite sequencer**; the copper at PRI 0; the CPU; the blitter; the DMA port.
 
 - It never takes a cycle the CPU uses (spec 2, rule 0), and an urgent display fetch goes first, so it never spoils the picture or slows the CPU.
 - It goes before the copper at PRI 0, since its reads have a deadline (the gap line) and are few: at most 8 words per sprite reused, against at least 747 free-pool cycles per line (spec 2).
@@ -182,7 +181,7 @@ SEQMASK says which sprites the sequencer may use. The others are the copper's an
 
 - **Sprites outside SEQMASK** can do anything spec 5 allows: a player sprite written by the CPU each frame, a copper list that reuses a sprite or makes it wobble. The sequencer sees their CTL and VSTOP writes, but uses that only if the sprite is later added to SEQMASK.
 - **Handing sprites over during a frame:** the copper can write SEQMASK with MOVEF, so a sprite can be the copper's in one part of the screen and the sequencer's in another (section 9.2). A sprite added to SEQMASK is free only once its current use has ended, so a copper use is never cut short.
-- **Writes to a sequencer sprite** by the copper, the CPU or the DMA engine are allowed and land as on any sprite (spec 3, rule 3), but they act on whichever use has the sprite at that moment, which the program does not choose:
+- **Writes to a sequencer sprite** by the copper or the CPU are allowed and land as on any sprite (spec 3, rule 3), but they act on whichever use has the sprite at that moment, which the program does not choose:
   - a write to H, STEP or PT changes that use from the next line (spec 5, section 4.2);
   - a CTL write starts the sprite again from its PT, and marks it started;
   - a VSTOP write changes when the sequencer sees the sprite as free: earlier frees it sooner, later keeps it longer;
@@ -510,7 +509,7 @@ None. The Spectrum had no sprites.
 - **Frame start:** SEQLC is reloaded at (0, 0); a SEQLC written during the frame takes effect only at the next frame start; double-buffered lists never show a half-built list; entries for lines 1–48 are placed in line 0 and the lines after it and are clipped at the top.
 - **On and off:** EN set mid-frame starts at the next frame start; EN, SPREN or DMAEN cleared stops after a whole entry, never between its bytes; SEQMASK changed by a copper MOVEF mid-frame acts from the next placement (section 9.2).
 - **Sharing:** a player on sprite 0 written by the CPU and a copper panel on sprites 4–7 run unchanged beside the sequencer; a CPU write to a sequencer sprite lands in bus order, as spec 3 says.
-- **Register bus:** the sequencer never delays a copper write or a CPU strobe; the DMA engine waits for it; with all four busy, no access is lost.
+- **Register bus:** the sequencer never delays a copper write or a CPU strobe; with all three busy, no access is lost.
 - **Memory:** the sequencer never takes a cycle the CPU asked for, and never makes a layer overrun or a sprite underrun on a screen within the budget; it gets cycles ahead of the copper at PRI 0 and behind it at PRI 1; under a long copper burst at PRI 1 the entries it cannot read in time are skipped and counted.
 - **Registers:** reset values; SEQPT0 captures all three bytes; reserved offsets read `0xFF`.
 - **Example:** section 9.1 runs on the full-system simulation with 20 moving enemies and no skips while no 17 lines hold more than 7 starts, and the skips the model predicts when they do.

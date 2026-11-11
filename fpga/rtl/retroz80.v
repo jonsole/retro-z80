@@ -31,7 +31,7 @@ module retroz80 #(
     parameter [5:0] CHIPMB = 6'd4,
     parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
     parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
-    parameter DMX_MASKIMG = 1,         // the DMA engine's 1 bpp mask image (spec 14; 0 on the KS2)
+    parameter DMX_MASKIMG = 1,         // the blitter's 1 bpp mask image (spec 14; 0 on the KS2)
     parameter DMX = 1,                 // build the DMA engine (spec 14)
     parameter GEOM = 1,                // build the geometry unit (spec 15)
     parameter COPPER = 1               // build the copper (spec 6; 0 frees its LUTs on the KS2)
@@ -184,7 +184,6 @@ module retroz80 #(
     wire [7:0]  rd_kb, rd_key, rd_joy; // input (#19)
     wire        hit_kb, hit_key, hit_joy;
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
-    wire [3:0]  tmr_dma;               // timers start DMA engine channels
     wire        dmx_idle;
     wire [10:0] beam_v, beam_h;        // the beam, memory side (video.v), for the copper
     wire        cop_on, blt_on;
@@ -371,10 +370,10 @@ module retroz80 #(
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
     wire        irq_vid, irq_line, irq_viderr, irq_cop;
-    wire [3:0]  irq_dmx;               // DMA0-3: sources 4-7
+    wire        irq_dmx;               // BLT: source 4
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 3'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
+    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 6'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -431,28 +430,28 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_tmr), .rb_hit(hit_tmr), .rb_cdata(cd_tmr), .rb_cap(cap_tmr),
         .us_tick(us_tick), .line_tick(line_tick), .frame_tick(frame_tick),
-        .irq(irq_tmr), .dma_start(tmr_dma), .wd_reset(wd_reset)
+        .irq(irq_tmr), .wd_reset(wd_reset)
     );
 
-    // ---------------------------------------------------------------- DMA engine (spec 14)
-    // The blitter, on the scheduler's DMA engine channel (free cycles only)
-    // and the register bus (custom 0x140-0x23F). Ticket #39.
+    // ---------------------------------------------------------------- blitter (spec 14)
+    // retro-hw's blitter, on the scheduler's DMA engine channel (free cycles
+    // only) and the register bus (custom 0x140-0x23F). Ticket #103.
     // Without it (DMX = 0) its registers are not answered (read 0xFF), it
     // never asks for memory, and it counts as idle for the copper.
     generate if (DMX) begin : g_dmx
-        dmx #(.CHIPMB(CHIPMB), .MASKIMG(DMX_MASKIMG)) dx (
+        dmx #(.MASKIMG(DMX_MASKIMG)) dx (
             .clk(clk), .rst(sys_rst),
             .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
             .rb_rdata(rd_dmx), .rb_hit(hit_dmx), .rb_cdata(cd_dmx), .rb_cap(cap_dmx),
             .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
             .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
-            .tmr_start(tmr_dma), .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
+            .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
         );
     end else begin : g_nodmx
         assign {rd_dmx, hit_dmx, cd_dmx, cap_dmx} = 42'd0;
         assign {blt_req, blt_we, blt_addr, blt_wdata, blt_be} = 41'd0;
         assign dmx_idle = 1'b1;
-        assign irq_dmx  = 4'd0;
+        assign irq_dmx  = 1'b0;
     end endgenerate
 
     // ---------------------------------------------------------------- geometry unit (spec 15)

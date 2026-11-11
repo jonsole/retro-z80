@@ -237,7 +237,7 @@ These are worst cases: wide sprites stacked exactly on top of each other for lon
 
 **The CPU's spare cycle.** The Z80 at 20 MHz makes at most one memory access in 1.5 slots (an M1 cycle is 4 T-states, a memory read or write 3), so at least one of its two cycles in every slot is spare (spec 2). Spare cycles go to the hard-deadline channels (layers and sprites) first, so in practice there are about 6 more words per 16 pixels than the table counts. The table leaves them out, as retro68k's leaves out its spare cycle 0s; to be measured (open point S1).
 
-Sprite fetches never take a cycle the CPU is using, so sprites never slow the CPU. They can slow the copper at PRI 0 and the DMA engine, which come after them in the free order (spec 2, spec 6, spec 14).
+Sprite fetches never take a cycle the CPU is using, so sprites never slow the CPU. They can slow the copper at PRI 0 and the blitter, which come after them in the free order (spec 2, spec 6, spec 14).
 
 ## 6. Registers
 
@@ -471,7 +471,7 @@ None. The Spectrum had no sprites; the attribute layer does not act on them.
 | # | Item |
 |---|------|
 | S1 | Measure how many stacked sprites each layer set-up allows (section 5), in simulation, as retro68k's S1. Also measure how much the CPU's spare cycle adds at 20 MHz |
-| S2 | Whether the sprites' share of the free cycles should be limited, so that a screen full of sprites cannot starve the copper at PRI 0 and the DMA engine (retro68k's S2, which worries about its CPU instead) |
+| S2 | Whether the sprites' share of the free cycles should be limited, so that a screen full of sprites cannot starve the copper at PRI 0 and the blitter (retro68k's S2, which worries about its CPU instead) |
 | S3 | Closed: HSTART is unsigned, as retro68k's RTL and guide; retro68k's register table, which says "signed", should be corrected. All four window positions are unsigned 11-bit beam positions (10–0, 26–16). A sprite can still hang up to 128 pixels off the left edge (HSTART 16 or more), since the picture starts at beam pixel 144 |
 | S4 | Closed: PRI tile pixels go in front of DEPTH 1–3 sprites and behind DEPTH 0 (spec 4, section 4.8) |
 | S5 | Closed: as retro68k's spec 9 (section 3, "Which image line", and section 6) and its `sprites.v`, a write to SPRxPT sets where the next image line starts, and a read gives the start of the image line being drawn, or the value just written (confirmed with retro68k, 25 October 2026) |

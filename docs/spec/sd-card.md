@@ -2,7 +2,7 @@
 
 Status: **draft**
 
-The SD card is the computer's storage. The KS3's SD slot is wired for **SPI mode** only. This is retro68k's version-1 controller (its spec 15): a plain **SPI byte master**. Software writes a byte, the controller clocks it out while clocking a byte in, and software reads the result. Software does everything else: the card start-up, commands and their CRCs, data tokens, busy waiting and the file system (FAT). Bulk data can go through the DMA engine's port 0 (spec 14), as in retro68k, or through the Z80's `INIR` and `OTIR`. The controller has no interrupt; software polls it.
+The SD card is the computer's storage. The KS3's SD slot is wired for **SPI mode** only. This is retro68k's version-1 controller (its spec 15): a plain **SPI byte master**. Software writes a byte, the controller clocks it out while clocking a byte in, and software reads the result. Software does everything else: the card start-up, commands and their CRCs, data tokens, busy waiting and the file system (FAT). Bulk data goes through the Z80's `INIR` and `OTIR`. (Version 1's DMA engine was to read and write the card as its port 0; that went with the engine, as in retro68k: spec 14, open point D4.) The controller has no interrupt; software polls it.
 
 The registers use retro68k's names and bit positions (SDCON with EN, CS0, CS1 and CLKDIV; SDDATA; SDCOUNT), cut to bytes. They are registers `0x58`–`0x5B` and `0x5D`–`0x5E` of page `0x00`, the system block (spec 3): SDCON is port `0x5800`. SDDATA is also the low-byte-only port `0x5B`, so `INIR` and `OTIR` work on it.
 
@@ -15,12 +15,12 @@ The registers use retro68k's names and bit positions (SDCON with EN, CS0, CS1 an
 | SPI | Mode 0 (clock idles low, data sampled on the rising edge), most significant bit first |
 | SPI clock | 100 MHz ÷ (2 × CLKDIV): 400 kHz for start-up (CLKDIV = 125), 25 MHz for data (CLKDIV = 2), as retro68k |
 | Transfer | One byte each way per exchange; an exchange takes 16 × CLKDIV + 2 system clocks (0.34 µs at 25 MHz) |
-| Block reads | By the DMA engine (port 0, with SDCOUNT): about 2.9 MB/s. Or `INIR` on port `0x5B` with SDCON.AUTO set: about 0.95 MB/s at 20 MHz |
-| Block writes | By the DMA engine (port 0), or `OTIR` on port `0x5B` |
+| Block reads | `INIR` on port `0x5B` with SDCON.AUTO set: about 0.95 MB/s at 20 MHz |
+| Block writes | `OTIR` on port `0x5B` |
 | Interrupt | None; source SD is not used in version 1 (spec 8), as in retro68k version 1 |
 | Card detect | None on the KS3 (section 7) |
 | Registers | Page `0x00`, registers `0x58`–`0x5B`, `0x5D`–`0x5E` (ports `0x5800`–`0x5B00`, `0x5D00`–`0x5E00`); SDDATA also on port `0x5B` with any high byte. `0x5C` is the serial port's SERDROP (spec 10); `0x5F` is reserved |
-| Memory cycles | None by the controller; DMA jobs use the DMA engine's (spec 14) |
+| Memory cycles | None |
 
 ## 2. Comparison with retro68k
 
@@ -33,7 +33,7 @@ The registers use retro68k's names and bit positions (SDCON with EN, CS0, CS1 an
 | SDDATA at a normal address | SDDATA is also **port `0x5B` whatever the high byte** | So `INIR` / `OTIR`, which put the count B on A15–A8, reach it |
 | SDCOUNT: 16 bits | Two bytes, SDCOUNT0–1 (registers `0x5D`–`0x5E`), each written directly; a write to the high byte starts the run | Narrowed; `0x5C` was already SERDROP's |
 | SCLK = 100 MHz ÷ (2 × CLKDIV); CLKDIV 0 and 1 count as 2 | The same | Same system clock |
-| DMA engine port 0 | The same (spec 14) | – |
+| DMA engine port 0 (version 1) | Gone in both, with the DMA engine (spec 14, D4). retro68k also dropped SDCOUNT; here it is still in the register map (open point SD9) | The blitter reaches SRAM only |
 | Source SD (16): unused in version 1 | Source SD reserved (spec 8 numbers it) | As retro68k |
 
 ## 3. How an exchange works
@@ -71,11 +71,10 @@ SCLK = 100 MHz ÷ (2 × CLKDIV). CLKDIV = 0 and 1 count as 2, as in retro68k.
 
 | Method | Per byte | 512-byte block | Speed |
 |--------|----------|----------------|-------|
-| DMA engine, port 0 | One exchange, 0.34 µs | 174 µs | About 2.9 MB/s |
 | `INIR` / `OTIR` at 20 MHz | 21 T-states, 1.05 µs | 538 µs | About 0.95 MB/s |
 | `INIR` / `OTIR` at 3.57 MHz | 5.9 µs | 3.0 ms | About 170 KB/s |
 
-These leave out the command and the wait for the start token. Loading a 48 KB file takes about 17 ms by DMA, or 52 ms by `INIR` at 20 MHz, plus FAT work.
+These leave out the command and the wait for the start token. Loading a 48 KB file takes about 52 ms by `INIR` at 20 MHz, plus FAT work. (A FIFO mover running at the card's speed would take about 17 ms: spec 14, D4.)
 
 ## 5. Typical sequences
 
@@ -113,22 +112,15 @@ SDHC: the argument is the block number.
 
 The first read after setting AUTO returns the byte of the last exchange (the token) and starts the exchange for data byte 0; each `INIR` read then returns one data byte and starts the next. SDDATA is port `0x5B` whatever the high byte holds, so the falling count in B does not matter, and `IN A,(0x5B)` and `OUT (0x5B),A` reach it directly.
 
-### 5.2 Reading a block with the DMA engine
+### 5.2 SDCOUNT (no use now)
 
-As retro68k's spec 15, section 3.5:
+Version 1 read a block with a DMA engine job from port 0, paced by SDCOUNT. The DMA engine and its port jobs are gone (spec 14), and nothing takes SDCOUNT's bytes now; retro68k removed SDCOUNT with its port jobs. It stays in the register map until that is decided (open point SD9). As it was specified:
 
-1. Send CMD17 and wait for R1 and the start token `0xFE`, as above, with AUTO off.
-2. Write 512 to SDCOUNT: SDCOUNT0 = `0x00`, then SDCOUNT1 = `0x02` (starts the run).
-3. Run a DMA job: COPY from port 0 to the buffer, 512 bytes (spec 14).
-4. When the job is done, read the 2 CRC bytes, release the card, send one more `0xFF`.
-
-**SDCOUNT** gives the controller a run of bytes to read for the DMA engine: writing N (1–65535) starts it. Its bytes are written directly, and a write to SDCOUNT1 is the start trigger, as a strobe is: write SDCOUNT0 first, then SDCOUNT1, even when the high byte does not change. `LD (nn),HL` through the register page does both in that order. A write to SDCOUNT0 alone changes the count but starts nothing; while a run goes it changes the bytes still to read. The controller clocks in byte after byte, sending `0xFF`, and hands each to DMA port 0; it starts the next as soon as the engine has taken the last, until N bytes have been read. Reading SDCOUNT gives the bytes still to read (reading SDCOUNT0 captures both bytes, spec 3). So the controller never reads past the end of the block: it stops before the CRC bytes, which software then reads itself.
-
-As a destination, port 0 sends each byte the engine gives it, as soon as the last has gone (the bytes received are dropped). While SDCOUNT is not 0, or a DMA job sends to port 0, the CPU must not write SDDATA or read it with AUTO set.
+**SDCOUNT** gave the controller a run of bytes to read for the DMA engine: writing N (1–65535) starts it. Its bytes are written directly, and a write to SDCOUNT1 is the start trigger, as a strobe is: write SDCOUNT0 first, then SDCOUNT1, even when the high byte does not change. `LD (nn),HL` through the register page does both in that order. A write to SDCOUNT0 alone changes the count but starts nothing; while a run goes it changes the bytes still to read. The controller clocked in byte after byte, sending `0xFF`, and handed each to DMA port 0, until N bytes had been read. Reading SDCOUNT gives the bytes still to read (reading SDCOUNT0 captures both bytes, spec 3).
 
 ### 5.3 Writing a block
 
-Select, send CMD24, read R1, send `0xFF`, then the start token `0xFE`, 512 bytes (two `OTIR`s, or a DMA job to port 0), two CRC bytes (any value unless CRC checking is on), read the data-response token (`xxx00101` = accepted), then send `0xFF` until the card stops answering `0x00` (busy), with a timeout.
+Select, send CMD24, read R1, send `0xFF`, then the start token `0xFE`, 512 bytes (two `OTIR`s), two CRC bytes (any value unless CRC checking is on), read the data-response token (`xxx00101` = accepted), then send `0xFF` until the card stops answering `0x00` (busy), with a timeout.
 
 ### 5.4 Start-up
 
@@ -154,7 +146,7 @@ System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`; r
 | `0x5A` | `0x5A00` | SDSTAT | R | BUSY (0) | `0x00` | An exchange is running. Bits 7–1 read 0 |
 | `0x5B` | `0x5B00`, and `0x5B` with any high byte | SDDATA | RW | 7–0 | `0xFF` | Write: send this byte (starts an exchange; ignored while BUSY). Read: the byte received by the last exchange; with AUTO = 1 the read also starts an exchange sending `0xFF` |
 | `0x5C` | `0x5C00` | SERDROP | | | | The serial port's (spec 10) |
-| `0x5D` | `0x5D00` | SDCOUNT0 | RW | COUNT (7–0) | `0x00` | Bytes to read for DMA port 0, low byte, written directly. Reading captures both bytes |
+| `0x5D` | `0x5D00` | SDCOUNT0 | RW | COUNT (7–0) | `0x00` | Version 1's bytes to read for DMA port 0, low byte, written directly; no use now (section 5.2, SD9). Reading captures both bytes |
 | `0x5E` | `0x5E00` | SDCOUNT1 | RW | COUNT (15–8) | `0x00` | High byte; writing it sets bits 15–8 and starts the run (section 5.2). Reads the captured value |
 | `0x5F` | `0x5F00` | – | – | – | – | Reserved: reads `0xFF`, writes ignored |
 
@@ -169,10 +161,10 @@ As on retro68k (its spec 15, section 5): the KS3 has no card-detect switch, and 
 
 | Item | Resource |
 |------|----------|
-| Shift register, bit counter, clock divider, SDCOUNT, DMA port 0 handshake, registers | Estimate 80–120 LUTs (as retro68k) |
+| Shift register, bit counter, clock divider, SDCOUNT, registers | Estimate 80–120 LUTs (as retro68k) |
 | Block RAM, DSP | None |
 | Pins | 5: `sd_sclk` (M1), `sd_mosi` (M2), `sd_miso` (L1, pulled up), `sd_cs0` (N1), `sd_cs1` (K2), as in retro68k's KS3 build |
-| Request lines | None to spec 8; port 0 ready/take to the DMA engine (spec 14) |
+| Request lines | None |
 
 ## 9. Test plan
 
@@ -181,9 +173,8 @@ As on retro68k (its spec 15, section 5): the KS3 has no card-detect switch, and 
 - **AUTO:** a read with AUTO set returns the last byte and starts an `0xFF` exchange; with AUTO clear it starts nothing; the same through the register page.
 - **Ports:** SDDATA answers at `0x5B` with every high byte, at `0x5B00` and at register page offset `0x005B`.
 - **Pacing:** `INIR` and unrolled `INI` at 20 MHz (and 25 MHz, if tried) with CLKDIV = 2 read a 512-byte block correctly; an access while BUSY is ignored (shown at CLKDIV = 125).
-- **DMA:** SDCOUNT = 512 and a port 0 job read a block and stop before the CRC bytes; a write to SDCOUNT0 alone starts nothing; a write to SDCOUNT1 starts a run with both bytes as written; reading SDCOUNT counts down; a job to port 0 writes a block.
 - **Start-up:** the full sequence for SDSC and SDHC models; no card gives no answer to CMD0, not a hang.
-- **Real cards:** several brands and sizes at 400 kHz, 12.5 MHz and 25 MHz; write and read back a test area; measure read speed by DMA and by `INIR` at each CPU speed.
+- **Real cards:** several brands and sizes at 400 kHz, 12.5 MHz and 25 MHz; write and read back a test area; measure read speed by `INIR` at each CPU speed.
 
 ## 10. Open points
 
@@ -197,3 +188,4 @@ As on retro68k (its spec 15, section 5): the KS3 has no card-detect switch, and 
 | SD6 | Card power is always on, so a stuck card can only be reset with CMD0 (as in retro68k) |
 | SD7 | Closed: SDCON keeps retro68k's layout (branch 11): control bits in the low byte, CLKDIV in the high byte. Each byte acts when written (direct writes, design plan branch 11), so a control change is one write to SDCON0 |
 | SD8 | Closed: retro68k has written its version-1 byte master (EN, CS0, CS1, CLKDIV; SDDATA with BUSY; SDCOUNT for DMA port 0); this spec follows it. AUTO is the only addition, offered to retro68k only if it ever wants CPU block reads |
+| SD9 | SDCOUNT has no use since the DMA engine's port jobs went (10 November 2026, #103; spec 14, D4). retro68k removed it. Remove it here too (`fpga/regmap.def`, spec 3), or keep it for a FIFO mover? |
