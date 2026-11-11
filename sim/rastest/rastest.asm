@@ -415,8 +415,8 @@ start:  ld      sp,0xC000
         WREG    DMXINTEN_P, DMXINTEN_BLT_M | DMXINTEN_RAS_M
 
         ; ---- R12: the blitter and the rasteriser run at the same time
-        ld      hl,WARM                 ; the blitter's first job reads C (its C
-        ld      bc,4                    ; register is not reset)
+        ld      hl,WARM                 ; the blitter's first job: an aligned fill
+        ld      bc,4
         call    zero
         ld      hl,WIDE
         ld      bc,0x100
@@ -659,8 +659,8 @@ j_long: RJOB    LINE8 | 0x44,  1, 14,  FAR, 14,  0, 0,  BM_P, 16, 0xFFFF, DSC_P 
 j_held: RJOB    LINE8 | 0x88,  3, 15,  3, 15,  0, 0,  BM_P, 16, 0xFFFF, 0
 j_wide: RJOB    LINE8 | 0x99,  0, 0,  FAR, 0,  0, 0,  WIDE_P, 256, 0xFFFF, 0
 j_long2: RJOB   LINE8 | 0x45,  1, 14,  FAR, 14,  0, 0,  BM_P, 16, 0xFFFF, 0
-; the blitter's: D = B xor C over 4 bytes (it reads C), and a 4 KB fill
-j_warm: BJOB    B8 | BCONST | 0x66*MT, 0, WARM_P, 4, 1, 0, 0, 0, 0, 0, 0
+; the blitter's: a 4-byte aligned fill (D = B), then a 4 KB fill
+j_warm: BJOB    B8 | BCONST | 0xCC*MT, 0, WARM_P, 4, 1, 0, 0, 0, 0, 0, 0
 j_fill: BJOB    B8 | BCONST | 0xCC*MT, 0, BIG_P, 0x1000, 1, 0, 0, 0, 0x3C3C, 0, 0
 
 ; the descriptors, copied to DSC

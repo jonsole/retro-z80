@@ -399,7 +399,7 @@ So a triangle pays about 1.5 µs before its first pixel, and then fills at 8 bpp
 
 **Long lines.** A line's end far outside the window costs 20 ns for each pixel stepped there: up to 1.3 ms for an end at ±32767. Software clips long lines roughly first, for example to a box a few times the window's size; the hardware does the exact clip.
 
-retro-hw's raster spec gives 1 clock a line pixel stepped (its section 4.4); the core takes 2. This is reported to retro-hw (open point RA6).
+A line pixel outside the window is stepped in one clock, as retro-hw's raster spec (its section 4.4) gives; a pixel inside takes its write and then a clock to step.
 
 ## 10. FPGA resources
 
@@ -451,8 +451,8 @@ The wrapper keeps this spec's registers (section 7): the job registers as eight 
 | RA2 | **A mismatch retro68k flagged:** the rasteriser treats a reserved RASCTRL bit as an error, but the blitter's wrapper ignores reserved bits (spec 14, D5). One rule for both units would be simpler; to settle with retro68k |
 | RA3 | The KS2 build: triangles (`DMX_TRI = 1`) if the full build fits and meets 100 MHz, lines only otherwise. LUTs, timing and multi-driven nets **to be measured** in Vivado (design plan, branch 23). retro68k's whole design went from 14,687 to 16,166 LUTs with it |
 | RA4 | Measure the times of section 9 in simulation and on the KS2, alone and with the blitter and a display running |
-| RA5 | The core in this retro-hw version does not reset the register that holds the old word (`creg`), so in simulation the first job after power-on writes unknown bits if it never reads memory first (a plain 8 bpp line). In hardware the result is right. Fixed in retro-hw upstream (PR pending); until it is taken up, `rgen.py` starts with a job that reads (as spec 14, D7) |
-| RA6 | retro-hw's raster spec gives 1 clock a line pixel stepped (section 4.4); the core takes 2. Reported to retro-hw |
+| RA5 | Closed (11 November 2026): retro-hw's `raster.v` now resets the register that holds the old word (`creg`, retro-hw PR #18), so the first job after power-on may be any job; `rgen.py` no longer starts with a job that reads |
+| RA6 | Closed (11 November 2026): the core steps a line pixel outside the window in one clock, as retro-hw's spec gives (retro-hw PR #18) |
 | RA7 | A window per descriptor would let one chain draw into several windows. The core's descriptor has no room for it (retro-hw's raster spec, section 2.1) |
 | RA8 | Shading, depth, and filled shapes other than triangles are not in this revision of the core (its R4). `geom` (3D points as a bus master) is not built here; the geometry unit (spec 15) serves the Z80 |
 | RA9 | The fast3d flight (spec 15, section 10) should move its lines and clipping to LINE jobs, and filled faces to TRI jobs, and be timed again (spec 15, G1) |

@@ -8,10 +8,6 @@
 ; with BLTDESC and START, with IRQ; MASK 3; STOP; register checks; a job
 ; written through the register page with LDIR and LDDR.
 ;
-; The first job reads C: the core's C register is not reset, and a job that
-; never reads C would write its unknown bits in simulation (in hardware they
-; cancel in the minterm).
-;
 ; Z80 0xC000 (window 6) is physical 0x008000, 0xD000 is 0x009000, and 0xE000
 ; (window 7) is 0x00A000, as after reset.
 
@@ -323,7 +319,7 @@ failmsg:   db   "FAIL ", 0
 tnum    equ     0xBF00                  ; the check number (window 5, SRAM)
 
 tests:
-        ; 1: XOR (0x66), which reads C (first: see the top)
+        ; 1: XOR (0x66), which reads C
         db      0x0F, 0xF0, 0xAA, 0x55, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ds      16, 0xEE
         JOB     B8|0x66*MT, SRC_P, DST_P+3, 4, 1, 0, 0, 0, 0, 0, 0
