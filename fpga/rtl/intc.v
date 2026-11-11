@@ -6,7 +6,7 @@
 //
 // Each unit raises a level request line while one of its flags is set and
 // enabled in the unit; the controller keeps no request flags of its own,
-// except SOFT (18). Numbers that are not used or are reserved (8, 9, 10,
+// except SOFT (18). Numbers that are not used or are reserved (8, 10,
 // 16, 19, 20) request nothing: their lines are ignored here, so INTRAW
 // reads 0 for them. A unit that comes later adds its number to USED.
 //
@@ -54,7 +54,7 @@ module intc (
     localparam integer SRC_SOFT = 18;
     localparam [4:0]   SRC_NONE = 5'd23;
     // Sources with a request line: 0-7, 11-15, 17 (spec 8, section 4)
-    localparam [20:0]  USED = 21'b0_0010_1111_1000_1111_1111;
+    localparam [20:0]  USED = 21'b0_0010_1111_1010_1111_1111;
 
     // Registers 0x00-0x0E; 0x0F is reserved and left unanswered (0xFF)
     wire sel = (rb_addr[12:4] == 9'd0) && (rb_addr[3:0] != 4'hF);

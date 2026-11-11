@@ -94,6 +94,7 @@ module video #(
     output wire [10:0] beam_h,
     output wire        cop_on,         // DMACON.DMAEN and COPEN
     output wire        blt_on,         // DMACON.DMAEN and BLTEN (the DMA engine, spec 14)
+    output wire        aud_on,         // DMACON.DMAEN and AUDEN (sound, spec 13)
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -234,6 +235,7 @@ module video #(
     wire fetch_en = vidcon[0] && dmacon[6] && dmacon[5];
     assign cop_on = dmacon[6] && dmacon[4];
     assign blt_on = dmacon[6] && dmacon[3];
+    assign aud_on = dmacon[6] && dmacon[1];
 
     wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) ||
                     (rb_addr >= `RM_BEAMPOS0) && (rb_addr <= `RM_VIDSIZE3);

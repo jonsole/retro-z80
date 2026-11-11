@@ -102,7 +102,11 @@ module tb_fe;
     wire dac_l, dac_r, dac_m;
     audio aud (
         .clk(clk), .rst(rst),
-        .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rd(1'b0), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(), .rb_hit(), .rb_cdata(), .rb_cap(), .rb_late(),
+        .aud_on(1'b0),
+        .mem_req(), .mem_addr(), .mem_ack(1'b0), .mem_rvalid(1'b0), .mem_rdata(16'd0),
+        .irq(),
         .dac_l(dac_l), .dac_r(dac_r), .dac_m(dac_m)
     );
 

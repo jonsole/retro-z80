@@ -869,6 +869,28 @@
 `define RM_DMXINTEN_BYTES                 1
 `define RM_DMXINTEN_BLT                   0
 `define RM_DMXINTEN_RAS                   1
+`define RM_AUDRATE                        13'h1244
+`define RM_AUDRATE_BYTES                  2
+`define RM_AUDRATE0                       13'h1244
+`define RM_AUDRATE1                       13'h1245
+`define RM_AUDRATE_RATE                   15:0
+`define RM_AUDSTAT                        13'h124C
+`define RM_AUDSTAT_BYTES                  1
+`define RM_AUDSTAT_CH                     3:0
+`define RM_AUDSTAT_ACTIVE                 7:4
+`define RM_AUDINTEN                       13'h1250
+`define RM_AUDINTEN_BYTES                 1
+`define RM_AUDINTEN_CH                    3:0
+`define RM_AUDSTART                       13'h1254
+`define RM_AUDSTART_BYTES                 1
+`define RM_AUDSTART_CH                    3:0
+`define RM_AUDSTOP                        13'h1258
+`define RM_AUDSTOP_BYTES                  1
+`define RM_AUDSTOP_CH                     3:0
+`define RM_AUDDMA                         13'h125C
+`define RM_AUDDMA_BYTES                   1
+`define RM_AUDDMA_CH                      3:0
+`define RM_AUDDMA_SETCLR                  7
 `define RM_SEQCON                         13'h1300
 `define RM_SEQCON_BYTES                   1
 `define RM_SEQCON_EN                      0
@@ -994,6 +1016,30 @@
 `define RM_L_PATPT                        8'h1C
 `define RM_L_PATPT_BYTES                  3
 `define RM_L_PATPT_ADDR                   21:1
+`define RM_AUD_BASE                       13'h1280
+`define RM_AUD_SPAN                       8'h20
+`define RM_AUD_NUM                        4
+`define RM_AUD_CTRL                       8'h00
+`define RM_AUD_CTRL_BYTES                 1
+`define RM_AUD_CTRL_BITS16                1
+`define RM_AUD_CTRL_NEAREST               2
+`define RM_AUD_CTRL_ONESHOT               3
+`define RM_AUD_LC                         8'h04
+`define RM_AUD_LC_BYTES                   3
+`define RM_AUD_LC_ADDR                    21:0
+`define RM_AUD_LEN                        8'h08
+`define RM_AUD_LEN_BYTES                  3
+`define RM_AUD_LEN_LEN                    21:0
+`define RM_AUD_STEP                       8'h0C
+`define RM_AUD_STEP_BYTES                 3
+`define RM_AUD_STEP_STEP                  19:0
+`define RM_AUD_VOL                        8'h10
+`define RM_AUD_VOL_BYTES                  3
+`define RM_AUD_VOL_R                      6:0
+`define RM_AUD_VOL_L                      22:16
+`define RM_AUD_POS                        8'h14
+`define RM_AUD_POS_BYTES                  3
+`define RM_AUD_POS_POS                    21:0
 
 // ---- REGS: Register page, MMU page 0x3F8: I/O page p, register r at p << 8 | r
 `define RM_REGS_BASE                      13'h0000
@@ -1032,15 +1078,15 @@
 `define RM_REGS_SPRPALETTE_SIZE           14'h0300
 
 // ---- Decodes
-`define RM_IS_CAP(a)                      (((a) == 13'h0020) || ((a) == 13'h002D) || ((a) == 13'h0035) || ((a) == 13'h003D) || ((a) == 13'h0045) || ((a) == 13'h005D) || ((a) == 13'h1010) || ((a) == 13'h1020) || ((a) == 13'h1030) || ((a) == 13'h1040) || ((a) == 13'h1050) || ((a) == 13'h1060) || ((a) == 13'h1070) || ((a) == 13'h1080) || ((a) == 13'h10A4) || ((a) == 13'h10C4) || ((a) == 13'h10E4) || ((a) == 13'h10F0) || ((a) == 13'h10F4) || ((a) == 13'h110A) || ((a) == 13'h1160) || ((a) == 13'h11A0) || ((a) == 13'h1308))
-`define RM_CAP_N(a)                       (((a) == 13'h0020 ? 3'd4 : ((a) == 13'h002D ? 3'd2 : ((a) == 13'h0035 ? 3'd2 : ((a) == 13'h003D ? 3'd2 : ((a) == 13'h0045 ? 3'd2 : ((a) == 13'h005D ? 3'd2 : ((a) == 13'h1010 ? 3'd3 : ((a) == 13'h1020 ? 3'd3 : ((a) == 13'h1030 ? 3'd3 : ((a) == 13'h1040 ? 3'd3 : ((a) == 13'h1050 ? 3'd3 : ((a) == 13'h1060 ? 3'd3 : ((a) == 13'h1070 ? 3'd3 : ((a) == 13'h1080 ? 3'd3 : ((a) == 13'h10A4 ? 3'd3 : ((a) == 13'h10C4 ? 3'd3 : ((a) == 13'h10E4 ? 3'd3 : ((a) == 13'h10F0 ? 3'd4 : ((a) == 13'h10F4 ? 3'd2 : ((a) == 13'h110A ? 3'd3 : ((a) == 13'h1160 ? 3'd3 : ((a) == 13'h11A0 ? 3'd3 : ((a) == 13'h1308 ? 3'd3 : 3'd0))))))))))))))))))))))))
+`define RM_IS_CAP(a)                      (((a) == 13'h0020) || ((a) == 13'h002D) || ((a) == 13'h0035) || ((a) == 13'h003D) || ((a) == 13'h0045) || ((a) == 13'h005D) || ((a) == 13'h1010) || ((a) == 13'h1020) || ((a) == 13'h1030) || ((a) == 13'h1040) || ((a) == 13'h1050) || ((a) == 13'h1060) || ((a) == 13'h1070) || ((a) == 13'h1080) || ((a) == 13'h10A4) || ((a) == 13'h10C4) || ((a) == 13'h10E4) || ((a) == 13'h10F0) || ((a) == 13'h10F4) || ((a) == 13'h110A) || ((a) == 13'h1160) || ((a) == 13'h11A0) || ((a) == 13'h1294) || ((a) == 13'h12B4) || ((a) == 13'h12D4) || ((a) == 13'h12F4) || ((a) == 13'h1308))
+`define RM_CAP_N(a)                       (((a) == 13'h0020 ? 3'd4 : ((a) == 13'h002D ? 3'd2 : ((a) == 13'h0035 ? 3'd2 : ((a) == 13'h003D ? 3'd2 : ((a) == 13'h0045 ? 3'd2 : ((a) == 13'h005D ? 3'd2 : ((a) == 13'h1010 ? 3'd3 : ((a) == 13'h1020 ? 3'd3 : ((a) == 13'h1030 ? 3'd3 : ((a) == 13'h1040 ? 3'd3 : ((a) == 13'h1050 ? 3'd3 : ((a) == 13'h1060 ? 3'd3 : ((a) == 13'h1070 ? 3'd3 : ((a) == 13'h1080 ? 3'd3 : ((a) == 13'h10A4 ? 3'd3 : ((a) == 13'h10C4 ? 3'd3 : ((a) == 13'h10E4 ? 3'd3 : ((a) == 13'h10F0 ? 3'd4 : ((a) == 13'h10F4 ? 3'd2 : ((a) == 13'h110A ? 3'd3 : ((a) == 13'h1160 ? 3'd3 : ((a) == 13'h11A0 ? 3'd3 : ((a) == 13'h1294 ? 3'd3 : ((a) == 13'h12B4 ? 3'd3 : ((a) == 13'h12D4 ? 3'd3 : ((a) == 13'h12F4 ? 3'd3 : ((a) == 13'h1308 ? 3'd3 : 3'd0))))))))))))))))))))))))))))
 `define RM_IS_COLR(a)                     (((a) >= 13'h1004 && (a) <= 13'h1006))
 `define RM_IS_COLR_RED(a)                 (((a) == 13'h1006))
 `define RM_IS_MMU(a)                      (((a) >= 13'h0080 && (a) <= 13'h009F))
 `define RM_IS_MMU_COMMIT(a)               (((a) == 13'h0081) || ((a) == 13'h0083) || ((a) == 13'h0085) || ((a) == 13'h0087) || ((a) == 13'h0089) || ((a) == 13'h008B) || ((a) == 13'h008D) || ((a) == 13'h008F) || ((a) == 13'h0091) || ((a) == 13'h0093) || ((a) == 13'h0095) || ((a) == 13'h0097) || ((a) == 13'h0099) || ((a) == 13'h009B) || ((a) == 13'h009D) || ((a) == 13'h009F))
 `define RM_IS_IPG(a)                      (((a) >= 13'h0180 && (a) <= 13'h01FF))
 `define RM_IS_IPG_COMMIT(a)               (((a) == 13'h0181) || ((a) == 13'h0183) || ((a) == 13'h0185) || ((a) == 13'h0187) || ((a) == 13'h0189) || ((a) == 13'h018B) || ((a) == 13'h018D) || ((a) == 13'h018F) || ((a) == 13'h0191) || ((a) == 13'h0193) || ((a) == 13'h0195) || ((a) == 13'h0197) || ((a) == 13'h0199) || ((a) == 13'h019B) || ((a) == 13'h019D) || ((a) == 13'h019F) || ((a) == 13'h01A1) || ((a) == 13'h01A3) || ((a) == 13'h01A5) || ((a) == 13'h01A7) || ((a) == 13'h01A9) || ((a) == 13'h01AB) || ((a) == 13'h01AD) || ((a) == 13'h01AF) || ((a) == 13'h01B1) || ((a) == 13'h01B3) || ((a) == 13'h01B5) || ((a) == 13'h01B7) || ((a) == 13'h01B9) || ((a) == 13'h01BB) || ((a) == 13'h01BD) || ((a) == 13'h01BF) || ((a) == 13'h01C1) || ((a) == 13'h01C3) || ((a) == 13'h01C5) || ((a) == 13'h01C7) || ((a) == 13'h01C9) || ((a) == 13'h01CB) || ((a) == 13'h01CD) || ((a) == 13'h01CF) || ((a) == 13'h01D1) || ((a) == 13'h01D3) || ((a) == 13'h01D5) || ((a) == 13'h01D7) || ((a) == 13'h01D9) || ((a) == 13'h01DB) || ((a) == 13'h01DD) || ((a) == 13'h01DF) || ((a) == 13'h01E1) || ((a) == 13'h01E3) || ((a) == 13'h01E5) || ((a) == 13'h01E7) || ((a) == 13'h01E9) || ((a) == 13'h01EB) || ((a) == 13'h01ED) || ((a) == 13'h01EF) || ((a) == 13'h01F1) || ((a) == 13'h01F3) || ((a) == 13'h01F5) || ((a) == 13'h01F7) || ((a) == 13'h01F9) || ((a) == 13'h01FB) || ((a) == 13'h01FD) || ((a) == 13'h01FF))
-`define RM_IS_SC(a)                       (((a) >= 13'h0001 && (a) <= 13'h0003) || ((a) == 13'h100C) || ((a) >= 13'h1120 && (a) <= 13'h1121))
+`define RM_IS_SC(a)                       (((a) >= 13'h0001 && (a) <= 13'h0003) || ((a) == 13'h100C) || ((a) >= 13'h1120 && (a) <= 13'h1121) || ((a) == 13'h125C))
 `define RM_IS_LOWPORT(lo)                 (((lo) == 8'h1F) || ((lo) == 8'h53) || ((lo) == 8'h5B) || ((lo) == 8'h62) || ((lo) == 8'hFE))
 
 // ---- Low-byte-only ports

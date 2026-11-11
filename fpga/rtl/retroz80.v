@@ -25,7 +25,9 @@
 // and the COPPER interrupt source. Ticket #39 adds the DMA engine (dmx.v;
 // spec 14) on the scheduler's DMA engine channel, and DMA0-DMA3. Ticket #67
 // adds the geometry unit (geom.v; spec 15) in the system page, and the
-// build options DMX and GEOM: the KS2 builds one or the other.
+// build options DMX and GEOM: the KS2 builds one or the other. Ticket #113
+// adds sound (audio.v; spec 13: retro-hw's audio_engine) on the scheduler's
+// audio requester, and the AUDIO interrupt source.
 module retroz80 #(
     parameter ROM_INIT = "boot.hex",
     parameter [5:0] CHIPMB = 6'd4,
@@ -187,7 +189,7 @@ module retroz80 #(
     wire        hit_tmr, cap_tmr, frame_tick, line_tick;
     wire        dmx_idle;
     wire [10:0] beam_v, beam_h;        // the beam, memory side (video.v), for the copper
-    wire        cop_on, blt_on;
+    wire        cop_on, blt_on, aud_on;
     wire [31:0] cd_tmr, cd_vid;
     wire        cap_vid;
     wire        rb_rd, rb_wr, hit_sys, hit_ser, hit_mmu, hit_vid, hit_int;
@@ -204,9 +206,9 @@ module retroz80 #(
     assign rb_addr  = cw_req ? {3'b100, cw_off} : c_rb_addr;
     assign rb_hi    = cw_req ? 8'h00 : c_rb_hi;
     assign rb_wdata = cw_req ? cw_data : c_rb_wdata;
-    wire [7:0]  rd_cop, rd_dmx, rd_geo;
-    wire        hit_cop, cap_cop, hit_dmx, cap_dmx, hit_geo;
-    wire [31:0] cd_cop, cd_dmx;
+    wire [7:0]  rd_cop, rd_dmx, rd_geo, rd_aud;
+    wire        hit_cop, cap_cop, hit_dmx, cap_dmx, hit_geo, hit_aud, cap_aud, late_aud;
+    wire [31:0] cd_cop, cd_dmx, cd_aud;
     wire        late;
     wire        int_vreq, int_ack;
     wire [7:0]  int_vec;
@@ -222,9 +224,10 @@ module retroz80 #(
         .romwe(romwe), .rom_en(rom_en), .rom_we(rom_we), .rom_addr(rom_addr),
         .rom_wdata(rom_wdata), .rom_rdata(rom_rdata),
         .rb_addr(c_rb_addr), .rb_hi(c_rb_hi), .rb_rd(c_rb_rd), .rb_wr(c_rb_wr), .rb_wdata(c_rb_wdata),
-        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop | rd_dmx | rd_geo),
-        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop | hit_dmx | hit_geo),
-        .rb_cdata(cd_tmr | cd_vid | cd_cop | cd_dmx), .rb_cap(cap_tmr | cap_vid | cap_cop | cap_dmx), .cw_busy(cw_req),
+        .rb_rdata(rd_sys | rd_ser | rd_mmu | rd_vid | rd_int | rd_tmr | rd_kb | rd_key | rd_joy | rd_ip | rd_dbg | rd_cop | rd_dmx | rd_geo | rd_aud),
+        .rb_hit(hit_sys | hit_ser | hit_mmu | hit_vid | hit_int | hit_tmr | hit_kb | hit_key | hit_joy | hit_ip | hit_dbg | hit_cop | hit_dmx | hit_geo | hit_aud),
+        .rb_cdata(cd_tmr | cd_vid | cd_cop | cd_dmx | cd_aud), .rb_cap(cap_tmr | cap_vid | cap_cop | cap_dmx | cap_aud),
+        .rb_late(late_aud), .cw_busy(cw_req),
         .int_vreq(int_vreq), .int_vec(int_vec), .int_ack(int_ack),
         .innmi(innmi), .cappc(cappc), .nmi_ack(nmi_ack), .nmi_ret(nmi_ret),
         .cap_sp_ld(cap_sp_ld), .cap_sp(cap_sp), .cap_pc_ld(cap_pc_ld), .cap_pc_hi(cap_pc_hi), .nmi_pd(cap_d),
@@ -289,13 +292,15 @@ module retroz80 #(
     wire [21:1] ras_addr;
     wire [15:0] ras_wdata;
     wire [1:0]  ras_be;
+    wire        aud_req, aud_ack, aud_rvalid;
+    wire [21:1] aud_addr;
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
     // SRAM keeps its contents across a reset, spec 7, section 3.2)
     //
     // Requesters, numbered as retro-hw's dmac spec 4.1 (the number is the
-    // priority): 0 layers, 1 sprites, 2 audio (none yet), 3 copper, 4 CPU,
+    // priority): 0 layers, 1 sprites, 2 audio, 3 copper, 4 CPU,
     // 5 blitter, 6 rasteriser, 7 DMA port. The slot plan is fixed (design plan,
     // branch 25): CPU in slots 0 and 2, both locked, so nothing takes a
     // cycle the Z80 asks for; the display in 1 and 3; audio in 4. The
@@ -307,11 +312,11 @@ module retroz80 #(
     dmac #(.N(DM_N), .S(5)) sched (
         .clk(clk), .rst(por), .start_next(m_start), .next_slot(m_cycle),
         .slot_owner(DM_OWNER), .slot_lock(DM_LOCK),
-        .req   ({dma_req, ras_req, blt_req, cpu_req, cop_req, 1'b0, spr_req, bpl_req}),
+        .req   ({dma_req, ras_req, blt_req, cpu_req, cop_req, aud_req, spr_req, bpl_req}),
         .urgent({1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, spr_urgent, bpl_urgent}),
         .high  ({1'b0, 1'b0, 1'b0, 1'b0, |cop_pri, 1'b0, 1'b0, 1'b0}),
         .we    ({dma_we, ras_we, blt_we, cpu_we, 4'b0000}),
-        .addr  ({dma_addr, ras_addr, blt_addr, cpu_addr, cop_addr, 21'd0, spr_addr, bpl_addr}),
+        .addr  ({dma_addr, ras_addr, blt_addr, cpu_addr, cop_addr, aud_addr, spr_addr, bpl_addr}),
         .wdata ({dma_wdata, ras_wdata, blt_wdata, cpu_wdata, 64'd0}),
         .be    ({dma_be, ras_be, blt_be, cpu_be, 8'd0}),
         .ack(dm_ack), .rvalid_o(dm_rvalid),
@@ -319,9 +324,9 @@ module retroz80 #(
         .rvalid(m_rvalid)
     );
     assign {dma_ack, ras_ack, blt_ack, cpu_ack, cop_ack} = dm_ack[7:3];
-    assign {spr_ack, bpl_ack}                         = dm_ack[1:0];
+    assign {aud_ack, spr_ack, bpl_ack}                = dm_ack[2:0];
     assign {dma_rvalid, ras_rvalid, blt_rvalid, cpu_rvalid, cop_rvalid} = dm_rvalid[7:3];
-    assign {spr_rvalid, bpl_rvalid}                   = dm_rvalid[1:0];
+    assign {aud_rvalid, spr_rvalid, bpl_rvalid}       = dm_rvalid[2:0];
     assign dma_rdata = mem_rdata;
 
     // A 2 MB build ignores physical address bit 21, for every master, so
@@ -370,7 +375,7 @@ module retroz80 #(
     );
 
     // ---------------------------------------------------------------- interrupts (spec 8)
-    // Sources so far: VBLANK (0), COPPER (2), VIDERR (3), DMA0-3 (4-7), TIMER0-3 (11-14), SERIAL (15), KEYB (17) and SOFT (18,
+    // Sources so far: VBLANK (0), LINE (1), COPPER (2), VIDERR (3), BLT (4), AUDIO (9), TIMER0-3 (11-14), SERIAL (15), KEYB (17) and SOFT (18,
     // inside the controller). The other lines are tied off until their
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
@@ -378,7 +383,8 @@ module retroz80 #(
     wire        irq_dmx;               // BLT or RAS: source 4
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
-    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 6'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
+    wire        irq_aud;               // AUDIO: source 9
+    wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 1'b0, irq_aud, 4'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
 
     intc ic (
         .clk(clk), .rst(sys_rst),
@@ -394,7 +400,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid), .rb_cop(cw_req),
         .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_line(irq_line), .irq_err(irq_viderr),
-        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on),
+        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on), .aud_on(aud_on),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_addr(spr_addr),
@@ -514,12 +520,21 @@ module retroz80 #(
         .pin_n(joy_pin_n), .joysel(joy_sel), .sel_o(joy_p7)
     );
 
-    // ---------------------------------------------------------------- audio (spec 7, section 10.2)
-    // The beeper (port 0xFE bit 4) at a quarter of full scale, through
-    // three sigma-delta modulators: left, right and mono
+    // ---------------------------------------------------------------- sound (spec 13), audio output (spec 7, section 10.2)
+    // retro-hw's audio_engine (four sample channels) on the scheduler's
+    // audio requester (2, cycle 4) and the register bus (custom
+    // 0x244-0x2F6), with the beeper (port 0xFE bit 4) mixed in, through
+    // three sigma-delta modulators: left, right and mono. The scheduler is
+    // reset at power-on only; a word asked for before a reset comes back
+    // long before the 5.12 us reset ends, and the core ignores it.
     audio aud (
         .clk(clk), .rst(sys_rst),
-        .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
+        .rb_rdata(rd_aud), .rb_hit(hit_aud), .rb_cdata(cd_aud), .rb_cap(cap_aud), .rb_late(late_aud),
+        .aud_on(aud_on),
+        .mem_req(aud_req), .mem_addr(aud_addr), .mem_ack(aud_ack),
+        .mem_rvalid(aud_rvalid), .mem_rdata(mem_rdata),
+        .irq(irq_aud),
         .dac_l(audio_l), .dac_r(audio_r), .dac_m(audio_m)
     );
 endmodule

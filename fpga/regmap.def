@@ -298,7 +298,25 @@ reg  0x1B0 RASCLIPMAX 4 RW,BUSY 19/4   Y=15:0 X=31:16
 reg  0x230 DMXINT   1 W1C     14/8   BLT=0 RAS=1
 reg  0x234 DMXINTEN 1 RW      14/8   fields=DMXINT
 
-# Audio 0x240-0x2FF: reserved for spec 13.
+# Audio (spec 13): retro68k's registers at its offsets less 0x1C0, a byte at
+# a time, low byte first. AUDDMA holds retro68k's DMACON.AUD0EN-AUD3EN.
+# 0x240-0x243, 0x246-0x24B, 0x24D-0x24F, 0x251-0x253, 0x255-0x257,
+# 0x259-0x25B, 0x25D-0x27F reserved
+reg  0x244 AUDRATE  2 RW      13/6   RATE=15:0
+reg  0x24C AUDSTAT  1 RW1C    13/6   CH=3:0 ACTIVE=7:4
+reg  0x250 AUDINTEN 1 RW      13/6   CH=3:0
+reg  0x254 AUDSTART 1 S       13/6   CH=3:0
+reg  0x258 AUDSTOP  1 S       13/6   CH=3:0
+reg  0x25C AUDDMA   1 SC      13/6   CH=3:0 SETCLR=7
+# Channel n at 0x280 + n x 0x20: the core's fields, a 4-byte word each
+array AUD 4 0x280 0x20 13/6
+  reg 0x00 CTRL     1 RW      13/6   BITS16=1 NEAREST=2 ONESHOT=3
+  reg 0x04 LC       3 RW      13/6   ADDR=21:0
+  reg 0x08 LEN      3 RW      13/6   LEN=21:0
+  reg 0x0C STEP     3 RW      13/6   STEP=19:0
+  reg 0x10 VOL      3 RW      13/6   R=6:0 L=22:16
+  reg 0x14 POS      3 R,CAP   13/6   POS=21:0
+end
 
 # Sprite sequencer (spec 17, a retro-z80 extra); 0x30B-0x30F reserved, 0x310-0x3FF free
 reg  0x300 SEQCON   1 RW      17/8   EN=0 IRQEN=1
@@ -336,7 +354,7 @@ const INT_LINE    1
 const INT_COPPER  2
 const INT_VIDERR  3
 const INT_BLT     4
-const INT_AUDIO   9  "Reserved for sound"
+const INT_AUDIO   9  "Sound (spec 13)"
 const INT_TIMER0  11
 const INT_TIMER1  12
 const INT_TIMER2  13

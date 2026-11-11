@@ -162,11 +162,11 @@ module tb_intc;
         settle;
         check("int_n high, the line dropped", {7'd0, int_n}, 8'd1);
 
-        // ---- reserved and unused sources request nothing (8, 9, 10, 16, 19, 20)
+        // ---- reserved and unused sources request nothing (8, 10, 16, 19, 20)
         req = 21'h1FFFFF;
         settle;
         rdchk("INTRAW0, all lines", `RM_INTRAW0, 8'h7F);
-        rdchk("INTRAW1, 8-10 unused", `RM_INTRAW1, 8'h71);      // 13-11 (bits 6-4), 7 (bit 0)
+        rdchk("INTRAW1, 8 and 10 unused", `RM_INTRAW1, 8'h75); // 13-11 (bits 6-4), 9 (bit 2), 7 (bit 0)
         rdchk("INTRAW2, 16, 18-20 not lines", `RM_INTRAW2, 8'h0B); // 14, 15, 17
         req = 0;
 
@@ -184,7 +184,7 @@ module tb_intc;
         // ---- vectors: each source alone gives VECBASE + 2n and INTID = n
         ena(21'h1FFFFF, 1);
         for (n = 0; n <= 20; n = n + 1)
-            if (n != 8 && n != 9 && n != 10 && n != 16 && n != 18 && n != 19 && n != 20) begin
+            if (n != 8 && n != 10 && n != 16 && n != 18 && n != 19 && n != 20) begin
                 wr(`RM_VECBASE, 8'h40);
                 req = 21'd1 << n;
                 settle;

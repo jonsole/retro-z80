@@ -63,7 +63,7 @@ The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and w
 | TIMEHI, TIMELO: 64-bit time | TIME: 32 bits in 4 registers | 8-bit registers (spec 9) |
 | SYSSTAT, BUSERRADDR, BUSERRWHY | Left out | Z80: no halted state, no bus errors (spec 7) |
 | Boot ROM at `0xF80000` | Boot ROM in MMU pages `0x3FC`–`0x3FF` | MMU (spec 2) |
-| Audio registers at `0x400` | Offsets `0x240`–`0x2FF` reserved | Sound is parked (design plan Q1) |
+| Audio registers at `0x400`–`0x4DF`; DMACON.AUD0EN–AUD3EN | At `0x240`–`0x2FF` (retro68k's offset less `0x1C0`), a byte at a time; the channel enables in AUDDMA, with DMACON.AUDEN as audio's master bit (spec 13, section 2) | The custom block is 1 KB; DMACON is one byte |
 | — | MMU read and write pages, registers `0x80`–`0x9F` | Z80: 64 KB address space (spec 2) |
 | — | CPUSPEED, register `0x77` | retro-z80 only (spec 7) |
 | — | Geometry unit, registers `0xA0`–`0xBF` | retro-z80 only (design plan branch 10, spec 15) |
@@ -469,7 +469,7 @@ Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at 
 | `0x120`–`0x12F` | `0x2011`–`0x2F11` | Sprite globals: SPRDMA, SPRCOLL | MOVEF | 5, 6 |
 | `0x130`–`0x13F` | `0x3011`–`0x3F11` | Attribute layer (Spectrum extra) | MOVEF | 4, 7.1 |
 | `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | Blitter (`0x140`–`0x168`) and rasteriser (`0x180`–`0x1B3`): their job registers and control registers, the clip window, and the shared DMXINT, DMXINTEN | MOVEF | 14, 8; 19, 7 |
-| `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio, reserved (design plan Q1) | MOVEF (no effect) | 13 |
+| `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio: AUDRATE, AUDSTAT, AUDINTEN, AUDSTART, AUDSTOP, AUDDMA; channels 0–3 at `0x280`–`0x2FF` | MOVEF | 13, 6 |
 | `0x300`–`0x30F` | `0x0013`–`0x0F13` | Sprite sequencer (retro-z80 extra) | MOVEF | 17, 8 |
 | `0x310`–`0x3FF` | `0x1013`–`0xFF13` | Free | MOVEF (no effect) | |
 
@@ -490,7 +490,7 @@ A one-word MOVE names offsets `0x000`–`0x0EF` (its code byte); codes `0xF0`–
 | `0x00C` | `0x0C10` | DMACON | 1 | SC | 4, 6.1 |
 | `0x00D`–`0x00F` | | – | | Reserved | |
 
-DMACON's bits: SETCLR (7), DMAEN (6), BPLEN (5), COPEN (4), BLTEN (3), SPREN (2), AUDEN (1, reserved), 0 reserved: retro68k's enables in retro68k's order, in one byte (spec 4, section 6.1).
+DMACON's bits: SETCLR (7), DMAEN (6), BPLEN (5), COPEN (4), BLTEN (3), SPREN (2), AUDEN (1, sound, spec 13), 0 reserved: retro68k's enables in retro68k's order, in one byte (spec 4, section 6.1).
 
 ### 5.3 Sprites (`0x010`–`0x08F`)
 
@@ -613,7 +613,34 @@ Each unit's job registers are laid out as a 32-byte descriptor (spec 14, section
 
 ### 5.10 Audio (`0x240`–`0x2FF`)
 
-Reserved for sound (spec 13, design plan Q1), under retro68k's names when it is specified. Reads give `0xFF`; writes, including the copper's, do nothing.
+Sound (spec 13, section 6): retro68k's audio registers at its offsets less `0x1C0`, a byte at a time, low byte first. AUDDMA holds retro68k's DMACON.AUD0EN–AUD3EN.
+
+| Offset | Port | Name | Width | Access | Spec |
+|--------|------|------|-------|--------|------|
+| `0x240`–`0x243` | | – | | Reserved | |
+| `0x244`–`0x245` | `0x4412`–`0x4512` | AUDRATE | 2 | RW | 13, 6 |
+| `0x246`–`0x24B` | | – | | Reserved | |
+| `0x24C` | `0x4C12` | AUDSTAT (CH, ACTIVE) | 1 | R, W1C | 13, 6 |
+| `0x250` | `0x5012` | AUDINTEN | 1 | RW | 13, 6 |
+| `0x254` | `0x5412` | AUDSTART | 1 | W (S) | 13, 6 |
+| `0x258` | `0x5812` | AUDSTOP | 1 | W (S) | 13, 6 |
+| `0x25C` | `0x5C12` | AUDDMA | 1 | SC | 13, 6 |
+| `0x25D`–`0x27F` | | – | | Reserved | |
+
+`0x24D`–`0x24F`, `0x251`–`0x253`, `0x255`–`0x257` and `0x259`–`0x25B` are reserved too.
+
+Channel n (0–3) at `0x280` + n × `0x20`, ports `0x8012` + n × `0x2000`: AUD0 at `0x280`, AUD3 at `0x2E0`.
+
+| Offset | Name | Width | Access | Spec |
+|--------|------|-------|--------|------|
+| `+0x00` | AUDxCTRL (BITS16, NEAREST, ONESHOT) | 1 | RW | 13, 6 |
+| `+0x04`–`+0x06` | AUDxLC | 3 | RW | 13, 6 |
+| `+0x08`–`+0x0A` | AUDxLEN | 3 | RW | 13, 6 |
+| `+0x0C`–`+0x0E` | AUDxSTEP | 3 | RW | 13, 6 |
+| `+0x10`–`+0x12` | AUDxVOL (R, L) | 3 | RW | 13, 6 |
+| `+0x14`–`+0x16` | AUDxPOS | 3 | R, CAP | 13, 6 |
+
+`+0x01`–`+0x03`, `+0x07`, `+0x0B`, `+0x0F`, `+0x13` and `+0x17`–`+0x1F` are reserved; `+0x11` is part of AUDxVOL and reads 0. A channel register's read is answered a clock later than other registers' (spec 1, section 4.2).
 
 ### 5.11 Sprite sequencer (`0x300`–`0x30F`), a retro-z80 extra
 
@@ -668,7 +695,7 @@ From spec 8, section 4. The number is the fixed priority (lower first) and the I
 | 4 | BLT | Blitter and rasteriser (specs 14 and 19) | DMXINT.BLT and RAS, and their DMXINTEN bits | + 8 |
 | 5–7 | – | Not used | – | + 10 … + 14 |
 | 8 | – | Not used, as in retro68k | – | + 16 |
-| 9 | AUDIO | Reserved for sound (spec 13) | – | + 18 |
+| 9 | AUDIO | Sound (spec 13) | AUDSTAT.CH and AUDINTEN | + 18 |
 | 10 | – | Not used, as in retro68k | – | + 20 |
 | 11–14 | TIMER0–TIMER3 | Timers (spec 9) | TMRn_STAT.UNDER and TMRn_CTRL.IRQ | + 22 … + 28 |
 | 15 | SERIAL | USB serial (spec 10) | SERIRQ and SERIRQEN | + 30 |
@@ -760,7 +787,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R3 | Closed (design plan, branch 11): register writes are direct, with no latches, for the CPU, the copper and (in version 1) the DMA engine (rules 2 and 3). Latches for every wide register would have cost about 1,000–2,000 LUTs. Three exceptions stay: the MMU pages (byte 1 commits), the colours (the red byte commits, one assembly buffer per master) and the captures (one tagged capture per master, rule 4). Software changes wide display registers in the vertical blank or with the copper |
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
 | R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the blitter's and rasteriser's reserved bytes (`0x169`–`0x17F`, `0x1B4`–`0x22F`), `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
-| R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
+| R6 | Closed (11 November 2026): sound (spec 13) fits the audio block, `0x244`–`0x2F6` |
 | R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) are spec 15's, and interrupt 19 is reserved for its list mode; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |
 | R9 | COP2LC changes by itself only at a frame restart with COPCON.RESUME (spec 6, section 6.5), so it has no capture; a CPU that reads it while a background list runs may see a mixed value. Read it while the copper runs the idle list |
