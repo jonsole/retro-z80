@@ -32,6 +32,7 @@ module retroz80 #(
     parameter NLAYERS = 1,             // video layers built, 1-3 (spec 4)
     parameter NSPRITES = 8,            // sprites built, 1-8 (spec 5)
     parameter DMX_MASKIMG = 1,         // the blitter's 1 bpp mask image (spec 14; 0 on the KS2)
+    parameter DMX_TRI = 1,             // the rasteriser's triangles (spec 19)
     parameter DMX = 1,                 // build the DMA engine (spec 14)
     parameter GEOM = 1,                // build the geometry unit (spec 15)
     parameter COPPER = 1               // build the copper (spec 6; 0 frees its LUTs on the KS2)
@@ -284,6 +285,10 @@ module retroz80 #(
     wire [21:1] blt_addr;
     wire [15:0] blt_wdata;
     wire [1:0]  blt_be;
+    wire        ras_req, ras_we, ras_ack, ras_rvalid;
+    wire [21:1] ras_addr;
+    wire [15:0] ras_wdata;
+    wire [1:0]  ras_be;
 
     // The scheduler and the SRAM controller are reset only at power-on, so
     // a memory cycle in flight when another reset comes is completed (the
@@ -291,31 +296,31 @@ module retroz80 #(
     //
     // Requesters, numbered as retro-hw's dmac spec 4.1 (the number is the
     // priority): 0 layers, 1 sprites, 2 audio (none yet), 3 copper, 4 CPU,
-    // 5 DMA engine, 6 DMA port. The slot plan is fixed (design plan,
+    // 5 blitter, 6 rasteriser, 7 DMA port. The slot plan is fixed (design plan,
     // branch 25): CPU in slots 0 and 2, both locked, so nothing takes a
     // cycle the Z80 asks for; the display in 1 and 3; audio in 4. The
     // copper at COPCON.PRI 1 or more is high: first in spare cycles.
-    localparam DM_N = 7;
-    localparam [5*DM_N-1:0] DM_OWNER = {7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000};
+    localparam DM_N = 8;
+    localparam [5*DM_N-1:0] DM_OWNER = {8'b00000100, 8'b00000011, 8'b00010000, 8'b00000011, 8'b00010000};
     localparam [4:0]        DM_LOCK  = 5'b00101;
     wire [DM_N-1:0] dm_ack, dm_rvalid;
     dmac #(.N(DM_N), .S(5)) sched (
         .clk(clk), .rst(por), .start_next(m_start), .next_slot(m_cycle),
         .slot_owner(DM_OWNER), .slot_lock(DM_LOCK),
-        .req   ({dma_req, blt_req, cpu_req, cop_req, 1'b0, spr_req, bpl_req}),
-        .urgent({1'b0, 1'b0, 1'b0, 1'b0, 1'b0, spr_urgent, bpl_urgent}),
-        .high  ({1'b0, 1'b0, 1'b0, |cop_pri, 1'b0, 1'b0, 1'b0}),
-        .we    ({dma_we, blt_we, cpu_we, 4'b0000}),
-        .addr  ({dma_addr, blt_addr, cpu_addr, cop_addr, 21'd0, spr_addr, bpl_addr}),
-        .wdata ({dma_wdata, blt_wdata, cpu_wdata, 64'd0}),
-        .be    ({dma_be, blt_be, cpu_be, 8'd0}),
+        .req   ({dma_req, ras_req, blt_req, cpu_req, cop_req, 1'b0, spr_req, bpl_req}),
+        .urgent({1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, spr_urgent, bpl_urgent}),
+        .high  ({1'b0, 1'b0, 1'b0, 1'b0, |cop_pri, 1'b0, 1'b0, 1'b0}),
+        .we    ({dma_we, ras_we, blt_we, cpu_we, 4'b0000}),
+        .addr  ({dma_addr, ras_addr, blt_addr, cpu_addr, cop_addr, 21'd0, spr_addr, bpl_addr}),
+        .wdata ({dma_wdata, ras_wdata, blt_wdata, cpu_wdata, 64'd0}),
+        .be    ({dma_be, ras_be, blt_be, cpu_be, 8'd0}),
         .ack(dm_ack), .rvalid_o(dm_rvalid),
         .go(go), .go_we(go_we), .go_addr(go_addr), .go_wdata(go_wdata), .go_be(go_be),
         .rvalid(m_rvalid)
     );
-    assign {dma_ack, blt_ack, cpu_ack, cop_ack}       = dm_ack[6:3];
+    assign {dma_ack, ras_ack, blt_ack, cpu_ack, cop_ack} = dm_ack[7:3];
     assign {spr_ack, bpl_ack}                         = dm_ack[1:0];
-    assign {dma_rvalid, blt_rvalid, cpu_rvalid, cop_rvalid} = dm_rvalid[6:3];
+    assign {dma_rvalid, ras_rvalid, blt_rvalid, cpu_rvalid, cop_rvalid} = dm_rvalid[7:3];
     assign {spr_rvalid, bpl_rvalid}                   = dm_rvalid[1:0];
     assign dma_rdata = mem_rdata;
 
@@ -370,7 +375,7 @@ module retroz80 #(
     // units come. The NMI: the Multiface button (debounced on the board)
     // and the BREAK control command from the PC (spec 8, section 10).
     wire        irq_vid, irq_line, irq_viderr, irq_cop;
-    wire        irq_dmx;               // BLT: source 4
+    wire        irq_dmx;               // BLT or RAS: source 4
     wire [3:0]  irq_tmr;               // TIMER0-3: sources 11-14
     wire        irq_kb;                // KEYB: source 17
     wire [20:0] int_req = {3'd0, irq_kb, 1'b0, irq_ser, irq_tmr, 6'd0, irq_dmx, irq_viderr, irq_cop, irq_line, irq_vid};
@@ -433,23 +438,27 @@ module retroz80 #(
         .irq(irq_tmr), .wd_reset(wd_reset)
     );
 
-    // ---------------------------------------------------------------- blitter (spec 14)
-    // retro-hw's blitter, on the scheduler's DMA engine channel (free cycles
-    // only) and the register bus (custom 0x140-0x23F). Ticket #103.
+    // ---------------------------------------------------------------- blitter (spec 14), rasteriser (spec 19)
+    // retro-hw's blitter and raster, each on its own scheduler requester
+    // (free cycles only), and the register bus (custom 0x140-0x23F).
+    // Tickets #103 and #110.
     // Without it (DMX = 0) its registers are not answered (read 0xFF), it
     // never asks for memory, and it counts as idle for the copper.
     generate if (DMX) begin : g_dmx
-        dmx #(.MASKIMG(DMX_MASKIMG)) dx (
+        dmx #(.MASKIMG(DMX_MASKIMG), .TRI(DMX_TRI)) dx (
             .clk(clk), .rst(sys_rst),
             .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
             .rb_rdata(rd_dmx), .rb_hit(hit_dmx), .rb_cdata(cd_dmx), .rb_cap(cap_dmx),
             .mem_req(blt_req), .mem_we(blt_we), .mem_addr(blt_addr), .mem_wdata(blt_wdata), .mem_be(blt_be),
             .mem_ack(blt_ack), .mem_rvalid(blt_rvalid), .mem_rdata(mem_rdata),
+            .ras_req(ras_req), .ras_we(ras_we), .ras_addr(ras_addr), .ras_wdata(ras_wdata), .ras_be(ras_be),
+            .ras_ack(ras_ack), .ras_rvalid(ras_rvalid),
             .blt_on(blt_on), .idle(dmx_idle), .irq(irq_dmx)
         );
     end else begin : g_nodmx
         assign {rd_dmx, hit_dmx, cd_dmx, cap_dmx} = 42'd0;
         assign {blt_req, blt_we, blt_addr, blt_wdata, blt_be} = 41'd0;
+        assign {ras_req, ras_we, ras_addr, ras_wdata, ras_be} = 41'd0;
         assign dmx_idle = 1'b1;
         assign irq_dmx  = 1'b0;
     end endgenerate

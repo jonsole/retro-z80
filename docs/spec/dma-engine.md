@@ -4,16 +4,16 @@ Status: **draft, version 2**. Rebuilt on 10 November 2026 (ticket #103) on retro
 
 The blitter works on rectangles of pixels in SRAM: it copies, fills, combines and cuts out, while the Z80 carries on with other work. Each destination pixel is a logic function (the minterm) of a mask A, a source B and the destination's old contents C, as in the Amiga's blitter. A job can name a next job, so a list of jobs runs with no CPU in between. The blitter uses only memory cycles that nobody else wants, so it never slows the Z80, which never waits for memory (design plan, branch 11).
 
-**What changed from version 1, and why.** Version 1 was a 4-channel DMA engine with BLIT, ADD, LINE and EDGES jobs, PAUSE, timer starts, CHERR and a line clip rectangle. Its shared core tried to do too much (retro-hw's own words): about 3,350 LUTs here. retro-hw split it into three cores: this one for rectangles; `raster` for lines and triangles; `geom` for 3D points. Both machines ported to the new blitter together (design plan, branch 21, 10 November 2026).
+**What changed from version 1, and why.** Version 1 was a 4-channel DMA engine with BLIT, ADD, LINE and EDGES jobs, PAUSE, timer starts, CHERR and a line clip rectangle. Its shared core tried to do too much (retro-hw's own words): about 3,350 LUTs here. retro-hw split it into three cores: this one for rectangles; `raster` for lines and triangles (the rasteriser, spec 19); `geom` for 3D points. Both machines ported to the new blitter together (design plan, branch 21, 10 November 2026).
 
 | Version 1 | Now |
 |-----------|-----|
 | 4 channels taking turns, at `0x140 + n × 0x40` | One blitter, one job at a time, with chains. Its registers are at `0x140`–`0x16B` |
-| BLIT, ADD, LINE (OP 2), EDGES (OP 3); OP 6 and 7 reserved for 3D | BLIT only: there is no OP field. ADD is gone. Lines and triangles come with the rasteriser, in a ticket of its own (open point D3) |
-| The line clip rectangle (CLIPXMIN–CLIPYMAX, `0x238`–`0x23F`) | Gone, with LINE. The rasteriser has its own clip window |
+| BLIT, ADD, LINE (OP 2), EDGES (OP 3); OP 6 and 7 reserved for 3D | BLIT only: there is no OP field. ADD is gone. Lines and triangles are the rasteriser's, a unit of its own beside the blitter (spec 19) |
+| The line clip rectangle (CLIPXMIN–CLIPYMAX, `0x238`–`0x23F`) | Gone, with LINE. The rasteriser has its own clip window (spec 19, section 4) |
 | CHCTRL with PAUSE; CHSTAT with DONE, ERR and PAUSED; CHERR | BLTCMD (START, RUN, STOP); BLTSTAT (BUSY, ERR). No pause, no error address |
 | Timers starting channels (TMRn_CTRL.DMA, DMACH) | Gone: those bits are reserved (spec 9) |
-| Interrupt sources 4–7, DMA0–DMA3 | Source 4, BLT. Source 5 is kept for the rasteriser; 6 and 7 are unused |
+| Interrupt sources 4–7, DMA0–DMA3 | Source 4, BLT, shared with the rasteriser (spec 19); 5–7 are unused |
 | The custom registers, palettes, boot ROM and ports planned as later targets | Gone: a job reaches SRAM only, for good (section 4) |
 | DESC (a whole job backwards) | RTL (each row right to left); rows bottom-up by negative strides |
 | A and B shared a stride (ABSTRIDE) | A has its own (ASTRIDE) |
@@ -39,9 +39,9 @@ Software written for version 1 needs porting: the job layout, the control regist
 | Memory cycles | The free pool only: cycle 4 and every cycle its owner leaves (spec 2, section 4). **The CPU is never slowed.** |
 | Speed | Expected about 25 MB/s for a fill and 17 MB/s for a copy, as retro68k measures the same core; to be measured here (section 7). The Z80's `LDIR` copies about 0.95 MB/s at 20 MHz |
 | Starting | The CPU (ports or the register page), or the copper (MOVEF) |
-| Finishing | DMXINT.BLT and interrupt source 4 (BLT) at the end of a chain and after any job that asks; BUSY and ERR in BLTSTAT; an idle signal for the copper's WAIT B |
-| Registers | Custom block `0x140`–`0x16B` and `0x230`–`0x237` (spec 3, section 5.9). `0x16C`–`0x22F` are reserved for the rasteriser |
-| Enable | DMACON.BLTEN with DMACON.DMAEN (spec 4) |
+| Finishing | DMXINT.BLT and interrupt source 4 (BLT) at the end of a chain and after any job that asks; BUSY and ERR in BLTSTAT; an idle signal, with the rasteriser's, for the copper's WAIT B |
+| Registers | Custom block `0x140`–`0x16B` and `0x230`–`0x237` (spec 3, section 5.9). The rasteriser's are at `0x180`–`0x1B3` (spec 19), and it shares DMXINT and DMXINTEN |
+| Enable | DMACON.BLTEN with DMACON.DMAEN (spec 4), which also enable the rasteriser |
 | Core | retro-hw's `blitter` (section 10), wrapped by `fpga/rtl/dmx.v` |
 
 ## 2. Comparison with retro68k
@@ -126,7 +126,7 @@ With MASK = 0, A is 1 everywhere, so only MINTERM's high four bits matter.
 | FILL (BLIT with BCONST) | MINTERM `0xCC`, BCONST, VALUE the colour in every pixel of a word |
 | KEYCOPY | MINTERM `0xCA`, MASK = 2, KEY the transparent colour |
 | ADD | None: the CPU does it |
-| LINE, EDGES | None: the rasteriser, later (open point D3) |
+| LINE, EDGES | The rasteriser's LINE and TRI jobs (spec 19) |
 
 ### 3.2 The mask and the constant
 
@@ -220,9 +220,9 @@ The blitter never reaches the custom registers, the palettes, the boot ROM, the 
 
 ## 5. Memory cycles and priority
 
-The blitter is requester 5 (BLT) of the memory scheduler (spec 2, section 4; retro-hw's `dmac`). Each 100 ns slot has 5 memory cycles of 20 ns: 0 and 2 the CPU's, 1 and 3 the display's, 4 audio's (reserved while sound is parked) and the free pool's.
+The blitter is requester 5 (BLT) of the memory scheduler (spec 2, section 5.1; retro-hw's `dmac`), ahead of the rasteriser (6, spec 19) and the DMA port (7). Each 100 ns slot has 5 memory cycles of 20 ns: 0 and 2 the CPU's, 1 and 3 the display's, 4 audio's (reserved while sound is parked) and the free pool's.
 
-- **The free pool** is cycle 4 and every cycle its owner leaves: cycles 0 and 2 the Z80 does not use (it makes a memory access at most every 3 T-states, and none in I/O and register page accesses or internal T-states), cycles 1 and 3 no layer or sprite needs (all of them in the vertical blank), and cycle 4 while audio is parked. The free order is: the copper at PRI 1, then by number: layers, sprites, audio, the copper, the CPU, **the blitter**, the DMA port. So the blitter never delays anyone, and gets whatever is left.
+- **The free pool** is cycle 4 and every cycle its owner leaves: cycles 0 and 2 the Z80 does not use (it makes a memory access at most every 3 T-states, and none in I/O and register page accesses or internal T-states), cycles 1 and 3 no layer or sprite needs (all of them in the vertical blank), and cycle 4 while audio is parked. The free order is: the copper at PRI 1, then by number: layers, sprites, audio, the copper, the CPU, **the blitter**, the rasteriser, the DMA port. So the blitter never delays anyone, and gets whatever is left.
 - **No priority over the CPU.** The blitter never takes the CPU's cycles 0 and 2: they are locked to it. The Z80 never waits for SRAM.
 - **One memory cycle** reads or writes 2 bytes at an even address, with byte selects for single bytes (spec 2, section 8.4).
 - **A descriptor** takes 16 read cycles (32 bytes) to load.
@@ -300,10 +300,10 @@ Custom block offsets (spec 3, section 5.9). From the CPU: port = (offset bits 7�
 | `0x160`–`0x162` | `0x6011`–`0x6211` | BLTDESC | 3 | RW (ignored while BUSY), CAP | ADDR 23–0 | The descriptor START loads. Read: the descriptor running, or the last one loaded. Bit 0 and bits 23–22 are not kept (read 0). Reading `0x160` captures all three bytes (spec 3, rule 4) | 0 |
 | `0x164` | `0x6411` | BLTCMD | 1 | S | START (0), RUN (1), STOP (2) | Section 8.1. Reads 0 | – |
 | `0x168` | `0x6811` | BLTSTAT | 1 | R | BUSY (0), ERR (2) | Section 8.2 | 0 |
-| `0x230` | `0x3012` | DMXINT | 1 | W1C | BLT (0) | Set when a job with IRQ ends, and whenever the blitter stops: the chain's end, STOP, an error. Write 1 to clear | 0 |
-| `0x234` | `0x3412` | DMXINTEN | 1 | RW | BLT (0) | Interrupt enable | 0 |
+| `0x230` | `0x3012` | DMXINT | 1 | W1C | BLT (0), RAS (1) | BLT is set when a job with IRQ ends, and whenever the blitter stops: the chain's end, STOP, an error. RAS is the rasteriser's (spec 19, section 7). Write 1 to a bit to clear it | 0 |
+| `0x234` | `0x3412` | DMXINTEN | 1 | RW | BLT (0), RAS (1) | Interrupt enables | 0 |
 
-`0x163`, `0x165`–`0x167`, `0x169`–`0x16B`, `0x231`–`0x233` and `0x235`–`0x23F` are reserved. **`0x16C`–`0x22F` are reserved for the rasteriser's registers** (open point D3). Bits 7–1 of DMXINT and DMXINTEN, and the bits of BLTSTAT not listed, read 0. (DMXINT and DMXINTEN keep version 1's names and places, for the rasteriser to share; bits 3–1 were channels 1–3.)
+`0x163`, `0x165`–`0x167`, `0x169`–`0x17F`, `0x231`–`0x233` and `0x235`–`0x23F` are reserved. The rasteriser's registers are at `0x180`–`0x1B3` (spec 19, section 7). Bits 7–2 of DMXINT and DMXINTEN, and the bits of BLTSTAT not listed, read 0. (DMXINT and DMXINTEN keep version 1's names and places, shared with the rasteriser; bits 3–1 were channels 1–3.)
 
 **The job registers** can be written while the blitter is idle; writes are ignored while BUSY. A descriptor load overwrites all eight. They hold the job as loaded or written: the blitter's progress is kept inside it, not in them. So after a job, writing only the fields that change (for example BLTBPT and BLTDPT) and RUN starts a similar one, which suits the copper.
 
@@ -334,7 +334,7 @@ BUSY is bit 0, so a polling loop is `IN A,(C)`, `RRA`, `JR C`.
 
 **DMACON** (spec 4): **BLTEN**, with DMAEN, lets the blitter use memory cycles. Both are clear after reset. While either is clear a running job waits before its next memory access (BUSY stays set), and a job started then waits too.
 
-**Interrupts:** the blitter is **source 4, BLT**, of the interrupt controller (spec 8), IM 2 vector VECBASE + 8. It requests its interrupt while DMXINT.BLT and DMXINTEN.BLT are both set. The handler clears it by writing 1 to DMXINT.BLT. A flag that comes due in the same clock as a write of 1 that clears it **stays set**: the new interrupt is never lost (7 November 2026, as retro68k). Source 5 is kept for the rasteriser; 6 and 7 are unused.
+**Interrupts:** the blitter is **source 4, BLT**, of the interrupt controller (spec 8), IM 2 vector VECBASE + 8. It requests its interrupt while DMXINT.BLT and DMXINTEN.BLT are both set. The handler clears it by writing 1 to DMXINT.BLT. A flag that comes due in the same clock as a write of 1 that clears it **stays set**: the new interrupt is never lost (7 November 2026, as retro68k). The rasteriser shares the source, with DMXINT.RAS and DMXINTEN.RAS (spec 19, section 7.3): the handler reads DMXINT to see which. Sources 5–7 are unused.
 
 ### 8.4 Errors
 
@@ -451,12 +451,12 @@ Keep a strobe (START or RUN) out of the middle of a multi-byte value, so that a 
 
 ### 9.3 The copper's B bit
 
-The copper's WAIT has a **B** bit, as in retro68k: with B set, a WAIT also waits until the blitter is idle (spec 6). The blitter gives the copper one signal, **IDLE** = not BLTSTAT.BUSY:
+The copper's WAIT has a **B** bit, as in retro68k: with B set, a WAIT also waits until the blitter and the rasteriser are both idle (spec 6). The two units give the copper one signal, **IDLE** = neither BLTSTAT.BUSY nor RASSTAT.BUSY (spec 19, section 8.3):
 
 - IDLE goes low with the write of START or RUN, so a WAIT with B straight after the MOVEF that wrote it waits for that job or chain.
-- IDLE goes high when the chain ends (its last write made), is stopped, or stops with an error. A whole chain counts as one wait.
+- IDLE goes high when the chain ends (its last write made), is stopped, or stops with an error, and the rasteriser is idle too. A whole chain counts as one wait.
 - A job waiting for DMACON.BLTEN is not idle. A WAIT with B while BLTEN is clear therefore waits until BLTEN is set (or the next frame restarts the copper).
-- A build without the blitter (the KS2's `GEOM = 1`) is always idle.
+- A build without the blitter and the rasteriser (the KS2's `GEOM = 1`) is always idle.
 
 ## 10. FPGA resources
 
@@ -468,11 +468,11 @@ The copper's WAIT has a **B** bit, as in retro68k: with B set, a WAIT also waits
 
 Version 1's engine was about 3,350 LUTs here. The whole KS2 build with the new blitter is still to be measured (open point D1).
 
-**The KS2** builds 2 sprites and **no mask image** (`DMX_MASKIMG = 0`: MASK = 1 is an error there, section 8.4), as with version 1; compare masks and every minterm work. The KS3 builds everything (design plan, branch 21). The KS2's `GEOM = 1` build leaves the blitter out (`DMX = 0`): its registers are then not answered and it counts as idle (spec 15, section 8).
+**The KS2** builds 2 sprites and **no mask image** (`DMX_MASKIMG = 0`: MASK = 1 is an error there, section 8.4), as with version 1; compare masks and every minterm work. The KS3 builds everything (design plan, branch 21). The KS2's `GEOM = 1` build leaves the blitter and the rasteriser out (`DMX = 0`): their registers are then not answered and they count as idle (spec 15, section 8).
 
 ### 10.1 Shared core
 
-The blitter is retro-hw's `blitter` ([spec](../../fpga/retro-hw/docs/spec/blitter.md), revision 2), in `fpga/retro-hw/rtl/blitter.v`: the descriptor load, the chain, the address units, the shifter, the mask, the minterm and the edges. `fpga/rtl/dmx.v` is retro-z80's wrapper round it, as retro68k's `dmx.v` narrowed to bytes.
+The blitter is retro-hw's `blitter` ([spec](../../fpga/retro-hw/docs/spec/blitter.md), revision 2), in `fpga/retro-hw/rtl/blitter.v`: the descriptor load, the chain, the address units, the shifter, the mask, the minterm and the edges. `fpga/rtl/dmx.v` is retro-z80's wrapper round it, and round the rasteriser's core beside it (spec 19, section 10.1), as retro68k's `dmx.v` narrowed to bytes.
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
@@ -480,17 +480,17 @@ The blitter is retro-hw's `blitter` ([spec](../../fpga/retro-hw/docs/spec/blitte
 | LE | 1 | The SRAM is little-endian (spec 2, section 8.4) |
 | MASKIMG | `DMX_MASKIMG`: 0 on the KS2, 1 on the KS3 | The 1 bpp mask image (above) |
 
-The wrapper keeps this spec's registers (section 8): the job registers as eight 32-bit words, stored a byte at a time from the register bus while the core is idle and a word at a time from a descriptor load; the core's job ports wired straight to their fields; BLTDESC through the capture; BLTCMD's strobes; BLTSTAT; DMXINT and DMXINTEN. It ties the core's `job_bad` to 0 and `dl_wait` to 0. The core's `busy` gives the copper's IDLE, and its memory port is the scheduler's BLT channel.
+The wrapper keeps this spec's registers (section 8): the job registers as eight 32-bit words, stored a byte at a time from the register bus while the core is idle and a word at a time from a descriptor load; the core's job ports wired straight to their fields; BLTDESC through the capture; BLTCMD's strobes; BLTSTAT; DMXINT and DMXINTEN. It ties the core's `job_bad` to 0 and `dl_wait` to 0. The core's `busy`, with the rasteriser's, gives the copper's IDLE, and its memory port is the scheduler's BLT channel.
 
 ## 11. Test plan
 
 - **Random jobs:** chains of random jobs against a Python model of section 3.3, comparing the whole SRAM: every depth, mask kind (MASK = 1 in a build with the mask image), row direction (RTL) and stride sign; random minterms, widths from 1 pixel, every BIT, constant and memory B, strides of 0; copies that overlap their source in every direction; jobs of no width or height inside chains; chains started by START and by RUN, with descriptors at any even address. (retro68k's `dgen.py` and `dmodel.py` with little-endian descriptors.)
 - **Byte order:** a descriptor and the job registers hold the same job, low byte first; VALUE's bits 15–8 go to the even byte; a 2-byte tile map fill with VALUE swapped.
-- **Registers:** the job registers and BLTDESC read back; each byte takes effect when written, in any order; reserved bits read 0; BLTDESC drops bit 0 and bits 23–22, and a read of its low byte captures all three; `LDIR` of a 32-byte image through the register page sets a job; reserved offsets, `0x16C`–`0x22F` among them, read `0xFF`.
+- **Registers:** the job registers and BLTDESC read back; each byte takes effect when written, in any order; reserved bits read 0; BLTDESC drops bit 0 and bits 23–22, and a read of its low byte captures all three; `LDIR` of a 32-byte image through the register page sets a job; reserved offsets, `0x169`–`0x17F` among them, read `0xFF`.
 - **Control:** a fill by RUN with the bytes either side untouched; a copy by START, the job registers then holding the descriptor; writes to the job registers and BLTDESC ignored while BUSY; START and RUN ignored while BUSY; STOP mid-job, the chain not followed, DMXINT.BLT set; STOP while idle ignored.
 - **Errors:** MASK = 3 by RUN and in a chain, and MASK = 1 on the KS2: ERR, DMXINT.BLT, nothing written, BLTDESC, ERR cleared by the next start.
 - **Interrupts** (`sim/dmxint`): BLT requested only with DMXINT.BLT and DMXINTEN.BLT both set, at the end of a chain and after a job with IRQ; W1C clears it; a flag due in the clock of the clearing write stays set.
-- **Copper:** a job set up and started by MOVEFs; a WAIT with B right after the start waits for the whole chain; a build without the blitter is idle.
+- **Copper:** a job set up and started by MOVEFs; a WAIT with B right after the start waits for the whole chain, and for a rasteriser job too (spec 19, section 11); a build without the blitter is idle.
 - **DMACON:** a job waits while BLTEN or DMAEN is clear, and finishes when it is set again.
 - **Free cycles only:** with the CPU at 20, 2.5 and 3.57 MHz, the display, copper and sprites busy, the blitter never takes a cycle another user wanted: CPU accesses, layer and sprite fetches and copper reads are exactly the same with and without jobs running.
 - **Ordering:** a CPU write made just before the START or RUN is seen by the job's first read, at every CPU speed (spec 7).
@@ -503,8 +503,8 @@ The wrapper keeps this spec's registers (section 8): the job registers as eight 
 |---|------|
 | D1 | Build the KS2 with the new blitter in Vivado: LUTs, timing at 100 MHz, multi-driven nets (design plan, branch 23) |
 | D2 | Measure the speed of section 7 in simulation and on the KS2, with the screen on and off. Version 1 measured a fill at 73 MB/s and a copy at 39 MB/s on the KS2; retro68k's simulation of the new core gives 25 and 16.7 |
-| D3 | Lines and triangles: retro-hw's `raster` core (`fpga/retro-hw/docs/spec/raster.md`: LINE and TRI jobs, a clip window) gets its own wrapper and registers in a ticket of its own, designed with retro68k (design plan, branch 10, "Drawing: raster"). Custom `0x16C`–`0x22F` and interrupt source 5 are kept for it. `geom` (3D points) later still. Version 1's LINE and EDGES, and the reserved OP 6 (span fill) and OP 7 (triangle), are gone |
+| D3 | Closed (11 November 2026, #110): lines and triangles are the rasteriser's (spec 19), retro-hw's `raster` core with its own registers at custom `0x180`–`0x1B3`, beside the blitter in `dmx.v`, as retro68k. It shares interrupt source 4 (DMXINT.RAS); source 5 is no longer kept for it. `geom` (3D points) is later still. Version 1's LINE and EDGES, and the reserved OP 6 (span fill) and OP 7 (triangle), are gone |
 | D4 | A FIFO mover for the SD card and the serial link (version 1's planned port jobs) is decided later, with retro68k (retro-hw's blitter spec, B3). Until then the CPU moves those bytes |
-| D5 | Reserved bits of the job registers are not an error (the core's `job_bad` is tied off): they are not stored. Software written for version 1 gets a wrong picture, not ERR |
-| D6 | `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs, for the rasteriser's wrapper to share (as retro68k's D7) |
+| D5 | Reserved bits of the job registers are not an error (the core's `job_bad` is tied off): they are not stored. Software written for version 1 gets a wrong picture, not ERR. The rasteriser treats its reserved RASCTRL bits as an error; whether the two should agree is spec 19, RA2 |
+| D6 | Closed (11 November 2026, #110): `dmx.v` keeps its name, and DMXINT and DMXINTEN theirs; the rasteriser's wrapper is in it and shares them (bit 1, RAS), as retro68k's D7 |
 | D7 | The core does not reset the register that holds C, so in simulation the first job after power-on writes unknown bits if it never reads C (an aligned fill). In hardware the result is right. retro68k's tests start with a job that reads C; a reset in retro-hw's `blitter.v` would be the proper cure (retro68k's D8) |

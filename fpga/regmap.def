@@ -275,8 +275,27 @@ reg  0x15C BLTNEXT   4 RW,BUSY  14/3   ADDR=23:0
 reg  0x160 BLTDESC   3 RW,BUSY,CAP 14/8 ADDR=23:0
 reg  0x164 BLTCMD    1 S        14/8   START=0 RUN=1 STOP=2
 reg  0x168 BLTSTAT   1 R        14/8   BUSY=0 ERR=2
-# 0x16C-0x22F reserved (the rasteriser's registers to come)
-reg  0x230 DMXINT   1 W1C     14/8   BLT=0
+# 0x16C-0x17F reserved
+
+# Rasteriser (spec 19). The job registers are laid out as a descriptor, as
+# the blitter's: eight 4-byte words, low byte first
+reg  0x180 RASCTRL   4 RW,BUSY  19/3   VALUE=7:0 BPP=9:8 IRQ=12 TRI=16 NOLAST=17 MINTERM=31:24
+reg  0x184 RASP0     4 RW,BUSY  19/3   Y=15:0 X=31:16
+reg  0x188 RASP1     4 RW,BUSY  19/3   Y=15:0 X=31:16
+reg  0x18C RASP2     4 RW,BUSY  19/3   Y=15:0 X=31:16
+reg  0x190 RASDPT    4 RW,BUSY  19/3   ADDR=23:0
+reg  0x194 RASSTRIDE 4 RW,BUSY  19/3   DSTRIDE=15:0
+reg  0x198 RASPAT    4 RW,BUSY  19/3   PATTERN=15:0
+reg  0x19C RASNEXT   4 RW,BUSY  19/3   ADDR=23:0
+reg  0x1A0 RASDESC   3 RW,BUSY,CAP 19/7 ADDR=23:0
+reg  0x1A4 RASCMD    1 S        19/7   START=0 RUN=1 STOP=2
+reg  0x1A8 RASSTAT   1 R        19/7   BUSY=0 ERR=2
+reg  0x1AC RASCLIPMIN 4 RW,BUSY 19/4   Y=15:0 X=31:16
+reg  0x1B0 RASCLIPMAX 4 RW,BUSY 19/4   Y=15:0 X=31:16
+# 0x1B4-0x22F reserved
+
+# Shared by the blitter and the rasteriser (specs 14 and 19)
+reg  0x230 DMXINT   1 W1C     14/8   BLT=0 RAS=1
 reg  0x234 DMXINTEN 1 RW      14/8   fields=DMXINT
 
 # Audio 0x240-0x2FF: reserved for spec 13.

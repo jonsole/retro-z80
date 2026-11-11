@@ -4,7 +4,7 @@ Status: **draft**
 
 This spec covers how the computer starts: what resets it and what a reset does, the boot ROM, what the boot ROM does first, the boot console, the board's buttons, identification, the CPU speed, the I2C master (real-time clock and HDMI DDC), how the design is installed on the ZX Spectrum Next KS3, and the board's connections. It follows retro68k's spec 7 and the system chapter of its guide, narrowed to 8-bit registers. Two Spectrum extras sit in their own section: the NMI monitor paging and the beeper. The system control registers are registers `0x70`–`0x7B` of page `0x00`, the system block (spec 3): SYSID is port `0x7000`.
 
-The other system pieces have their own specs: the MMU (spec 2), interrupts (8), timers and watchdog (9), USB serial (10), SD card (11), keyboards and joysticks (12) and the blitter (14). The boot ROM's programs are in spec 16 ([boot ROM](boot-rom.md)) and in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)): the monitor, the loader, the boot file and the ROM calls.
+The other system pieces have their own specs: the MMU (spec 2), interrupts (8), timers and watchdog (9), USB serial (10), SD card (11), keyboards and joysticks (12), the blitter (14) and the rasteriser (19). The boot ROM's programs are in spec 16 ([boot ROM](boot-rom.md)) and in the shared spec "Monitor and upload protocol" ([`monitor.md`](monitor.md)): the monitor, the loader, the boot file and the ROM calls.
 
 ## 1. Summary
 
@@ -70,7 +70,7 @@ Every source gives the same **full reset**:
 
 - The Z80 is reset and starts at `0x0000` (spec 1), at **20 MHz** (CPUSPEED = `0x00`).
 - The MMU goes back to its reset state (spec 2): boot ROM pages 0–1 in windows 0–1, SRAM pages 0–5 in windows 2–7, each window's write page the same as its read page. The interrupt pages go to their reset state (spec 2, section 9.8): maskable interrupts switch nothing, NMI mode ends (NMICTL.INNMI = 0), and the NMI set pages the monitor into window 0 (NMICTL = `0x01`; the NMI's stack capture is always on).
-- Every chipset and system register goes back to its reset value: video shows only the background colour, sprites, copper and blitter stopped, all interrupts off, timers stopped, watchdog off, serial and keyboard FIFOs empty, I2C master idle.
+- Every chipset and system register goes back to its reset value: video shows only the background colour, sprites, copper, blitter and rasteriser stopped, all interrupts off, timers stopped, watchdog off, serial and keyboard FIFOs empty, I2C master idle.
 - SYSCON.ROMWE is cleared. ROMLOCK is cleared only at power-on.
 - **The SRAM keeps its contents.** Static RAM needs no refresh, so after anything except power-on, memory holds what it held before. A debugger can look at what a crashed program left, and software can keep data across resets (check RESETWHY.POWER first: after power-on the SRAM holds random values).
 - **The palettes keep their contents.** They are block RAM, set to the default at configuration (spec 4), and not cleared by a reset.
@@ -97,7 +97,7 @@ The Z80 has no RESET instruction, so software cannot reset the devices without r
 - **32 KB of block RAM** (16 blocks of 18 Kb). Its contents are part of the FPGA bitstream: the build assembles the boot ROM with sjasmplus and puts it into the bitstream, so the ROM can change without re-running synthesis.
 - The Z80 sees it as **4 MMU pages**, `0x3FC`–`0x3FF` (ROM offsets `0x0000`, `0x2000`, `0x4000`, `0x6000`), mapped into any window like SRAM pages (spec 2).
 - Reading it costs no SRAM cycle and no wait states.
-- No chipset unit can read it: the display, sprites, copper and blitter reach SRAM only (version 1's DMA engine could, through the ROM's second block RAM port; spec 14). So the boot ROM copies the console font and anything else they need into SRAM.
+- No chipset unit can read it: the display, sprites, copper, blitter and rasteriser reach SRAM only (version 1's DMA engine could, through the ROM's second block RAM port; spec 14). So the boot ROM copies the console font and anything else they need into SRAM.
 
 ### 4.2 Mapping at reset
 
@@ -140,7 +140,7 @@ Spec 16 defines this in detail (its section 4), with the start-up order shared w
 
 ### 5.1 The boot console
 
-The console is retro68k's 80 × 30 console in the same window, drawn as a tile map instead of a bitmap. It uses layer **L0 as a 1 bpp tile map** (spec 4, tile mode) and nothing else of the chipset, so L1, L2, the sprites, the copper and the blitter stay free for programs.
+The console is retro68k's 80 × 30 console in the same window, drawn as a tile map instead of a bitmap. It uses layer **L0 as a 1 bpp tile map** (spec 4, tile mode) and nothing else of the chipset, so L1, L2, the sprites, the copper, the blitter and the rasteriser stay free for programs.
 
 | Item | Value |
 |------|-------|
@@ -357,7 +357,7 @@ The board's RC filter turns each stream back into sound. A steady beeper bit giv
 
 ## 11. Registers
 
-System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. The same registers are at register page offsets `0x0070`–`0x007F` (the port with its bytes swapped). The copper cannot reach them; the blitter cannot either (spec 14). Writes to read-only registers are ignored.
+System block registers, page `0x00` (spec 3): port = (register << 8) | `0x00`. The same registers are at register page offsets `0x0070`–`0x007F` (the port with its bytes swapped). The copper cannot reach them; the blitter and the rasteriser cannot either (specs 14 and 19). Writes to read-only registers are ignored.
 
 **Access from the Z80.** Writes: `LD BC,port` then `OUT (C),r`; `INC B` steps to the next register. Reads: `LD BC,port` then `IN r,(C)`, or `LD A,register` then `IN A,(0x00)` (A goes out on A15–A8). `OUT (n),A` cannot write these registers: it puts A on A15–A8 as well.
 

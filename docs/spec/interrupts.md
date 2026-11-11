@@ -21,7 +21,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | RETI | Not needed by the controller (section 8); the interrupt pages count it (spec 2, section 9.7) |
 | Interrupt pages | A retro-z80 extra in the MMU and bus interface: an interrupt or NMI can switch chosen windows and keep its return address in registers (spec 2, section 9.7). The controller does not take part |
 | Registers | System page `0x00`, registers `0x00`–`0x0E` (`0x0F` reserved): port = register × 256, `0x0000`–`0x0E00`. Also at register page offsets `0x0000`–`0x000F` |
-| Who can write them | The CPU only. The copper cannot reach the system page, and the blitter reaches SRAM only (spec 14, section 4) |
+| Who can write them | The CPU only. The copper cannot reach the system page, and the blitter and the rasteriser reach SRAM only (spec 14, section 4; spec 19, section 3.2) |
 | Memory cycles | None |
 
 ## 2. Comparison with retro68k
@@ -36,7 +36,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | Spurious | Vector 24, the 68000's spurious vector | Source number 23 (NONE): entry VECBASE + 46 | Forced: the Z80 has no spurious vector |
 | INTENA | Two 16-bit set/clear halves (bits 15 and 31) | Three 8-bit set/clear bytes, bit 7 SETCLR in each | Forced: 8-bit ports |
 | INTID | For debugging only | Also how an IM 1 handler finds its source | Forced: IM 1 gives no vector. It replaces the earlier draft's INTHIGH port |
-| Blitter source | BLT (4); 5–7 not used | The same | – |
+| Blitter source | BLT (4), shared by the blitter and the rasteriser; 5–7 not used | The same | – |
 | AUDIO | Source 9 | Source 9 reserved | Sound is parked (design plan Q1) |
 | SD | Source 16, from SDIRQ; not used in version 1 | Source 16, not used in version 1: the SD controller is polled (spec 11) | As retro68k's version 1 |
 | Reserved 19–23 | Free | 19 reserved for the geometry unit (spec 15, branch 10), 20 free | Geometry unit is retro-z80 only |
@@ -73,9 +73,8 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 | 1 | LINE | Video: line compare, at the start of display beam line LINECMP | VIDSTAT.LINE and VIDINTEN.LINE (spec 4) | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ and COPCON.IRQEN (spec 6) | COPSTAT.IRQ |
 | 3 | VIDERR | Video problems: a layer's fetch was late (OVERRUN), a sprite's FIFO ran dry (SPRUNDER, spec 5), the sprite sequencer skipped an entry (spec 17, section 4.4) | VIDSTAT error bits and their VIDINTEN bits (spec 4); SEQSTAT.SKIP and SEQCON.IRQEN (spec 17) | VIDSTAT; SEQSTAT.SKIP |
-| 4 | BLT | The blitter: a job with IRQ ended, or the blitter stopped (the chain's end, STOP, an error) | DMXINT.BLT and DMXINTEN.BLT (spec 14) | DMXINT.BLT |
-| 5 | – | Not used: kept for the rasteriser (spec 14, open point D3). Was DMA engine channel 1 | – | – |
-| 6–7 | – | Not used (were DMA engine channels 2 and 3) | – | – |
+| 4 | BLT | The blitter and the rasteriser: a job with IRQ ended, or the unit stopped (the chain's end, STOP, an error) | DMXINT.BLT with DMXINTEN.BLT (spec 14), or DMXINT.RAS with DMXINTEN.RAS (spec 19) | DMXINT.BLT, DMXINT.RAS |
+| 5–7 | – | Not used (were DMA engine channels 1–3) | – | – |
 | 8 | – | Not used, as in retro68k | – | – |
 | 9 | AUDIO | Reserved for sound (spec 13, parked) | – | – |
 | 10 | – | Not used, as in retro68k | – | – |
@@ -94,7 +93,9 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 
 Reserved sources request nothing, so their INTRAW bits read 0.
 
-**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the blitter, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
+The blitter's and the rasteriser's flags share one source (BLT): the handler reads DMXINT to tell them apart, as retro68k's does.
+
+**Order.** Fixed priority makes the source number the priority: video first (a VBLANK or LINE handler that starts late shows on the screen), then the blitter and the rasteriser, the timers, the serial link (whose FIFOs absorb delay), the SD card, the keyboard and the software interrupt. retro68k's defaults put the timers above the video by level; here they come after it. A program that wants a timer to go first can turn the video sources off in INTENA while it waits, or nest (section 8).
 
 ## 5. IM 2 vectors
 
@@ -271,7 +272,7 @@ vbl:    push af
 
 ## 14. Test plan
 
-- **Vectors:** each source in use, raised by its unit (SOFT by software; BLT by a blitter job with IRQ), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
+- **Vectors:** each source in use, raised by its unit (SOFT by software; BLT by a blitter job and by a rasteriser job with IRQ), gives VECBASE + 2n in IM 2 with several VECBASE values, including one that wraps; the CPU reaches the right handler.
 - **Priority:** with several sources pending, they are served lowest number first; INTID agrees with the vector at every step.
 - **IM 1:** `RST 38h` with INTID dispatch serves every source; a spurious acknowledge gives INTID = 23.
 - **Request path:** INTRAW follows unit flag AND unit enable; INTPEND follows INTRAW AND INTENA AND MASTER; reserved sources read 0.
@@ -289,11 +290,11 @@ vbl:    push af
 
 | # | Item |
 |---|------|
-| I1 | Every unit spec must give its flags, enables and request line in retro68k's form: VIDSTAT/VIDINTEN (spec 4: VBLANK, LINE, the VIDERR bits including the sprites'), COPSTAT.IRQ and COPCON.IRQEN (spec 6), DMXINT/DMXINTEN (spec 14), TMRn_STAT and CTRL.IRQ (spec 9), SERIRQ/SERIRQEN (spec 10), KBIRQ/KBIRQEN (spec 12). The SD controller (spec 11) has no interrupt in version 1. The earlier draft's edge latches in the controller are gone |
+| I1 | Every unit spec must give its flags, enables and request line in retro68k's form: VIDSTAT/VIDINTEN (spec 4: VBLANK, LINE, the VIDERR bits including the sprites'), COPSTAT.IRQ and COPCON.IRQEN (spec 6), DMXINT/DMXINTEN (specs 14 and 19), TMRn_STAT and CTRL.IRQ (spec 9), SERIRQ/SERIRQEN (spec 10), KBIRQ/KBIRQEN (spec 12). The SD controller (spec 11) has no interrupt in version 1. The earlier draft's edge latches in the controller are gone |
 | I2 | AUDIO (9) is reserved until spec 13 |
 | I3 | GEOM (19): does the geometry unit need an interrupt at all? It finishes in under 1 µs (design plan, branch 10). Keep the number reserved until spec 15 decides |
 | I4 | Partly closed (ticket #16): tv80 runs the IM 2 and IM 1 acknowledges as spec 1, section 8.1 says, at 20, 3.57 and 2.5 MHz, and takes the vector at the end of T2 (spec 1, B11). The spurious acknowledge and the frozen choice cannot be made from software with this timing (the request is registered, and the core samples /INT a T-state before the end of the instruction), so they are tested on the controller alone (`sim/intc`) |
 | I5 | Closed: no IM 0 option (design plan, branch 11). Software sets IM 1 or IM 2 before the first `EI` (section 7) |
 | I6 | Closed: IM 1 uses INTID (the source at the last acknowledge) instead of a separate "highest pending" port. INTHIGH is gone |
 | I7 | Deferred (design plan, branch 11): interrupts from accelerator-port pins (retro68k I1). Source 20 is kept free for it |
-| I8 | Closed: the blitter is source 4, BLT, as retro68k; sources 5–7 (version 1's DMA1–DMA3) are not used, and 5 is kept for the rasteriser (10 November 2026, #103; spec 14) |
+| I8 | Closed: the blitter is source 4, BLT, as retro68k; sources 5–7 (version 1's DMA1–DMA3) are not used (10 November 2026, #103; spec 14). The rasteriser shares source 4, as retro68k, so 5 is no longer kept for it (11 November 2026, #110; spec 19) |

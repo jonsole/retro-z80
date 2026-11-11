@@ -16,15 +16,15 @@ This is the one place that lists every register in the machine: the rules every 
 | Register page | MMU page `0x3F8`, in any window: page p, register r at offset p × 256 + r, the port with its bytes swapped. The system page at `0x0000`, KEYROW0–7 at `0x0100`, the interrupt pages at `0x0140`–`0x01FF`, the debug unit at `0x0200`–`0x023C`, the custom block at `0x1000`, the palettes at `0x1400`–`0x1FFF` (section 6) |
 | Register bus | 8-bit, one clock per access. Masters in order: the copper, the CPU, the sprite sequencer (section 3.2) |
 | Copper reach | Writes only, custom block only: MOVE `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF`, MOVEF `0x000`–`0x3FF` (section 5.1, spec 6) |
-| Blitter reach | SRAM only: no registers, palettes, boot ROM or ports (spec 14, section 4) |
+| Blitter and rasteriser reach | SRAM only: no registers, palettes, boot ROM or ports (spec 14, section 4; spec 19, section 3.2) |
 | Unused ports, pages and offsets | Read `0xFF`; writes are ignored. No access ever gives an error (rule 11) |
 | Interrupts | 21 source numbers on one /INT line, fixed priority; IM 2 vector = VECBASE + 2 × source (section 7, spec 8) |
 | Source file | `fpga/regmap.def`, turned into `hw.inc` (sjasmplus), `hw.h` (C) and `regmap.vh` (Verilog) by `tools/regmap.py` (section 8) |
 
 **Who can reach what:**
 
-| Area | CPU | Copper | Blitter |
-|------|-----|--------|---------|
+| Area | CPU | Copper | Blitter, rasteriser |
+|------|-----|--------|---------------------|
 | System page (page `0x00`; register page `0x0000`–`0x00FF`) | Read and write | No | No |
 | Low-byte-only ports | Read and write | No | No |
 | Custom block (pages `0x10`–`0x13`; register page `0x1000`–`0x13FF`) | Read and write | Write: MOVE `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF`, MOVEF all | No |
@@ -52,12 +52,12 @@ The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and w
 | Unused addresses read 0; unmapped regions give a bus error | Unused ports, pages and offsets read `0xFF`; nothing gives an error (rule 11) | Z80: no bus error input; the register bus returns `0xFF` when no unit answers (spec 1, section 4.2) |
 | SYSCON.PROTECT: user mode cannot reach the registers | No protection | Z80: no user mode |
 | Set/clear: bit 15 of a 16-bit half | Bit 7 of a byte (DMACON, INTENA0–2); SPRDMA's SETCLR is in its second byte (rule 12) | 8-bit registers |
-| Custom block order: video `0x000`, layers `0x100`, blitter `0x300`, audio `0x400`, sprites `0x500`, copper `0x700` | Video globals `0x000`, sprites `0x010`, layers `0x090`, video read-only `0x0F0`; copper `0x100`, sprite globals `0x120`, attribute layer `0x130`, blitter `0x140`, audio `0x240`, sprite sequencer `0x300` | A one-word copper MOVE reaches offsets `0x000`–`0x0EF` only, so everything a list changes per line sits there; the custom block is 1 KB |
+| Custom block order: video `0x000`, layers `0x100`, blitter `0x300`, audio `0x400`, sprites `0x500`, copper `0x700` | Video globals `0x000`, sprites `0x010`, layers `0x090`, video read-only `0x0F0`; copper `0x100`, sprite globals `0x120`, attribute layer `0x130`, blitter `0x140`, rasteriser `0x180`, audio `0x240`, sprite sequencer `0x300` | A one-word copper MOVE reaches offsets `0x000`–`0x0EF` only, so everything a list changes per line sits there; the custom block is 1 KB |
 | Layer n at `0x100` + n × `0x80` | Layer n at `0x090` + n × `0x20`; three layers in both | Copper reach (spec 4) |
 | Sprite n at `0x520` + n × `0x20` | Sprite n at `0x010` + n × `0x10` | Copper reach; no SPRxDAT (spec 5) |
 | Palettes memory-mapped at `0xE04000`, 4-byte entries `0x00RRGGBB` | PALIDX and PALDAT; and the register page at `0x1400`–`0x1FFF`, 3-byte entries (blue, green, red) | 64 KB address space; four 4-byte palettes would not fit the 8 KB register page beside the custom block (spec 2, section 10.2) |
 | BPL1PT–BPL7PT, BPL0DAT–BPL7DAT, BPLDMA, CTRL.PLANAR and PLANES | Left out; their offsets and bits are reserved where they would sit | Chunky layers only; the data registers are not visible (spec 4) |
-| Blitter at `0x300`–`0x328`, DMXINT and DMXINTEN at `0x3F0`, `0x3F4` | At `0x140`–`0x168`; DMXINT and DMXINTEN at `0x230`, `0x234`; `0x16C`–`0x22F` kept for the rasteriser | Custom block layout (spec 14) |
+| Blitter at `0x300`–`0x328`, rasteriser at `0x340`–`0x370`, DMXINT and DMXINTEN at `0x3F0`, `0x3F4` | Blitter at `0x140`–`0x168`, rasteriser at `0x180`–`0x1B3`; DMXINT and DMXINTEN at `0x230`, `0x234` | Custom block layout (specs 14 and 19) |
 | System block: 256 bytes per device | 8 to 48 registers per device in page `0x00`, in the same order | 8-bit registers |
 | INTPRI0–2 | Left out | Z80: one /INT line, fixed priority (spec 8) |
 | TIMEHI, TIMELO: 64-bit time | TIME: 32 bits in 4 registers | 8-bit registers (spec 9) |
@@ -77,7 +77,7 @@ The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and w
 
 1. **Decoding.** Every port is register (A15–A8) : page (A7–A0). A port whose low byte is one of the five low-byte-only ports (`0x1F`, `0x53`, `0x5B`, `0x62`, `0xFE`) goes to that register of page `0x00` whatever A15–A8 hold; only port `0xFE` looks at A15–A8, on reads, to pick keyboard rows (spec 12). Otherwise page `0x00` is the system page, registers `0x40`–`0xFF` of page `0x01` are the interrupt pages (registers `0x00`–`0x3F` of page `0x01` are reserved), pages `0x10`–`0x13` are the custom block, and every other page is reserved: no strobe, reads `0xFF`, writes ignored (spec 1, section 6.1). The register bus address is page × 256 + register, the same address as the register page offset (section 6).
 2. **Multi-byte values.** A value wider than 8 bits sits at consecutive registers (offsets), **low byte at the lowest**. The bytes are named NAME0, NAME1, NAME2, NAME3, lowest first (section 8). There are **no latches**: every byte is written straight through when it is written, in any order, with any instruction. To change one byte, a program writes just that byte. So the hardware can see a value half written: a unit that copies it at the start of a line may take the new low byte with the old high byte. Software therefore changes wide display registers (layer pointers, scroll, windows, sprite registers mid-frame) in the vertical blank, or with the copper at a set position, as on the Amiga. A line setting read half written gives at worst a one-line glitch. A live pointer is the one case that can do more: a layer pointer written while the layer fetches picks up the fetcher's moves between its bytes, and the rest of the frame is shown from the wrong place (spec 4, section 4.4). There are three exceptions (section 3.1): the MMU pages and the interrupt pages, where writing byte 1 commits the page; the colours, which change when their red byte arrives; and the captures of rule 4.
-3. **The copper and the sprite sequencer write directly too.** A copper MOVE and a sequencer write put each byte straight into its register, as the CPU does, with no latch of their own (spec 6, section 4.2; spec 17). The masters' writes land in the order the register bus takes them, and the last write to each byte wins: a copper write between two of the CPU's bytes lands at once, and the other way round. (The blitter never reaches registers: spec 14, section 4.) Only the colours are assembled (the MMU pages are out of their reach): each master has one **colour assembly buffer** that holds its blue and green bytes until its red byte (rule 7).
+3. **The copper and the sprite sequencer write directly too.** A copper MOVE and a sequencer write put each byte straight into its register, as the CPU does, with no latch of their own (spec 6, section 4.2; spec 17). The masters' writes land in the order the register bus takes them, and the last write to each byte wins: a copper write between two of the CPU's bytes lands at once, and the other way round. (The blitter and the rasteriser never reach registers: spec 14, section 4; spec 19, section 3.2.) Only the colours are assembled (the MMU pages are out of their reach): each master has one **colour assembly buffer** that holds its blue and green bytes until its red byte (rule 7).
 4. **Reading.** Reading gives the register's value. For registers the **hardware changes by itself** (the table), **reading the low byte captures the whole value**. Each master that reads has **one tagged capture**, as retro68k's bus interface (`bus_if.v`: `rh_valid`, `rh_tag`, `rh_data`): one for the CPU, the only master that reads: the copper and the sprite sequencer only write, and the blitter does not reach registers. Reading a capturing register's low byte stores its whole value in the capture, tagged with that register. Reading a higher byte of the same register gives the captured byte, so a value read low byte first always matches, however long after the capture. Reading a higher byte of a register that is not the tagged one gives the live byte. Reading another capturing register's low byte replaces the capture. So an interrupt handler that reads a counter between a program's reads replaces the program's capture, and the program's later bytes come from the handler's register or read live. The fix: read with interrupts off, or, for a 2-byte value, with `LD HL,(nn)` through the register page, which reads both bytes in one instruction (an interrupt is taken only between instructions). On a read of a low byte that captures, the unit hands the master its whole value beside the byte (section 3.2). The registers that capture:
 
    | Register | Bytes | Low byte | Spec |
@@ -89,6 +89,7 @@ The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and w
    | COPPC | 3 | Custom `0x10A` | 6, 6 |
    | SEQPT | 3 | Custom `0x308` | 17, 8 |
    | BLTDESC | 3 | Custom `0x160` | 14, 8 |
+   | RASDESC | 3 | Custom `0x1A0` | 19, 7 |
    | TIME | 4 | Register `0x20` | 9, 3 |
    | TMRn_COUNT | 2 | Register `0x2D` + n × 8 | 9, 4.1 |
    | SDCOUNT | 2 | Register `0x5D` | 11, 5.2 |
@@ -99,10 +100,10 @@ The sprite sequencer (spec 17, a retro-z80 extra) reads its list from SRAM and w
 8. **The register bus.** Every register access, from a port, the register page, the copper or the sprite sequencer, is one clock on the register bus; the copper goes first, then the CPU, then the sprite sequencer (section 3.2). A port access is the Z80's normal 4-T-state I/O cycle and a register page access a normal 3-T-state memory cycle, with no wait states. Register accesses use no memory cycle.
 9. **I/O and memory are the same registers.** A write through a port and a write through the register page go to the same register, so a value can be written partly through one and partly through the other. The MMU's held byte 0, the CPU's colour assembly buffer and the CPU's capture are shared by both paths too. Reads have the same side effects both ways.
 10. **Write order.** With no latches, the bytes of a register can be written in any order and with any instruction: `LD (nn),HL`, `LD (nn),DE/BC/IX/IY`, `LDI`, `LDIR`, `PUSH`, `EX (SP),HL`, `LDDR`, and `OUT (C),r` with `INC B` or `DEC B`. `OUTI` decrements B, the register number, before the write, so unrolled `OUTI`s write a register from a table held high byte first; `OTIR` runs on down to register 0, so it is no use on a page. Two exceptions need their last byte last: an **MMU or interrupt page** (byte 0, then byte 1: `LD (nn),HL`, or `OUT (C),r` with `INC B`; not `PUSH` or `LDDR`) and a **colour** (blue, green, then red: rising addresses, `LDIR`, not `LDDR`). Read-modify-write instructions (`INC (HL)`, `SET b,(HL)`) are fine on plain registers, but not on the data ports of rule 14.
-11. **Unused addresses.** A register of a page, a custom offset, a reserved page or a register page offset with no register reads `0xFF` and ignores writes. A write-only register reads `0x00`. A byte that belongs to a register reads its bits, with reserved bits 0. A blitter job register's byte that holds no bits (BLTNEXT3) is part of its register and reads 0 (spec 14, section 3).
+11. **Unused addresses.** A register of a page, a custom offset, a reserved page or a register page offset with no register reads `0xFF` and ignores writes. A write-only register reads `0x00`. A byte that belongs to a register reads its bits, with reserved bits 0. A blitter or rasteriser job register's byte that holds no bits (BLTNEXT3; RASDPT3, RASNEXT3, the high bytes of RASSTRIDE and RASPAT) is part of its register and reads 0 (spec 14, section 3; spec 19, section 3).
 12. **Set/clear registers** (DMACON, INTENA0–2, SPRDMA): bit 7 of the byte (SPRDMA: of its second byte, SPRDMA1) is SETCLR. Writing with SETCLR = 1 sets the other bits written as 1; with SETCLR = 0 clears them; bits written as 0 are left alone. Reading gives the enables, with SETCLR reading 0. Never read, change and write back: write only the bits to change.
 13. **Strobes** act on any write, whatever the value: COPJMP1, COPJMP2, COPINT, and the strobe bits of SOFTINT, BLTCMD (START, RUN, STOP), I2CCMD, SERCON (RXFLUSH, TXFLUSH) and IPRESTORE (RET, NOW). Two act only on a magic value: SYSRESET (`0xA5`) and WDKICK (`0x5A`, where any other value resets while the watchdog is on).
-14. **Reading has no side effects,** except for the CPU: SERDATA and KBDATA, which take a byte; SDDATA with SDCON.AUTO set, which starts an exchange; SERDROP, which clears; PALDAT, whose red read steps the index; and the captures of rule 4. All except PALDAT and the captures are in the system page, out of the copper's reach. Only the CPU reads registers: the copper and the sprite sequencer only write, and the blitter reaches SRAM only (spec 14).
+14. **Reading has no side effects,** except for the CPU: SERDATA and KBDATA, which take a byte; SDDATA with SDCON.AUTO set, which starts an exchange; SERDROP, which clears; PALDAT, whose red read steps the index; and the captures of rule 4. All except PALDAT and the captures are in the system page, out of the copper's reach. Only the CPU reads registers: the copper and the sprite sequencer only write, and the blitter and the rasteriser reach SRAM only (specs 14 and 19).
 15. **Timing.** A write takes effect as its unit's spec says: some at once (palette entries, VIDCON), some at the start of the line's picture (PRIO, BGCOLOR), some at the start of the next line (layer settings; a running sprite's PT, H, V and STEP), and a write to SPRxCTL starts its sprite (the vertical blank stops every sprite). Each byte takes effect when it is written; only an MMU page and a colour wait for their last byte (rule 2). A port `0xFE` border write acts at once, from the pixel being shown about 10–60 ns later (a Spectrum extra, spec 4, section 7.2). See spec 4, section 5.6, and spec 5, section 4.2.
 
 **Access column key:** R = read only; W = write only (reads `0x00`); RW = read and write; W1C = sticky flags, cleared by writing 1; R, W1C = live bits and sticky flags mixed; SC = set/clear (rule 12); S = strobe (rule 13); F = reading has an effect (rule 14); CAP = reading the low byte captures (rule 4).
@@ -144,6 +145,7 @@ Each spec declares where a register departs from the rules above. The first thre
 | BGCOLOR (custom `0x004`–`0x006`) | A write to port `0xFE` sets all three bytes at once and shows at once, mid-line, after the clock crossing (10–60 ns); the CPU's colour assembly buffer is kept. BGCOLOR written as a register shows from the start of a line's picture | Spectrum border | 4, 7.2 |
 | **Writes refused or limited** | | | |
 | Blitter job registers and BLTDESC (custom `0x140`–`0x162`) | Writes are ignored while BLTSTAT.BUSY | retro68k's rule | 14, 8 |
+| Rasteriser job registers, RASDESC and the clip window (custom `0x180`–`0x1A2`, `0x1AC`–`0x1B3`) | Writes are ignored while RASSTAT.BUSY | retro68k's rule | 19, 7 |
 | WDCTRL, WDTIME (registers `0x48`–`0x4A`) | Read only after WDCTRL.LOCK, until reset | retro68k's watchdog lock | 9, 5 |
 | SYSCON.ROMLOCK, SERCON.CTLLOCK | Can be set, not cleared, by software | retro68k's locks | 7, 11.1; 10, 7 |
 | SDDATA, KBSEND, I2CCMD | A write while the unit is busy is ignored | No transmit buffers; the CPU never waits | 11, 3; 12, 3.4; 7, 11.2 |
@@ -175,7 +177,7 @@ In each clock the first master in this order that wants the bus gets it:
 
 - The copper goes first, so its writes always land on their pixel. The CPU's strobe then moves one clock, which every CPU access has room for (spec 1, sections 5.7 and 6).
 - The sprite sequencer waits a clock whenever the copper or the CPU has the bus, so it never delays either of them. Its 16 writes for an entry take at most 40 clocks (spec 17, section 5).
-- The blitter is not a master: it reaches SRAM only, through the memory scheduler (spec 14, section 4). Version 1's DMA engine was a fourth master, after the sequencer; it went when the blitter replaced the engine (10 November 2026, #103).
+- The blitter and the rasteriser are not masters: they reach SRAM only, through the memory scheduler (spec 14, section 4; spec 19, section 3.2). Version 1's DMA engine was a fourth master, after the sequencer; it went when the blitter replaced the engine (10 November 2026, #103).
 - The boot ROM is not on this bus: the CPU reads it through the MMU (spec 2, section 2).
 
 ## 4. Ports and the system page
@@ -466,7 +468,7 @@ Byte registers at custom offsets `0x000`–`0x3FF`. The CPU reaches offset k at 
 | `0x100`–`0x11F` | `0x0011`–`0x1F11` | Copper control and state | MOVEF | 6, 6 |
 | `0x120`–`0x12F` | `0x2011`–`0x2F11` | Sprite globals: SPRDMA, SPRCOLL | MOVEF | 5, 6 |
 | `0x130`–`0x13F` | `0x3011`–`0x3F11` | Attribute layer (Spectrum extra) | MOVEF | 4, 7.1 |
-| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | Blitter: the job registers, BLTDESC, BLTCMD, BLTSTAT, DMXINT, DMXINTEN | MOVEF | 14, 8 |
+| `0x140`–`0x23F` | `0x4011`–`0xFF11`, `0x0012`–`0x3F12` | Blitter (`0x140`–`0x168`) and rasteriser (`0x180`–`0x1B3`): their job registers and control registers, the clip window, and the shared DMXINT, DMXINTEN | MOVEF | 14, 8; 19, 7 |
 | `0x240`–`0x2FF` | `0x4012`–`0xFF12` | Audio, reserved (design plan Q1) | MOVEF (no effect) | 13 |
 | `0x300`–`0x30F` | `0x0013`–`0x0F13` | Sprite sequencer (retro-z80 extra) | MOVEF | 17, 8 |
 | `0x310`–`0x3FF` | `0x1013`–`0xFF13` | Free | MOVEF (no effect) | |
@@ -574,9 +576,9 @@ Layer n (0–2) at `0x090` + n × `0x20`: L0 at `0x090` (ports `0x9010`–`0xAF1
 | `0x135` | `0x3511` | ATSCROLL | 1 | RW | 4, 7.1 |
 | `0x136`–`0x13F` | | – | | Reserved | |
 
-### 5.9 Blitter (`0x140`–`0x23F`)
+### 5.9 Blitter and rasteriser (`0x140`–`0x23F`)
 
-The job registers are laid out as a 32-byte descriptor (spec 14, section 3): eight 4-byte words, low byte first.
+Each unit's job registers are laid out as a 32-byte descriptor (spec 14, section 3; spec 19, section 3): eight 4-byte words, low byte first. DMXINT and DMXINTEN are shared.
 
 | Offset | Port | Name | Width | Access | Spec |
 |--------|------|------|-------|--------|------|
@@ -591,10 +593,23 @@ The job registers are laid out as a 32-byte descriptor (spec 14, section 3): eig
 | `0x160`–`0x162` | `0x6011`–`0x6211` | BLTDESC | 3 | RW (ignored while BUSY), CAP | 14, 8 |
 | `0x164` | `0x6411` | BLTCMD | 1 | S (START, RUN, STOP) | 14, 8 |
 | `0x168` | `0x6811` | BLTSTAT | 1 | R | 14, 8 |
+| `0x180`–`0x183` | `0x8011`–`0x8311` | RASCTRL | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x184`–`0x187` | `0x8411`–`0x8711` | RASP0 | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x188`–`0x18B` | `0x8811`–`0x8B11` | RASP1 | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x18C`–`0x18F` | `0x8C11`–`0x8F11` | RASP2 | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x190`–`0x193` | `0x9011`–`0x9311` | RASDPT | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x194`–`0x197` | `0x9411`–`0x9711` | RASSTRIDE | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x198`–`0x19B` | `0x9811`–`0x9B11` | RASPAT | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x19C`–`0x19F` | `0x9C11`–`0x9F11` | RASNEXT | 4 | RW (ignored while BUSY) | 19, 3 |
+| `0x1A0`–`0x1A2` | `0xA011`–`0xA211` | RASDESC | 3 | RW (ignored while BUSY), CAP | 19, 7 |
+| `0x1A4` | `0xA411` | RASCMD | 1 | S (START, RUN, STOP) | 19, 7 |
+| `0x1A8` | `0xA811` | RASSTAT | 1 | R | 19, 7 |
+| `0x1AC`–`0x1AF` | `0xAC11`–`0xAF11` | RASCLIPMIN | 4 | RW (ignored while BUSY) | 19, 4 |
+| `0x1B0`–`0x1B3` | `0xB011`–`0xB311` | RASCLIPMAX | 4 | RW (ignored while BUSY) | 19, 4 |
 | `0x230` | `0x3012` | DMXINT | 1 | W1C | 14, 8 |
 | `0x234` | `0x3412` | DMXINTEN | 1 | RW | 14, 8 |
 
-`0x15F` holds no bits of BLTNEXT's fields but is part of it (it reads 0). `0x163`, `0x165`–`0x167`, `0x169`–`0x22F` and `0x235`–`0x23F` are reserved: `0x16C`–`0x22F` for the rasteriser's registers to come.
+`0x15F`, `0x193`, `0x19F` hold no bits of their registers' fields but are part of them (they read 0); `0x196`–`0x197` and `0x19A`–`0x19B` likewise. `0x163`, `0x165`–`0x167`, `0x169`–`0x17F`, `0x1A3`, `0x1A5`–`0x1A7`, `0x1A9`–`0x1AB`, `0x1B4`–`0x22F` and `0x235`–`0x23F` are reserved.
 
 ### 5.10 Audio (`0x240`–`0x2FF`)
 
@@ -638,7 +653,7 @@ MMU page `0x3F8` (REGS) shows the registers as memory, in any window, for reads,
 - Opcode fetches from the register page read `0xFF` (`RST 38h`) and have no side effect (spec 1, section 5.7).
 - Register page accesses use no SRAM cycle.
 - A window can read ROM or RAM while its writes go to the register page, so `LD (IX+d),A` stores to registers while code and tables are read from the same addresses (spec 2, section 9.6).
-- The blitter does not see this page: its physical addresses reach SRAM only, and `0x7F0000` (MMU page `0x3F8` × `0x2000`) wraps into SRAM for it (spec 14, section 4).
+- The blitter and the rasteriser do not see this page: their physical addresses reach SRAM only, and `0x7F0000` (MMU page `0x3F8` × `0x2000`) wraps into SRAM for them (spec 14, section 4; spec 19, section 3.2).
 
 ## 7. Interrupt sources
 
@@ -650,8 +665,8 @@ From spec 8, section 4. The number is the fixed priority (lower first) and the I
 | 1 | LINE | Video (spec 4) | VIDSTAT.LINE and VIDINTEN.LINE | + 2 |
 | 2 | COPPER | Copper (spec 6) | COPSTAT.IRQ and COPCON.IRQEN | + 4 |
 | 3 | VIDERR | Video, sprites and the sprite sequencer (specs 4, 5, 17) | VIDSTAT OVERRUN0–2, OVERRUNA, SPRUNDER and their VIDINTEN bits; SEQSTAT.SKIP with SEQCON.IRQEN | + 6 |
-| 4 | BLT | Blitter (spec 14) | DMXINT.BLT and DMXINTEN.BLT | + 8 |
-| 5–7 | – | Not used (5 kept for the rasteriser) | – | + 10 … + 14 |
+| 4 | BLT | Blitter and rasteriser (specs 14 and 19) | DMXINT.BLT and RAS, and their DMXINTEN bits | + 8 |
+| 5–7 | – | Not used | – | + 10 … + 14 |
 | 8 | – | Not used, as in retro68k | – | + 16 |
 | 9 | AUDIO | Reserved for sound (spec 13) | – | + 18 |
 | 10 | – | Not used, as in retro68k | – | + 20 |
@@ -730,7 +745,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 6. **Exceptions:** each row of section 3.1 behaves as its spec says: set/clear bytes, SPRDMA1 acting on SPRDMA0, PALDAT stepping and its byte order reset by either PALIDX byte, data ports taking exactly one byte through a port and through the register page, a port `0xFE` border write showing mid-line while a BGCOLOR write waits for the next line's picture, MMU0_1 to MMU7_1 setting the write page, a sprite started by a CTL write only and stopped by the vertical blank, SDCOUNT1 starting a run, locks, busy writes ignored.
 7. **Register bus:** a copper write in the same clock as a CPU strobe goes first and the CPU's access still completes in time; a sprite sequencer write waits for both and never delays them; with all three busy, no access is lost.
 8. **Copper reach:** MOVE reaches `0x000`–`0x0EF`, MOVR `0x000`–`0x0FF` (writes to `0x0F0`–`0x0FF` ignored), MOVEF `0x000`–`0x3FF`; nothing the copper does reaches the system page.
-9. **Blitter reach:** a job with addresses at `0x7F0000`–`0x7FFFFF` writes SRAM (wrapping, spec 14, section 4), never a register, a palette or the boot ROM.
+9. **Blitter and rasteriser reach:** a job of either with addresses at `0x7F0000`–`0x7FFFFF` writes SRAM (wrapping, spec 14, section 4; spec 19, section 3.2), never a register, a palette or the boot ROM.
 10. **Register page:** each system register at its offset, each custom register at `0x1000` + offset, with the same values and side effects; an MMU page started through a port commits through memory and the other way round; `LD (nn),HL` writes a 2-byte register in one instruction; the palettes read and write at their offsets without touching PALIDX; KEYROW0–7 match port `0xFE`; opcode fetches read `0xFF`.
 11. **Interrupt pages:** every register of section 4.13 at its port and at register page offset `0x0100` + register; registers `0x00`–`0x3F` of page `0x01` read `0xFF` through I/O with no strobe; the page registers commit on byte 1 through both paths; the copper and the blitter cannot reach them. The behaviour is tested in spec 2, section 14, and spec 1, section 13.
 12. **Debug unit:** every register of section 4.14 at its port and at register page offset `0x0200` + register; registers `0x3D`–`0xFF` of page `0x02` read `0xFF`; the copper and the blitter cannot reach them. The behaviour is tested in spec 18, section 11.
@@ -744,7 +759,7 @@ GitHub runs `python3 tools/regmap.py --verify` on every push, which fails if thi
 | R2 | Bit layouts in each spec should be checked against the rules of section 3 once more when the generator is written (as retro68k's R2) |
 | R3 | Closed (design plan, branch 11): register writes are direct, with no latches, for the CPU, the copper and (in version 1) the DMA engine (rules 2 and 3). Latches for every wide register would have cost about 1,000–2,000 LUTs. Three exceptions stay: the MMU pages (byte 1 commits), the colours (the red byte commits, one assembly buffer per master) and the captures (one tagged capture per master, rule 4). Software changes wide display registers in the vertical blank or with the copper |
 | R4 | Closed: unused addresses read `0xFF` (design plan, branch 11), not 0 as in retro68k. Bytes that belong to a register read 0 in their reserved bits |
-| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the blitter's reserved bytes (`0x16C`–`0x22F` kept for the rasteriser), `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
+| R5 | Free space. System page: `0x17`–`0x1E`, `0x24`–`0x27`, `0x4C`–`0x4F`, `0x5F`, `0x69`–`0x6A`, `0x6E`–`0x6F`, `0xC0`–`0xFD`, `0xFF` (`0x0F` reserved). `0x7C`–`0x7F` (spec 7, SY11). Custom block: `0x00D`–`0x00F`, `0x0FA`–`0x0FF`, `0x112`–`0x117`, `0x122`–`0x123`, `0x128`–`0x12F`, `0x136`–`0x13F`, the blitter's and rasteriser's reserved bytes (`0x169`–`0x17F`, `0x1B4`–`0x22F`), `0x30B`–`0x30F` (kept for the sprite sequencer), `0x310`–`0x3FF`. Page `0x01`: registers `0x00`–`0x3F` (reserved through I/O), `0x4A`–`0x4B`, `0x50`–`0x7F`. Page `0x02`: registers `0x06`–`0x0F`, the reserved bytes of each breakpoint and watchpoint, `0x3D`–`0xFF`. Register page: `0x0108`–`0x013F`, `0x023D`–`0x0FFF`. I/O pages `0x03`–`0x0F` and `0x14`–`0xFF`. A block that needs more than its range says so in its own spec and takes it from the free space, not from another block |
 | R6 | The audio block (`0x240`–`0x2FF`, 192 bytes) is sized before sound is specified (spec 13, design plan Q1); if it needs more, it takes it from `0x310`–`0x3FF` |
 | R7 | The geometry unit's 32 registers (`0xA0`–`0xBF`) are spec 15's, and interrupt 19 is reserved for its list mode; its register page view (memory access with LDI and `LD (IX+d)`, design plan branch 10) is offsets `0x00A0`–`0x00BF` like any system register |
 | R8 | The palette write delay after a copper WAIT (spec 6, C9) should be listed here once known (as retro68k's R3) |

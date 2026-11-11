@@ -166,7 +166,7 @@ Every unit decodes rb_addr, so one address names a register however it is reache
 
 - The copper goes first, so its writes always land on their pixel. It writes at most once every 2 clocks (spec 6), so the CPU's strobe moves at most one clock, which every CPU access has room for (sections 5.7 and 6).
 - The sprite sequencer (a retro-z80 extra) waits a clock whenever the copper or the CPU has the bus, so it never delays either of them. In any 40 clocks it gets at least 17, enough for an entry's 16 writes (spec 17, section 5.3).
-- The blitter is not a master: it reaches SRAM only, through the scheduler, and never the registers or the boot ROM (spec 14, section 4). Version 1's DMA engine was a fourth master, last; it went when the blitter replaced it (10 November 2026, #103).
+- The blitter and the rasteriser are not masters: they reach SRAM only, through the scheduler, and never the registers or the boot ROM (spec 14, section 4; spec 19, section 3.2). Version 1's DMA engine was a fourth master, last; it went when the blitter replaced it (10 November 2026, #103).
 
 ### 4.3 A 6502 later
 
