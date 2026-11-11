@@ -164,10 +164,15 @@ retro-z80 is the 8-bit sister of [retro68k](https://github.com/jonsole/retro68k)
 | 21 | Blitter: core | **retro-hw's `blitter`** (revision 2) in place of the DMA engine, as retro68k (its branch `blitter2`), wrapped by `fpga/rtl/dmx.v` (10 November 2026, #103). The old shared core tried to do too much; retro-hw split it into `blitter`, `raster` and `geom` |
 | 21 | Blitter: one unit | **One blitter, as retro68k:** one job in the registers, or a chain of 32-byte descriptors in SRAM. No channels (10 November 2026, #103) |
 | 21 | Blitter: job layout | **retro68k's job, as 32 bytes little-endian:** eight 4-byte words, low byte first, the same in the registers and in a descriptor: BLTCTRL, BLTBPT, BLTDPT, BLTSIZE, BLTAPT, BLTSTRIDE, BLTVALUE, BLTNEXT at custom `0x140`–`0x15F`; BLTDESC `0x160`, BLTCMD `0x164`, BLTSTAT `0x168`; DMXINT and DMXINTEN stay at `0x230` and `0x234` (10 November 2026, #103) |
-| 21 | Blitter: scope | **The blitter only in this ticket.** The rasteriser (retro-hw's `raster`: lines and triangles) comes in a ticket of its own, designed with retro68k; custom `0x16C`–`0x22F` and interrupt source 5 are kept for it. LINE and EDGES are gone from the blitter (10 November 2026, #103) |
-| 21 | Blitter: dropped | **As retro68k:** ADD, EDGES, LINE (to the rasteriser), timer-started jobs (TMRn_CTRL bits 7–5, DMA and DMACH, reserved), the 4 channels, PAUSE, CHERR, the line clip rectangle, sources DMA0–DMA3 (now one source 4, BLT; 5–7 unused, 5 kept for the rasteriser). **Kept:** the copper's WAIT with B (waits for the blitter idle, a whole chain), and the copper starting jobs by writing the registers with MOVEF (10 November 2026, #103) |
+| 21 | Blitter: scope | **The blitter only in this ticket.** The rasteriser (retro-hw's `raster`: lines and triangles) comes in a ticket of its own, designed with retro68k; ~~custom `0x16C`–`0x22F` and interrupt source 5 are kept for it~~ see "Rasteriser: registers" and "Rasteriser: shared with the blitter". LINE and EDGES are gone from the blitter (10 November 2026, #103) |
+| 21 | Blitter: dropped | **As retro68k:** ADD, EDGES, LINE (to the rasteriser), timer-started jobs (TMRn_CTRL bits 7–5, DMA and DMACH, reserved), the 4 channels, PAUSE, CHERR, the line clip rectangle, sources DMA0–DMA3 (now one source 4, BLT; 5–7 unused; ~~5 kept for the rasteriser~~ the rasteriser shares 4, see "Rasteriser: shared with the blitter"). **Kept:** the copper's WAIT with B (waits for the blitter idle, a whole chain), and the copper starting jobs by writing the registers with MOVEF (10 November 2026, #103) |
 | 21 | Blitter: targets | **SRAM only, for good:** the blitter never reaches registers, palettes, the boot ROM or ports, and there is no descriptor RAM. No address range check: address bits above the SRAM are ignored (10 November 2026, #103) |
 | 21 | Blitter: KS2 | **No mask image** (`DMX_MASKIMG = 0`), as before: MASK = 1 is an error there. 2 sprites, as before. `GEOM = 1` still builds the geometry unit in place of the blitter (10 November 2026, #103) |
+| 21 | Rasteriser: pickup | **retro-hw's `raster`** (revision 1) beside the blitter in `fpga/rtl/dmx.v`, as retro68k (its branch `raster`, spec 17), built with LE 1 and AW 21 (11 November 2026, #110; spec 19). **Follows retro68k's provisional design:** its user has not reviewed its choices yet, and retro-z80 follows any change (spec 19, RA1). Answers spec 14, D3 |
+| 21 | Rasteriser: registers | **retro68k's job, as 32 bytes little-endian:** RASCTRL (VALUE, BPP, IRQ, TRI, NOLAST, MINTERM), RASP0–RASP2 (Y in bits 15–0, X in 31–16, signed), RASDPT (the byte holding pixel (0, 0)), RASSTRIDE, RASPAT, RASNEXT at custom `0x180`–`0x19F`; RASDESC `0x1A0`, RASCMD `0x1A4` (START, RUN, STOP), RASSTAT `0x1A8` (BUSY, ERR); the clip window RASCLIPMIN `0x1AC` and RASCLIPMAX `0x1B0`, inclusive, signed, shared by every job, not reset. A reserved RASCTRL bit is an error (stored, read 0); other reserved bits are not stored (11 November 2026, #110, as retro68k, provisional) |
+| 21 | Rasteriser: shared with the blitter | **As retro68k:** DMXINT and DMXINTEN gain RAS (bit 1), and both units feed interrupt source 4 (BLT); source 5 is no longer kept. DMACON.BLTEN with DMAEN enables both; there is no bit of its own. The copper's WAIT with B waits until both are idle (11 November 2026, #110, provisional) |
+| 21 | Rasteriser: memory | **Its own scheduler requester, 6 (RAS);** the DMA port moves to 7, as retro68k. Free cycles only, like the blitter: the slot plan stays fixed, with no owner bit for it (branch 25). A blit and a raster job can run at once; where their destinations overlap the order of the writes is unspecified (11 November 2026, #110) |
+| 21 | Rasteriser: KS2 | **Triangles if the full build fits** (`DMX_TRI = 1`), lines only (`DMX_TRI = 0`: a TRI job is an error) otherwise, as branch 10, "Drawing: raster"; to be measured in Vivado (spec 19, RA3). `GEOM = 1` leaves the blitter and the rasteriser out (11 November 2026, #110) |
 
 ## 2. Key decisions
 
@@ -313,7 +318,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | `0x100`–`0x11F` | Copper | MOVEF |
 | `0x120`–`0x12F` | Sprite globals | MOVEF |
 | `0x130`–`0x13F` | Attribute layer (Spectrum extra) | MOVEF |
-| `0x140`–`0x23F` | Blitter; `0x16C`–`0x22F` kept for the rasteriser | MOVEF |
+| `0x140`–`0x23F` | Blitter (`0x140`), rasteriser (`0x180`), DMXINT and DMXINTEN (`0x230`) | MOVEF |
 | `0x240`–`0x2FF` | Audio (reserved) | MOVEF |
 | `0x300`–`0x30F` | Sprite sequencer (branch 14) | MOVEF |
 
@@ -340,6 +345,7 @@ The full list is in [spec 3](spec/registers.md). Ports are register (high byte) 
 | – | [Monitor and upload protocol](spec/monitor.md) (shared with retro68k) | Draft (branch 16), word for word the same in both repos; for retro68k to review and adopt |
 | 17 | [Sprite sequencer](spec/sprite-sequencer.md) | Draft (branch 14) |
 | 18 | [Debug unit](spec/debug-unit.md) | Draft (branch 18): single step, 4 breakpoints with an optional page match, 2 watchpoints, all on the NMI; I/O page `0x02` |
+| 19 | [Rasteriser](spec/rasteriser.md) | Draft, version 1 (#110): retro-hw's raster core beside the blitter, lines and filled triangles clipped to a window; follows retro68k's spec 17, provisional (branches 10 and 21) |
 | – | [Remote debugging protocol](spec/debug.md) | Draft (branch 18): its transport section (frames with a channel byte) offered to retro68k word for word; the debug channel is retro-z80's, for the bridge `tools/rz80_bridge.py` (VS Code and MCP, branch 20) |
 
 ## 5. Phases

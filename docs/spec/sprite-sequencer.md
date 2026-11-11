@@ -167,7 +167,7 @@ The sequencer is the last of three masters on the register bus (spec 3, section 
 
 The sequencer has its own channel in the scheduler (spec 2, section 5). It reads the list one 16-bit word per memory cycle, 8 words per entry, into its buffer, and asks for a cycle only while the buffer is not full. Its place in the free order:
 
-> the copper at PRI 1; the hard-deadline channels (layers, sprites); audio; **the sprite sequencer**; the copper at PRI 0; the CPU; the blitter; the DMA port.
+> the copper at PRI 1; the hard-deadline channels (layers, sprites); audio; **the sprite sequencer**; the copper at PRI 0; the CPU; the blitter; the rasteriser; the DMA port.
 
 - It never takes a cycle the CPU uses (spec 2, rule 0), and an urgent display fetch goes first, so it never spoils the picture or slows the CPU.
 - It goes before the copper at PRI 0, since its reads have a deadline (the gap line) and are few: at most 8 words per sprite reused, against at least 747 free-pool cycles per line (spec 2).

@@ -17,7 +17,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 | Cycles 0 and 2 | CPU. A cycle the CPU has asked for is never given to anyone else |
 | Cycles 1 and 3 | Display fetch: layers L0–L2, the attribute layer, sprites (hard-deadline channels, earliest deadline first) |
 | Cycle 4 | Audio (reserved, spec 13); while audio is parked, the free pool |
-| Free pool | The copper and the blitter, plus any cycle its owner leaves (section 5) |
+| Free pool | The copper, the blitter and the rasteriser, plus any cycle its owner leaves (section 5) |
 | Z80 waits | Never (spec 1, section 5) |
 | Bandwidth | 100 MB/s in all; display 40 MB/s (1,280 bytes per line, as retro68k); free pool at least about 47 MB/s |
 | On and off | DMACON (spec 4) turns each memory user on and off, as retro68k's |
@@ -33,7 +33,7 @@ It is retro68k's spec 5 (memory architecture) narrowed to an 8-bit CPU. The cloc
 |-------------------|-----------|-----|
 | Cycle 0 CPU; 1 and 3 display; 2 audio and peripherals; 4 free pool | Cycles 0 and 2 CPU; 1 and 3 display; 4 audio (reserved) and free pool | Z80: a read must be served 100 ns after its address appears, from either of the two T-state phases in a slot. Cycles 0 and 2 (40 and 60 ns apart) give every phase a cycle in time (spec 1, section 5) |
 | An urgent hard-deadline fetch, or a copper at PRI 2 (nasty), may take the CPU's cycle 0; the CPU waits one slot | Nobody takes a cycle the CPU has asked for. An urgent fetch may take cycle 0 or 2 only when the CPU has not asked for it; otherwise it waits for the next cycle, a display cycle 20 ns later (section 5.3). No nasty copper | The Z80 never waits (design plan, branch 11) |
-| A slot plan (MEMSLOT0–4) may make the blitter owner of the CPU's cycle 0 (version 1: the DMA engine's HIGH mode) | Left out: the CPU's cycles 0 and 2 are locked | Design plan, branch 11 (the Z80 never waits) |
+| A slot plan (MEMSLOT0–4) may make the blitter or the rasteriser owner of the CPU's cycle 0 (version 1: the DMA engine's HIGH mode); bit 6 is the rasteriser's owner bit, and the DMA port (requester 7) has none | Left out: the slot plan is fixed and the CPU's cycles 0 and 2 are locked. The blitter, the rasteriser and the DMA port own no cycle | Design plan, branches 11 and 25 (the Z80 never waits) |
 | CPU uses at most 10 MB/s (one access per 200 ns bus cycle) | CPU uses at most 6.67 M accesses a second (one per 3 T-states at 20 MHz), one byte each | Z80 |
 | Free pool typically 50–65 MB/s | At least about 47 MB/s, plus display cycles no layer needs | The Z80's two cycle numbers, of which it uses at most one per slot |
 | Audio owns cycle 2 | Audio is parked (spec 13); cycle 4 is kept for it and is free pool meanwhile | Sound still open (design plan, Q1) |
@@ -92,7 +92,7 @@ Both MMCMs run from the same oscillator, so every line is exactly 320 slots. The
 | 1 | 20 ns | Display fetch | Layers L0–L2, the attribute layer and sprites: the hard-deadline channels (spec 4, spec 5), earliest deadline first. If none needs it, free pool |
 | **2** | 40 ns | **CPU** | As cycle 0 |
 | 3 | 60 ns | Display fetch | As cycle 1. The display's two cycles are 40 and 60 ns apart, as in retro68k |
-| 4 | 80 ns | Audio (reserved) | Spec 13, parked. Until then, the free pool: the copper and the blitter |
+| 4 | 80 ns | Audio (reserved) | Spec 13, parked. Until then, the free pool: the copper, the blitter and the rasteriser |
 
 The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so it uses at most one of its two cycles in any slot, and at most two in any three slots (spec 1, section 5.5). The other is always free for the pool.
 
@@ -102,7 +102,7 @@ The Z80 makes at most one memory access every 3 T-states (150 ns at 20 MHz), so 
 - CPU: cycles 0 and 2 offer 20 M cycles a second; a 20 MHz Z80 uses at most 6.67 M of them (one byte each), typically about 5 M. Its other cycles go to the free pool.
 - Display fetch: **40 MB/s** (cycles 1 and 3), as retro68k: 1,280 bytes per line, 1.48 bytes per pixel of the 864-pixel line.
 - Cycle 4: 20 MB/s, reserved for audio; free pool meanwhile.
-- Free pool (copper, blitter): cycle 4 (20 MB/s) plus at least 13.3 M unused CPU cycles a second (26.7 MB/s), plus the display cycles no layer needs: **at least about 47 MB/s**, typically 55–70 MB/s.
+- Free pool (copper, blitter, rasteriser): cycle 4 (20 MB/s) plus at least 13.3 M unused CPU cycles a second (26.7 MB/s), plus the display cycles no layer needs: **at least about 47 MB/s**, typically 55–70 MB/s.
 
 ## 5. The scheduler
 
@@ -118,7 +118,8 @@ One block, the DMA controller (retro-hw's `dmac.v`, as retro68k's, the equivalen
 | 3 | COP | Copper: its list (spec 6) | Best effort; high at COPCON.PRI 1 |
 | 4 | CPU | The Z80 through the bus interface (spec 1) | Cycles 0 and 2, locked; at 3.57 MHz the first of them that comes (spec 1, section 5.4) |
 | 5 | BLT | The blitter (spec 14) | Best effort |
-| 6 | PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests | Best effort |
+| 6 | RAS | The rasteriser (spec 19) | Best effort |
+| 7 | PORT | The DMA port: a test channel, as retro68k's; used by the simulation tests. It was 6 until the rasteriser came (11 November 2026, #110), as in retro68k | Best effort |
 
 The sprite sequencer (spec 17, a retro-z80 extra) is not built yet and has no number (open point M13).
 
@@ -137,7 +138,7 @@ For each cycle, the first rule that finds a request wins, and within a rule the 
 1. **The owner of a locked cycle.** In cycles 0 and 2, a CPU request gets the cycle. Nothing overrides this.
 2. **An urgent request** (layer fetch before sprites).
 3. **The cycle's owner.**
-4. **The free order:** first a high request (the copper at COPCON.PRI 1), then any request, by number: layer fetch, sprites, audio, copper, CPU, blitter, the DMA port. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
+4. **The free order:** first a high request (the copper at COPCON.PRI 1), then any request, by number: layer fetch, sprites, audio, copper, CPU, blitter, rasteriser, the DMA port. There is no nasty copper: PRI 2 and 3 act as 1 (spec 6, section 5.1).
 
 So no cycle is wasted: whatever its owner leaves goes to the next channel that wants one. In particular the display can use a cycle 0 or 2 the CPU is not using, and cycle 4 when audio leaves it. The copper at PRI 1 gets cycle 4 before the display, as it did when it was cycle 4's second owner.
 
@@ -158,17 +159,17 @@ A screen within the display budget (section 7) is rarely urgent at all. On a scr
 
 ### 5.4 Turning users on and off
 
-As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (blitter), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
+As in retro68k, one register, **DMACON**, turns the memory users on and off with set/clear writes: DMAEN (all of them), BPLEN (layer fetch), COPEN (copper), BLTEN (blitter and rasteriser), SPREN (sprites) and AUDEN (audio, reserved). It is one byte in the custom block's video globals (`0x000`–`0x00F`); spec 4 gives its offset and bit layout. A user that is off asks for no cycles, and its cycles go to the others. Together with each layer's own enable (spec 4) and SPRDMA (spec 5), every DMA user can be turned off on its own, so the CPU or the copper can do its job instead by writing its registers. The CPU's cycles cannot be turned off.
 
 ### 5.5 Shared core
 
-The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dmac.md)), and the slot counter `sc` (section 3) is retro-hw's `timebase` ([spec](../../fpga/retro-hw/docs/spec/timebase.md)). Both are in `fpga/retro-hw/rtl/`. retro-z80's plan (section 5.2) goes to `dmac` as fixed values, with N = 7 channels numbered as in section 5.1 and S = 5 slots, one for each cycle:
+The scheduler is retro-hw's `dmac` core ([spec](../../fpga/retro-hw/docs/spec/dmac.md)), and the slot counter `sc` (section 3) is retro-hw's `timebase` ([spec](../../fpga/retro-hw/docs/spec/timebase.md)). Both are in `fpga/retro-hw/rtl/`. retro-z80's plan (section 5.2) goes to `dmac` as fixed values, with N = 8 channels numbered as in section 5.1 and S = 5 slots, one for each cycle:
 
 | Port | Value | Meaning |
 |------|-------|---------|
-| `slot_owner` | `{7'b0000100, 7'b0000011, 7'b0010000, 7'b0000011, 7'b0010000}` | Cycle 0 CPU, 1 display, 2 CPU, 3 display, 4 audio (cycle 0's mask last) |
+| `slot_owner` | `{8'b00000100, 8'b00000011, 8'b00010000, 8'b00000011, 8'b00010000}` | Cycle 0 CPU, 1 display, 2 CPU, 3 display, 4 audio (cycle 0's mask last) |
 | `slot_lock` | `00101` | Cycles 0 and 2: the CPU is never overridden, not even by an urgent fetch (section 5.3) |
-| `high` | The copper's bit: COPCON.PRI not 0 | No nasty copper; the blitter is never high |
+| `high` | The copper's bit: COPCON.PRI not 0 | No nasty copper; the blitter and the rasteriser are never high |
 | `next_slot` | `sram_ctl`'s `next_cycle` | The cycle's number in the slot |
 
 `timebase` runs without its `ph` output (left unconnected), as tv80 runs on the system clock. retro-z80 keeps the rest: DMACON (section 5.4, spec 4), each unit's requests, and the CPU channel in the bus interface (spec 1).
@@ -206,6 +207,7 @@ During vertical blanking (49 of the 625 lines) there is no display fetch, so cyc
 | Copper | 2 cycles per two-word instruction, 1 per MOVE (spec 6) | The free pool, after the hard-deadline channels and audio; first with high priority |
 | Sprite sequencer | 8 words per sprite reused (spec 17) | The free pool, after the hard-deadline channels and audio, before the copper at PRI 0 |
 | Blitter | – | The rest of the free pool (spec 14); it uses only a part of it, its own steps setting its speed (spec 14, section 7) |
+| Rasteriser | – | What the blitter leaves. It asks for a cycle only now and then (spec 19, section 6), so the two run side by side |
 
 There are no line buffers: display data is fetched just in time into each layer's data registers, as in retro68k (spec 4). Nothing is stored for a whole line.
 
@@ -547,14 +549,14 @@ retro68k's 4-byte entries (`0x00RRGGBB`) would need 4 KB, which does not fit bes
 
 ## 11. Physical addresses
 
-The display, sprites, copper and blitter address the SRAM with 22-bit physical byte addresses, without the MMU. Their pointer registers are 3 bytes (spec 3); bits 23–22 are ignored.
+The display, sprites, copper, blitter and rasteriser address the SRAM with 22-bit physical byte addresses, without the MMU. Their pointer registers are 3 bytes (spec 3); bits 23–22 are ignored.
 
 | Physical address | 4 MB build | 2 MB build |
 |------------------|------------|------------|
 | `0x000000`–`0x1FFFFF` | SRAM pages `0x000`–`0x0FF` | SRAM, all of it |
 | `0x200000`–`0x3FFFFF` | SRAM pages `0x100`–`0x1FF` | Mirror of `0x000000`–`0x1FFFFF` (bit 21 ignored) |
 
-- Any unit can use any part of the SRAM: screens, tiles, sprite images, copper lists and blitter descriptors can be anywhere.
+- Any unit can use any part of the SRAM: screens, tiles, sprite images, copper lists and blitter and rasteriser descriptors can be anywhere.
 - The SRAM page holding an address is address ÷ `0x2000`, so a program finds the physical address of anything it has mapped from the MMU register.
 - **2 MB and 4 MB:** the design is the same for both. **SYSCFG.CHIPMB is a build constant** (spec 7): 4, or 2 for a build made for a 2 MB board. It is not measured. A 1M × 16 SRAM has no A20, so on a 2 MB board the top half mirrors the bottom whatever the build says; software uses CHIPMB and must not use pages `0x100`–`0x1FF` when it reads 2.
 
@@ -568,6 +570,7 @@ The display, sprites, copper and blitter address the SRAM with 22-bit physical b
 | Audio (spec 13) | 4 (reserved) | Parked |
 | Copper (spec 6) | Free pool, after the hard-deadline channels and audio | Its instruction words |
 | Blitter (spec 14) | Free pool, after the copper and the CPU | Its jobs' SRAM reads and writes, and descriptors |
+| Rasteriser (spec 19) | Free pool, after the blitter | Its jobs' SRAM reads and writes, and descriptors |
 
 ## 13. FPGA resources
 
@@ -581,9 +584,9 @@ The display, sprites, copper and blitter address the SRAM with 22-bit physical b
 ## 14. Test plan
 
 - **Cycle table:** each owner gets its cycles at the same `hslot` and slot edge on every line; the slot counter restarts each line; unused cycles go to the free pool in the order of section 5.2.
-- **CPU never loses a cycle:** with every layer, sprite, the copper and the blitter busy, and layers set to make urgent fetches, every CPU request is issued in the cycle it asked for; checked at every CPUSPEED setting, including 3.57 MHz.
+- **CPU never loses a cycle:** with every layer, sprite, the copper, the blitter and the rasteriser busy, and layers set to make urgent fetches, every CPU request is issued in the cycle it asked for; checked at every CPUSPEED setting, including 3.57 MHz.
 - **Urgent fetches:** an urgent fetch takes a cycle 0 or 2 the CPU did not ask for and cycle 4; when the CPU has the cycle, the fetch is issued in the next cycle; no layer goes late on a screen within the budget, with the CPU running at 20 MHz.
-- **Free pool:** the copper and the blitter get cycle 4 and every unused CPU and display cycle; with everything else busy the blitter may get only cycle 4s the copper leaves, and nothing else is slowed.
+- **Free pool:** the copper, the blitter and the rasteriser get cycle 4 and every unused CPU and display cycle, in that order; with everything else busy the blitter may get only cycle 4s the copper leaves, the rasteriser only what the blitter leaves, and nothing else is slowed.
 - **DMACON:** each user turned off asks for no cycles, and its cycles go to the others; DMAEN off turns all of them off; the CPU is not affected.
 - **SRAM model:** run the controller against retro68k's SRAM simulation model with the datasheet checks on (set-up, hold, pulse widths, bus turnaround), at 20 ns cycles, with every mix of reads and writes back to back.
 - **Byte writes:** writing an even or odd byte changes only that byte, from the CPU and from the blitter; chipset word reads see even bytes in the low half.
@@ -615,4 +618,4 @@ The display, sprites, copper and blitter address the SRAM with 22-bit physical b
 | M10 | Decided (design plan, branch 17): the sets are kept in distributed RAM and copied into the MMU one window per clock (section 9.9), which brings the estimate down from 500–800 LUTs and about 1,300 flip-flops to 190–330 LUTs and about 100 flip-flops (section 13; the maskable set has no capture registers). All eight windows fit in time at every speed: at 20 MHz the restore, the tightest point, has 3 clocks to spare (spec 1, section 8.5), so no set has fewer windows. At 25 MHz (spec 1, B10 and B13) eight windows still fit, with 1 clock to spare. If a later change ever leaves too little room, the copy can skip the windows outside the mask (a restore then takes one clock per masked window) before any set loses windows. To be measured; on the KS2 (design plan, branch 12) the interrupt pages may still be a build option |
 | M11 | IPDEPTH stays at 255 when pushed past it, with no flag, so a runaway nest restores early. A sticky overflow bit could be added if it is ever needed |
 | M12 | Saved pages are a snapshot of all 16 page registers at the switch, but only the windows in the mask are put back. Proposed: as written (the monitor reads the program's whole map from one place) |
-| M13 | The sprite sequencer (spec 17) needs a channel number when it is built. Its few reads have a soft deadline, so it would go between audio and the copper (spec 17, section 5.4 had it before the copper at PRI 0 and after the copper at PRI 1). The numbers after it then move up by one |
+| M13 | The sprite sequencer (spec 17) needs a channel number when it is built. Its few reads have a soft deadline, so it would go between audio and the copper (spec 17, section 5.4 had it before the copper at PRI 0 and after the copper at PRI 1). The numbers after it (the blitter 5, the rasteriser 6, the DMA port 7) then move up by one |

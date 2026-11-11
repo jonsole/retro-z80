@@ -39,6 +39,7 @@ module tb_dmxint;
         .rb_rdata(rdata), .rb_hit(hit), .rb_cdata(), .rb_cap(),
         .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_be(mem_be),
         .mem_ack(mem_req), .mem_rvalid(mem_rvalid), .mem_rdata(16'd0),
+        .ras_req(), .ras_we(), .ras_addr(), .ras_wdata(), .ras_be(), .ras_ack(1'b0), .ras_rvalid(1'b0),
         .blt_on(1'b1), .idle(idle), .irq(irq)
     );
 

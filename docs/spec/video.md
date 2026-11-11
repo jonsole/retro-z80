@@ -366,7 +366,7 @@ The display (layers, the attribute layer and sprites) is one **hard-deadline** u
 |----------------|-------|-------------|
 | 0, 2 | CPU | Only when the CPU leaves the cycle (free order) |
 | 1, 3 | Display | Always the display's first, earliest deadline first; the free order when no layer or sprite wants it |
-| 4 | Audio (reserved) and the free pool | Free order: hard-deadline users first, then the copper and the blitter (spec 2) |
+| 4 | Audio (reserved) and the free pool | Free order: hard-deadline users first, then the copper, the blitter and the rasteriser (spec 2) |
 
 - **Order: earliest deadline first.** When a layer's shifters take a group, the layer's countdown loads the time that group lasts: 16 source pixels × HSCALE, about 59 system clocks at 1× (593 ns), 118 at 2×. Each word goes to the layer or sprite whose deadline is nearest; layers with equal deadlines take turns. The line's first take (the group loaded in the horizontal blank) sets no deadline.
 - **Urgent.** A request whose deadline is about to pass (the words its group still needs, at about 50 ns each, plus about 140 ns for the read and the crossing back) is **urgent**. An urgent request goes first in every cycle except a CPU cycle (0 or 2) that the CPU has asked for: unlike retro68k, it never takes the CPU's cycle, because the Z80 never waits for SRAM (spec 2, section 5.3). Such a fetch waits at most one memory cycle (20 ns), since cycles 0 and 2 are each followed by a display cycle, so the urgent mark is set one memory cycle (2 clocks) earlier than retro68k's (spec 2, open point M5).
@@ -475,7 +475,7 @@ All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O
 | 6 | DMAEN | Master enable for everything below | 9 |
 | 5 | BPLEN | Layer and attribute fetch (with VIDCON.EN and each CTRL0.EN) | 8 |
 | 4 | COPEN | Copper (spec 6) | 7 |
-| 3 | BLTEN | Blitter (spec 14) | 6 |
+| 3 | BLTEN | Blitter (spec 14) and rasteriser (spec 19) | 6 |
 | 2 | SPREN | Sprites (spec 5) | 5 |
 | 1 | AUDEN | Audio, reserved (spec 13) | 3–0 (AUD0EN–AUD3EN) |
 | 0 | – | Reserved | 4 (unused) |

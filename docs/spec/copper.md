@@ -28,7 +28,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 |--|--------------------|-----------|-----|
 | Instruction size | 32 bits, every instruction one fetch of two words | 16-bit words. MOVE, MOVR, ALU with a register source, SKIPC, STOP and RET are one word; WAIT, SKIP, JUMP, CALL, MOVEF and ALU with a value are two | Z80: 8-bit data. A MOVE is a register code and a data byte, one word, so the most common instruction costs one fetch |
 | MOVE | 16 bits of data to a register half; offset up to `0x7FFE` | 8 bits of data; the register code is 8 bits, so MOVE reaches offsets `0x000`–`0x0EF`. Codes `0xF0`–`0xFF` are the other instructions | 8-bit registers; one-word MOVE |
-| MOVEF | None | Two words: one byte to any custom offset `0x000`–`0x3FF`. Macro `CMOVEF` | MOVE cannot name offsets `0x0F0`–`0x3FF`: the copper's own registers, the sprite globals, the attribute layer, the blitter |
+| MOVEF | None | Two words: one byte to any custom offset `0x000`–`0x3FF`. Macro `CMOVEF` | MOVE cannot name offsets `0x0F0`–`0x3FF`: the copper's own registers, the sprite globals, the attribute layer, the blitter, the rasteriser |
 | `CMOVEL` | Two MOVEs: a whole 32-bit register | The same meaning: a whole 4-byte register, as four MOVEs (or MOVEFs), low byte first. 3-byte pointers and colours use `CMOVEA`, 2-byte registers `CMOVEW`, any width `CMOVEN` (section 7) | Byte registers of 1–4 bytes; pointers are 3 bytes |
 | Halves rule | A high half is held until the low half of the same register | No latch: each byte is written directly; only colours wait for their red byte (section 4.2) | Cost; 8-bit registers (spec 3, rule 3) |
 | Beam | 11-bit line and pixel. End-of-list WAIT: line 2047 | The same beam, 10-bit line and pixel. End-of-list WAIT: line 1023 | One-word encoding: 10 bits cover 864 × 625 |
@@ -47,7 +47,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | Strobes | Act on a write that reaches the low half | Act on any write: they are single bytes | 8-bit registers |
 | Registers | 32-bit, at `0xE00700` | Bytes at custom offsets `0x100`–`0x11F`, ports `0x0011`–`0x1F11` (spec 3) | Register map |
 
-Kept as retro68k: WAIT with P (pixel only) and B (blitter idle), SKIP, JUMP, STOP, COP1LC, COP2LC, COPJMP1, COPJMP2, COPINT, COPSTAT (WAITING, STOPPED, ERR, IRQ), COPPC, COPCON (EN, IRQEN, RESUME, STKKEEP, PRI), COPX, COPY, COPFLAGS, COPSP, COPR0–7, the conditions, CALL and RET with a stack 8 deep, background lists with RESUME (the place only), double-buffered lists, the display beam, the memory channel and its free-pool order, the macro names.
+Kept as retro68k: WAIT with P (pixel only) and B (blitter and rasteriser idle), SKIP, JUMP, STOP, COP1LC, COP2LC, COPJMP1, COPJMP2, COPINT, COPSTAT (WAITING, STOPPED, ERR, IRQ), COPPC, COPCON (EN, IRQEN, RESUME, STKKEEP, PRI), COPX, COPY, COPFLAGS, COPSP, COPR0–7, the conditions, CALL and RET with a stack 8 deep, background lists with RESUME (the place only), double-buffered lists, the display beam, the memory channel and its free-pool order, the macro names.
 
 ## 3. Beam positions
 
@@ -102,7 +102,7 @@ Instructions are 16-bit words at even addresses, stored little-endian (the low b
 |-------------|-------|------|
 | **MOVE** | 1 | Writes the data byte to the custom register at offset = code (`0x000`–`0x0EF`), following the byte rule (section 4.2) |
 | **MOVEF** | 2 | The same, to any custom offset `0x000`–`0x3FF`. Word 2 looks like a MOVE word, with offset bits 9–8 in word 1 |
-| **WAIT** | 2 | Waits until the beam has reached the position: it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position on the current line, or on the next line if it has already passed. With **B** set, it also waits until the blitter (spec 14) is idle: no job or chain running, including one a MOVEF just before started |
+| **WAIT** | 2 | Waits until the beam has reached the position: it ends on the position itself. A position the beam never reaches (pixel 864 or more, line 625 or more) waits until the next frame. With **P** set (pixel only), the line is ignored: it waits until the pixel position on the current line, or on the next line if it has already passed. With **B** set, it also waits until the blitter (spec 14) and the rasteriser (spec 19) are both idle: no job or chain running in either, including one a MOVEF just before started |
 | **SKIP** | 2 | If the beam has reached the position, skips the next instruction. With P set, compares the pixel position only |
 | **JUMP** | 2 | Continues at the address |
 | **STOP** | 1 | Stops until the next frame (or a COPJMP strobe). A WAIT for line 1023 does the same |
@@ -126,7 +126,7 @@ A MOVE or MOVEF writes one byte, **straight to its register**, with no latch (sp
 
 MOVR follows the same rules. A CPU write between two copper MOVEs to one register lands between them, and the last write to each byte wins.
 
-Strobes (COPJMP1, COPJMP2, COPINT and the blitter's BLTCMD) act on any write. Read-only registers ignore the copper's writes, as they do the CPU's.
+Strobes (COPJMP1, COPJMP2, COPINT, the blitter's BLTCMD and the rasteriser's RASCMD) act on any write. Read-only registers ignore the copper's writes, as they do the CPU's.
 
 **A value at an exact pixel.** A one-byte change lands whole after a WAIT (section 5.4). A colour can change whole at a pixel too: write its blue and green before the WAIT, where they wait in the colour assembly buffer, and its red after it, as retro68k's lists do with the high half. Other wide values change over their MOVEs; the first two after a WAIT land 20 ns apart, within a pixel.
 
@@ -136,7 +136,7 @@ Line and pixel are 10 bits each (0–1023). The macros take them as numbers: `CW
 
 - A pixel-only WAIT always waits for the next time the beam comes to that pixel. A block that starts with `CWAITP 0` runs once at the start of each line's horizontal blank. Start a run of pixel-only WAITs with an ordinary WAIT, so that the run begins on the line you mean.
 - A pixel-only WAIT relies on the copper finishing its block before the beam comes round again; a block that runs past its own pixel position slips a line. At PRI 1 a line is 320 words.
-- `CWAITB 0,0` waits only for the blitter (the position has always passed).
+- `CWAITB 0,0` waits only for the blitter and the rasteriser (the position has always passed).
 - While it waits, the copper fills its two-word prefetch buffer (section 5.4), then uses no memory cycles until the WAIT ends.
 - **End of a list:** STOP, or a WAIT for line 1023 (`CWAIT 1023,0`). If a list is still running when the next frame starts, it is abandoned: the copper starts again from COP1LC whatever it was doing.
 
@@ -226,7 +226,7 @@ The list is in SRAM; the copper reads it one 16-bit word per memory cycle, throu
 1. The CPU in cycles 0 and 2 (locked): the CPU never waits.
 2. An **urgent** hard-deadline request (a layer or sprite about to be late).
 3. The cycle's **owner**: the hard-deadline channels on cycles 1 and 3, and audio on cycle 4 (reserved: none yet).
-4. The **free order**: the copper at PRI 1 first; then by channel number: layers, sprites, audio, the copper at PRI 0, the CPU, the blitter (spec 14), the DMA port.
+4. The **free order**: the copper at PRI 1 first; then by channel number: layers, sprites, audio, the copper at PRI 0, the CPU, the blitter (spec 14), the rasteriser (spec 19), the DMA port.
 
 So the copper gets cycle 4 and any cycle its owner leaves: the CPU's unused cycle 0 or 2 (at 20 MHz the Z80 leaves at least one of the two in every slot, spec 2), and cycles 1 and 3 when no layer or sprite wants them (the whole vertical blank, quiet stretches of a line).
 
@@ -234,8 +234,8 @@ So the copper gets cycle 4 and any cycle its owner leaves: the CPU's unused cycl
 
 | PRI | The copper gets |
 |-----|-----------------|
-| 0, normal | Cycle 4 and the cycles nobody else wants, after the layers, sprites and audio, and before the CPU and the blitter (the default) |
-| 1, high | First place in the free order: cycle 4 when audio leaves it, ahead of the blitter and of layer and sprite fetches that are not urgent |
+| 0, normal | Cycle 4 and the cycles nobody else wants, after the layers, sprites and audio, and before the CPU, the blitter and the rasteriser (the default) |
+| 1, high | First place in the free order: cycle 4 when audio leaves it, ahead of the blitter, the rasteriser and layer and sprite fetches that are not urgent |
 | 2, 3 | Reserved, taken as 1. retro68k's PRI 2 takes the CPU's cycle; here the CPU never gives up a cycle it uses |
 
 An urgent display or sprite fetch still comes first at every level, so raising the copper never spoils the picture. PRI matters only while the copper has a word to fetch: while it waits with its prefetch buffer full, it takes nothing.
@@ -341,7 +341,7 @@ Source **COPPER** (2) in the interrupt controller (spec 8) is COPSTAT.IRQ with C
 
 ### 6.5 Background lists: COPCON.RESUME
 
-As in retro68k, the copper can run a long **background** list, such as a queue of blitter jobs (spec 14), that carries on across frames while list 1 still restarts at every frame. With COPCON.RESUME set:
+As in retro68k, the copper can run a long **background** list, such as a queue of blitter or rasteriser jobs (specs 14 and 19), that carries on across frames while list 1 still restarts at every frame. With COPCON.RESUME set:
 
 - The copper keeps an **in list 2** flag. A COPJMP2 strobe sets it. A COPJMP1 strobe, a STOP (or a WAIT for line 1023, or a reserved instruction), turning the copper off (COPCON.EN, DMACON.COPEN or DMAEN clear) and the frame restart clear it. JUMP, CALL, RET and the SKIPs leave it as it is.
 - At the frame restart, if the flag is set, the hardware writes the **resume address** to COP2LC before it reloads from COP1LC. The resume address is the instruction not yet finished: a WAIT still waiting (it runs again, whole), or the next instruction to run.
@@ -355,7 +355,7 @@ Without RESUME (the default), COP2LC is never changed by the hardware.
 Rules for a background list, as retro68k's:
 
 - Its WAITs should be pixel-only, DMA-only (`CWAITB 0,0`) or none: after a resume, a beam WAIT would wait for its position in the new frame.
-- Some MOVEs may run twice: if the cut-off comes between the bytes of a multi-byte register, they run again. Never put a strobe (such as a blitter start, BLTCMD) between the bytes of a register.
+- Some MOVEs may run twice: if the cut-off comes between the bytes of a multi-byte register, they run again. Never put a strobe (such as a blitter or rasteriser start, BLTCMD or RASCMD) between the bytes of a register.
 - When it is done, it sets COP2LC to an idle list (`CMOVEA COP2LC,idle`, three MOVEFs, then `CSTOP`, where `idle` is a STOP).
 - While RESUME is set and a background list is running, the CPU's writes to COP2LC may be replaced at the next frame restart. The CPU writes COP2LC only while the copper runs the idle list (COPPC tells it where the copper is).
 
@@ -366,7 +366,7 @@ Rules for a background list, as retro68k's:
 | SRAM | Read its list (22-bit physical addresses, not through the MMU). Nothing else: it cannot write SRAM or read tables from it |
 | Custom block `0x000`–`0x0EF` | Write with MOVE, MOVR or MOVEF: video globals (BGCOLOR, PALIDX, PALDAT, DMACON …), the sprites, the three layers |
 | Custom block `0x0F0`–`0x0FF` | Nothing useful: read-only video registers, which ignore MOVR and MOVEF writes |
-| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own control and state registers, the sprite globals, the attribute layer, the blitter (and the rasteriser to come), audio (reserved) |
+| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own control and state registers, the sprite globals, the attribute layer, the blitter, the rasteriser, audio (reserved) |
 | System block (page `0x00`), port `0xFE`, the palettes in the register page, the boot ROM | Nothing. Palette entries are written through PALIDX and PALDAT |
 
 So the copper cannot reach the interrupt controller, the timers, the MMU or the system registers: a runaway list can never page memory, reset the machine or change the interrupt set-up. It can turn the copper off (COPCON, DMACON), and a list that writes COPJMP1 unconditionally loops for ever.
@@ -385,7 +385,7 @@ So the copper cannot reach the interrupt controller, the timers, the MMU or the 
 | `CMOVEN reg,value,n` | An n-byte register (n = 1–4), low byte first | n–2n | Likewise |
 | `CWAIT line,pixel` | WAIT | 2 | `0xF000 \| (line >> 8) << 2 \| pixel >> 8`, `(line & 0xFF) << 8 \| pixel & 0xFF` |
 | `CWAITP pixel` | WAIT, pixel only | 2 | As `CWAIT 0,pixel`, with P (`0x0080`) in word 1 |
-| `CWAITB line,pixel` | WAIT, and the blitter idle | 2 | As `CWAIT`, with B (`0x0040`) in word 1 |
+| `CWAITB line,pixel` | WAIT, and the blitter and the rasteriser idle | 2 | As `CWAIT`, with B (`0x0040`) in word 1 |
 | `CSKIP line,pixel`, `CSKIPP pixel` | SKIP, SKIP pixel only | 2 | As `CWAIT` and `CWAITP`, code `0xF1` |
 | `CJUMP address` | JUMP | 2 | `0xF200 \| address >> 16`, `address & 0xFFFE` |
 | `CSTOP` | STOP | 1 | `0xF300` |
@@ -602,7 +602,7 @@ The wrapper keeps the instruction words (section 4): it decodes each one's code 
 - **Reach:** MOVE to `0x000`–`0x0EF`; MOVR to `0x000`–`0x0FF` (writes to `0x0F0`–`0x0FF` ignored); MOVEF to every block up to `0x3FF`, the copper's own registers included; nothing reaches the system block.
 - **Macros:** `CMOVEW`, `CMOVEA`, `CMOVEL` and `CMOVEN` emit MOVEs below `0x0F0` and MOVEFs above, low byte first; `CMOVE` above `0x0EF` is an assembly error.
 - **Direct writes:** each MOVE's byte takes effect when it is written, in any order; a CPU write between two copper MOVEs to one register lands between them and the last write to each byte wins; a colour's blue and green MOVEs change nothing until its red, with a WAIT or other MOVEs between them, through BGCOLOR and PALDAT; a CPU colour write between them does not mix with the copper's buffer.
-- **Waits:** WAIT and SKIP on blank and picture lines, at pixels 0, 143, 144 and 863; positions beyond the frame; the pixel-only forms on the current and the next line; B with the blitter busy (one job, and a chain) and idle, including a job started by the MOVEF just before; line 1023 as the end of a list.
+- **Waits:** WAIT and SKIP on blank and picture lines, at pixels 0, 143, 144 and 863; positions beyond the frame; the pixel-only forms on the current and the next line; B with the blitter busy (one job, and a chain), the rasteriser busy, both, and neither, including a job started by the MOVEF just before; line 1023 as the end of a list.
 - **Pixel exactness:** golden images: palette writes after a WAIT land within a pixel of the WAIT's position, and a second prefetched MOVE within the next; a colour with its blue and green before the WAIT changes whole at the pixel.
 - **When writes take effect:** pointer writes between a layer's last fetch and the line's end used as written for the next line; on a 2×-tall layer a pointer written after the first copy changes nothing until the next source line's rules allow (spec 4); spec 5's sprite rules (a CTL write starts a sprite, the vertical blank stops it, the other registers act from the next line) with the example of section 8.4.
 - **Registers and ALU:** every ALU function and source, every flag result (carry and borrow at the 8-bit edges, N from bit 7), every condition, loads and stores of the flags, MOVR in all forms with X + 1 across a multi-byte register and the wrap from `0xFF`.
