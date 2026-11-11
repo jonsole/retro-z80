@@ -66,6 +66,11 @@
 #                   chains, errors, STOP, BLTEN, DMXINT, the blitter alongside
 #                   and the copper's WAIT B (rastest/; RASTEST_SEEDS, two
 #                   seeds by default)
+#   make atest      sound (spec 13): four channels played for 3 ms, every
+#                   output sample checked against a Python model, and the
+#                   DAC streams against the output (atest/); then the
+#                   read-backs, AUDxPOS through the capture, the AUDIO
+#                   interrupt and DMACON.AUDEN (a few minutes)
 #   make lint       Verilator lint of the RTL (fpga/lint.sh)
 #   make zexhello   the ZEX testbench's own checks: two tiny CP/M programs
 #                   and the R register test
@@ -93,8 +98,8 @@ VL_FLAGS  := --binary -Wall -Wno-fatal $(VL_OPT)
 ROOT  := ..
 BUILD := build
 
-.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxint dmxspeed dtest rastest lint zexhello zexdoc zexall zexsyshello zexsys clean
-all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dmxint dtest rastest zexhello zexsyshello
+.PHONY: all smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds failshow vtest boing cop coppal dmx dmxint dmxspeed dtest rastest atest lint zexhello zexdoc zexall zexsyshello zexsys clean
+all: smoke vsmoke hello hello2mb mon link dis systest intc serial inttest nmitest dbg speeds cop coppal dmx dmxint dtest rastest atest zexhello zexsyshello
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -329,6 +334,14 @@ $(BUILD)/rastest.bin: rastest/rastest.asm $(INC)/hw.inc $(INC)/copper.inc | $(BU
 
 rastest: $(BUILD)/tb.vvp $(BUILD)/rastest.hex
 	@for s in $(RASTEST_SEEDS); do d=$(BUILD)/rastest/$$s; mkdir -p $$d && 	$(PYTHON) rastest/rgen.py $$d $$s && 	(cd $(BUILD) && $(VVP) -n tb.vvp +rom=rastest.hex +ram=rastest/$$s/ram.hex +ramout=rastest/$$s/after.hex 	    +timeout=50000 > rastest/$$s/sim.log); 	grep -q "^TEST PASSED" $$d/sim.log || { echo "rastest: seed $$s failed"; tail -n 3 $$d/sim.log; exit 1; }; 	$(PYTHON) rastest/rmodel.py $$d/jobs.json $$d/ram.hex $$d/after.hex || { echo "rastest: seed $$s failed"; exit 1; }; 	done; echo "rastest: all seeds passed"
+
+# Sound (spec 13): agen.py writes the sample data, atest.asm plays it and
+# runs its checks, amodel.py checks every output sample and the DAC streams
+$(BUILD)/atest.bin: atest/atest.asm $(INC)/hw.inc | $(BUILD)
+	$(SJASMPLUS) --nologo -I $(INC) --raw=$@ $<
+
+atest: $(BUILD)/tb.vvp $(BUILD)/atest.hex
+	@set -e; d=$(BUILD)/atest; mkdir -p $$d; 	$(PYTHON) atest/agen.py $$d/ram.hex; 	(cd $$d && $(VVP) -n ../tb.vvp +rom=../atest.hex +ram=ram.hex +audio +timeout=6000 > sim.log); 	grep -q "^TEST PASSED" $$d/sim.log || { tail -n 20 $$d/sim.log; exit 1; }; 	$(PYTHON) atest/amodel.py $$d $$d/ram.hex
 
 lint:
 	sh $(ROOT)/fpga/lint.sh

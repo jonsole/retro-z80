@@ -42,6 +42,8 @@
 //   +dma        keep the DMA port busy with random reads and writes
 //   +trace=N     print the first N memory and I/O accesses of the Z80
 //   +print       a test ROM may print lines of its own before PASS (dmxspeed)
+//   +audio       sound (spec 13): log every output sample of the audio
+//                engine to audio.txt, for atest/amodel.py (below)
 //
 // A test ROM asks for an NMI by writing reserved port 0x0003 (no unit
 // answers it): 1 presses the Multiface button for 0.5 us, 2 sends the
@@ -213,6 +215,32 @@ module tb #(
 
     sram_model sram (.a(pa), .dq(dq), .ce_n(pce_n), .oe_n(poe_n), .we_n(pwe_n),
                      .ub_n(pub_n), .lb_n(plb_n), .fpga_drives(!pt));
+
+    // ---------------------------------------------------------------- audio log
+    // (+audio): every output sample with a channel in it, the number of 1s
+    // each DAC stream gave during the sample before, and the channels
+    // started and played in it, from the core's state (as retro68k's tb.v):
+    // audio.txt, for atest/amodel.py
+    integer af = 0, ones_l = 0, ones_r = 0;
+    reg [3:0] a_st = 4'd0, a_in = 4'd0;
+    initial if ($test$plusargs("audio")) af = $fopen("audio.txt", "w");
+    always @(posedge clk) if (af != 0) begin
+        ones_l = ones_l + audio_l;
+        ones_r = ones_r + audio_r;
+        if (!dut.aud.eng.stall) begin
+            if (dut.aud.eng.es == 4'd1 && dut.aud.eng.take) a_st[dut.aud.eng.ch] = 1'b1;    // E_CH
+            if (dut.aud.eng.es == 4'd2) a_in[dut.aud.eng.ch] = 1'b1;                        // E_GO
+        end
+        if (dut.aud.eng.out_v) begin
+            if (a_in != 4'd0 || a_st != 4'd0)
+                $fwrite(af, "%0d %0d %0d %0d %0d %0d\n", dut.aud.eng.out_l, dut.aud.eng.out_r, ones_l, ones_r,
+                        a_st, a_in);
+            a_st = 4'd0;
+            a_in = 4'd0;
+            ones_l = 0;
+            ones_r = 0;
+        end
+    end
 
     // ---------------------------------------------------------------- FT232H
     assign ft_d = ft_d_oe ? ft_d_o : 8'hzz;
@@ -975,6 +1003,7 @@ module tb #(
             // +ramout=FILE: the SRAM at the end (sim/dtest; its whole 2 or 4 MB)
             if ($value$plusargs("ramout=%s", ramout))
                 $writememh(ramout, sram.mem, 0, CHIPMB == 6'd2 ? 21'h0FFFFF : 21'h1FFFFF);
+            if (af != 0) $fclose(af);
             $finish;
         end
     endtask
