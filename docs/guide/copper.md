@@ -10,7 +10,7 @@ With a few instructions in its list, the copper can:
 - put a bitmap layer's pointer back to the top of its picture at the start of every frame;
 - open a split screen, with a new pointer, scroll or format from a chosen line down;
 - start the sprites for each frame, and reuse them lower down;
-- start DMA jobs, and interrupt the Z80 at a chosen place on the screen.
+- start blitter and rasteriser jobs, and interrupt the Z80 at a chosen place on the screen.
 
 Because the copper's writes are tied to the beam, they happen at the same place on the screen in every frame, whatever the Z80 is doing. Effects that would be impossible for an interrupt handler, which can be up to 2 µs late, cost the Z80 nothing.
 
@@ -25,7 +25,7 @@ This chapter covers:
 - the copper's own registers: X and Y, arithmetic, conditions, storage registers and subroutines, with a split screen and a raster bar moved by the Z80;
 - the copper interrupt;
 - layer pointers, the two lists, background lists and double-buffered lists;
-- starting DMA jobs;
+- starting blitter and rasteriser jobs;
 - copper timing: how exact it is, how fast it runs, and its priority;
 - what the copper can and cannot reach;
 - a summary of the instructions and the registers.
@@ -70,7 +70,7 @@ Table 5-1 lists the instructions, in code order.
 | Code | Instruction | Macros | Words | What it does |
 |------|-------------|--------|-------|--------------|
 | `0x00`–`0xEF` | MOVE | `CMOVE reg,value` | 1 | Writes a byte to the register at offset `0x000`–`0x0EF` |
-| `0xF0` | WAIT | `CWAIT line,pixel`, `CWAITP pixel`, `CWAITB line,pixel` | 2 | Waits until the beam reaches the position (and, with B, until the DMA engine is idle) |
+| `0xF0` | WAIT | `CWAIT line,pixel`, `CWAITP pixel`, `CWAITB line,pixel` | 2 | Waits until the beam reaches the position (and, with B, until the blitter and the rasteriser are idle) |
 | `0xF1` | SKIP | `CSKIP line,pixel`, `CSKIPP pixel` | 2 | Skips the next instruction if the beam has reached the position |
 | `0xF2` | JUMP | `CJUMP address` | 2 | Continues at the address |
 | `0xF3` | STOP | `CSTOP` | 1 | Stops until the next frame |
@@ -118,7 +118,7 @@ The code is the offset, so a one-word MOVE reaches offsets `0x000`–`0x0EF`. Th
 | `0x010`–`0x08F` | The 8 sprites, 16 bytes each |
 | `0x090`–`0x0EF` | The 3 layers, 32 bytes each: `L0_`, `L1_`, `L2_` |
 
-Everything above, `0x0F0`–`0x3FF`, needs **MOVEF**: the copper's own registers (`0x100`–`0x11F`), the sprite globals, the attribute layer and the DMA engine. `CMOVE` with an offset of `0x0F0` or more is an assembly error.
+Everything above, `0x0F0`–`0x3FF`, needs **MOVEF**: the copper's own registers (`0x100`–`0x11F`), the sprite globals, the attribute layer, the blitter, the rasteriser and sound. `CMOVE` with an offset of `0x0F0` or more is an assembly error.
 
 ### MOVEF: the whole custom block
 
@@ -181,7 +181,7 @@ Each byte takes effect when it is written, so between the MOVEs the register hol
         CMOVE   PALDAT,0xFF             ; red: the entry is yellow from here
 ```
 
-The copper has its own PALIDX, byte count and buffer, apart from the Z80's and the DMA engine's. So the Z80 can write the palette while the copper does, in any order, and neither disturbs the other.
+The copper has its own PALIDX, byte count and buffer, apart from the Z80's. So the Z80 can write the palette while the copper does, in any order, and neither disturbs the other.
 
 The buffer is one for all colours, not one per entry, and other instructions may come between the bytes. **Tip:** write a colour's blue and green *before* a WAIT and its red *after* it. The colour then changes with the one MOVE straight after the WAIT, which is exact to the pixel. Example 5-4 does this.
 
@@ -217,7 +217,7 @@ WAIT is two words. The line and pixel are 10 bits each: their top two bits go in
 |------|------|---------|
 | First | 15–8 | `0xF0`: WAIT |
 | | 7 | P: compare the pixel only, and ignore the line ("The pixel-only WAIT") |
-| | 6 | B: wait for the DMA engine too ("Waiting for the DMA engine") |
+| | 6 | B: wait for the blitter and the rasteriser too ("Waiting for the blitter") |
 | | 5–4 | 0 |
 | | 3–2 | Line bits 9–8 |
 | | 1–0 | Pixel bits 9–8 |
@@ -292,9 +292,9 @@ So a pixel-only WAIT always waits for the next time the beam comes to that pixel
 
 The same block can be used on any line, so a loop can repeat it ("Loops and Branches"). Start a run of pixel-only WAITs with an ordinary WAIT, so that the run begins on the line you mean. And keep the work between them short: a block that runs past the next time its pixel comes round makes its WAIT wait for the line after, and the effect slips a line.
 
-### Waiting for the DMA engine
+### Waiting for the blitter
 
-A WAIT with the **B** bit set, `CWAITB line,pixel`, waits until the beam has reached the position **and** the DMA engine has nothing left to do: no job running or waiting to start on any of its four channels. A list can start a job, wait for it to finish, and start the next ("Starting DMA Jobs").
+A WAIT with the **B** bit set, `CWAITB line,pixel`, waits until the beam has reached the position **and** the blitter and the rasteriser have nothing left to do: no job or chain running in either, nor one waiting for DMACON.BLTEN. A list can start a job, wait for it to finish, and start the next ("Starting Blitter Jobs").
 
 ---
 
@@ -511,7 +511,7 @@ DMACON is a set/clear register: written with bit 7 (SETCLR) set, it sets the bit
 | 6 | DMAEN | The master enable for bits 5–1 |
 | 5 | BPLEN | The layers' and the attribute layer's fetches |
 | 4 | COPEN | The copper |
-| 3 | BLTEN | The DMA engine |
+| 3 | BLTEN | The blitter and the rasteriser |
 | 2 | SPREN | The sprites |
 | 1 | AUDEN | Sound (with each channel's AUDDMA bit) |
 | 0 | – | Reserved |
@@ -1018,7 +1018,7 @@ The copper reads COP2LC at the strobe, early in the vertical blank. COP2LC's thr
 
 ### Background lists: COPCON.RESUME
 
-Some copper work is not tied to the beam at all: a long queue of DMA jobs, each started when the one before it is done, which may take several frames. Normally list 2 would be cut off at every frame restart. With **COPCON.RESUME** set it carries on:
+Some copper work is not tied to the beam at all: a long queue of blitter jobs, each started when the one before it is done, which may take several frames. Normally list 2 would be cut off at every frame restart. With **COPCON.RESUME** set it carries on:
 
 - When the copper enters list 2 through COPJMP2, it remembers that it is in list 2.
 - If it is still there when the next frame starts, the hardware writes its place in the list into COP2LC, and then starts list 1 as always.
@@ -1026,9 +1026,9 @@ Some copper work is not tied to the beam at all: a long queue of DMA jobs, each 
 
 The place saved is the instruction not yet finished: a WAIT still waiting runs again, whole. A STOP, a COPJMP1 strobe or turning the copper off ends "in list 2"; JUMP, CALL and RET do not. A background list follows a few rules:
 
-- **No beam WAITs.** After a resume, a WAIT for a beam position would wait for it in the new frame. Use `CWAITB 0,0`, which waits for the DMA engine only (line 0, pixel 0 has always passed).
+- **No beam WAITs.** After a resume, a WAIT for a beam position would wait for it in the new frame. Use `CWAITB 0,0`, which waits for the blitter and the rasteriser only (line 0, pixel 0 has always passed).
 - **Only the place is saved.** X, Y, the flags and R0–R7 are left as they are, so a list 1 that uses them saves list 2's in spare storage registers first (`CST CR5,CX`, `CST CR6,CY`, `CST CR7,CF`) and puts them back before its COPJMP2.
-- **Mind a register cut in two.** A cut-off between the bytes of a wide register leaves the bytes already written; list 2 carries on with the next. Never put a strobe, such as a DMA start, between the bytes of a register.
+- **Mind a register cut in two.** A cut-off between the bytes of a wide register leaves the bytes already written; list 2 carries on with the next. Never put a strobe, such as a blitter start, between the bytes of a register.
 - **No colours.** The colour assembly buffer is not saved, so list 1's colours could mix with a cut-off one of list 2's.
 - **End by pointing COP2LC at an idle list** (a STOP), with `CMOVEA COP2LC,idle`, or the next COPJMP2 runs the list again from its last place.
 - **The Z80 hands out work only when the copper is idle.** While a background list runs, the hardware may overwrite COP2LC at the next frame restart, so the Z80 writes COP2LC only while the copper is in the idle list. COPPC tells it where the copper is, or the list can write COPINT when it is done.
@@ -1043,29 +1043,31 @@ When the Z80 builds a new list every frame, it must never change a list while th
 2. Write its address to COP1LC. The copper is not disturbed: it finishes the current frame with the old list.
 3. At the next frame restart the copper starts the new list. Wait for that (VIDSTAT.VBLANK is set at the same moment), and the old buffer is free to build in.
 
-COP1LC's three bytes are written one by one, and a frame restart between them would start a list at a mixed address. So write COP1LC early in the frame, for example in the vertical blank handler, which runs just after the restart. Or put the two buffers where their addresses differ in one byte only, and write just that byte: the boot ROM's sprite demo keeps its two lists 8 KB apart for this, and writes only COP1LC's middle byte.
+COP1LC's three bytes are written one by one, and a frame restart between them would start a list at a mixed address. So write COP1LC early in the frame, for example in the vertical blank handler, which runs just after the restart. Or put the two buffers where their addresses differ in one byte only, and write just that byte: the boot ROM's sprite demo keeps its two lists 8 KB apart for this, and writes COP1LC's middle byte, the only one that changes, last.
 
 ---
 
-## Starting DMA Jobs
+## Starting Blitter Jobs
 
-The DMA engine's channel registers are beyond a MOVE's reach, so the copper writes them with MOVEF, two words a byte. Four MOVEFs start a list of jobs on a channel: the three bytes of CHDESC, the first descriptor's physical address, then START in CHCTRL. The Blitter and DMA Hardware chapter describes the jobs; channel 3 is the one it suggests for the copper.
+The blitter's registers are beyond a MOVE's reach, so the copper writes them with MOVEF, two words a byte. Four MOVEFs start a chain of jobs: the three bytes of BLTDESC, the first descriptor's physical address, then START in BLTCMD. The rasteriser starts the same way, with RASDESC and RASCMD. The Blitter chapter (Chapter 6) describes the jobs and their descriptors.
 
 ```asm
-JOB1    equ     0x00C000                ; descriptor lists in SRAM (multiples of 4)
+JOB1    equ     0x00C000                ; descriptor chains in SRAM (even addresses)
 JOB2    equ     0x00C100
 
         ALIGN   2
-dma:    CWAIT   49,0                    ; the start of the picture
-        CMOVEA  DMX3_CHDESC,JOB1        ; channel 3: the first list (three MOVEFs) ...
-        CMOVEF  DMX3_CHCTRL,DMX_CHCTRL_START_M  ; ... started
-        CWAITB  349,0                   ; line 349, and the engine idle
-        CMOVEA  DMX3_CHDESC,JOB2        ; the second list
-        CMOVEF  DMX3_CHCTRL,DMX_CHCTRL_START_M
+blit:   CWAIT   49,0                    ; the start of the picture
+        CMOVEA  BLTDESC,JOB1            ; the first chain (three MOVEFs) ...
+        CMOVEF  BLTCMD,BLTCMD_START_M   ; ... started
+        CWAITB  349,0                   ; line 349, and the blitter idle
+        CMOVEA  BLTDESC,JOB2            ; the second chain
+        CMOVEF  BLTCMD,BLTCMD_START_M
         CSTOP
 ```
 
-`CWAITB` waits for the engine to have **nothing** to do, on any channel, including jobs the Z80 started. If a job runs late, the copper's later writes come late too, and if the engine is still busy when the next frame starts, the list starts again regardless. So do not put a `CWAITB` before writes that must happen at a fixed place on the screen.
+The blitter ignores writes to its registers while it is busy, so set a job up only when it is idle, and let either the Z80 or the copper own it, not both at once.
+
+`CWAITB` waits for the blitter and the rasteriser to have **nothing** to do, including jobs the Z80 started, and a job waiting for DMACON.BLTEN. If a job runs late, the copper's later writes come late too, and if the blitter is still busy when the next frame starts, the list starts again regardless. So do not put a `CWAITB` before writes that must happen at a fixed place on the screen.
 
 ---
 
@@ -1116,7 +1118,7 @@ The copper reads its list one 16-bit word per memory cycle, through its own chan
 | WAIT, SKIP, JUMP, CALL, MOVEF, ALU with a number | 2 |
 | An instruction skipped by SKIP or SKIPC | Its words, as if run |
 
-At high priority (COPCON.PRI 1) the copper is sure of one word every 100 ns slot, on any screen within the display's budget, whatever the Z80, the sprites and the DMA engine are doing. One-word MOVEs then mean one MOVE every slot (Table 5-22).
+At high priority (COPCON.PRI 1) the copper is sure of one word every 100 ns slot, on any screen within the display's budget, whatever the Z80, the sprites, the blitter and the rasteriser are doing. One-word MOVEs then mean one MOVE every slot (Table 5-22). Only sound comes before it, in the same memory cycle: a few words a line while sound plays (at most 8 per output sample), which the figures leave out.
 
 **Table 5-22: Copper Speed at High Priority**
 
@@ -1138,8 +1140,8 @@ COPCON.PRI sets where the copper stands among the memory's users (Table 5-23).
 
 | PRI | The copper gets |
 |-----|-----------------|
-| 0, normal | Its own memory cycle in each slot and the cycles nobody else wants, after the layers, the sprites and the sprite sequencer (the default) |
-| 1, high | The same cycle as its own, and first place among the spare cycles: ahead of the DMA engine, the sprite sequencer and layer and sprite fetches that are not urgent |
+| 0, normal | The spare cycles, after the layers, the sprites and sound, and ahead of the blitter and the rasteriser (the default) |
+| 1, high | First place among the spare cycles: the memory cycle sound leaves in each slot, ahead of the blitter, the rasteriser and layer and sprite fetches that are not urgent |
 | 2, 3 | Act as 1 |
 
 A layer or sprite fetch about to be late still comes first at every level, so raising the copper's priority never spoils the picture, and the Z80 never waits for the copper. Priority matters only while the copper has a word to read.
@@ -1175,7 +1177,7 @@ Table 5-24 shows what the copper can do in each part of the machine.
 | SRAM | Read its list, by physical address, without the MMU. Nothing else: it cannot write memory or read tables from it |
 | Custom block `0x000`–`0x0EF` | Write with MOVE, MOVR or MOVEF: the video globals, the sprites, the three layers |
 | Custom block `0x0F0`–`0x0FF` | Nothing useful: read-only video registers, which ignore writes |
-| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own registers, the sprite globals, the attribute layer, the DMA engine |
+| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own registers, the sprite globals, the attribute layer, the blitter, the rasteriser, sound |
 | The system page, port `0xFE`, the register page, the boot ROM | Nothing |
 
 Some consequences:
@@ -1214,7 +1216,7 @@ Each instruction is one or two 16-bit words, stored low byte first. The high byt
 | `0xFC` | MOVEF | 0 0 0 0 0 0, offset bits 9–8 (1–0) | Offset bits 7–0 (15–8), the data (7–0) |
 | `0xFD`–`0xFF` | Reserved | | Act as STOP and set COPSTAT.ERR |
 
-- **WAIT and SKIP:** P set compares the pixel only (`CWAITP`, `CSKIPP`, which leave the line 0). B set (WAIT only, `CWAITB`) also waits for the DMA engine to be idle. Lines and pixels are 10 bits (0–1023), in beam coordinates: line 0 is the start of the vertical blank and the picture is lines 49–624; pixel 0 is the start of a line's horizontal blank and the picture is pixels 144–863.
+- **WAIT and SKIP:** P set compares the pixel only (`CWAITP`, `CSKIPP`, which leave the line 0). B set (WAIT only, `CWAITB`) also waits for the blitter and the rasteriser to be idle. Lines and pixels are 10 bits (0–1023), in beam coordinates: line 0 is the start of the vertical blank and the picture is lines 49–624; pixel 0 is the start of a line's horizontal blank and the picture is pixels 144–863.
 - **ALU:** fn 0 LD, 1 ST, 2 ADD, 3 SUB, 4 AND, 5 OR, 6 CMP, 7 the flags (d 0: load them, d 1: store them). Source 0–7 is R0–R7, 8 X, 9 Y, 10 the number in word 2; 11–15 are reserved.
 - **SKIPC:** cc 0 EQ, 1 NE, 2 LO, 3 HS, 4 MI, 5 PL, 6 HI, 7 LS; 8–15 are reserved.
 

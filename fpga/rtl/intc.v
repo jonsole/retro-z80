@@ -53,7 +53,8 @@ module intc (
 );
     localparam integer SRC_SOFT = 18;
     localparam [4:0]   SRC_NONE = 5'd23;
-    // Sources with a request line: 0-7, 11-15, 17 (spec 8, section 4)
+    // Sources with a request line: 0-4, 9, 11-15, 17 (spec 8, section 4);
+    // 5-7 are kept in USED but nothing drives them
     localparam [20:0]  USED = 21'b0_0010_1111_1010_1111_1111;
 
     // Registers 0x00-0x0E; 0x0F is reserved and left unanswered (0xFF)

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="410" viewBox="0 0 760 410" font-family="Helvetica, Arial, sans-serif" font-size="13">
 <defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
 <rect width="760" height="410" fill="#ffffff"/>
-<text x="30" y="50" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">forwards (DESC = 0)</text>
+<text x="30" y="50" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">rows top-down (strides &gt; 0)</text>
 <text x="30" y="67" font-size="11" text-anchor="start" fill="#555">rows already written are read again:</text>
 <text x="30" y="81" font-size="11" text-anchor="start" fill="#555">the top two rows smear down</text>
 <text x="178" y="104" font-size="11" text-anchor="middle" fill="#1a1a1a">before</text>
@@ -64,8 +64,8 @@
 <line x1="136" y1="288" x2="146" y2="288" stroke="#777" stroke-width="1" marker-end="url(#ah)"/>
 <text x="133" y="244" font-size="11" text-anchor="end" fill="#1a1a1a" font-weight="bold">4</text>
 <text x="102" y="356" font-size="11" text-anchor="middle" fill="#555">copy order</text>
-<text x="404" y="50" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">backwards (DESC = 1)</text>
-<text x="404" y="67" font-size="11" text-anchor="start" fill="#555">starts at the last pixel of the last row;</text>
+<text x="404" y="50" font-size="15" text-anchor="start" fill="#1a1a1a" font-weight="bold">rows bottom-up (strides &lt; 0)</text>
+<text x="404" y="67" font-size="11" text-anchor="start" fill="#555">the pointers name the last row;</text>
 <text x="404" y="81" font-size="11" text-anchor="start" fill="#555">every row is read before it is written: correct</text>
 <text x="552" y="104" font-size="11" text-anchor="middle" fill="#1a1a1a">before</text>
 <text x="712" y="104" font-size="11" text-anchor="middle" fill="#1a1a1a">after</text>
@@ -127,5 +127,5 @@
 <text x="476" y="356" font-size="11" text-anchor="middle" fill="#555">copy order</text>
 <line x1="388" y1="40" x2="388" y2="370" stroke="#ccc" stroke-width="1"/>
 <text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">Copying rows 0–3 two rows down, onto themselves</text>
-<text x="20" y="398" font-size="11" text-anchor="start" fill="#555">Within a row it is the same: a job reads up to 16 bytes ahead of what it writes.</text>
+<text x="20" y="398" font-size="11" text-anchor="start" fill="#555">Within a row it is the same: a destination to the right of its source, in the same rows, needs RTL.</text>
 </svg>

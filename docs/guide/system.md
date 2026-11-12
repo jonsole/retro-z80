@@ -2,7 +2,7 @@
 
 ## Introduction
 
-retro-z80 is a Z80 home computer built in the FPGA of a ZX Spectrum Next. The Z80 runs at 20 MHz and never waits for memory. Around it is a chipset in the style of the Amiga's: layers of bitmaps and tile maps, sprites, a copper, and a DMA engine with a blitter, all reading the same SRAM as the CPU, on their own share of the memory cycles. An MMU gives the Z80 its 64 KB as eight 8 KB windows onto 4 MB of memory. A boot ROM starts the machine, offers a monitor, and loads programs from a PC over USB.
+retro-z80 is a Z80 home computer built in the FPGA of a ZX Spectrum Next. The Z80 runs at 20 MHz and never waits for memory. Around it is a chipset in the style of the Amiga's: layers of bitmaps and tile maps, sprites, a copper, a blitter, a rasteriser and four channels of sound, all reading the same SRAM as the CPU, on their own share of the memory cycles. An MMU gives the Z80 its 64 KB as eight 8 KB windows onto 4 MB of memory. A boot ROM starts the machine, offers a monitor, and loads programs from a PC over USB.
 
 It is also a Spectrum at heart: port `0xFE` reads the keyboard and sets the border as a Spectrum's does, a Kempston joystick reads at port `0x1F`, and a Spectrum screen can be shown as it is.
 
@@ -33,10 +33,12 @@ Two tables to start with: what the machine has, and which chapter covers each pa
 | Memory | 2 MB or 4 MB of SRAM (the board's chip), shared by the CPU and the chipset. No other RAM |
 | CPU address space | 64 KB, as eight 8 KB windows, each mapped by the MMU onto any 8 KB page |
 | Boot ROM | 32 KB, four pages, in the FPGA |
-| Display | 720 × 576 at 50 Hz on HDMI and VGA; three layers, bitmaps or tile maps, 1–8 bits per pixel |
-| Sprites | Eight, any size, 3, 15 or 255 colours, scaled, at any depth among the layers |
+| Display | 720 × 576 at 50 Hz on HDMI and VGA; three layers (one on the KS2), bitmaps or tile maps, 1–8 bits per pixel |
+| Sprites | Eight (two on the KS2), any size, 3, 15 or 255 colours, scaled, at any depth among the layers |
 | Copper | A display list that writes registers in step with the beam |
-| DMA engine | Four channels with an Amiga-style blitter |
+| Blitter | An Amiga-style blitter: copies, fills and cut-outs of rectangles, in chains of jobs (no mask images on the KS2) |
+| Rasteriser | Lines and filled triangles into a bitmap, clipped to a window (lines only on the KS2) |
+| Sound | Four sample channels from SRAM, any pitch, a left and right volume each; and the Spectrum's beeper |
 | Input | The membrane keyboard, a PS/2 keyboard, two joystick ports; keys from the PC |
 | Link | USB serial to a PC: console, program upload, debugging from VS Code |
 
@@ -51,9 +53,11 @@ Two tables to start with: what the machine has, and which chapter covers each pa
 | 3. Playfield Hardware | The display: layers, bitmaps, tile maps, palettes, priority |
 | 4. Sprite Hardware | The sprites and the sprite sequencer |
 | 5. Coprocessor Hardware | The copper |
-| 6. Blitter and DMA Hardware | The DMA engine and its blitter |
-| 7. The USB Serial Link | The link, the console, upload and debugging |
+| 6. Blitter and Rasteriser Hardware | The blitter, for rectangles, and the rasteriser, for lines and triangles |
+| 7. The USB Serial Link and Debugging | The link, the console, upload and debugging |
 | 8. Keyboards and Joysticks | Every way to read the keys and the joysticks |
+| 9. Geometry Hardware | The geometry unit: 3D points turned, moved and projected |
+| 10. Audio Hardware | The four sound channels, the AUDIO interrupt (source 9) and the beeper |
 | Appendix A | Timing and the screen in numbers |
 
 ---
@@ -173,7 +177,7 @@ Committing a read page also sets the window's write page to the same page. To sp
 
 ### Physical addresses
 
-The chipset does not use the MMU. The display, the sprites, the copper and the DMA engine read SRAM by **physical address**: a 22-bit byte address, from `0x000000` to `0x3FFFFF`, written into their 3-byte pointer registers. A physical address has two fields:
+The chipset does not use the MMU. The display, the sprites, the copper, the blitter, the rasteriser and sound reach SRAM by **physical address**: a 22-bit byte address, from `0x000000` to `0x3FFFFF`, written into their pointer registers. A physical address has two fields:
 
 **Table 1-9: Physical Address Bits**
 
@@ -182,14 +186,14 @@ The chipset does not use the MMU. The display, the sprites, the copper and the D
 | 21–13 | Page | The SRAM page, `0x000`–`0x1FF` |
 | 12–0 | Offset | The byte in the page: the Z80 address's bits 12–0 (Table 1-4) |
 
-So Z80 address `0xC010`, in window 6 showing page `0x020`, is physical `0x040010`. A pointer register takes it low byte first:
+So Z80 address `0xC010`, in window 6 showing page `0x020`, is physical `0x040010`. A pointer register takes it low byte first (a 3-byte pointer such as a layer's BPL0PT; in the blitter's and the rasteriser's 4-byte registers the address is the low 3 bytes):
 
 ```asm
         DB      0x10,0x00,0x04          ; physical 0x040010: page 0x020, byte 0x0010
         D24     0x020*0x2000+0x0010     ; the same three bytes
 ```
 
-A screen, a sprite image or a copper list can be anywhere in SRAM: the Z80 writes it through a window, then gives its physical address to the chipset.
+A screen, a sprite image, a copper list or a sound sample can be anywhere in SRAM: the Z80 writes it through a window, then gives its physical address to the chipset.
 
 ### Example 1-1: One page, two windows
 
@@ -360,7 +364,18 @@ So CPUSPEED, port `0x7700`, is at offset `0x0077`, and BGCOLOR, port `0x0410`, a
 | `0x0100`–`0x0107` | KEYROW0–7, the keyboard rows (memory only) |
 | `0x0140`–`0x01FF` | The interrupt pages |
 | `0x0200`–`0x023C` | The debug unit |
-| `0x1000`–`0x13FF` | The custom block: custom offset k at `0x1000` + k |
+| `0x1000`–`0x13FF` | The custom block: custom offset k at `0x1000` + k, as below |
+| `0x1000`–`0x100F` | Custom `0x000`–`0x00F`: the video globals (VIDCON, VIDSTAT, PRIO, BGCOLOR, LINECMP, PALIDX, PALDAT, DMACON) |
+| `0x1010`–`0x108F` | Custom `0x010`–`0x08F`: sprites 0–7, 16 bytes each |
+| `0x1090`–`0x10EF` | Custom `0x090`–`0x0EF`: layers L0–L2, 32 bytes each |
+| `0x10F0`–`0x10FF` | Custom `0x0F0`–`0x0FF`: BEAMPOS, FRAMECOUNT, VIDSIZE (read only) |
+| `0x1100`–`0x111F` | Custom `0x100`–`0x11F`: the copper |
+| `0x1120`–`0x113F` | Custom `0x120`–`0x13F`: the sprite globals (SPRDMA, SPRCOLL), the attribute layer |
+| `0x1140`–`0x1168` | Custom `0x140`–`0x168`: the blitter |
+| `0x1180`–`0x11B3` | Custom `0x180`–`0x1B3`: the rasteriser |
+| `0x1230`–`0x1234` | Custom `0x230`–`0x234`: DMXINT and DMXINTEN, shared by the blitter and the rasteriser |
+| `0x1240`–`0x12FF` | Custom `0x240`–`0x2FF`: sound, its control registers then channels 0–3 at `0x280` + 32n |
+| `0x1300`–`0x130F` | Custom `0x300`–`0x30F`: the sprite sequencer (not built yet) |
 | `0x1400`–`0x1FFF` | The four palettes, 3 bytes an entry (blue, green, red) |
 
 Through the register page, any instruction that reads or writes memory works on registers: `LD (nn),HL` writes a 2-byte register in one instruction, `LDIR` sets up a whole block from a table, and `SET` and `RES` change single bits. An access is a normal memory cycle, 3 T-states, against an `IN` or `OUT`'s 4, and the address needs no B and C.
@@ -375,10 +390,10 @@ The MMU registers are in the system page too, so the first mapping of the regist
 2. **Three exceptions wait for their last byte.** An **MMU page** (and an interrupt page) commits on its high byte. A **colour** (a palette entry, or the background colour BGCOLOR) commits on its red byte, the third, so a colour on screen never shows half changed. Write these low byte first: `LD (nn),HL`, `LDIR`, or `OUT (C),r` with `INC B`; not `PUSH` or `LDDR`.
 3. **Counters capture.** For a value the hardware changes by itself (a pointer the display walks, a timer's count), **reading the low byte captures the whole value**, and the higher bytes then read from the capture, so a value read low byte first is always whole. `LD HL,(nn)` through the register page reads two bytes in one instruction, safe from interrupts.
 4. **Sticky flags are cleared by writing 1** (W1C). Writing 0 leaves a flag alone, so writing back the value read clears exactly the flags seen.
-5. **Set/clear registers** (DMACON, INTENA0–2, SPRDMA) have SETCLR in bit 7: write the bits to change with SETCLR 1 to set them, 0 to clear them. Bits written as 0 are left alone. Don't read, change and write back.
+5. **Set/clear registers** (DMACON, INTENA0–2, SPRDMA, AUDDMA) have SETCLR in bit 7 (SPRDMA in its second byte): write the bits to change with SETCLR 1 to set them, 0 to clear them. Bits written as 0 are left alone. Don't read, change and write back.
 6. **Strobes** act on any write, whatever the value: COPJMP1, for example. Two need a magic value: SYSRESET (`0xA5`) and WDKICK (`0x5A`).
-7. **Reading changes nothing**, except reading a FIFO's data register (SERDATA, KBDATA), which takes a byte, and the captures.
-8. **Unused bits read 0** and should be written 0. **Unused registers** read `0xFF` and ignore writes; nothing ever gives an error.
+7. **Reading changes nothing**, except reading a FIFO's data register (SERDATA, KBDATA), which takes a byte; SERDROP, which clears; PALDAT's red byte, which steps PALIDX; SDDATA with SDCON.AUTO set, which starts an exchange; and the captures.
+8. **Unused bits read 0** and should be written 0. **Unused registers** read `0xFF` and ignore writes; a write-only register reads `0x00`. Nothing ever gives an error.
 
 ### Changing some bits of a register
 
@@ -413,11 +428,11 @@ The CPU and the chipset share the SRAM, but the Z80 **never waits** for it. Memo
 | 1, 3 | The display: the layers and the sprites |
 | 4 | Sound; the free pool when sound leaves it |
 
-The **free pool**, the copper and the DMA engine, gets cycle 4 and every cycle its owner leaves. The Z80 uses at most one memory cycle in three T-states, so it leaves more than half of its own; the display leaves what its layers do not need. In all the free pool has at least about 47 MB/s, while the CPU always runs at full speed.
+The **free pool**, the copper, the blitter and the rasteriser, gets cycle 4 when sound leaves it (sound uses under 1 MB/s of its 20) and every cycle its owner leaves. The Z80 uses at most one memory cycle in three T-states, so it leaves more than half of its own; the display leaves what its layers do not need. In all the free pool has at least about 47 MB/s, while the CPU always runs at full speed.
 
 The **register page and the boot ROM** use no SRAM cycle at all: they are not SRAM. Neither do I/O accesses.
 
-**DMACON** (custom `0x00C`, set/clear) turns the chipset's memory users on and off: the layers, sprites, copper and blitter each have a bit, with DMAEN over them all. Each chapter says which bits its unit needs. Appendix A has the cycles and the bandwidth in full.
+**DMACON** (custom `0x00C`, set/clear) turns the chipset's memory users on and off: the layers (BPLEN), the copper (COPEN), the blitter and the rasteriser together (BLTEN), the sprites (SPREN) and sound (AUDEN) each have a bit, with DMAEN over them all. Each chapter says which bits its unit needs. Appendix A has the cycles and the bandwidth in full.
 
 ---
 
@@ -691,7 +706,7 @@ RESETWHY tells a program which one it was: exactly one bit is set.
 
 ### What a reset does
 
-Every source gives the same full reset. The Z80 starts at `0x0000` at 20 MHz, the MMU goes back to its reset map, and every chipset and system register goes back to its reset value: the display shows only the background colour, the sprites, copper and DMA engine are stopped, every interrupt is off. Some things survive:
+Every source gives the same full reset. The Z80 starts at `0x0000` at 20 MHz, the MMU goes back to its reset map, and every chipset and system register goes back to its reset value: the display shows only the background colour, the sprites, copper, blitter, rasteriser and sound are stopped, every interrupt is off. Some things survive:
 
 - **The SRAM keeps its contents**, after anything but power-on. A program can keep data across a reset, and the monitor can look at what a crashed program left. After power-on the SRAM holds random values, so check RESETWHY.POWER before trusting it.
 - **The palettes** keep their colours.
@@ -752,7 +767,8 @@ When the boot ROM starts a program, the MMU holds the **program map**:
 | Interrupts | Disabled (DI), IM 2, with the ROM's own table; every source off. A program that wants interrupts sets up its own (Chapter 2) |
 | CPU speed | 20 MHz |
 | Display | Layer L0 is the boot console; the other layers and the sprites are off; the background is black |
-| Copper, DMA engine, timers | Stopped |
+| DMACON | DMAEN and BPLEN only: the copper, blitter, rasteriser, sprites and sound are off |
+| Timers | Stopped; the watchdog off |
 | PS/2 keyboard | Its FIFO on, its interrupt off |
 | Serial link | On, dropping output when the PC is not reading |
 

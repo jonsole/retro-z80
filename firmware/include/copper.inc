@@ -36,7 +36,7 @@ CF      equ     16
 
 ; Fields
 COP_P           equ     0x0080          ; WAIT, SKIP: pixel only
-COP_B           equ     0x0040          ; WAIT: and the DMA engine idle
+COP_B           equ     0x0040          ; WAIT: and the blitter and rasteriser idle
 COP_FN_LD       equ     0
 COP_FN_ST       equ     1
 COP_FN_ADD      equ     2

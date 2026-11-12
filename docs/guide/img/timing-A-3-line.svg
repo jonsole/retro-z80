@@ -11,8 +11,8 @@
 <line x1="40" y1="102" x2="153.33" y2="102" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
 <text x="96.67" y="98" font-size="11" text-anchor="middle" fill="#555">horizontal blank</text>
 <line x1="40" y1="110" x2="40" y2="40" stroke="#333" stroke-width="1"/>
-<text x="45" y="44" font-size="11" text-anchor="start" fill="#1a1a1a">pixel 0: LINE interrupt (line LINECMP); line settings copied</text>
-<text x="45" y="58" font-size="11" text-anchor="start" fill="#1a1a1a">(CTRL, WINX, WINY, SCROLLX/Y, MAPPT, PATPT); each layer starts its fetch</text>
+<text x="45" y="44" font-size="11" text-anchor="start" fill="#1a1a1a">pixel 0: LINE interrupt (line LINECMP); line settings copied (EN, MODE,</text>
+<text x="45" y="58" font-size="11" text-anchor="start" fill="#1a1a1a">VSCALE, CTRL3, WINX, WINY, SCROLLX/Y, MAPPT, PATPT); each layer starts its fetch</text>
 <line x1="153.33" y1="110" x2="153.33" y2="70" stroke="#333" stroke-width="1"/>
 <text x="158.33" y="82" font-size="11" text-anchor="start" fill="#1a1a1a">pixel 144: PRIO and BGCOLOR taken; the picture starts</text>
 <line x1="40" y1="174" x2="720" y2="174" stroke="#777" stroke-width="1"/>

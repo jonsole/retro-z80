@@ -1,8 +1,9 @@
 """Points for Example 6-6 (docs/guide/blitter.md): a cube turning and
 drifting across the screen, projected for 64 frames, written as cube.inc.
 
-Each frame is the cube's 8 points as EDGES wants them: x, then y, signed
-16-bit words, in pixels from the screen's top left corner.
+Each frame is the cube's 8 points as the rasteriser's point registers hold
+them: y, then x, signed 16-bit words, in pixels from the screen's top left
+corner.
 
     python cube.py          (writes cube.inc beside this file)
 """
@@ -20,7 +21,7 @@ CENTRE_Y = 144
 def frame_points(f):
     t = 2 * math.pi * f / FRAMES
     ay, ax = t, 2 * t          # turns about y once and about x twice a loop
-    cx = 180 + 150 * math.sin(t)   # drifts beyond the clip rectangle's sides
+    cx = 180 + 150 * math.sin(t)   # drifts beyond the clip window's sides
     pts = []
     for i in range(8):
         x = SIZE if i & 1 else -SIZE
@@ -35,11 +36,11 @@ def frame_points(f):
 
 def main():
     out = ["; cube.inc: made by cube.py, do not edit. 64 frames of a cube's 8",
-           "; points: x, y as signed words, 4 bytes a point, 32 bytes a frame.",
+           "; points: y, x as signed words, 4 bytes a point, 32 bytes a frame.",
            "cube_pts:"]
     for f in range(FRAMES):
         pts = frame_points(f)
-        out.append("        dw      " + ", ".join(f"{x}, {y}" for x, y in pts)
+        out.append("        dw      " + ", ".join(f"{y}, {x}" for x, y in pts)
                    + f"   ; frame {f}")
     out.append("cube_pts_end:")
     Path(__file__).with_name("cube.inc").write_text("\n".join(out) + "\n")

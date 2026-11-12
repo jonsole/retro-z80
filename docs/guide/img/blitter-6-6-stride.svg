@@ -12,19 +12,19 @@
 <rect x="40" y="96" width="128" height="96" fill="none" stroke="#333" stroke-width="1.5"/>
 <text x="104" y="50" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">a sprite sheet</text>
 <line x1="40" y1="86" x2="168" y2="86" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
-<text x="104" y="82" font-size="11" text-anchor="middle" fill="#555">ABSTRIDE = 128</text>
+<text x="104" y="82" font-size="11" text-anchor="middle" fill="#555">BSTRIDE = 128</text>
 <circle cx="104" cy="128" r="3" fill="#333" stroke="#333" stroke-width="1"/>
 <line x1="100" y1="124" x2="70" y2="222" stroke="#777" stroke-width="1"/>
-<text x="66" y="236" font-size="11" text-anchor="start" fill="#1a1a1a">BPT: the image's first pixel</text>
+<text x="66" y="236" font-size="11" text-anchor="start" fill="#1a1a1a">BLTBPT: the image's first pixel</text>
 <text x="40" y="256" font-size="11" text-anchor="start" fill="#555">row r + 1 of the image starts</text>
-<text x="40" y="270" font-size="11" text-anchor="start" fill="#555">ABSTRIDE bytes after row r</text>
+<text x="40" y="270" font-size="11" text-anchor="start" fill="#555">BSTRIDE bytes after row r</text>
 <rect x="290" y="96" width="360" height="288" fill="#cfe2f3" stroke="#333" stroke-width="1.5"/>
 <text x="470" y="50" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="bold">the screen</text>
 <line x1="290" y1="86" x2="650" y2="86" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
-<text x="470" y="82" font-size="11" text-anchor="middle" fill="#555">CDSTRIDE = 360</text>
+<text x="470" y="82" font-size="11" text-anchor="middle" fill="#555">DSTRIDE = 360</text>
 <rect x="490" y="152" width="32" height="32" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
 <circle cx="490" cy="152" r="3" fill="#333" stroke="#333" stroke-width="1"/>
-<text x="484" y="146" font-size="11" text-anchor="end" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">DPT</text>
+<text x="484" y="146" font-size="11" text-anchor="end" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">BLTDPT</text>
 <line x1="490" y1="198" x2="522" y2="198" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
 <text x="506" y="211" font-size="11" text-anchor="middle" fill="#1a1a1a">WIDTH = 32</text>
 <line x1="490" y1="186" x2="490" y2="202" stroke="#777" stroke-width="1"/>
@@ -37,13 +37,13 @@
 <rect x="278" y="286" width="12" height="32" fill="#ffffff" stroke="#333" stroke-width="1" stroke-dasharray="4 3"/>
 <rect x="290" y="286" width="20" height="32" fill="#f4b183" stroke="#333" stroke-width="1.5"/>
 <circle cx="290" cy="286" r="3" fill="#333" stroke="#333" stroke-width="1"/>
-<text x="316" y="300" font-size="11" text-anchor="start" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">new DPT</text>
+<text x="316" y="300" font-size="11" text-anchor="start" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">new BLTDPT</text>
 <text x="316" y="314" font-size="11" text-anchor="start" fill="#1a1a1a" stroke="#ffffff" stroke-width="4" stroke-linejoin="round" paint-order="stroke">WIDTH = 32 − k = 20</text>
 <line x1="278" y1="326" x2="290" y2="326" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
 <text x="274" y="330" font-size="11" text-anchor="end" fill="#1a1a1a">k = 12</text>
 <text x="272" y="290" font-size="11" text-anchor="end" fill="#1a1a1a">off the left edge</text>
 <text x="272" y="304" font-size="11" text-anchor="end" fill="#1a1a1a">by k pixels:</text>
-<text x="272" y="352" font-size="11" text-anchor="end" fill="#1a1a1a">BPT and DPT + k,</text>
+<text x="272" y="352" font-size="11" text-anchor="end" fill="#1a1a1a">BLTBPT, BLTDPT + k,</text>
 <text x="272" y="366" font-size="11" text-anchor="end" fill="#1a1a1a">WIDTH − k</text>
 <text x="656" y="384" font-size="11" text-anchor="start" fill="#555">288</text>
 </svg>

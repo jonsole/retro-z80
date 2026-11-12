@@ -4,21 +4,22 @@
 ; shades each, in palette entries the program loads. The bottom half (lines
 ; 144-287) is 4 bpp, 180 bytes a row, straight after the top half in memory:
 ; a sea of 6 shades and balls of 4 shades, from one block of 16 palette
-; entries. The LINE interrupt changes L0's depth, stride and palette block in
-; the line where the bottom half starts. Four 32 x 32 balls bounce in each half. Each frame one list of jobs
-; on channel 2 restores the background under every ball, then saves the
+; entries. A copper list changes L0's depth, palette block and stride where
+; the bottom half starts. Four 32 x 32 balls bounce in each half. Each frame
+; one chain of
+; blitter jobs restores the background under every ball, then saves the
 ; background and draws the ball, for each ball in turn. A key ends it, puts the
-; palette back and prints how long the list and the Z80's preparation took.
+; palette back and prints how long the chain and the Z80's preparation took.
 
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
 
         include "hw.inc"
+        include "copper.inc"
 
-TABLE   equ     0x9FD0                  ; the IM 2 table: I = 0x9F, VECBASE = 0xD0
 SAVE    equ     0x060000                ; physical: 1,024 bytes a ball for the saved background
 BOT     equ     SCREEN + 144 * 360      ; the bottom half starts after the top half's 144 rows
-SPLIT   equ     VID_Y0 + 2 * 144 - 1    ; beam line 336: the line before the bottom half's first
+SPLIT   equ     VID_Y0 + 2 * 144 - 1    ; beam line 336: the last line of the top half
 NOBJ    equ     8                       ; four balls in each half
 JOBSZ   equ     96                      ; a ball's three jobs
 CTRL0_8 equ     L_CTRL0_EN_M | (3 << L_CTRL0_BPP_B) | (1 << L_CTRL0_HSCALE_B)
@@ -27,78 +28,41 @@ PALBLK  equ     9                       ; the 4 bpp half's palette block: entrie
 CTRL1_8 equ     1 << L_CTRL1_VSCALE_B   ; 2x down, PALOFS 0
 CTRL1_4 equ     (1 << L_CTRL1_VSCALE_B) | (PALBLK << L_CTRL1_PALOFS_B)
 
-start:  ld      a,BPP8                  ; L0 starts as the top half: 8 bpp,
+start:  ld      a,3                     ; L0 starts as the top half: 8 bpp,
         ld      hl,360                  ; 360 bytes a row
         call    scr_on
         call    setpal                  ; the 8 bpp half's colours
-        ld      hl,bands                ; the two backgrounds: a list of fills
-        call    start2
-        call    wait2
+        ld      hl,bands                ; the two backgrounds: a chain of fills
+        call    bltstart
+        call    bltwait
 
-        di
-        ld      hl,TABLE                ; every entry to the spurious handler ...
-        ld      b,24
-.fill:  ld      (hl),low spurious
-        inc     hl
-        ld      (hl),high spurious
-        inc     hl
-        djnz    .fill
-        ld      hl,line                 ; ... but LINE's
-        ld      (TABLE+2*INT_LINE),hl
-        ld      a,high TABLE
-        ld      i,a
-        ld      bc,VECBASE_P
-        ld      a,low TABLE
+        ld      bc,COPCON_P             ; the copper: off while it is set up
+        xor     a
         out     (c),a
-        im      2
-        ld      bc,LINECMP0_P           ; LINE at the split
-        ld      a,low SPLIT
-        out     (c),a
+        ld      hl,copl                 ; its list, run from the top of every frame
+        ld      bc,COP1LC0_P
+        out     (c),l
         inc     b
-        ld      a,high SPLIT
+        out     (c),h
+        inc     b
         out     (c),a
-        ld      bc,VIDSTAT_P            ; no old LINE
-        ld      a,VIDSTAT_LINE_M
+        ld      b,low COPCON
+        ld      a,COPCON_EN_M
         out     (c),a
-        ld      bc,VIDINTEN_P           ; 1. the unit's enable
-        in      a,(c)
-        or      VIDINTEN_LINE_M
+        ld      bc,DMACON_P
+        ld      a,DMACON_SETCLR_M | DMACON_COPEN_M
         out     (c),a
-        ld      bc,INTENA0_P+(INTR_LINE<<8)
-        ld      a,INTENA_SETCLR_M|(1<<INTB_LINE)
-        out     (c),a                   ; 2. the controller's
-        ld      bc,INTCON_P
-        ld      a,INTCON_MASTER_M
-        out     (c),a                   ; 3. the master enable
-        ei                              ; 4. the CPU's
 
         call    prepare                 ; the balls' first places into the jobs
 
 loop:   call    frame                   ; the vertical blank has begun
-        ld      bc,L0_CTRL0_P           ; the top of the picture is 8 bpp again
-        ld      a,CTRL0_8
-        out     (c),a
-        inc     b
-        ld      a,CTRL1_8
-        out     (c),a
-        ld      bc,L0_BPLSTRIDE0_P
-        ld      a,low 360
-        out     (c),a
-        inc     b
-        ld      a,high 360
-        out     (c),a
-        ld      bc,LINECMP0_P           ; and LINE waits for the split again
-        ld      a,low SPLIT
-        out     (c),a
-        xor     a
-        ld      (phase),a
 
         call    t0
         ld      hl,(first)              ; frame 1 has nothing to restore
-        call    start2
+        call    bltstart
         ld      hl,restores
         ld      (first),hl
-        call    wait2
+        call    bltwait
         call    t1
         ld      de,listmax
         call    maxw
@@ -112,32 +76,13 @@ loop:   call    frame                   ; the vertical blank has begun
         rst     20h                     ; POLLC: a key ends it
         jr      z,loop
 
-        di                              ; put everything back
-        ld      bc,INTCON_P
+        ld      bc,DMACON_P             ; put everything back: the copper off
+        ld      a,DMACON_COPEN_M        ; (SETCLR 0: clear)
+        out     (c),a
+        ld      bc,COPCON_P
         xor     a
         out     (c),a
-        ld      bc,INTENA0_P+(INTR_LINE<<8)
-        ld      a,1<<INTB_LINE          ; SETCLR 0: clear
-        out     (c),a
-        ld      bc,VIDINTEN_P
-        in      a,(c)
-        and     ~VIDINTEN_LINE_M
-        out     (c),a
-        ld      bc,LINECMP0_P
-        xor     a
-        out     (c),a
-        inc     b
-        out     (c),a
-        ld      bc,VIDSTAT_P
-        ld      a,VIDSTAT_LINE_M
-        out     (c),a
-        ld      a,0x1F                  ; the ROM's table again
-        ld      i,a
-        ld      bc,VECBASE_P
-        ld      a,0xD0
-        out     (c),a
-        ei
-        call    wait2
+        call    bltwait
         call    clrpal
         call    scr_off
         ld      hl,msg1
@@ -154,58 +99,37 @@ loop:   call    frame                   ; the vertical blank has begun
         rst     18h
         ret                             ; back to the monitor
 
-msg1:   db      "The longest list took ", 0
+msg1:   db      "The longest chain took ", 0
 msg2:   db      " us; preparing the next frame took ", 0
 msg3:   db      " us", 13, 10, 0
-phase:  db      0                       ; 0: the next LINE is the depth, 1: the stride
 first:  dw      objs + 32               ; the first ball's save job
 cnt:    db      0
 listmax: dw     0
 prepmax: dw     0
-t0time: dw      0
 
-; LINE comes at the start of beam line 336, the last line of the top half. A
-; write to CTRL0 or CTRL1 now is used from line 337, so the bottom half starts
-; at 4 bpp, in its own palette block.
-; The stride is used at the end of each line, so it is left at 360 for line
-; 336, which steps on to the bottom half; the second LINE, on line 337,
-; changes it to 180, in time for the end of the last copy of source line 144.
-line:   push    af
-        push    bc
-        ld      bc,VIDSTAT_P
-        ld      a,VIDSTAT_LINE_M
-        out     (c),a                   ; clear the cause first
-        ld      a,(phase)
-        or      a
-        jr      nz,.stride
-        ld      bc,L0_CTRL0_P
-        ld      a,CTRL0_4
-        out     (c),a                   ; 4 bpp from the next line
-        inc     b
-        ld      a,CTRL1_4
-        out     (c),a                   ; and the 4 bpp half's palette block
-        ld      bc,LINECMP0_P
-        ld      a,low (SPLIT + 1)       ; the high byte is the same
-        out     (c),a
-        ld      a,1
-        ld      (phase),a
-        jr      .done
-.stride:
-        ld      bc,L0_BPLSTRIDE0_P
-        ld      a,low 180
-        out     (c),a
-        inc     b
-        xor     a
-        out     (c),a                   ; 180 bytes a row for the rest of the frame
-        ld      (phase),a
-.done:  pop     bc
-        pop     af
-        ei
-        reti
-
-spurious:
-        ei                              ; NONE, or a source nobody asked for
-        reti
+; The copper list. At the top of each frame (in the vertical blank) L0 is the
+; top half: 8 bpp, PALOFS 0, 360 bytes a row. The depth is taken as each
+; group of 16 source pixels starts, so it changes after line 336's last group
+; has begun showing (beam pixel 848) and before line 337 starts. PALOFS acts
+; at once, so it changes in line 337's horizontal blank. The stride is read
+; at the end of each line (beam pixel 0), so line 336 still steps 360 bytes
+; on, to the start of the bottom half; 180 is written in the middle of line
+; 337, well clear of that moment (a write in the same few clocks may be
+; read a line early), in time for the end of line 338, the last copy of
+; source line 144.
+        align   2
+copl:   CMOVE   L0_CTRL0,CTRL0_8
+        CMOVE   L0_CTRL1,CTRL1_8
+        CMOVE   L0_BPLSTRIDE0,low 360
+        CMOVE   L0_BPLSTRIDE1,high 360
+        CWAIT   SPLIT,852               ; line 336's last group is showing
+        CMOVE   L0_CTRL0,CTRL0_4        ; 4 bpp from line 337's first group
+        CWAIT   SPLIT+1,0               ; line 337's horizontal blank
+        CMOVE   L0_CTRL1,CTRL1_4        ; the bottom half's palette block
+        CWAIT   SPLIT+1,400             ; well clear of the end of line 336
+        CMOVE   L0_BPLSTRIDE0,low 180
+        CMOVE   L0_BPLSTRIDE1,high 180  ; 180 bytes a row for the rest of the frame
+        CSTOP
 
 ; setpal: load the entries of paltab (index, blue, green, red) into palette 0.
 ; The console uses entries 16 and 17 of every block of 16, so paltab keeps off them.
@@ -251,7 +175,7 @@ clrpal: ld      hl,paltab
         jr      nz,.entry
         ret
 
-; prepare: for each ball, put it where it goes next. The channel is idle, so
+; prepare: for each ball, put it where it goes next. The blitter is idle, so
 ; the jobs can be written. IX is the ball's record, IY its three jobs.
 prepare:
         ld      ix,objtab
@@ -262,14 +186,14 @@ prepare:
         push    hl
         pop     iy
         ; 1. restore puts the saved background where the ball was drawn
+        ld      a,(iy+64+8)
+        ld      (iy+8),a                ; BLTDPT
+        ld      a,(iy+64+9)
+        ld      (iy+9),a
         ld      a,(iy+64+10)
-        ld      (iy+10),a               ; DPT
+        ld      (iy+10),a
         ld      a,(iy+64+11)
-        ld      (iy+11),a
-        ld      a,(iy+64+12)
-        ld      (iy+12),a
-        ld      a,(iy+64+0x13)
-        ld      (iy+0x13),a             ; SHIFT: DBIT
+        ld      (iy+11),a               ; and its DBIT
         ; 2. move the ball, bouncing at the edges of its half
         ld      l,(ix+0)
         ld      h,(ix+1)
@@ -313,21 +237,17 @@ prepare:
         ld      d,(ix+13)
         add     hl,de
         ld      a,(ix+14)
-        adc     a,0                     ; A:HL = the 23-bit address
+        adc     a,0                     ; A:HL = the 24-bit address
         ; 4. into the save and draw jobs
-        ld      (iy+32+7),l             ; save: BPT
-        ld      (iy+32+8),h
-        ld      (iy+32+9),a
-        ld      (iy+64+10),l            ; draw: DPT
-        ld      (iy+64+11),h
-        ld      (iy+64+12),a
+        ld      (iy+32+4),l             ; save: BLTBPT
+        ld      (iy+32+5),h
+        ld      (iy+32+6),a
+        ld      (iy+64+8),l             ; draw: BLTDPT
+        ld      (iy+64+9),h
+        ld      (iy+64+10),a
         ld      a,c
-        ld      (iy+64+0x13),a          ; draw: SHIFT.DBIT = x mod 2
-        add     a,a
-        add     a,a
-        add     a,a
-        add     a,a
-        ld      (iy+32+0x12),a          ; save: SHIFT.BBIT
+        ld      (iy+32+7),a             ; save: BBIT = x mod 2, BLTBPT bits 26-24
+        ld      (iy+64+11),a            ; draw: DBIT = x mod 2, BLTDPT bits 26-24
         ld      de,16
         add     ix,de
         ld      a,(cnt)
@@ -373,22 +293,6 @@ mul:    ld      b,h
         jr      nz,.bit
         ret
 
-; t0: save TIME's low 16 bits. t1: HL = TIME now - that. TIME is in us; reading TIME0 captures all 4 bytes.
-t0:     ld      bc,TIME0_P
-        in      e,(c)
-        inc     b
-        in      d,(c)
-        ld      (t0time),de
-        ret
-t1:     ld      bc,TIME0_P
-        in      l,(c)
-        inc     b
-        in      h,(c)
-        ld      de,(t0time)
-        or      a
-        sbc     hl,de
-        ret
-
 ; maxw: HL = a time, DE -> the word that holds the largest so far
 maxw:   ld      a,(de)
         sub     l
@@ -422,47 +326,45 @@ objtab: BALL    0, 20,  10,  2,  1, 360, SCREEN, 0
         BALL    6, 250, 50,  3,  1, 180, BOT,    1
         BALL    7, 320, 100,-2,  2, 180, BOT,    1
 
-; The jobs. A ball has three: restore, save and draw (Figure 6-12). The list
+; The jobs. A ball has three: restore, save and draw (Figure 6-11). The chain
 ; runs every ball's restore, last ball first, then each ball's save and draw
 ; in turn, so balls that overlap are put back in the opposite order to the one
-; they were drawn in. DPT and BPT are set each frame; NEXT and CHDESC take a
-; job's own Z80 address, which in the program map is its physical address.
-        align   4
+; they were drawn in. BLTDPT and BLTBPT are set each frame; BLTNEXT and
+; BLTDESC take a job's own Z80 address, which in the program map is its
+; physical address.
+        align   2
     MACRO OBJ k, bpp, row, brow, img, sv
-        db      OP_BLIT, bpp, 0, 0xCC   ; restore: copy the saved background back
-        d24     0, sv, 0                ; APT, BPT: the saved background; DPT: set each frame
-        d24     32                      ; WIDTH: 32 pixels
-        dw      32, 0                   ; HEIGHT, SHIFT (DBIT set each frame)
-        dw      brow, row               ; ABSTRIDE: SAVE's rows; CDSTRIDE: the screen's
+        dd      0xCC*MT | bpp           ; restore: copy the saved background back
+        dd      sv, 0                   ; BLTBPT: the saved background; BLTDPT (and DBIT): set each frame
+        dw      32, 32                  ; WIDTH, HEIGHT: 32 pixels
         dd      0
+        dw      row, brow               ; DSTRIDE: the screen's rows; BSTRIDE: SAVE's
+        dw      0, 0
         IF k > 0
-        d24     objs + JOBSZ * (k - 1)  ; NEXT: the restore of the ball before
+        dd      objs + JOBSZ * (k - 1)  ; BLTNEXT: the restore of the ball before
         ELSE
-        d24     objs + 32               ; NEXT: the first ball's save
+        dd      objs + 32               ; BLTNEXT: the first ball's save
         ENDIF
-        db      0
 
-        db      OP_BLIT, bpp, 0, 0xCC   ; save: copy the background under the ball
-        d24     0, 0, sv                ; BPT: set each frame; DPT: SAVE
-        d24     32
-        dw      32, 0                   ; SHIFT: BBIT set each frame
-        dw      row, brow               ; ABSTRIDE: the screen's rows; CDSTRIDE: SAVE's
+        dd      0xCC*MT | bpp           ; save: copy the background under the ball
+        dd      0, sv                   ; BLTBPT (and BBIT): set each frame; BLTDPT: SAVE
+        dw      32, 32
         dd      0
-        d24     objs + JOBSZ * k + 64   ; NEXT: this ball's draw
-        db      0
+        dw      brow, row               ; DSTRIDE: SAVE's rows; BSTRIDE: the screen's
+        dw      0, 0
+        dd      objs + JOBSZ * k + 64   ; BLTNEXT: this ball's draw
 
-        db      OP_BLIT, bpp|MASKKEY, 0, 0xCA   ; draw: A ? B : C, key colour 0
-        d24     0, img, 0               ; BPT: the ball; DPT: set each frame
-        d24     32
-        dw      32, 0                   ; SHIFT: DBIT set each frame
-        dw      brow, row               ; ABSTRIDE: the ball's rows; CDSTRIDE: the screen's
-        dd      0                       ; VALUE: the key colour
+        dd      0xCA*MT | MASKKEY | bpp ; draw: A ? B : C, KEY 0
+        dd      img, 0                  ; BLTBPT: the ball; BLTDPT (and DBIT): set each frame
+        dw      32, 32
+        dd      0
+        dw      row, brow               ; DSTRIDE: the screen's rows; BSTRIDE: the ball's
+        dw      0, 0
         IF k < NOBJ - 1
-        d24     objs + JOBSZ * (k + 1) + 32     ; NEXT: the next ball's save
+        dd      objs + JOBSZ * (k + 1) + 32     ; BLTNEXT: the next ball's save
         ELSE
-        d24     0                       ; NEXT: the end of the list
+        dd      0                       ; BLTNEXT: the end of the chain
         ENDIF
-        db      0
     ENDM
 objs:   OBJ     0, BPP8, 360, 32, ball8a, SAVE
         OBJ     1, BPP8, 360, 32, ball8b, SAVE + 1 * 1024
@@ -488,27 +390,27 @@ bands:
 i = 0
         DUP     48
         ENTRY   i
-        db      OP_BLIT, BPP8|BCONST, 0, 0xCC
-        d24     0, 0, SCREEN + i * 3 * 360
-        d24     360
-        dw      3, 0, 0, 360
-        dd      en * 0x01010101
-        d24     $ + 4                   ; NEXT: the band after this one
-        db      0
+        dd      0xCC*MT | BLTCTRL_BCONST_M | BPP8
+        dd      0, SCREEN + i * 3 * 360
+        dw      360, 3
+        dd      0
+        dw      360, 0
+        dw      en * 0x0101, 0
+        dd      $ + 4                   ; BLTNEXT: the band after this one
 i = i + 1
         EDUP
     MACRO BAND4 n, last
-        db      OP_BLIT, BPP4|BCONST, 0, 0xCC
-        d24     0, 0, BOT + n * 24 * 180
-        d24     360                     ; 360 pixels = 180 bytes
-        dw      24, 0, 0, 180
-        dd      (2 + n) * 0x11111111    ; colours 2-7 of the block
+        dd      0xCC*MT | BLTCTRL_BCONST_M | BPP4
+        dd      0, BOT + n * 24 * 180
+        dw      360, 24                 ; 360 pixels = 180 bytes
+        dd      0
+        dw      180, 0
+        dw      (2 + n) * 0x1111, 0     ; colours 2-7 of the block
         IF last
-        d24     0
+        dd      0
         ELSE
-        d24     $ + 4
+        dd      $ + 4
         ENDIF
-        db      0
     ENDM
         BAND4   0, 0
         BAND4   1, 0
@@ -604,4 +506,4 @@ ball4a: BALL4   8
 ball4b: BALL4   12
 
         include "screen.inc"
-        assert $ < TABLE                ; the program ends below the IM 2 table
+

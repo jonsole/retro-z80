@@ -104,7 +104,7 @@ Two points in each line matter to programs:
 
 | Beam pixel | What happens |
 |------------|--------------|
-| 0 | The LINE interrupt for line LINECMP. Each layer's line settings are copied (CTRL0–CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT, and the attribute layer's registers). Each layer whose window covers the line starts its fetch. Timers at SRC 1 tick |
+| 0 | The LINE interrupt for line LINECMP. Each layer's line settings are copied (CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT, and the attribute layer's registers). Each layer whose window covers the line starts its fetch. Timers at SRC 1 tick |
 | 144 | PRIO and BGCOLOR are taken for the line's picture |
 
 ---
@@ -177,7 +177,7 @@ Each 100 ns slot has five memory cycles of 20 ns. Each cycle has an owner, who g
 | 3 | 60 ns | The display | The free pool |
 | 4 | 80 ns | Sound | The free pool |
 
-The **free pool** goes, in order, to display fetches that want more, the sprite sequencer, the copper and the DMA engine. The copper at COPCON.PRI 1 goes first and owns cycle 4.
+The **free pool** goes, in order, to the layers, the sprites, sound, the copper, the blitter and the rasteriser. The copper at COPCON.PRI 1 goes before all of them in any cycle its owner leaves, cycle 4 included. Only an urgent display fetch (a layer or sprite about to be late) comes before a cycle's owner, and never before the Z80 in a cycle it has asked for.
 
 **The Z80 never waits.** A read must be answered by the end of its T2, 100 ns after its address appears. A T-state at 20 MHz starts on slot edge 0 or 5, and either way a CPU cycle comes in time: cycle 2 of the same slot (20 ns to spare) or cycle 0 of the next (10 ns to spare). A write is posted: the Z80 goes on at once. The Z80 makes at most one memory access every 3 T-states, so it uses at most one of its two cycles in a slot; the other goes to the free pool.
 
@@ -187,7 +187,7 @@ The **free pool** goes, in order, to display fetches that want more, the sprite 
 |-------|----------|-----------|
 | The Z80 | 640 cycles offered; at most 213 used at 20 MHz | At most 6.67 M bytes a second |
 | The display | 640 cycles: 1,280 bytes | 40 MB/s: **1.48 bytes per beam pixel** |
-| Cycle 4 | 320 cycles | 20 MB/s |
+| Cycle 4 | 320 cycles | 20 MB/s: sound's, which uses under 1 MB/s; the rest goes to the free pool |
 | The free pool | At least 747 cycles | At least about 47 MB/s, and more in the vertical blank, when the display fetches nothing |
 
 ---
@@ -198,7 +198,7 @@ The **free pool** goes, in order, to display fetches that want more, the sprite 
 
 *Figure A-5: Jobs Against the Vertical Blank at 20 MHz*
 
-The vertical blank is 1.57 ms: 31,360 T-states at 20 MHz. The copper and the DMA engine work alongside the Z80 and do not take its time.
+The vertical blank is 1.57 ms: 31,360 T-states at 20 MHz. The copper and the blitter work alongside the Z80 and do not take its time.
 
 **Table A-11: Z80 Jobs Against the Vertical Blank**
 
@@ -218,8 +218,8 @@ The vertical blank is 1.57 ms: 31,360 T-states at 20 MHz. The copper and the DMA
 | Other units in the vertical blank | Amount |
 |-----------------------------------|--------|
 | The copper at PRI 1 | At least 15,680 MOVEs (one per slot) |
-| The DMA engine, copying | About 70 KB (about 45 MB/s) |
-| The DMA engine, filling | About 140 KB (about 89 MB/s) |
+| The blitter, copying | About 23 KB (14.8 MB/s, measured with the screen on; Chapter 6, "Speed") |
+| The blitter, filling | About 35 KB (22.3 MB/s, measured with the screen on) |
 
 A job too big for the vertical blank can still be done safely if it changes only what the beam has already passed, or what is not on screen (a back buffer).
 
@@ -337,7 +337,9 @@ The cost of a screen is a **rate**: at every point across the screen, the layers
 
 | Registers | Taken at | To change line L, write |
 |-----------|----------|-------------------------|
-| CTRL0–CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL | Beam pixel 0 of each line | During line L − 1 (or earlier) |
+| CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL | Beam pixel 0 of each line | During line L − 1 (or earlier) |
+| CTRL0.BPP, CTRL0.HSCALE | The start of each group of 16 source pixels the layer fetches: a group keeps the depth and scale it started with | After line L − 1's last group has begun showing, before pixel 0 of line L. Mid-line, a write shows one or two groups past the beam |
+| CTRL0.TRANSP, CTRL1.PALOFS, CTRL2.WRAP | At once: TRANSP and PALOFS from the pixel being shown, WRAP at the next pointer move | Anywhere |
 | PRIO, BGCOLOR | Beam pixel 144 of each line | Between pixel 144 of line L − 1 and pixel 144 of line L: the horizontal blank of line L still counts |
 | BPL0PT, BPLSTRIDE | At once: they are live | After the layer's last fetch on line L − 1, before pixel 0 of line L |
 | Palette entries, VIDCON, port `0xFE` border | At once: the next pixel | Anywhere: the change shows from that point in the line |

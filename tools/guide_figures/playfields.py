@@ -94,7 +94,7 @@ def fig_stride():
     f.text(ML, MT + 3 * 34 + 58, "whatever the window width, scale or fine scroll", size=11, fill=TXT2)
     # bottom: one line in detail
     yb = 295
-    f.text(20, yb - 14, "One line: the pointer walks through the shown part, then jumps by BPLSTRIDE from the line's start", size=11)
+    f.text(20, yb - 14, "One line: the pointer walks through the shown part; at the line's end it goes to the line's start + BPLSTRIDE", size=11)
     x = 40
     segs = [(5, UNSHOWN, ""), (40, HILITE, "fetched: the pointer + 2 per word"), (35, UNSHOWN, "not fetched")]
     for n, col, lab in segs:
@@ -105,7 +105,7 @@ def fig_stride():
     f.rect(x, yb, 10 * 8, 26, UNSHOWN, dash="4 3")
     f.text(x + 40, yb + 17, "line y+1 …", size=11, anchor="middle")
     f.line(40 + 5 * 8, yb + 40, 40 + 5 * 8 + 80 * 8, yb + 40, stroke=DIM, arrow="end")
-    f.text(40 + 5 * 8, yb + 54, "start of line y (saved at the first fetch)", size=10, fill=TXT2)
+    f.text(40 + 5 * 8, yb + 54, "start of line y (the pointer as the line starts)", size=10, fill=TXT2)
     f.text(40 + 85 * 8, yb + 54, "start of line y+1", size=10, anchor="end", fill=TXT2)
     return f.save("playfields-3-5-stride.svg")
 

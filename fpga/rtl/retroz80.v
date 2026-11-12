@@ -411,7 +411,7 @@ module retroz80 #(
 
     // ---------------------------------------------------------------- copper (spec 6)
     // Its list through the scheduler's copper channel; its writes onto the
-    // register bus (above). WAIT with B waits for the DMA engine.
+    // register bus (above). WAIT with B waits for the blitter and rasteriser.
     // Without it (COPPER = 0) its registers are not answered (read 0xFF), it
     // never asks for memory or writes, and it never interrupts.
     generate if (COPPER) begin : g_cop

@@ -8,7 +8,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 
 | Item | Value |
 |------|-------|
-| Sources | 21 numbers (0–20), retro68k's numbering; 15 in use in version 1, the rest reserved or not used |
+| Sources | 21 numbers (0–20), retro68k's numbering; 13 with a request line (0–4, 9, 11–15, 17, 18), the rest reserved or not used |
 | Request lines | Each unit raises a level line while one of its flags is set and enabled in the unit. The controller keeps no request flags of its own, except SOFT |
 | Priority | Fixed: a lower source number goes first (one /INT line) |
 | Enables | INTENA, three set/clear bytes (Amiga style), and INTCON.MASTER |
@@ -76,7 +76,7 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 | 4 | BLT | The blitter and the rasteriser: a job with IRQ ended, or the unit stopped (the chain's end, STOP, an error) | DMXINT.BLT with DMXINTEN.BLT (spec 14), or DMXINT.RAS with DMXINTEN.RAS (spec 19) | DMXINT.BLT, DMXINT.RAS |
 | 5–7 | – | Not used (were DMA engine channels 1–3) | – | – |
 | 8 | – | Not used, as in retro68k | – | – |
-| 9 | AUDIO | Sound (spec 13) | AUDSTAT.CH and AUDINTEN | – |
+| 9 | AUDIO | Sound (spec 13) | AUDSTAT.CH and AUDINTEN | AUDSTAT.CH (write 1) |
 | 10 | – | Not used, as in retro68k | – | – |
 | 11 | TIMER0 | Timer 0 underflow | TMR0_STAT.UNDER and TMR0_CTRL.IRQ (spec 9) | TMR0_STAT.UNDER |
 | 12 | TIMER1 | Timer 1 underflow | As timer 0 | TMR1_STAT.UNDER |

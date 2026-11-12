@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="460" viewBox="0 0 760 460" font-family="Helvetica, Arial, sans-serif" font-size="13">
-<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f3f3"/><line x1="0" y1="0" x2="0" y2="6" stroke="#bbbbbb" stroke-width="2"/></pattern></defs>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
 <rect width="760" height="460" fill="#ffffff"/>
-<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">A dashed LINE (pattern 0xF0F0) that leaves the clip rectangle</text>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">A dashed line (RASPAT 0xF0F0, MINTERM 0xCA) that leaves the clip window</text>
 <rect x="116" y="100" width="15" height="15" fill="#ffffff" stroke="#e3e3e3" stroke-width="1"/>
 <rect x="131" y="100" width="15" height="15" fill="#ffffff" stroke="#e3e3e3" stroke-width="1"/>
 <rect x="146" y="100" width="15" height="15" fill="#ffffff" stroke="#e3e3e3" stroke-width="1"/>
@@ -683,12 +683,12 @@
 <rect x="657" y="311" width="13" height="13" fill="#ffffff" stroke="#777" stroke-width="1" stroke-dasharray="2 2"/>
 <rect x="672" y="311" width="13" height="13" fill="#ffffff" stroke="#777" stroke-width="1" stroke-dasharray="2 2"/>
 <rect x="161" y="130" width="360" height="150" fill="none" stroke="#d70000" stroke-width="1.5" stroke-dasharray="4 3"/>
-<text x="161" y="294" font-size="11" text-anchor="middle" fill="#d70000">CLIPXMIN = 3</text>
-<text x="521" y="294" font-size="11" text-anchor="middle" fill="#d70000">CLIPXMAX = 26</text>
-<text x="112" y="142" font-size="11" text-anchor="end" fill="#d70000">CLIPYMIN = 2</text>
-<text x="112" y="277" font-size="11" text-anchor="end" fill="#d70000">CLIPYMAX = 11</text>
-<text x="165" y="310" font-size="11" text-anchor="start" fill="#d70000">inclusive: the edge pixels are drawn</text>
-<text x="116" y="42" font-size="11" text-anchor="start" fill="#555">VALUE bits 31–16, the pattern: one bit a pixel, from bit 31, round again after 16</text>
+<text x="161" y="294" font-size="11" text-anchor="middle" fill="#d70000">XMIN = 3</text>
+<text x="521" y="294" font-size="11" text-anchor="middle" fill="#d70000">XMAX = 26</text>
+<text x="112" y="142" font-size="11" text-anchor="end" fill="#d70000">YMIN = 2</text>
+<text x="112" y="277" font-size="11" text-anchor="end" fill="#d70000">YMAX = 11</text>
+<text x="165" y="310" font-size="11" text-anchor="start" fill="#d70000">inclusive: the edge pixels are written</text>
+<text x="116" y="42" font-size="11" text-anchor="start" fill="#555">RASPAT, the pattern: A for one pixel at a time, from bit 15, round again after 16</text>
 <rect x="116" y="48" width="22" height="20" fill="#0000d7" stroke="#333" stroke-width="1"/>
 <text x="127" y="62" font-size="11" text-anchor="middle" fill="#ffffff">1</text>
 <rect x="138" y="48" width="22" height="20" fill="#0000d7" stroke="#333" stroke-width="1"/>
@@ -723,13 +723,13 @@
 <text x="457" y="62" font-size="11" text-anchor="middle" fill="#1a1a1a">0</text>
 <text x="476" y="62" font-size="11" text-anchor="start" fill="#1a1a1a">= 0xF0F0</text>
 <rect x="116" y="359" width="14" height="14" fill="#0000d7" stroke="#333" stroke-width="1"/>
-<text x="136" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">inside, pattern 1: drawn</text>
+<text x="136" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">inside, A = 1: the colour</text>
 <rect x="296" y="359" width="14" height="14" fill="#ffffff" stroke="#333" stroke-width="1"/>
-<text x="316" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">pattern 0: not read or written</text>
+<text x="316" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">inside, A = 0: C written back</text>
 <rect x="506" y="359" width="14" height="14" fill="#c9c9f0" stroke="#777" stroke-width="1" stroke-dasharray="2 2"/>
 <rect x="526" y="359" width="14" height="14" fill="#ffffff" stroke="#777" stroke-width="1" stroke-dasharray="2 2"/>
-<text x="546" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">outside: stepped, not drawn,</text>
+<text x="546" y="370" font-size="11" text-anchor="start" fill="#1a1a1a">outside: stepped, not written,</text>
 <text x="546" y="384" font-size="11" text-anchor="start" fill="#1a1a1a">no memory cycle</text>
-<text x="116" y="410" font-size="11" text-anchor="start" fill="#555">From (6, 4) to (37, 14): WIDTH 32, HEIGHT 10. Small numbers: the pixel's place in the line;</text>
-<text x="116" y="424" font-size="11" text-anchor="start" fill="#555">the pattern keeps counting through clipped pixels, so the dashes stay where they were.</text>
+<text x="116" y="410" font-size="11" text-anchor="start" fill="#555">From (6, 4) to (37, 14). Small numbers: the pixel's step number;</text>
+<text x="116" y="424" font-size="11" text-anchor="start" fill="#555">the pattern moves on for every pixel stepped, so the dashes stay where they were.</text>
 </svg>

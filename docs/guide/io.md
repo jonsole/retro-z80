@@ -250,7 +250,7 @@ Six registers, KBCON to KBIRQEN (registers `0x60`–`0x65`), drive the keyboard;
 | Bits | Name | Meaning |
 |------|------|---------|
 | 7–1 | – | Read 0 |
-| 0 | EN | 1: the FIFO on. 0: the FIFO off; turning it off empties it |
+| 0 | EN | 1: the FIFO on, and bytes can be sent (KBSEND). 0: the FIFO off; turning it off empties it and stops a byte being sent |
 
 **Table 8-8: KBSTAT Bits**
 
@@ -601,7 +601,7 @@ up   E0 75
 
 ### Sending to the keyboard
 
-The keyboard takes commands too: its lights, its repeat rate, a reset. Write a byte to KBSEND when TXBUSY is 0; a write while TXBUSY is 1 is ignored. The hardware holds the keyboard's clock low for 100 µs, then the keyboard clocks the byte in; TXBUSY goes back to 0 when the keyboard has taken it, or after 15 ms with KBIRQ.TIMEOUT set if it never does. The keyboard answers `FA` through the FIFO: wait for it before the next byte. Nothing is received while a byte is being sent.
+The keyboard takes commands too: its lights, its repeat rate, a reset. Write a byte to KBSEND when TXBUSY is 0, with KBCON.EN on (as the boot ROM leaves it); a write while TXBUSY is 1, or while EN is 0, is ignored. The hardware holds the keyboard's clock low for 100 µs, then the keyboard clocks the byte in; TXBUSY goes back to 0 when the keyboard has taken it, or after 15 ms with KBIRQ.TIMEOUT set if it never does. The keyboard answers `FA` through the FIFO: wait for it before the next byte. Nothing is received while a byte is being sent.
 
 ```asm
 ; set the keyboard's lights: E = the lights byte (Table 8-16)

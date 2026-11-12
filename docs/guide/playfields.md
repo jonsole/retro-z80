@@ -126,7 +126,7 @@ Table 3-3 compares the two ways (T-states at any speed; at 20 MHz a T-state is 5
 | Read a byte (VIDSTAT) | `LD A,n` and `IN A,(n)`: 18 | `LD A,(nn)`: 13 |
 | Set one bit (CTRL0.TRANSP) | `LD BC`, `IN`, `OR`, `OUT`: 41 | `SET 4,(IX+d)`: 23 |
 | Write a whole layer (32 bytes) from a table | 32 × `OUT`/`INC B`, about 550 | `LDIR`: 667, or 32 × `LDI`: 512 |
-| Load a palette (768 bytes) | `OUTI` and `INC B` (see "Loading a palette"): 15,360 | `LDIR`: 16,123, or unrolled `LDI`: 12,288 |
+| Load a palette (768 bytes) | Unrolled `OUTI` and `INC B` (see "Loading a palette"): 15,360 | `LDIR`: 16,123, or unrolled `LDI`: 12,288 |
 
 Four rules matter all through this chapter: values are low byte first and every byte acts at once; wide registers are changed between frames; colours and MMU pages wait for their last byte; reading the lowest byte captures. "When Register Writes Take Effect", near the end of the chapter, gives them in full with the timing of every register. Read it before you change registers while the display runs.
 
@@ -148,7 +148,7 @@ Four rules matter all through this chapter: values are low byte first and every 
   ```
 
 - **Physical and Z80 addresses.** The display reads SRAM by 22-bit physical address, not through the MMU. In the examples physical addresses have names like `SCREEN` (`0x040000`), and the Z80 reaches them by mapping their 8 KB page (address ÷ `0x2000`) into a window: window 6, at `0xC000`, is the drawing window, `DRAWWIN`.
-- The complete examples are loaded at `0x8000` and assume windows 2–6 still show SRAM pages 0–4, as after reset, so Z80 address a in `0x4000`–`0xDFFF` is physical address a − `0x4000` (`RAMOFS`). The stack is at `0xBF00` and the IM 2 table at `0xBFD0`. (What the boot ROM leaves when it starts a program is not specified yet.)
+- The complete examples are loaded at `0x8000` and run in the boot ROM's **program map** (Chapter 1, "Programs"): window n holds SRAM page n, so a Z80 address in `0x2000`–`0xFFFF` is also its physical address. A table or a picture kept in the program goes into a pointer register as it is. The stack is at `0xBF00` and the IM 2 table at `0xBFD0`.
 - Comments give T-states where they help. The CPU runs at 20 MHz: a 576p line is 640 T-states, a frame 400,000.
 
 ---
@@ -379,7 +379,7 @@ The layers fetch only when **DMACON.DMAEN** and **DMACON.BPLEN** are both set an
 | 6 | DMAEN | Master enable for the DMA below |
 | 5 | BPLEN | Layer and attribute layer fetch |
 | 4 | COPEN | The copper |
-| 3 | BLTEN | The DMA engine |
+| 3 | BLTEN | The blitter and the rasteriser |
 | 2 | SPREN | The sprites |
 | 1 | AUDEN | Sound (with each channel's AUDDMA bit) |
 | 0 | – | Reserved |
@@ -754,7 +754,7 @@ plot4:      ld      a,c
 
 That is about 100,000 pixels a second at 20 MHz. Nearly a third of the time goes on mapping the page, so a routine that draws a run of pixels on one line, or a block of lines in the same page, maps it once. An 8 bpp layer is faster still: a pixel is a byte, with no masking.
 
-Large jobs, such as clearing a screen or copying a picture into place, belong to the DMA engine, which has its own chapter; see also "What the CPU can draw in a frame" under "The Fetch Budget".
+Large jobs, such as clearing a screen or copying a picture into place, belong to the blitter, which has its own chapter; see also "What the CPU can draw in a frame" under "The Fetch Budget".
 
 ---
 
@@ -902,7 +902,7 @@ It costs 8 ÷ 8 ÷ 2 = 0.5 bytes per pixel of the fetch budget, a third of what 
 
 The stride, BPLSTRIDE, is the number of bytes from the start of one line to the start of the next. It is a signed 16-bit value, and it must be even (bit 0 always reads 0).
 
-Here is what happens to the pointer during one line. At the start of the line, BPL0PT holds the address of the line's first word. The hardware fetches the line word by word, and the pointer moves on by 2 for each word. When it fetches the line's **first** word, the hardware saves the pointer's value: the line's start. When it fetches the line's **last** word, it sets the pointer to that saved start plus BPLSTRIDE. So:
+Here is what happens to the pointer during one line. At the start of the line, BPL0PT holds the address of the line's first word, and the hardware keeps that value as the line's start. It fetches the line word by word, and the pointer moves on by 2 for each word. At the **end** of the line, as the next horizontal blank starts (beam pixel 0), it sets the pointer to the line's start plus BPLSTRIDE. Between the line's last fetch and then, BPL0PT reads as the address after the last word fetched. So:
 
 ```
    next line's start  =  this line's start  +  BPLSTRIDE
@@ -1482,7 +1482,6 @@ CREG        equ     REGS+REGS_CUSTOM
 PREG        equ     REGS+REGS_PALETTE
 DRAWWIN     equ     0xC000              ; window 6
 TEXTWIN     equ     0x6000              ; window 3: the text map, kept there
-RAMOFS      equ     0x4000              ; Z80 address - physical, windows 2-6
 IM2TAB      equ     0xBFD0
 STACK       equ     0xBF00
 
@@ -1653,7 +1652,7 @@ layer1:     db      L_CTRL0_EN_M|(2<<L_CTRL0_BPP_B)|L_CTRL0_MODE_M|(1<<L_CTRL0_H
             db      0
             d24     MAP                 ; MAPPT
             db      0
-            d24     tiles-RAMOFS        ; PATPT: the tiles below, in place
+            d24     tiles               ; PATPT: the tiles below, in place
             db      0
 
 ; Layer 0: the text, in the boot console's window
@@ -1734,7 +1733,7 @@ The simplest way is to use one layer for each band. Give each layer a window cov
 
 ### Changing a line setting partway down
 
-CTRL0–CTRL3, the window, SCROLLX, SCROLLY, MAPPT and PATPT are read at the start of each line. A write during line L − 1 changes line L. So one layer can show different settings in different bands. For a tile layer, one write to SCROLLY shows another part of the map from that line on.
+CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, the window, SCROLLX, SCROLLY, MAPPT and PATPT are read at the start of each line. A write during line L − 1 changes line L. (The other CTRL fields act sooner: see "When Register Writes Take Effect".) So one layer can show different settings in different bands. For a tile layer, one write to SCROLLY shows another part of the map from that line on.
 
 The LINE interrupt is made for this. It comes at the start of beam line LINECMP (pixel 0), and the handler then has the rest of that line, 640 T-states less the time to start it (at most 42 in IM 2), to make its writes for the next line. Its 2-byte writes are safe there: the line settings are copied only at the next line's start, after both bytes.
 
@@ -1834,7 +1833,9 @@ vblank:     push    af
 
 ; Line MIRROR: each source line from now on steps back one row. The stride
 ; is used after the second copy of source line 176, so line 435 shows
-; source line 175. The new PALOFS shows from line 434.
+; source line 175. PALOFS acts at once: written about 110 T-states into
+; line 433, before the window's left edge (beam pixel 184), so all of line
+; 433 is in the new colours.
 mirror:     push    af
             push    hl
             ld      a,VIDSTAT_LINE_M
@@ -1849,7 +1850,7 @@ mirror:     push    af
             reti
 ```
 
-CTRL1 is a register of its own, so the handler changes PALOFS without touching the format and the enable in CTRL0.
+CTRL1 is a register of its own, so the handler changes PALOFS without touching the format and the enable in CTRL0. PALOFS is not a line setting: it changes from the pixel the beam is on, so the handler writes it early in the line. A write later in the line would split that line between the two colour sets; for an exact place, use the copper.
 
 ### Writing a new pointer partway down
 
@@ -2087,7 +2088,7 @@ On a Spectrum the border is set through port `0xFE`, and that works here too (se
 
 ## Direct Colour
 
-In **direct colour**, set by VIDCON.DIRECT, the three layers together make one picture with the colour in each pixel, instead of an index into a palette. Each layer gives one channel:
+In **direct colour**, set by VIDCON.DIRECT, the three layers together make one picture with the colour in each pixel, instead of an index into a palette. **Direct colour is not built yet**: VIDCON.DIRECT reads back as written but changes nothing, and the KS2 has only one layer. It is planned for the KS3 build, with all three layers. Each layer gives one channel:
 
 **Table 3-37: Direct Colour Channels**
 
@@ -2180,9 +2181,9 @@ The pointers must be reset each frame, as for any bitmap. 12-bit colour (three 4
 
 ### How the display fetches
 
-Each layer holds its **next group** of 16 source pixels in its data registers, while its shifters show the current group. There is no other storage. At the start of each line's horizontal blank (beam pixel 0), each layer whose window covers the line fetches its first group, which goes straight into the shifters, and then its second, which waits. After that, each time the shifters use up a group, they take the next one, and the layer fetches another. The layers and sprites that want a word are served earliest deadline first.
+Each layer holds its **next group** of 16 source pixels in its data registers, while its shifters show the current group. There is no other storage. At the start of each line's horizontal blank (beam pixel 0), each layer whose window covers the line fetches its first group, which goes straight into the shifters, and then its second, which waits. After that, each time the shifters use up a group, they take the next one, and the layer fetches another. Among the layers, the one whose next group is due soonest is served first. In the display's cycles the layers go before the sprites, unless a sprite is about to run dry; then its fetch is urgent and goes first, unless a layer's is urgent too.
 
-So the display reads memory at the rate it shows it. It has **memory cycles 1 and 3 of every 100 ns slot**: 4 bytes every 100 ns, 40 MB/s. These are its own cycles. It also gets any cycle nobody else wants, before the copper and the DMA engine. It never takes a cycle the Z80 has asked for: **the Z80 never waits for the display**, whatever is on the screen.
+So the display reads memory at the rate it shows it. It has **memory cycles 1 and 3 of every 100 ns slot**: 4 bytes every 100 ns, 40 MB/s. These are its own cycles. It also gets any cycle nobody else wants, before the blitter, and before the copper unless COPCON.PRI puts the copper first. It never takes a cycle the Z80 has asked for: **the Z80 never waits for the display**, whatever is on the screen.
 
 ### The budget
 
@@ -2258,7 +2259,7 @@ HS is the horizontal scale; vertical scaling does not reduce the cost. **At ever
 | Direct colour 24-bit at 2× | 1.5 | **No** (just over) |
 | Two 8 bpp bitmaps at 1× | 2.0 | **No** |
 
-The 1.48 is what cycles 1 and 3 guarantee. The display also gets cycles that others leave: cycle 4 while there is no sound, and the Z80's cycles when it does not use them, which at 20 MHz is most of them. So a screen a little over the budget usually still shows correctly, at the expense of the copper and the DMA engine, never of the Z80. How far it can go is still to be measured; design within 1.48.
+The 1.48 is what cycles 1 and 3 guarantee. The display also gets cycles that others leave: cycle 4 when the sound channels do not need it, which is most of the time, and the Z80's cycles when it does not use them, which at 20 MHz is most of them. So a screen a little over the budget usually still shows correctly, at the expense of the copper and the blitter, never of the Z80. How far it can go is still to be measured; design within 1.48.
 
 Each layer has one group of time in hand. Close to the budget, 8 bpp layers at 1× (8 words a group, or 10 for tiles) are the first to run short.
 
@@ -2282,7 +2283,7 @@ The display's budget is one limit; the Z80's time is the other. At 20 MHz a fram
 | … with unrolled `LDI` | 655,000 | 33 ms |
 | … with `PUSH` (11 T per 2 bytes, interrupts off) | 225,000 | 11 ms |
 
-A bitmap game that redraws a whole screen every frame is beyond the Z80; one that redraws only what moves, or uses tile maps and sprites, is not. Clearing and copying large areas is the DMA engine's job (see its chapter), which uses no CPU time.
+A bitmap game that redraws a whole screen every frame is beyond the Z80; one that redraws only what moves, or uses tile maps and sprites, is not. Clearing and copying large areas is the blitter's job (see its chapter), which uses no CPU time.
 
 ### When a layer runs short
 
@@ -2427,7 +2428,7 @@ You can also poll the flags with interrupts off:
             ld      (CREG+VIDSTAT),a    ; clear it: A holds just that bit
 ```
 
-**LINE** comes once per frame, at the start of the beam line in LINECMP (2 bytes, bits 10–0). For picture line L, write VID_Y0 + L; a value above 624 never matches. To have it on several lines, write the next line number into LINECMP in the handler. The Z80 at 20 MHz takes at most 42 T-states (2.1 µs) to start an IM 2 handler, so a LINE handler runs early in the line it was asked for; that leaves most of the line's 640 T-states to change CTRL0–CTRL3, the window, SCROLLX, SCROLLY, PRIO or BGCOLOR for the **next** line, or BPLSTRIDE for the end of this one. At slower CPUSPEED settings the start-up time grows (16.8 µs at 2.5 MHz), so a LINE handler at a slow speed may miss the next line. Effects that must land on an exact pixel belong to the copper.
+**LINE** comes once per frame, at the start of the beam line in LINECMP (2 bytes, bits 10–0). For picture line L, write VID_Y0 + L; a value above 624 never matches. To have it on several lines, write the next line number into LINECMP in the handler. The Z80 at 20 MHz takes at most 42 T-states (2.1 µs) to start an IM 2 handler, so a LINE handler runs early in the line it was asked for; that leaves most of the line's 640 T-states to change CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, the window, SCROLLX, SCROLLY, PRIO or BGCOLOR for the **next** line, or BPLSTRIDE for the end of this one. At slower CPUSPEED settings the start-up time grows (16.8 µs at 2.5 MHz), so a LINE handler at a slow speed may miss the next line. Effects that must land on an exact pixel belong to the copper.
 
 ---
 
@@ -2480,6 +2481,8 @@ These are there for Spectrum screens and programs.
 
 The attribute layer draws nothing. It replaces the colour block of its **target** layer (ATCTL.TARGET: L0, L1 or L2) with one byte per **cell**, as a Spectrum's attributes do.
 
+**The attribute layer is not built yet** (issue #102): its registers read `0xFF` and ignore writes, and VIDSTAT.OVERRUNA stays 0. This section describes it as specified.
+
 - **Cells** are 8 source pixels across and 8 source lines down, or 8 × 1 with ATCTL.CELL1. They follow the target's scale: an 8 × 8 cell on a 2 × 2 layer covers 16 × 16 beam pixels. The target can be a bitmap or a tile map.
 - **Window:** the target's.
 - **Addresses:** ATADDR is the physical address of the cell row at the window's top left. Each cell row is ATSTRIDE bytes after the one before. The hardware keeps its own row address, so ATADDR is not moved and needs no rewriting each frame. ATADDR and ATSTRIDE are even.
@@ -2530,7 +2533,7 @@ As on a Spectrum, a write to port `0xFE` sets the border colour, which here is t
 | Bits | Name | Meaning |
 |------|------|---------|
 | 7–5 | – | Ignored |
-| 4 | Beeper | The beeper (see the System chapter) |
+| 4 | Beeper | The beeper (see the Sound chapter) |
 | 3 | MIC | Tape out on a Spectrum; ignored |
 | 2–0 | Border | Border colour (Table 3-48) |
 
@@ -2571,7 +2574,9 @@ A 48K Spectrum's screen is 6,144 bytes of pixels, 32 bytes a line, in its own li
 | Palette | PALETTE0 entries 2A and 2A + 1 for A = 0–127: paper and ink |
 | Border | Port `0xFE` |
 
-The screen is at physical `0x000000`. After reset, window 2 shows SRAM page 0, so the Z80 sees the screen at `0x4000`–`0x5AFF`, exactly where a Spectrum has it.
+The screen is at physical `0x004000`. In the program map window 2 holds SRAM page 2, so the Z80 sees the screen at `0x4000`–`0x5AFF`, exactly where a Spectrum has it.
+
+The example takes its colours from the attribute layer, which is not built yet (issue #102). On the KS2 its window shows PALETTE0 entries 0 and 1, black on black unless you set them; the copper's line order works.
 
 **The line order.** Table 3-50 gives the offset in the screen of byte x (0–31) of pixel line y (0–191).
 
@@ -2595,7 +2600,7 @@ Within a character row of 8 lines each line is 256 bytes after the one before, w
 
 ```asm
 ; Example 3-13: a Spectrum screen. The 6,912-byte screen at physical
-; 0x000000 (Z80 0x4000-0x5AFF through window 2) shown by layer 0, 1 bpp at
+; 0x004000 (Z80 0x4000-0x5AFF through window 2) shown by layer 0, 1 bpp at
 ; 2 x 2, with the attribute layer for its colours and the copper for its
 ; line order. Uses map_regs and video_off from Example 3-1.
 
@@ -2605,10 +2610,9 @@ Within a character row of 8 lines each line is 256 bytes after the one before, w
 REGS        equ     0xE000
 CREG        equ     REGS+REGS_CUSTOM
 PREG        equ     REGS+REGS_PALETTE
-RAMOFS      equ     0x4000
 STACK       equ     0xBF00
 
-SCREEN      equ     0x000000            ; = Z80 0x4000 through window 2
+SCREEN      equ     0x004000            ; = Z80 0x4000 in the program map
 SPEC_X      equ     VID_X0+(VID_W-512)/2    ; 248
 SPEC_Y      equ     VID_Y0+(VID_H-384)/2    ; 145
 
@@ -2635,9 +2639,9 @@ start:      di
             ld      (CREG+ATCTL),a      ; 0x31: on, L0, 8 x 8, flash every 16
             call    spec_pal
 
-            ld      hl,(speclist-RAMOFS)&0xFFFF
+            ld      hl,speclist&0xFFFF
             ld      (CREG+COP1LC),hl    ; the copper list's physical address
-            ld      a,(speclist-RAMOFS)>>16
+            ld      a,speclist>>16
             ld      (CREG+COP1LC+2),a   ; bits 21-16, before the copper is on
             ld      a,COPCON_EN_M
             ld      (CREG+COPCON),a
@@ -2735,7 +2739,7 @@ row = row + 1
             CSTOP
 ```
 
-The copper list is 24 × 5 words plus a STOP: 241 words, 482 bytes, and it costs 120 copper fetches a frame. The pointer needs no reset in the vertical blank, since the copper writes it before every character row. A program that keeps its screen in **linear** order (each line 32 bytes after the one before) needs no copper: BPLSTRIDE = 32, and BPL0PT written in the vertical blank. The Copper chapter also has a version of this list that writes every pixel line.
+The copper list is 24 × 5 words plus a STOP: 121 words, 242 bytes, and it costs 121 copper fetches a frame. The pointer needs no reset in the vertical blank, since the copper writes it before every character row. A program that keeps its screen in **linear** order (each line 32 bytes after the one before) needs no copper: BPLSTRIDE = 32, and BPL0PT written in the vertical blank. The Copper chapter also has a version of this list that writes every pixel line.
 
 Cost: 0.0625 bytes per pixel for the bitmap and 0.0625 for the attributes, inside the 512-pixel window only.
 
@@ -2743,9 +2747,9 @@ Cost: 0.0625 bytes per pixel for the bitmap and 0.0625 for the attributes, insid
 
 A Spectrum game that writes its screen at `0x4000` runs its screen code unchanged once the display is set up as in Example 3-13. The points to check:
 
-1. **The screen's address.** Keep the Spectrum screen at a page boundary and map that page into window 2 (`0x4000`–`0x5FFF`). After reset this is already so, with the screen at physical `0x000000`. A game that double-buffers through the 128K's second screen at `0xC000` can do the same with another page in window 6, and the copper list's addresses changed to it.
-2. **The display.** Layer 0, the attribute layer, the palette and the copper list, as Example 3-13. They take no CPU time once set up.
-3. **The border.** `OUT (0xFE),A` works as on a Spectrum, at once, so border stripes appear where the game makes them. The beeper is bit 4 of the same port (see the System chapter).
+1. **The screen's address.** Keep the Spectrum screen at a page boundary and map that page into window 2 (`0x4000`–`0x5FFF`). In the program map this is already so, with the screen at physical `0x004000`. A game that double-buffers through the 128K's second screen at `0xC000` can do the same with another page in window 6, and the copper list's addresses changed to it.
+2. **The display.** Layer 0, the attribute layer, the palette and the copper list, as Example 3-13. They take no CPU time once set up. (The attribute layer is not built yet, issue #102.)
+3. **The border.** `OUT (0xFE),A` works as on a Spectrum, at once, so border stripes appear where the game makes them. The beeper is bit 4 of the same port (see the Sound chapter).
 4. **The frame interrupt.** VBLANK comes at 50 Hz, as the Spectrum's frame interrupt does, but at a different point of the frame: the start of the vertical blank, 49 lines before the picture. A Spectrum game in IM 2 usually has a 257-byte table of equal bytes, so any vector byte lands on its handler; that works here unchanged. But **the game's handler does not clear VIDSTAT.VBLANK**, and the request stays on until it is cleared, so the handler would be entered again at its `EI`. Put a few lines of your own in front of it: clear the flag, then jump to the game's handler. In IM 1, `RST 38h` runs `0x0038` in the boot ROM, so map an SRAM page with your own code into window 0 first.
 5. **Timing.** Code timed to the Spectrum's 3.5 MHz (sound, delay loops) needs CPUSPEED's SPECTRUM setting (3.57 MHz; see the System chapter). There is no contended memory and no floating bus, so code that times itself by them does not work as it did.
 6. **Raster effects.** Attribute changes timed to the beam (multicolour) are not needed: use 8 × 1 attribute cells (ATCTL.CELL1) and an attribute area of 6,144 bytes, ATSTRIDE 32. Effects that need other changes mid-screen are the copper's job.
@@ -2766,6 +2770,7 @@ These are the limits stated through this chapter, gathered in one place, with wh
 | One video mode, 576p at 50 Hz; no timing registers | Make a smaller screen with a window and scaling | "The Screen" |
 | Three layers, each from its own palette | SHAREPAL puts every layer on PALETTE0; sprites add more objects | "Colour Registers and Palette Offsets" |
 | Only L0 on the KS2: its FPGA has room for one layer (the KS3 has all three). L1's and L2's registers do not answer there | Use L0 for the playfield, and sprites for the rest | "Forming a Basic Playfield" |
+| The attribute layer and direct colour are not built yet (issue #102 for the attribute layer) | Give a 1 bpp layer its colours through PALOFS, or use a 4 bpp layer or tiles with PAL | "The attribute layer", "Direct Colour" |
 | Scaling by 1, 2, 4 or 8 only: no fractional scaling and no shrinking | Pick the window and source size to suit a whole scale | "Scaling" |
 | Scaling down the screen saves no bandwidth: each source line is fetched again for every screen line | Scale across to save bandwidth | "Scaling" |
 | Pointers and the stride are even: a bitmap line cannot start at an odd byte | Keep pictures 16-pixel aligned | "The Stride" |
@@ -2779,7 +2784,7 @@ These are the limits stated through this chapter, gathered in one place, with wh
 | The fetch budget: 1.48 bytes per screen pixel, at every point across the screen; a narrower window does not help | Lower a layer's depth or raise its horizontal scale | "The Fetch Budget" |
 | 24-bit direct colour at 2× across is just over the budget | Show it at 4× across, or use 12-bit colour | "Direct Colour" |
 | In direct colour, palettes, PRIO, PALOFS, PAL, PRI, TRANSP, the background colour and the attribute layer do nothing | Use the palette modes for those effects | "Direct Colour" |
-| The Z80 cannot redraw a whole bitmap screen every frame (a 40 KB clear takes 11–43 ms) | Redraw only what moves, use tile maps and sprites, and the DMA engine | "What the CPU can draw in a frame" |
+| The Z80 cannot redraw a whole bitmap screen every frame (a 40 KB clear takes 11–43 ms) | Redraw only what moves, use tile maps and sprites, and the blitter | "What the CPU can draw in a frame" |
 | The Z80 cannot hit the 20–40 T-state gap for a mid-line pointer write | Let the copper write it at an exact pixel | "Writing a new pointer partway down" |
 | A LINE handler at a slow CPUSPEED may miss the next line | Use the copper for effects on exact lines | "Video interrupts" |
 | `OTIR` cannot load a palette, since B is the register number | Unrolled `OUTI` with `INC B`, or `LDIR` through the register page | "Example 3-10: Loading a palette" |
@@ -2890,9 +2895,10 @@ A tile map entry's bits are in Table 3-24, and by byte in Table 3-25.
 | WINX, WINY | The full screen: XSTART 144, XEND 864, YSTART 49, YEND 625 |
 | PRIO | `0x24`: L0 in front, then L1, then L2 |
 | Other video registers | 0, BGCOLOR black among them |
+| BPL0PT | Not changed by reset: write it before the layer is turned on |
 | The palettes | Not changed by reset. When the FPGA is loaded they hold the default palette (Table 3-36) |
 
-When a program starts, the boot ROM's console is on: layer 0 as a 1 bpp tile layer (Table 3-28), with the display and layer DMA on. The rest of what the boot ROM leaves is not specified yet, so a program sets up every register it relies on, as `video_off` in Example 3-1 does.
+When a program starts, the boot ROM's console is on: layer 0 as a 1 bpp tile layer (Table 3-28), with the display and layer DMA on. Chapter 1, "Programs", gives the rest of what the boot ROM leaves. A program sets up every register it relies on, as `video_off` in Example 3-1 does.
 
 ### Equates in hw.inc
 

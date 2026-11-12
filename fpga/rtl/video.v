@@ -47,8 +47,8 @@
 // Blue and green bytes of a colour (BGCOLOR, PALDAT, the palettes in the
 // register page) go into the CPU's colour assembly buffer; the red byte
 // writes the colour whole. Each master has its own buffer: the CPU's (cab)
-// and the copper's (ccab, for its writes, rb_cop); the DMA engine gets one
-// when it comes. PALIDX and PALDAT's byte counter are kept per master too, as
+// and the copper's (ccab, for its writes, rb_cop); the blitter never writes
+// registers or palettes (spec 14, section 4). PALIDX and PALDAT's byte counter are kept per master too, as
 // retro68k keeps its palette's held half per writer: the CPU reads its own.
 //
 // Two clock domains, asynchronous to each other (spec 4, section 3.1):
@@ -93,7 +93,7 @@ module video #(
     output wire [10:0] beam_v,
     output wire [10:0] beam_h,
     output wire        cop_on,         // DMACON.DMAEN and COPEN
-    output wire        blt_on,         // DMACON.DMAEN and BLTEN (the DMA engine, spec 14)
+    output wire        blt_on,         // DMACON.DMAEN and BLTEN (the blitter and rasteriser, specs 14 and 19)
     output wire        aud_on,         // DMACON.DMAEN and AUDEN (sound, spec 13)
 
     // The scheduler's layer channel (dmac.v)
