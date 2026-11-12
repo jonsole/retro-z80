@@ -263,24 +263,24 @@
 <rect x="687" y="179" width="15" height="15" fill="#00d7d7" stroke="#999" stroke-width="0.5"/>
 <rect x="582" y="74" width="120" height="120" fill="none" stroke="#333" stroke-width="1.5"/>
 <text x="90" y="50" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">B</text>
-<text x="90" y="65" font-size="11" text-anchor="middle" fill="#555">the image (BPT)</text>
+<text x="90" y="65" font-size="11" text-anchor="middle" fill="#555">the image (BLTBPT)</text>
 <text x="274" y="50" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">A</text>
 <text x="274" y="65" font-size="11" text-anchor="middle" fill="#555">the mask</text>
 <text x="458" y="50" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">C</text>
-<text x="458" y="65" font-size="11" text-anchor="middle" fill="#555">the background (DPT)</text>
+<text x="458" y="65" font-size="11" text-anchor="middle" fill="#555">the background (BLTDPT)</text>
 <text x="642" y="50" font-size="15" text-anchor="middle" fill="#1a1a1a" font-weight="bold">D = A ? B : C</text>
-<text x="642" y="65" font-size="11" text-anchor="middle" fill="#555">written to DPT</text>
+<text x="642" y="65" font-size="11" text-anchor="middle" fill="#555">written to BLTDPT</text>
 <line x1="156" y1="134" x2="208" y2="134" stroke="#777" stroke-width="1" marker-end="url(#ah)"/>
 <text x="182" y="126" font-size="11" text-anchor="middle" fill="#1a1a1a">compare</text>
 <text x="182" y="150" font-size="11" text-anchor="middle" fill="#1a1a1a">with key</text>
 <text x="550" y="140" font-size="22" text-anchor="middle" fill="#1a1a1a">→</text>
-<text x="30" y="220" font-size="13" text-anchor="start" fill="#1a1a1a">MASK = 2 (key colour in VALUE):</text>
-<text x="30" y="237" font-size="11" text-anchor="start" fill="#555">A is 1 where B ≠ VALUE, 0 where B = VALUE</text>
+<text x="30" y="220" font-size="13" text-anchor="start" fill="#1a1a1a">MASK = 2 (the key colour in KEY):</text>
+<text x="30" y="237" font-size="11" text-anchor="start" fill="#555">A is 1 where B ≠ KEY, 0 where B = KEY</text>
 <text x="642" y="220" font-size="13" text-anchor="middle" fill="#1a1a1a">MINTERM 0xCA</text>
-<text x="642" y="237" font-size="11" text-anchor="middle" fill="#555">where A is 0 at 8 bpp</text>
-<text x="642" y="251" font-size="11" text-anchor="middle" fill="#555">the byte is not written</text>
+<text x="642" y="237" font-size="11" text-anchor="middle" fill="#555">where A is 0, the old</text>
+<text x="642" y="251" font-size="11" text-anchor="middle" fill="#555">pixel C is written back</text>
 <rect x="30" y="265" width="14" height="14" fill="url(#hatch)" stroke="#999" stroke-width="1"/>
-<text x="50" y="276" font-size="11" text-anchor="start" fill="#1a1a1a">the key colour, 0 (VALUE = 0)</text>
+<text x="50" y="276" font-size="11" text-anchor="start" fill="#1a1a1a">the key colour, 0 (KEY = 0)</text>
 <rect x="274" y="265" width="14" height="14" fill="#000000" stroke="#333" stroke-width="1"/>
 <text x="294" y="276" font-size="11" text-anchor="start" fill="#1a1a1a">A = 1</text>
 <rect x="344" y="265" width="14" height="14" fill="#ffffff" stroke="#333" stroke-width="1"/>

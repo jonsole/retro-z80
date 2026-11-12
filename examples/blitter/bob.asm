@@ -1,6 +1,6 @@
 ; Example 6-2 (docs/guide/blitter.md): one moving object, saved, drawn and restored.
-; A 32 x 32 ball bounces over a striped background. Each frame a list of
-; three jobs on channel 2 puts back the background where the ball was,
+; A 32 x 32 ball bounces over a striped background. Each frame a chain of
+; three blitter jobs puts back the background where the ball was,
 ; saves the background where it goes, and draws it there with colour 0
 ; transparent. A key ends it and puts the console back.
 
@@ -11,18 +11,18 @@
 
 SAVE    equ     0x060000                ; physical: 1,024 bytes for the saved background
 
-start:  ld      a,BPP8
-        ld      hl,360
+start:  ld      a,3                     ; the layer: 8 bpp,
+        ld      hl,360                  ; 360 bytes a row
         call    scr_on
-        ld      hl,bands                ; the background: 8 fills in a list
-        call    start2
-        call    wait2
+        ld      hl,bands                ; the background: 8 fills in a chain
+        call    bltstart
+        call    bltwait
         call    place                   ; the ball's first place into the jobs
         ld      hl,save                 ; the first frame has nothing to restore
-        call    start2
+        call    bltstart
 
 loop:   call    frame                   ; once a frame, in the vertical blank
-        call    wait2                   ; last frame's list is long done
+        call    bltwait                 ; last frame's chain is long done
         ld      hl,(newpos2)            ; where the ball is now ...
         ld      (oldpos),hl
         ld      a,(newpos2+2)
@@ -30,10 +30,9 @@ loop:   call    frame                   ; once a frame, in the vertical blank
         call    move
         call    place
         ld      hl,restore              ; restore, save, draw
-        call    start2
+        call    bltstart
         rst     20h                     ; POLLC: a key ends it
         jr      z,loop
-        call    wait2
         call    scr_off
         ret
 
@@ -101,53 +100,49 @@ ypos:   dw      30
 dx:     dw      2
 dy:     dw      1
 
-; The three jobs, one list. NEXT and CHDESC take a job's own address:
+; The three jobs, one chain. BLTNEXT and BLTDESC take a job's own address:
 ; in the program map it is also its physical address.
-        align   4
-restore: db     OP_BLIT, BPP8, 0, 0xCC  ; copy
-        d24     0, SAVE                 ; APT, BPT: the saved background
-oldpos: d24     SCREEN                  ; DPT: where the ball was (set each frame)
-        d24     32
-        dw      32, 0                   ; HEIGHT, SHIFT
-        dw      32, 360                 ; ABSTRIDE: SAVE's rows; CDSTRIDE: the screen's
+        align   2
+restore: dd     0xCC*MT | BPP8          ; copy
+        dd      SAVE                    ; BLTBPT: the saved background
+oldpos: dd      SCREEN                  ; BLTDPT: where the ball was (set each frame)
+        dw      32, 32                  ; WIDTH, HEIGHT
         dd      0
-        d24     save                    ; NEXT
-        db      0
+        dw      360, 32                 ; DSTRIDE: the screen's rows; BSTRIDE: SAVE's
+        dw      0, 0
+        dd      save                    ; BLTNEXT
 
-save:   db      OP_BLIT, BPP8, 0, 0xCC  ; copy
-        d24     0
-newpos1: d24    SCREEN                  ; BPT: where the ball goes (set each frame)
-        d24     SAVE                    ; DPT
-        d24     32
-        dw      32, 0
-        dw      360, 32                 ; ABSTRIDE: now the screen; CDSTRIDE: SAVE's rows
+save:   dd      0xCC*MT | BPP8          ; copy
+newpos1: dd     SCREEN                  ; BLTBPT: where the ball goes (set each frame)
+        dd      SAVE                    ; BLTDPT
+        dw      32, 32
         dd      0
-        d24     draw
-        db      0
+        dw      32, 360                 ; DSTRIDE: now SAVE's rows; BSTRIDE: the screen's
+        dw      0, 0
+        dd      draw
 
-draw:   db      OP_BLIT, BPP8|MASKKEY, 0, 0xCA  ; A ? B : C, key colour 0
-        d24     0, ball                 ; APT (not used), BPT: the ball
-newpos2: d24    SCREEN                  ; DPT: where the ball goes (set each frame)
-        d24     32
-        dw      32, 0
-        dw      32, 360
-        dd      0                       ; VALUE: the key colour
-        d24     0                       ; NEXT: end of the list
-        db      0
+draw:   dd      0xCA*MT | MASKKEY | BPP8 ; A ? B : C, KEY 0: colour 0 is transparent
+        dd      ball                    ; BLTBPT: the ball
+newpos2: dd     SCREEN                  ; BLTDPT: where the ball goes (set each frame)
+        dw      32, 32
+        dd      0
+        dw      360, 32
+        dw      0, 0
+        dd      0                       ; BLTNEXT: the end of the chain
 
 ; The background: eight bands of 36 rows, each a fill
     MACRO BAND n, colour
-        db      OP_BLIT, BPP8|BCONST, 0, 0xCC
-        d24     0, 0, SCREEN + n * 36 * 360
-        d24     360
-        dw      36, 0, 0, 360
-        dd      colour * 0x01010101
+        dd      0xCC*MT | BLTCTRL_BCONST_M | BPP8
+        dd      0, SCREEN + n * 36 * 360
+        dw      360, 36
+        dd      0
+        dw      360, 0
+        dw      colour * 0x0101, 0      ; VALUE: the colour in both pixels of a word
         IF n < 7
-        d24     $ + 4                   ; NEXT: the band after this one
+        dd      $ + 4                   ; BLTNEXT: the band after this one
         ELSE
-        d24     0
+        dd      0
         ENDIF
-        db      0
     ENDM
 bands:  BAND    0, 1
         BAND    1, 5

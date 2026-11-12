@@ -1,8 +1,9 @@
-"""Figures for Chapter 6, Blitter and DMA Hardware (docs/guide/blitter.md).
+"""Figures for Chapter 6, Blitter and Rasteriser Hardware (docs/guide/blitter.md).
 
 Run as `python blitter.py` from this directory. Everything the hardware works
 out (minterm results, the cookie-cut, Bresenham's pixels, the pattern, the
-octants) is worked out here from the rules in spec 14, not drawn by hand.
+triangle's spans) is worked out here from the rules in specs 14 and 19, not
+drawn by hand.
 """
 
 import math
@@ -186,7 +187,7 @@ def fig_cookiecut():
     grid(xs[1], A, lambda v: BLACK if v else WHITE)
     grid(xs[2], C, lambda v: pal[v])
     grid(xs[3], D, lambda v: pal[v])
-    heads = [("B", "the image (BPT)"), ("A", "the mask"), ("C", "the background (DPT)"), ("D = A ? B : C", "written to DPT")]
+    heads = [("B", "the image (BLTBPT)"), ("A", "the mask"), ("C", "the background (BLTDPT)"), ("D = A ? B : C", "written to BLTDPT")]
     for x0, (h, s) in zip(xs, heads):
         f.text(x0 + G / 2, T - 24, h, size=15, bold=True, anchor="middle")
         f.text(x0 + G / 2, T - 9, s, size=11, anchor="middle", fill=TXT2)
@@ -198,15 +199,15 @@ def fig_cookiecut():
     f.text((xs[2] + G + xs[3]) / 2, ya + 6, "→", size=22, anchor="middle")
     # notes
     yb = T + G + 26
-    f.text(xs[0], yb, "MASK = 2 (key colour in VALUE):", size=13)
-    f.text(xs[0], yb + 17, "A is 1 where B ≠ VALUE, 0 where B = VALUE", size=11, fill=TXT2)
+    f.text(xs[0], yb, "MASK = 2 (the key colour in KEY):", size=13)
+    f.text(xs[0], yb + 17, "A is 1 where B ≠ KEY, 0 where B = KEY", size=11, fill=TXT2)
     f.text(xs[3] + G / 2, yb, "MINTERM 0xCA", size=13, anchor="middle")
-    f.text(xs[3] + G / 2, yb + 17, "where A is 0 at 8 bpp", size=11, anchor="middle", fill=TXT2)
-    f.text(xs[3] + G / 2, yb + 31, "the byte is not written", size=11, anchor="middle", fill=TXT2)
+    f.text(xs[3] + G / 2, yb + 17, "where A is 0, the old", size=11, anchor="middle", fill=TXT2)
+    f.text(xs[3] + G / 2, yb + 31, "pixel C is written back", size=11, anchor="middle", fill=TXT2)
     # legend
     yl = yb + 56
     f.rect(xs[0], yl - 11, 14, 14, KEYFILL, stroke="#999")
-    f.text(xs[0] + 20, yl, "the key colour, 0 (VALUE = 0)", size=11)
+    f.text(xs[0] + 20, yl, "the key colour, 0 (KEY = 0)", size=11)
     f.rect(xs[1] + 60, yl - 11, 14, 14, BLACK)
     f.text(xs[1] + 80, yl, "A = 1", size=11)
     f.rect(xs[1] + 130, yl - 11, 14, 14, WHITE)
@@ -231,14 +232,14 @@ def fig_shift():
     # source row
     SL, ST = 200, 66
     f.text(SL - 12, ST + 24, "the image:", anchor="end")
-    f.text(SL - 12, ST + 39, "BPT, BBIT = 0", size=11, anchor="end", fill=TXT2)
+    f.text(SL - 12, ST + 39, "BLTBPT, BBIT = 0", size=11, anchor="end", fill=TXT2)
     for b in range(NPIX // PPB):
         for p in range(PPB):
             i = b * PPB + p
             f.rect(SL + b * BW + p * PW, ST, PW, 34, HILITE, stroke="#999", sw=0.5)
             f.text(SL + b * BW + p * PW + PW / 2, ST + 22, f"i{i}", size=13, anchor="middle")
         f.rect(SL + b * BW, ST, BW, 34, "none", sw=1.5)
-        f.text(SL + b * BW + BW / 2, ST - 6, f"BPT + {b}", size=11, anchor="middle", fill=TXT2)
+        f.text(SL + b * BW + BW / 2, ST - 6, f"BLTBPT + {b}", size=11, anchor="middle", fill=TXT2)
 
     # screen row
     DL, DT = 40, 214
@@ -285,9 +286,9 @@ def fig_shift():
     f.text(DL + (kf + 1 + kl) / 2 * BW, yb + 31, "(not read)", size=11, anchor="middle", fill=TXT2)
     # DPT, DBIT
     xd = DL + kf * BW + DBIT * PW
-    f.text(DL + kf * BW - 30, DT - 70, f"DPT = byte {DPT}, DBIT = {DBIT}", size=13, anchor="middle", bold=True, halo=True)
+    f.text(DL + kf * BW - 30, DT - 70, f"BLTDPT = byte {DPT}, DBIT = {DBIT}", size=13, anchor="middle", bold=True, halo=True)
     f.line(DL + kf * BW - 30, DT - 64, xd + 2, DT - 36, stroke=DIM, arrow="end")
-    f.text(20, 362, f"x = {X}: DPT = SCREEN + {X} / 2, DBIT = {X} mod 2. WIDTH = {NPIX}. High nibble = left pixel.", size=11, fill=TXT2)
+    f.text(20, 362, f"x = {X}: BLTDPT = SCREEN + {X} / 2, with DBIT = {X} mod 2 in bits 26–24. WIDTH = {NPIX}. High nibble = left pixel.", size=11, fill=TXT2)
     return f.save("blitter-6-5-shift.svg")
 
 
@@ -306,22 +307,22 @@ def fig_stride():
     f.rect(IX, IY, 32, 32, HILITE, sw=1.5)
     f.rect(SL, ST, SW, SH, "none", sw=1.5)
     f.text(SL + SW / 2, ST - 46, "a sprite sheet", anchor="middle", bold=True)
-    f.dim(SL, SL + SW, ST - 10, "ABSTRIDE = 128")
+    f.dim(SL, SL + SW, ST - 10, "BSTRIDE = 128")
     f.circle(IX, IY, 3, fill=LINE)
     f.line(IX - 4, IY - 4, SL + 30, ST + SH + 30, stroke=DIM)
-    f.text(SL + 26, ST + SH + 44, "BPT: the image's first pixel", size=11)
+    f.text(SL + 26, ST + SH + 44, "BLTBPT: the image's first pixel", size=11)
     f.text(SL, ST + SH + 64, "row r + 1 of the image starts", size=11, fill=TXT2)
-    f.text(SL, ST + SH + 78, "ABSTRIDE bytes after row r", size=11, fill=TXT2)
+    f.text(SL, ST + SH + 78, "BSTRIDE bytes after row r", size=11, fill=TXT2)
 
     # screen: 360 x 288
     L, T, W, H = 290, 96, 360, 288
     f.rect(L, T, W, H, PICTURE, sw=1.5)
     f.text(L + W / 2, T - 46, "the screen", anchor="middle", bold=True)
-    f.dim(L, L + W, T - 10, "CDSTRIDE = 360")
+    f.dim(L, L + W, T - 10, "DSTRIDE = 360")
     DX, DY = 200, 56
     f.rect(L + DX, T + DY, 32, 32, HILITE, sw=1.5)
     f.circle(L + DX, T + DY, 3, fill=LINE)
-    f.text(L + DX - 6, T + DY - 6, "DPT", size=11, anchor="end", halo=True)
+    f.text(L + DX - 6, T + DY - 6, "BLTDPT", size=11, anchor="end", halo=True)
     f.dim(L + DX, L + DX + 32, T + DY + 46, "WIDTH = 32", above=False, fill=TXT)
     f.line(L + DX, T + DY + 34, L + DX, T + DY + 50, stroke=DIM)
     f.line(L + DX + 32, T + DY + 34, L + DX + 32, T + DY + 50, stroke=DIM)
@@ -335,19 +336,19 @@ def fig_stride():
     f.rect(L + CX, T + CY, K, 32, WHITE, dash="4 3")
     f.rect(L, T + CY, 32 - K, 32, HILITE, sw=1.5)
     f.circle(L, T + CY, 3, fill=LINE)
-    f.text(L + 26, T + CY + 14, "new DPT", size=11, halo=True)
+    f.text(L + 26, T + CY + 14, "new BLTDPT", size=11, halo=True)
     f.text(L + 26, T + CY + 28, f"WIDTH = 32 − k = {32 - K}", size=11, halo=True)
     f.line(L + CX, T + CY + 40, L, T + CY + 40, stroke=DIM, arrow="both")
     f.text(L + CX - 4, T + CY + 44, f"k = {K}", size=11, anchor="end")
     f.text(L - 18, T + CY + 4, "off the left edge", size=11, anchor="end")
     f.text(L - 18, T + CY + 18, "by k pixels:", size=11, anchor="end")
-    f.text(L - 18, T + CY + 66, "BPT and DPT + k,", size=11, anchor="end")
+    f.text(L - 18, T + CY + 66, "BLTBPT, BLTDPT + k,", size=11, anchor="end")
     f.text(L - 18, T + CY + 80, "WIDTH − k", size=11, anchor="end")
     f.text(L + W + 6, T + H, "288", size=11, fill=TXT2)
     return f.save("blitter-6-6-stride.svg")
 
 
-# ---------------------------------------------------------------- 6-7: DESC
+# ---------------------------------------------------------------- 6-7: overlap
 def fig_desc():
     f = Fig(760, 410)
     ROWS, SRC, DST, NR = 7, 0, 2, 4      # rows shown; source rows 0-3 copied to rows 2-5
@@ -368,9 +369,9 @@ def fig_desc():
         before = names + ["."] * (ROWS - NR)
         after, steps = run(desc)
         T = 112
-        head = "backwards (DESC = 1)" if desc else "forwards (DESC = 0)"
+        head = "rows bottom-up (strides < 0)" if desc else "rows top-down (strides > 0)"
         f.text(x0, 50, head, size=15, bold=True)
-        sub = (["starts at the last pixel of the last row;", "every row is read before it is written: correct"] if desc else
+        sub = (["the pointers name the last row;", "every row is read before it is written: correct"] if desc else
                ["rows already written are read again:", "the top two rows smear down"])
         f.text(x0, 67, sub[0], size=11, fill=TXT2)
         f.text(x0, 81, sub[1], size=11, fill=TXT2)
@@ -416,29 +417,28 @@ def fig_desc():
     assert panel(404, True)
     f.line(388, 40, 388, 370, stroke="#ccc")
     f.text(20, 22, "Copying rows 0–3 two rows down, onto themselves", bold=True)
-    f.text(20, 398, "Within a row it is the same: a job reads up to 16 bytes ahead of what it writes.", size=11, fill=TXT2)
-    return f.save("blitter-6-7-desc.svg")
+    f.text(20, 398, "Within a row it is the same: a destination to the right of its source, in the same rows, needs RTL.", size=11, fill=TXT2)
+    return f.save("blitter-6-7-overlap.svg")
 
 
 # ---------------------------------------------------------------- 6-2: chain
 def fig_chain():
-    f = Fig(760, 400)
+    f = Fig(760, 360)
     f.text(20, 22, "A chain of descriptors (Example 6-2): restore, save, draw", bold=True)
     jobs = [
-        ("restore", [("CTRL", "BLIT, BPP8"), ("MINTERM", "0xCC"), ("APT", "0"), ("BPT", "SAVE"), ("DPT", "oldpos"), ("…", "WIDTH … VALUE"), ("NEXT", "save")]),
-        ("save", [("CTRL", "BLIT, BPP8"), ("MINTERM", "0xCC"), ("APT", "0"), ("BPT", "newpos"), ("DPT", "SAVE"), ("…", "WIDTH … VALUE"), ("NEXT", "draw")]),
-        ("draw", [("CTRL", "BLIT, BPP8|MASKKEY"), ("MINTERM", "0xCA"), ("APT", "0"), ("BPT", "ball"), ("DPT", "newpos"), ("…", "WIDTH … VALUE"), ("NEXT", "0")]),
+        ("restore", [("BLTCTRL", "0xCC, 8 bpp"), ("BLTBPT", "SAVE"), ("BLTDPT", "oldpos"), ("…", "SIZE … VALUE"), ("BLTNEXT", "save")]),
+        ("save", [("BLTCTRL", "0xCC, 8 bpp"), ("BLTBPT", "newpos1"), ("BLTDPT", "SAVE"), ("…", "SIZE … VALUE"), ("BLTNEXT", "draw")]),
+        ("draw", [("BLTCTRL", "0xCA, MASKKEY"), ("BLTBPT", "ball"), ("BLTDPT", "newpos2"), ("…", "SIZE … VALUE"), ("BLTNEXT", "0")]),
     ]
-    offs = ["+0x00", "+0x03", "+0x04", "+0x07", "+0x0A", "+0x0D", "+0x1C"]
-    BW, RH = 222, 24
+    offs = ["+0x00", "+0x04", "+0x08", "+0x0C", "+0x1C"]
+    BW, RH = 222, 28
     xs = [20, 269, 518]
     T = 140
-    # the channel
     f.rect(30, 48, 170, 52, POOL)
-    f.text(40, 66, "channel 2", size=11, fill=TXT2)
-    f.text(40, 88, "CHDESC = restore", size=13, bold=True)
+    f.text(40, 66, "the blitter", size=11, fill=TXT2)
+    f.text(40, 88, "BLTDESC = restore", size=13, bold=True)
     f.text(214, 70, "then START", size=11)
-    f.text(214, 84, "in CHCTRL", size=11)
+    f.text(214, 84, "in BLTCMD", size=11)
     f.line(90, 100, 90, T - 22, stroke=DIM, arrow="end")
     for k, (lab, rows) in enumerate(jobs):
         x = xs[k]
@@ -448,9 +448,9 @@ def fig_chain():
             y = T + r * RH
             last = r == len(rows) - 1
             f.rect(x, y, BW, RH, HILITE if last else (UNSHOWN if n == "…" else WHITE))
-            f.text(x + 5, y + 16, offs[r], size=11, fill=TXT2)
-            f.text(x + 48, y + 16, n if n != "…" else "", size=11)
-            f.text(x + 106 if n != "…" else x + 48, y + 16, v, size=11, bold=last)
+            f.text(x + 5, y + 18, offs[r], size=11, fill=TXT2)
+            f.text(x + 48, y + 18, n if n != "…" else "", size=11)
+            f.text(x + 112 if n != "…" else x + 48, y + 18, v, size=11, bold=last)
         f.rect(x, T, BW, len(rows) * RH, "none", sw=1.5)
         if k < 2:
             yn = T + (len(rows) - 0.5) * RH
@@ -458,122 +458,59 @@ def fig_chain():
             f.line(x + BW + 18, yn, x + BW + 18, T - 30, stroke=DIM)
             f.line(x + BW + 18, T - 30, xs[k + 1] + 30, T - 30, stroke=DIM)
             f.line(xs[k + 1] + 30, T - 30, xs[k + 1] + 30, T - 22, stroke=DIM, arrow="end")
-    yb = T + 7 * RH + 26
-    f.text(xs[2], yb, "NEXT = 0: the end.", size=13)
-    f.text(xs[2], yb + 17, "DONE sets, BUSY clears", size=11, fill=TXT2)
-    f.text(30, yb, "Each descriptor is 32 bytes at a multiple of 4 in SRAM;", size=11, fill=TXT2)
+    yb = T + 5 * RH + 30
+    f.text(xs[2], yb, "BLTNEXT = 0: the end.", size=13)
+    f.text(xs[2], yb + 17, "BUSY clears, DMXINT.BLT sets", size=11, fill=TXT2)
+    f.text(30, yb, "Each descriptor is 32 bytes at an even address in SRAM;", size=11, fill=TXT2)
     f.text(30, yb + 15, "loading one costs 16 memory reads.", size=11, fill=TXT2)
-    f.text(30, yb + 37, "The channel loads each into its job registers, runs it,", size=11, fill=TXT2)
-    f.text(30, yb + 52, "then loads the one at NEXT.", size=11, fill=TXT2)
+    f.text(30, yb + 37, "The blitter loads each into its job registers, runs it,", size=11, fill=TXT2)
+    f.text(30, yb + 52, "then loads the one at BLTNEXT.", size=11, fill=TXT2)
     return f.save("blitter-6-2-chain.svg")
 
 
-# ---------------------------------------------------------------- 6-8: octants
-def octant(dx, dy):
-    """The LINE job's octant bits for a line of (dx, dy), y growing down the screen."""
-    return int(abs(dy) > abs(dx)), int(dx < 0), int(dy < 0)
-
-
-def fig_octants():
-    f = Fig(760, 470)
-    f.text(20, 22, "The octant bits for a line from the centre, screen coordinates (y grows down)", bold=True)
-    CX, CY, R = 240, 250, 190
-    # axes and diagonals (the octant boundaries)
-    f.line(CX - R, CY, CX + R + 14, CY, stroke=LINE, sw=1.5, arrow="end")
-    f.line(CX, CY - R, CX, CY + R + 14, stroke=LINE, sw=1.5, arrow="end")
-    f.text(CX + R + 14, CY - 8, "x", size=15, bold=True, anchor="end")
-    f.text(CX + 10, CY + R + 12, "y", size=15, bold=True)
-    for a in (45, 135, 225, 315):
-        t = math.radians(a)
-        f.line(CX, CY, CX + R * math.cos(t), CY + R * math.sin(t), stroke=DIM, dash="4 3")
-    f.text(CX + R * 0.71 + 6, CY + R * 0.71 + 10, "|dy| = |dx|: YMAJOR = 0", size=11, fill=TXT2, halo=True)
-    f.text(CX - 6, CY - R + 10, "up the screen", size=11, fill=TXT2, anchor="end")
-    f.text(CX - 6, CY + R - 4, "down the screen", size=11, fill=TXT2, anchor="end")
-    for k in range(8):
-        t = math.radians(22.5 + 45 * k)
-        dx, dy = math.cos(t), math.sin(t)
-        ym, xn, yn = octant(dx, dy)
-        x, y = CX + 132 * dx, CY + 132 * dy
-        fill = HILITE if ym else PICTURE
-        f.rect(x - 44, y - 26, 88, 50, fill, stroke="none", rx=6)
-        f.text(x, y - 11, f"YMAJOR {ym}", size=11, anchor="middle")
-        f.text(x, y + 4, f"XNEG {xn}", size=11, anchor="middle")
-        f.text(x, y + 19, f"YNEG {yn}", size=11, anchor="middle")
-    # an example line
-    ex, ey = 80, -32
-    f.line(CX, CY, CX + ex, CY + ey, stroke=RED, sw=2)
-    arrowhead(f, CX, CY, CX + ex, CY + ey, fill=RED)
-    f.circle(CX, CY, 3, fill=LINE)
-    ym, xn, yn = octant(ex, ey)
-    # legend
-    LX = 486
-    y = 80
-    for s, b in (("YMAJOR = |dy| > |dx|", True), ("the line is longer in y", False),
-                 ("", False),
-                 ("XNEG = dx < 0", True), ("the line goes left", False),
-                 ("", False),
-                 ("YNEG = dy < 0", True), ("the line goes up the screen", False),
-                 ("", False),
-                 ("A tie, |dy| = |dx| (a diagonal),", True), ("counts as YMAJOR = 0.", False),
-                 ("On an axis, dx = 0 or dy = 0", False), ("gives XNEG = 0 or YNEG = 0.", False),
-                 ("", False),
-                 ("The red line: dx = 5, dy = −2", True),
-                 (f"YMAJOR {ym}, XNEG {xn}, YNEG {yn}", False),
-                 (f"WIDTH 6, HEIGHT 2", False)):
-        if s:
-            f.text(LX, y, s, size=13 if b else 11, fill=TXT if b else TXT2)
-        y += 17 if s else 10
-    assert (ym, xn, yn) == octant(5, -2)
-    yl = y + 14
-    f.rect(LX, yl - 11, 14, 14, HILITE, stroke="none")
-    f.text(LX + 20, yl, "YMAJOR = 1", size=11)
-    f.rect(LX + 110, yl - 11, 14, 14, PICTURE, stroke="none")
-    f.text(LX + 130, yl, "YMAJOR = 0", size=11)
-    return f.save("blitter-6-8-octants.svg")
-
-
-# ---------------------------------------------------------------- 6-9: Bresenham
+# ---------------------------------------------------------------- 6-8: Bresenham
 def line_pixels(x0, y0, x1, y1):
-    """LINE's stepping (spec 14, section 3.4): the pixels and E at each one."""
-    dx, dy = x1 - x0, y1 - y0
-    ym, xn, yn = octant(dx, dy)
-    M, N = (abs(dy), abs(dx)) if ym else (abs(dx), abs(dy))
-    width, height = M + 1, N
-    sx, sy = (-1 if xn else 1), (-1 if yn else 1)
-    E = 2 * N - M
+    """A LINE job's pixels (spec 19, section 5.3), with err at each one."""
+    dx, dy = abs(x1 - x0), abs(y1 - y0)
+    sx = 1 if x1 >= x0 else -1
+    sy = 1 if y1 >= y0 else -1
+    xmajor = dx >= dy
+    major, minor = max(dx, dy), min(dx, dy)
+    err = major // 2
     x, y = x0, y0
     out = []
-    for i in range(width):
-        out.append((x, y, E))
-        if i == width - 1:
-            break
-        if E > 0:
-            if ym:
-                x += sx
-            else:
+    for i in range(major + 1):
+        out.append((x, y, err))
+        err -= minor
+        if err < 0:
+            err += major
+            if xmajor:
                 y += sy
-            E += 2 * (N - M)
-        else:
-            E += 2 * N
-        if ym:
-            y += sy
-        else:
+            else:
+                x += sx
+        if xmajor:
             x += sx
-    assert (x, y) == (x1, y1)
-    return out, width, height, M, N
+        else:
+            y += sy
+    assert out[-1][:2] == (x1, y1)
+    return out, major, minor
+
+
+# the spec's worked line (spec 19, section 5.4)
+assert [p[:2] for p in line_pixels(2, 1, 9, 4)[0]] == [(2, 1), (3, 1), (4, 2), (5, 2), (6, 3), (7, 3), (8, 4), (9, 4)]
 
 
 def fig_bresenham():
     f = Fig(760, 430)
-    pix, width, height, M, N = line_pixels(0, 0, 10, 4)
-    f.text(20, 22, f"A LINE from (0, 0) to (10, 4): M = {M}, N = {N}", bold=True)
+    pix, major, minor = line_pixels(0, 0, 10, 4)
+    f.text(20, 22, f"A LINE from (0, 0) to (10, 4): x is the longer axis, major = {major}, minor = {minor}", bold=True)
     P = 46
     L, T = 70, 70
     cols, rows = 11, 5
     for y in range(rows):
         for x in range(cols):
             f.rect(L + x * P, T + y * P, P, P, WHITE, stroke="#ccc")
-    for n, (x, y, E) in enumerate(pix):
+    for n, (x, y, e) in enumerate(pix):
         f.rect(L + x * P, T + y * P, P, P, HILITE, stroke=LINE)
         f.text(L + x * P + 5, T + y * P + 15, str(n + 1), size=12, bold=True)
     for x in range(cols):
@@ -582,42 +519,38 @@ def fig_bresenham():
         f.text(L - 8, T + y * P + P / 2 + 4, str(y), size=11, anchor="end", fill=TXT2)
     f.text(L - 8, T - 8, "y \\ x", size=11, anchor="end", fill=TXT2)
     f.line(L + P / 2, T + P / 2, L + 10.5 * P, T + 4.5 * P, stroke=BLUE, sw=1)
-    # E under each column, and where the line steps in y
     ye = T + rows * P + 22
-    f.text(L - 8, ye, "E", size=13, anchor="end", bold=True)
-    for n, (x, y, E) in enumerate(pix):
-        f.text(L + x * P + P / 2, ye, str(E).replace("-", "−"), size=13, anchor="middle")
+    f.text(L - 8, ye, "err", size=13, anchor="end", bold=True)
+    for n, (x, y, e) in enumerate(pix):
+        f.text(L + x * P + P / 2, ye, str(e).replace("-", "−"), size=13, anchor="middle")
         if n < len(pix) - 1:
-            f.text(L + x * P + P / 2, ye + 16, "+y" if E > 0 else "", size=11, anchor="middle", fill=RED)
-    f.text(L + cols * P + 8, ye + 16, "E > 0: a step in y too", size=11, fill=RED)
+            f.text(L + x * P + P / 2, ye + 16, "+y" if e - minor < 0 else "", size=11, anchor="middle", fill=RED)
+    f.text(L + cols * P + 8, ye + 16, "a step in y too", size=11, fill=RED)
     yb = ye + 48
-    f.text(L, yb, f"WIDTH = longer length + 1 = {width}", size=13)
-    f.text(L, yb + 18, f"HEIGHT = shorter length = {height}", size=13)
-    f.text(L, yb + 36, f"E starts at 2N − M = {2 * N - M}".replace("-", "−"), size=13)
-    f.text(L + 330, yb, "After each pixel but the last:", size=11, fill=TXT2)
-    f.text(L + 330, yb + 15, f"E > 0: step y, E + 2(N − M) = E − {2 * (M - N)}", size=11, fill=TXT2)
-    f.text(L + 330, yb + 30, f"otherwise: E + 2N = E + {2 * N}", size=11, fill=TXT2)
+    f.text(L, yb, f"err starts at major ÷ 2 = {major // 2}", size=13)
+    f.text(L, yb + 18, f"{major + 1} pixels: both ends are written", size=13)
+    f.text(L, yb + 36, "(NOLAST leaves out the last)", size=13)
+    f.text(L + 330, yb, "After each pixel:", size=11, fill=TXT2)
+    f.text(L + 330, yb + 15, f"err − minor (err − {minor});", size=11, fill=TXT2)
+    f.text(L + 330, yb + 30, f"below 0: err + major (+ {major}), and step y;", size=11, fill=TXT2)
     f.text(L + 330, yb + 45, "then step x", size=11, fill=TXT2)
-    return f.save("blitter-6-9-bresenham.svg")
+    return f.save("blitter-6-8-bresenham.svg")
 
 
-# ---------------------------------------------------------------- 6-10: clip and pattern
+# ---------------------------------------------------------------- 6-9: clip and pattern
 def fig_clip():
     f = Fig(760, 460)
-    add_hatch(f)
     GW, GH, P = 40, 16, 15
     L, T = 116, 100
     XMIN, XMAX, YMIN, YMAX = 3, 26, 2, 11
     PATTERN = 0xF0F0
-    VALUE = PATTERN << 16
-    pix, width, height, M, N = line_pixels(6, 4, 37, 14)
-    f.text(20, 22, f"A dashed LINE (pattern 0x{PATTERN:04X}) that leaves the clip rectangle", bold=True)
+    pix, major, minor = line_pixels(6, 4, 37, 14)
+    f.text(20, 22, f"A dashed line (RASPAT 0x{PATTERN:04X}, MINTERM 0xCA) that leaves the clip window", bold=True)
     for y in range(GH):
         for x in range(GW):
             f.rect(L + x * P, T + y * P, P, P, WHITE, stroke="#e3e3e3")
-    for i, (x, y, E) in enumerate(pix):
-        bit = 31 - (i % 16)
-        a = (VALUE >> bit) & 1
+    for i, (x, y, e) in enumerate(pix):
+        a = (PATTERN >> (15 - i % 16)) & 1
         inside = XMIN <= x <= XMAX and YMIN <= y <= YMAX
         px, py = L + x * P, T + y * P
         if inside:
@@ -629,130 +562,105 @@ def fig_clip():
             f.rect(px + 1, py + 1, P - 2, P - 2, "#c9c9f0" if a else WHITE, stroke=DIM, dash="2 2")
         if i % 4 == 0:
             f.text(px + P / 2, py - 4, str(i), size=9, anchor="middle", fill=TXT2, halo=True)
-    # the clip rectangle (inclusive)
     f.rect(L + XMIN * P, T + YMIN * P, (XMAX - XMIN + 1) * P, (YMAX - YMIN + 1) * P, "none", stroke=RED, dash="4 3", sw=1.5)
-    f.text(L + XMIN * P, T + (YMAX + 1) * P + 14, f"CLIPXMIN = {XMIN}", size=11, anchor="middle", fill=RED)
-    f.text(L + (XMAX + 1) * P, T + (YMAX + 1) * P + 14, f"CLIPXMAX = {XMAX}", size=11, anchor="middle", fill=RED)
-    f.text(L - 4, T + YMIN * P + 12, f"CLIPYMIN = {YMIN}", size=11, anchor="end", fill=RED)
-    f.text(L - 4, T + YMAX * P + 12, f"CLIPYMAX = {YMAX}", size=11, anchor="end", fill=RED)
-    f.text(L + XMIN * P + 4, T + (YMAX + 1) * P + 30, "inclusive: the edge pixels are drawn", size=11, fill=RED)
+    f.text(L + XMIN * P, T + (YMAX + 1) * P + 14, f"XMIN = {XMIN}", size=11, anchor="middle", fill=RED)
+    f.text(L + (XMAX + 1) * P, T + (YMAX + 1) * P + 14, f"XMAX = {XMAX}", size=11, anchor="middle", fill=RED)
+    f.text(L - 4, T + YMIN * P + 12, f"YMIN = {YMIN}", size=11, anchor="end", fill=RED)
+    f.text(L - 4, T + YMAX * P + 12, f"YMAX = {YMAX}", size=11, anchor="end", fill=RED)
+    f.text(L + XMIN * P + 4, T + (YMAX + 1) * P + 30, "inclusive: the edge pixels are written", size=11, fill=RED)
     x0, y0, _ = pix[0]
     x1, y1, _ = pix[-1]
-    # pattern strip on top
     SY = 48
-    f.text(L, SY - 6, "VALUE bits 31–16, the pattern: one bit a pixel, from bit 31, round again after 16", size=11, fill=TXT2)
+    f.text(L, SY - 6, "RASPAT, the pattern: A for one pixel at a time, from bit 15, round again after 16", size=11, fill=TXT2)
     for i in range(16):
         b = (PATTERN >> (15 - i)) & 1
         f.rect(L + i * 22, SY, 22, 20, BLUE if b else WHITE)
         f.text(L + i * 22 + 11, SY + 14, str(b), size=11, anchor="middle", fill=WHITE if b else TXT)
     f.text(L + 16 * 22 + 8, SY + 14, f"= 0x{PATTERN:04X}", size=11)
-    # legend
     yl = T + GH * P + 30
     f.rect(L, yl - 11, 14, 14, BLUE)
-    f.text(L + 20, yl, "inside, pattern 1: drawn", size=11)
+    f.text(L + 20, yl, "inside, A = 1: the colour", size=11)
     f.rect(L + 180, yl - 11, 14, 14, WHITE)
-    f.text(L + 200, yl, "pattern 0: not read or written", size=11)
+    f.text(L + 200, yl, "inside, A = 0: C written back", size=11)
     f.rect(L + 390, yl - 11, 14, 14, "#c9c9f0", stroke=DIM, dash="2 2")
     f.rect(L + 410, yl - 11, 14, 14, WHITE, stroke=DIM, dash="2 2")
-    f.text(L + 430, yl, "outside: stepped, not drawn,", size=11)
+    f.text(L + 430, yl, "outside: stepped, not written,", size=11)
     f.text(L + 430, yl + 14, "no memory cycle", size=11)
-    f.text(L, yl + 40, f"From ({x0}, {y0}) to ({x1}, {y1}): WIDTH {width}, HEIGHT {height}. Small numbers: the pixel's place in the line;", size=11, fill=TXT2)
-    f.text(L, yl + 54, "the pattern keeps counting through clipped pixels, so the dashes stay where they were.", size=11, fill=TXT2)
-    return f.save("blitter-6-10-clip.svg")
+    f.text(L, yl + 40, f"From ({x0}, {y0}) to ({x1}, {y1}). Small numbers: the pixel's step number;", size=11, fill=TXT2)
+    f.text(L, yl + 54, "the pattern moves on for every pixel stepped, so the dashes stay where they were.", size=11, fill=TXT2)
+    return f.save("blitter-6-9-clip.svg")
 
 
-# ---------------------------------------------------------------- 6-11: EDGES
-def cube_points():
-    """A cube, turned and seen in perspective: its 8 points on a 1 bpp screen."""
-    pts = []
-    ay, ax = math.radians(30), math.radians(20)
-    for i in range(8):
-        x = 1 if i & 1 else -1
-        y = 1 if i & 2 else -1
-        z = 1 if i & 4 else -1
-        x, z = x * math.cos(ay) + z * math.sin(ay), -x * math.sin(ay) + z * math.cos(ay)
-        y, z = y * math.cos(ax) - z * math.sin(ax), y * math.sin(ax) + z * math.cos(ax)
-        d = 5 + z
-        pts.append((round(180 + 260 * x / d), round(110 + 260 * y / d)))
-    return pts
+# ---------------------------------------------------------------- 6-10: triangle
+def tri_spans(p0, p1, p2):
+    """A TRI job's rows (spec 19, section 5.3): {y: (left, right)}, right exclusive."""
+    (xt, yt), (xm, ym), (xb, yb) = sorted((p0, p1, p2), key=lambda p: p[1])
+
+    def slope(xa, ya, xc, yc):
+        return ((xc - xa) * 65536) // (yc - ya)
+
+    def ceil16(v):
+        return -((-v) // 65536)
+
+    rows = {}
+    for y in range(yt, yb):
+        XL = xt * 65536 + slope(xt, yt, xb, yb) * (y - yt)
+        if y < ym:
+            XS = xt * 65536 + slope(xt, yt, xm, ym) * (y - yt)
+        else:
+            XS = xm * 65536 + slope(xm, ym, xb, yb) * (y - ym)
+        rows[y] = (ceil16(min(XL, XS)), ceil16(max(XL, XS)))
+    return rows
 
 
-CUBE_EDGES = [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
+# the spec's worked triangle (spec 19, section 5.4)
+assert {y: (l, r - 1) for y, (l, r) in tri_spans((10, 2), (3, 6), (14, 9)).items() if r > l} == {
+    3: (9, 10), 4: (7, 11), 5: (5, 11), 6: (3, 12), 7: (7, 12), 8: (11, 13)}
 
 
-def fig_edges():
-    f = Fig(760, 440)
-    pts = cube_points()
-    f.text(20, 22, "An EDGES job: a table of points, a table of edges, one job", bold=True)
-    T, RH = 80, 22
-    # POINTS
-    PL = 20
-    f.text(PL, T - 30, "POINTS (APT)", size=13, bold=True)
-    f.text(PL, T - 12, "point n at POINTS + 4n", size=11, fill=TXT2)
-    for c, (h, w) in enumerate((("", 0), ("n", 48), ("x", 100), ("y", 150))):
-        if h:
-            f.text(PL + w + 18, T + 14, h, size=11, anchor="middle", fill=TXT2)
-    for n in range(9):
-        y = T + 20 + n * RH
-        ghost = n == 8
-        f.text(PL + 40, y + 15, f"+{4 * n}", size=11, anchor="end", fill=TXT2)
-        f.text(PL + 66, y + 15, str(n), size=11, anchor="middle", fill=TXT2 if ghost else TXT)
-        xv, yv = ("0x8000", "…") if ghost else (str(pts[n][0]), str(pts[n][1]))
-        for k, v in enumerate((xv, yv)):
-            f.rect(PL + 94 + k * 50, y, 50, RH, UNSHOWN if ghost else (HILITE if n in CUBE_EDGES[0] else WHITE),
-                   stroke=DIM if ghost else LINE, dash="4 3" if ghost else None)
-            f.text(PL + 119 + k * 50, y + 15, v, size=11, anchor="middle", fill=TXT2 if ghost else TXT)
-    f.text(PL + 94, T + 20 + 9 * RH + 16, "x and y: 2 bytes each, signed", size=11, fill=TXT2)
-    f.text(PL + 10, T + 20 + 9 * RH + 36, "point 8: x = 0x8000, behind the eye:", size=11, fill=TXT2)
-    f.text(PL + 10, T + 20 + 9 * RH + 50, "edges to it are left out", size=11, fill=TXT2)
-    # EDGES
-    EL = 260
-    f.text(EL, T - 30, "EDGES (BPT)", size=13, bold=True)
-    f.text(EL, T - 12, "edge k at EDGES + 2k", size=11, fill=TXT2)
-    f.text(EL + 66, T + 14, "k", size=11, anchor="middle", fill=TXT2)
-    f.text(EL + 105, T + 14, "a", size=11, anchor="middle", fill=TXT2)
-    f.text(EL + 145, T + 14, "b", size=11, anchor="middle", fill=TXT2)
-    for k, (a, b) in enumerate(CUBE_EDGES):
-        y = T + 20 + k * RH
-        f.text(EL + 44, y + 15, f"+{2 * k}", size=11, anchor="end", fill=TXT2)
-        f.text(EL + 66, y + 15, str(k), size=11, anchor="middle")
-        for j, v in enumerate((a, b)):
-            f.rect(EL + 85 + j * 40, y, 40, RH, HILITE if k == 0 else WHITE)
-            f.text(EL + 105 + j * 40, y + 15, str(v), size=11, anchor="middle")
-    f.text(EL + 85, T + 20 + 12 * RH + 16, "1 byte each", size=11, fill=TXT2)
-    # the drawing
-    DL, DT, s = 450, 60, 1.0
-    xs = [p[0] for p in pts]
-    ys = [p[1] for p in pts]
-    ox, oy = DL + 10, DT + 10
-    W, H = 290, 260
-    f.rect(ox, oy, W, H, PICTURE)
-    f.circle(ox, oy, 3, fill=LINE)
-    f.text(ox + 6, oy + 14, "(0, 0): DPT, the origin", size=11)
-    sx = lambda x: ox + (x - 40) * s
-    sy = lambda y: oy + (y + 0) * s
-    assert all(0 <= sx(x) - ox <= W for x in xs) and all(0 <= sy(y) - oy <= H for y in ys)
-    for k, (a, b) in enumerate(CUBE_EDGES):
-        f.line(sx(xs[a]), sy(ys[a]), sx(xs[b]), sy(ys[b]), stroke=RED if k == 0 else LINE, sw=2.5 if k == 0 else 1.5)
-    a, b = CUBE_EDGES[0]
-    mx, my = (sx(xs[a]) + sx(xs[b])) / 2, (sy(ys[a]) + sy(ys[b])) / 2
-    ux, uy = sx(xs[b]) - sx(xs[a]), sy(ys[b]) - sy(ys[a])
-    ln = math.hypot(ux, uy)
-    arrowhead(f, mx - ux / ln, my - uy / ln, mx + 6 * ux / ln, my + 6 * uy / ln, fill=RED, size=12)
-    for n in range(8):
-        f.circle(sx(xs[n]), sy(ys[n]), 3, fill=LINE)
-    cx, cy = sum(xs) / 8, sum(ys) / 8
-    for n in range(8):
-        dx, dy = xs[n] - cx, ys[n] - cy
-        d = math.hypot(dx, dy) or 1
-        f.text(sx(xs[n]) + 13 * dx / d, sy(ys[n]) + 13 * dy / d + 4, str(n), size=13, bold=True, anchor="middle", halo=True)
-    f.text(ox, oy + H + 20, f"edge 0 is drawn from a = {a} to b = {b}", size=11, fill=RED)
-    f.text(ox, oy + H + 40, "WIDTH = 12 edges; DPT = the origin, pixel (0, 0)", size=13)
-    f.text(ox, oy + H + 56, "x grows right, y grows down", size=11, fill=TXT2)
-    return f.save("blitter-6-11-edges.svg")
+def fig_triangle():
+    f = Fig(760, 420)
+    pts = [(10, 2), (3, 6), (14, 9)]
+    rows = tri_spans(*pts)
+    f.text(20, 22, "A TRI job with points (10, 2), (3, 6) and (14, 9): the pixels it writes", bold=True)
+    P = 28
+    L, T = 60, 60
+    cols, nrows = 17, 11
+    for y in range(nrows):
+        for x in range(cols):
+            filled = y in rows and rows[y][0] <= x < rows[y][1]
+            f.rect(L + x * P, T + y * P, P, P, HILITE if filled else WHITE, stroke="#ccc")
+    for x in range(cols):
+        f.text(L + x * P + P / 2, T - 8, str(x), size=11, anchor="middle", fill=TXT2)
+    for y in range(nrows):
+        f.text(L - 8, T + y * P + P / 2 + 4, str(y), size=11, anchor="end", fill=TXT2)
+    corners = [(L + x * P, T + y * P) for x, y in pts]
+    f.poly(corners, stroke=BLUE, sw=1.5)
+    for (x, y), (cx, cy) in zip(pts, corners):
+        f.circle(cx, cy, 3.5, fill=BLUE, stroke="none")
+        f.text(cx + (8 if x > 5 else -8), cy - 6, f"({x}, {y})", size=11, anchor="start" if x > 5 else "end", fill=BLUE, halo=True)
+    TX = L + cols * P + 30
+    f.text(TX, T + 10, "Row y: pixels x", size=13, bold=True)
+    yy = T + 34
+    for y in range(2, 10):
+        if y in rows and rows[y][1] > rows[y][0]:
+            s, c = f"{y}: {rows[y][0]} to {rows[y][1] - 1}", TXT
+        elif y in rows:
+            s, c = f"{y}: none (both edges at x = 10)", TXT2
+        else:
+            s, c = f"{y}: not written (the bottom row)", TXT2
+        f.text(TX, yy, s, size=11, fill=c)
+        yy += 18
+    for k, s in enumerate(("A pixel is written when its top", "left corner is on or right of the",
+                           "left edge and left of the right", "edge, in the rows from the top",
+                           "point's y up to, not including,", "the bottom point's.")):
+        f.text(TX, yy + 14 + 14 * k, s, size=11, fill=TXT2)
+    f.text(L, T + nrows * P + 26, "The bottom row and the right-hand edge are left for neighbouring triangles,", size=11, fill=TXT2)
+    f.text(L, T + nrows * P + 40, "so triangles that share an edge write each pixel along it exactly once.", size=11, fill=TXT2)
+    return f.save("blitter-6-10-triangle.svg")
 
 
 if __name__ == "__main__":
-    for fn in (fig_minterm, fig_cookiecut, fig_shift, fig_stride, fig_desc, fig_chain,
-               fig_octants, fig_bresenham, fig_clip, fig_edges):
+    for fn in (fig_chain, fig_minterm, fig_cookiecut, fig_shift, fig_stride, fig_desc,
+               fig_bresenham, fig_clip, fig_triangle):
         print(fn())

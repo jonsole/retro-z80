@@ -1,32 +1,33 @@
-; Example 6-4 (docs/guide/blitter.md): scroll the screen down by 8 lines a frame.
-; Each frame one backwards copy (DESC) moves the top 280 lines down by 8,
-; and a fill paints the 8 new lines at the top, a new colour every three
-; frames, so bands of colour roll down the screen. A key ends it and
-; prints how long the last scroll took.
+; Example 6-4 (docs/guide/blitter.md): overlapping copies, scrolling two ways.
+; Each frame a chain of four blitter jobs scrolls the top half of the
+; screen right by 4 pixels (a copy right to left, RTL) and the bottom half
+; down by 8 rows (a copy with the rows bottom-up, negative strides), and
+; fills the new columns and rows with a colour that changes every three
+; frames. Stripes move right across the top and bands roll down the bottom.
+; A key ends it and prints how long the last frame's chain took.
 
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x8000
 
         include "hw.inc"
 
-start:  ld      a,BPP8
-        ld      hl,360
+ROW     equ     360                     ; bytes a row at 8 bpp
+
+start:  ld      a,3                     ; the layer: 8 bpp,
+        ld      hl,ROW                  ; 360 bytes a row
         call    scr_on
         ld      hl,clearjob
-        call    run2                    ; start from a black screen
+        call    bltrun                  ; start from a black screen
 
 loop:   call    frame
-        ld      hl,scrolljob
-        call    wait2
-        call    load2
+        call    colour                  ; this frame's colour into the two fills
         ld      bc,TIME0_P
         in      e,(c)                   ; TIME in us: reading TIME0 captures all 4 bytes
         inc     b
         in      d,(c)
-        ld      bc,DMX2_CHCTRL_P
-        ld      a,DMX_CHCTRL_RUN_M
-        out     (c),a                   ; the scroll
-        call    wait2
+        ld      hl,right
+        call    bltstart                ; the chain: right, left edge, down, top rows
+        call    bltwait
         ld      bc,TIME0_P
         in      l,(c)
         inc     b
@@ -34,9 +35,6 @@ loop:   call    frame
         or      a
         sbc     hl,de
         ld      (took),hl
-        call    colour                  ; this frame's colour into the fill
-        ld      hl,topjob
-        call    run2                    ; the 8 new lines
         rst     20h                     ; POLLC: a key ends it
         jr      z,loop
         call    scr_off
@@ -49,66 +47,76 @@ loop:   call    frame
         rst     18h
         ret
 
-; colour: the next band's colour into topjob's VALUE, a new one every 3 frames
+; colour: the next colour into both fills' VALUE, a new one every 3 frames
 colour: ld      hl,count
         dec     (hl)
         jr      nz,.same
         ld      (hl),3
-        ld      hl,(band)
-        inc     hl
-        ld      (band),hl
-.same:  ld      hl,(band)
-        ld      a,(hl)
-        or      a
-        jr      nz,.got
-        ld      hl,colours              ; the end of the list: round again
-        ld      (band),hl
-        ld      a,(hl)
-.got:   ld      hl,topjob + DMX_VALUE
-        ld      (hl),a                  ; the colour in all four bytes of VALUE
-        inc     hl
-        ld      (hl),a
-        inc     hl
-        ld      (hl),a
-        inc     hl
-        ld      (hl),a
+        ld      a,(band)
+        inc     a
+        and     7
+        ld      (band),a
+.same:  ld      a,(band)
+        ld      (edgejob + 0x18),a      ; VALUE: colour in both pixels of the word
+        ld      (edgejob + 0x19),a
+        ld      (topjob + 0x18),a
+        ld      (topjob + 0x19),a
         ret
 
-count:  db      3
-band:   dw      colours
-colours: db     1, 5, 4, 6, 3, 2, 7, 0  ; blue, cyan, green, yellow, magenta, red, white; 0 ends
+count:  db      1
+band:   db      0
 took:   dw      0
-msg:    db      "The last scroll took ", 0
+msg:    db      "The last frame's chain took ", 0
 us:     db      " us", 13, 10, 0
 
-scrolljob:
-        db      OP_BLIT, BPP8|DESC, 0, 0xCC     ; copy, backwards
-        d24     0
-        d24     SCREEN                          ; BPT: the top of the screen
-        d24     SCREEN + 8*360                  ; DPT: 8 lines further down
-        d24     360
-        dw      280                             ; the 280 lines that stay visible
-        dw      0
-        dw      360, 360
-        dd      0
-        d24     0
-        db      0
-
-topjob: db      OP_BLIT, BPP8|BCONST, 0, 0xCC   ; fill the top 8 lines
-        d24     0, 0, SCREEN
-        d24     360
-        dw      8, 0, 0, 360
-        dd      0                               ; VALUE: set by colour
-        d24     0
-        db      0
-
+        align   2
 clearjob:
-        db      OP_BLIT, BPP8|BCONST, 0, 0xCC   ; the whole screen black
-        d24     0, 0, SCREEN
-        d24     360 * 288                       ; one row of 103,680 bytes
-        dw      1, 0, 0, 0
+        dd      0xCC*MT | BLTCTRL_BCONST_M | BPP8 ; fill with colour 0
+        dd      0, SCREEN
+        dw      360, 288
         dd      0
-        d24     0
-        db      0
+        dw      ROW, 0
+        dw      0, 0
+        dd      0
+
+; The top half, rows 0-143, right by 4 pixels. Source and destination share
+; their rows, and the destination is to the right: so RTL, and the pointers
+; name each row's last pixel (source x = 355, destination x = 359).
+right:  dd      0xCC*MT | BLTCTRL_RTL_M | BPP8 ; copy, each row right to left
+        dd      SCREEN + 355            ; BLTBPT: row 0's last source pixel
+        dd      SCREEN + 359            ; BLTDPT: row 0's last destination pixel
+        dw      356, 144                ; WIDTH, HEIGHT
+        dd      0
+        dw      ROW, ROW                ; DSTRIDE, BSTRIDE: rows top-down as usual
+        dw      0, 0
+        dd      edgejob
+
+edgejob: dd     0xCC*MT | BLTCTRL_BCONST_M | BPP8 ; the 4 new columns on the left
+        dd      0, SCREEN
+        dw      4, 144
+        dd      0
+        dw      ROW, 0
+        dw      0, 0                    ; VALUE: set by colour
+        dd      down
+
+; The bottom half, rows 144-287, down by 8 rows: source rows 144-279 to
+; destination rows 152-287. The destination is below, so the rows go
+; bottom-up: the pointers name the last row, and the strides are negative.
+down:   dd      0xCC*MT | BPP8          ; copy
+        dd      SCREEN + 279 * ROW      ; BLTBPT: the last source row
+        dd      SCREEN + 287 * ROW      ; BLTDPT: the last destination row
+        dw      360, 136                ; WIDTH, HEIGHT
+        dd      0
+        dw      -ROW, -ROW              ; DSTRIDE, BSTRIDE: up a row each time
+        dw      0, 0
+        dd      topjob
+
+topjob: dd      0xCC*MT | BLTCTRL_BCONST_M | BPP8 ; the 8 new rows at the top of the half
+        dd      0, SCREEN + 144 * ROW
+        dw      360, 8
+        dd      0
+        dw      ROW, 0
+        dw      0, 0                    ; VALUE: set by colour
+        dd      0                       ; the end of the chain
 
         include "screen.inc"

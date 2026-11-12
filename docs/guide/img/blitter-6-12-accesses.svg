@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#777"/></marker></defs>
+<rect width="760" height="380" fill="#ffffff"/>
+<text x="20" y="22" font-size="13" text-anchor="start" fill="#1a1a1a" font-weight="bold">One destination word of a blit, or one pixel of a line: memory accesses and time</text>
+<line x1="230" y1="64" x2="230" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="230" y="60" font-size="11" text-anchor="middle" fill="#555">0</text>
+<line x1="272" y1="64" x2="272" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="272" y="60" font-size="11" text-anchor="middle" fill="#555">20</text>
+<line x1="314" y1="64" x2="314" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="314" y="60" font-size="11" text-anchor="middle" fill="#555">40</text>
+<line x1="356" y1="64" x2="356" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="356" y="60" font-size="11" text-anchor="middle" fill="#555">60</text>
+<line x1="398" y1="64" x2="398" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="398" y="60" font-size="11" text-anchor="middle" fill="#555">80</text>
+<line x1="440" y1="64" x2="440" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="440" y="60" font-size="11" text-anchor="middle" fill="#555">100</text>
+<line x1="482" y1="64" x2="482" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="482" y="60" font-size="11" text-anchor="middle" fill="#555">120</text>
+<line x1="524" y1="64" x2="524" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="524" y="60" font-size="11" text-anchor="middle" fill="#555">140</text>
+<line x1="566" y1="64" x2="566" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="566" y="60" font-size="11" text-anchor="middle" fill="#555">160</text>
+<line x1="608" y1="64" x2="608" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="608" y="60" font-size="11" text-anchor="middle" fill="#555">180</text>
+<line x1="650" y1="64" x2="650" y2="288" stroke="#e3e3e3" stroke-width="1"/>
+<text x="650" y="60" font-size="11" text-anchor="middle" fill="#555">200</text>
+<text x="666" y="60" font-size="11" text-anchor="start" fill="#555">ns</text>
+<text x="720" y="60" font-size="11" text-anchor="middle" fill="#555">KS2</text>
+<text x="20" y="90" font-size="13" text-anchor="start" fill="#1a1a1a">Fill</text>
+<text x="20" y="104" font-size="11" text-anchor="start" fill="#555">0xCC, BCONST</text>
+<rect x="230" y="78" width="168" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="293" y="80" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="314" y="94" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="404" y="94" font-size="11" text-anchor="start" fill="#555">80</text>
+<text x="720" y="94" font-size="11" text-anchor="middle" fill="#1a1a1a">80</text>
+<text x="20" y="126" font-size="13" text-anchor="start" fill="#1a1a1a">Copy</text>
+<text x="20" y="140" font-size="11" text-anchor="start" fill="#555">0xCC</text>
+<rect x="230" y="114" width="252" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="272" y="116" width="42" height="20" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="293" y="130" font-size="11" text-anchor="middle" fill="#1a1a1a">R B</text>
+<rect x="398" y="116" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="419" y="130" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="488" y="130" font-size="11" text-anchor="start" fill="#555">120</text>
+<text x="720" y="130" font-size="11" text-anchor="middle" fill="#1a1a1a">120</text>
+<text x="20" y="162" font-size="13" text-anchor="start" fill="#1a1a1a">XOR with a constant</text>
+<text x="20" y="176" font-size="11" text-anchor="start" fill="#555">0x66, BCONST</text>
+<rect x="230" y="150" width="252" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="272" y="152" width="42" height="20" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="293" y="166" font-size="11" text-anchor="middle" fill="#1a1a1a">R C</text>
+<rect x="398" y="152" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="419" y="166" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="488" y="166" font-size="11" text-anchor="start" fill="#555">120</text>
+<text x="720" y="166" font-size="11" text-anchor="middle" fill="#1a1a1a">120</text>
+<text x="20" y="198" font-size="13" text-anchor="start" fill="#1a1a1a">Cookie-cut, key colour</text>
+<text x="20" y="212" font-size="11" text-anchor="start" fill="#555">0xCA, MASK = 2</text>
+<rect x="230" y="186" width="336" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="265" y="188" width="42" height="20" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="286" y="202" font-size="11" text-anchor="middle" fill="#1a1a1a">R B</text>
+<rect x="377" y="188" width="42" height="20" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="398" y="202" font-size="11" text-anchor="middle" fill="#1a1a1a">R C</text>
+<rect x="489" y="188" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="510" y="202" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="572" y="202" font-size="11" text-anchor="start" fill="#555">160</text>
+<text x="720" y="202" font-size="11" text-anchor="middle" fill="#1a1a1a">180*</text>
+<text x="20" y="234" font-size="13" text-anchor="start" fill="#1a1a1a">Line pixel</text>
+<text x="20" y="248" font-size="11" text-anchor="start" fill="#555">0xCC</text>
+<rect x="230" y="222" width="210" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="314" y="224" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="335" y="238" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="446" y="238" font-size="11" text-anchor="start" fill="#555">100</text>
+<text x="720" y="238" font-size="11" text-anchor="middle" fill="#1a1a1a">110</text>
+<text x="20" y="270" font-size="13" text-anchor="start" fill="#1a1a1a">Line pixel, XOR</text>
+<text x="20" y="284" font-size="11" text-anchor="start" fill="#555">0x66</text>
+<rect x="230" y="258" width="315" height="24" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<rect x="287.75" y="260" width="42" height="20" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="308.75" y="274" font-size="11" text-anchor="middle" fill="#1a1a1a">R C</text>
+<rect x="445.25" y="260" width="42" height="20" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="466.25" y="274" font-size="11" text-anchor="middle" fill="#1a1a1a">W</text>
+<text x="551" y="274" font-size="11" text-anchor="start" fill="#555">150</text>
+<text x="720" y="274" font-size="11" text-anchor="middle" fill="#1a1a1a">177</text>
+<rect x="230" y="301" width="14" height="14" fill="#9fc5e8" stroke="#333" stroke-width="1"/>
+<text x="250" y="312" font-size="11" text-anchor="start" fill="#1a1a1a">a read: 20 ns</text>
+<rect x="350" y="301" width="14" height="14" fill="#f4b183" stroke="#333" stroke-width="1"/>
+<text x="370" y="312" font-size="11" text-anchor="start" fill="#1a1a1a">a write: 20 ns</text>
+<rect x="470" y="301" width="14" height="14" fill="#f3f3f3" stroke="#777" stroke-width="1"/>
+<text x="490" y="312" font-size="11" text-anchor="start" fill="#1a1a1a">the core's own steps</text>
+<text x="20" y="340" font-size="11" text-anchor="start" fill="#555">A word is 2 bytes: two pixels at 8 bpp. The bars are the design's times, to scale; where each access falls is schematic.</text>
+<text x="20" y="356" font-size="11" text-anchor="start" fill="#555">KS2: measured with the screen off. * A 32 × 32 job, its start included.</text>
+</svg>
