@@ -37,7 +37,7 @@ The interrupt controller gathers the interrupt requests of every unit and passes
 | INTENA | Two 16-bit set/clear halves (bits 15 and 31) | Three 8-bit set/clear bytes, bit 7 SETCLR in each | Forced: 8-bit ports |
 | INTID | For debugging only | Also how an IM 1 handler finds its source | Forced: IM 1 gives no vector. It replaces the earlier draft's INTHIGH port |
 | Blitter source | BLT (4), shared by the blitter and the rasteriser; 5–7 not used | The same | – |
-| AUDIO | Source 9 | Source 9 reserved | Sound is parked (design plan Q1) |
+| AUDIO | Source 9 | Source 9 (spec 13) | – |
 | SD | Source 16, from SDIRQ; not used in version 1 | Source 16, not used in version 1: the SD controller is polled (spec 11) | As retro68k's version 1 |
 | Reserved 19–23 | Free | 19 reserved for the geometry unit (spec 15, branch 10), 20 free | Geometry unit is retro-z80 only |
 | Sprites | No sprite source: a sprite running short raises VIDERR; collisions are polled | The same | – |
@@ -76,7 +76,7 @@ Numbers follow retro68k. Unused numbers keep their place, so later blocks can be
 | 4 | BLT | The blitter and the rasteriser: a job with IRQ ended, or the unit stopped (the chain's end, STOP, an error) | DMXINT.BLT with DMXINTEN.BLT (spec 14), or DMXINT.RAS with DMXINTEN.RAS (spec 19) | DMXINT.BLT, DMXINT.RAS |
 | 5–7 | – | Not used (were DMA engine channels 1–3) | – | – |
 | 8 | – | Not used, as in retro68k | – | – |
-| 9 | AUDIO | Reserved for sound (spec 13, parked) | – | – |
+| 9 | AUDIO | Sound (spec 13) | AUDSTAT.CH and AUDINTEN | – |
 | 10 | – | Not used, as in retro68k | – | – |
 | 11 | TIMER0 | Timer 0 underflow | TMR0_STAT.UNDER and TMR0_CTRL.IRQ (spec 9) | TMR0_STAT.UNDER |
 | 12 | TIMER1 | Timer 1 underflow | As timer 0 | TMR1_STAT.UNDER |
@@ -291,7 +291,7 @@ vbl:    push af
 | # | Item |
 |---|------|
 | I1 | Every unit spec must give its flags, enables and request line in retro68k's form: VIDSTAT/VIDINTEN (spec 4: VBLANK, LINE, the VIDERR bits including the sprites'), COPSTAT.IRQ and COPCON.IRQEN (spec 6), DMXINT/DMXINTEN (specs 14 and 19), TMRn_STAT and CTRL.IRQ (spec 9), SERIRQ/SERIRQEN (spec 10), KBIRQ/KBIRQEN (spec 12). The SD controller (spec 11) has no interrupt in version 1. The earlier draft's edge latches in the controller are gone |
-| I2 | AUDIO (9) is reserved until spec 13 |
+| I2 | Closed (11 November 2026, #113): AUDIO (9) is sound's (spec 13) |
 | I3 | GEOM (19): does the geometry unit need an interrupt at all? It finishes in under 1 µs (design plan, branch 10). Keep the number reserved until spec 15 decides |
 | I4 | Partly closed (ticket #16): tv80 runs the IM 2 and IM 1 acknowledges as spec 1, section 8.1 says, at 20, 3.57 and 2.5 MHz, and takes the vector at the end of T2 (spec 1, B11). The spurious acknowledge and the frozen choice cannot be made from software with this timing (the request is registered, and the core samples /INT a T-state before the end of the instruction), so they are tested on the controller alone (`sim/intc`) |
 | I5 | Closed: no IM 0 option (design plan, branch 11). Software sets IM 1 or IM 2 before the first `EI` (section 7) |

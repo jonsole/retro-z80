@@ -36,7 +36,7 @@ It is retro68k's copper (its spec 10, guide chapter 5 and `copper.v`) narrowed t
 | MOVR reach | The whole MOVE reach | Offsets `0x000`–`0x0FF` (an 8-bit code, from X or from the instruction) | One-word MOVR |
 | MOVR encoding | One op with A, S, I and X bits | Five one-word codes (section 4.5); the same five forms and macros | Fits one word |
 | ALU encoding | fn, d (X, Y or the flags), s (value, X, Y or Rn) | fn, d (X or Y), a 4-bit source; loads and stores of the flags use fn 7. The same macros, `CF` included | Fits one word |
-| Memory cycles | Cycle 4 and the free pool; audio has cycle 2 | Cycle 4 and the free pool; cycle 4 is also where audio (reserved) goes, since cycle 2 is the CPU's | Z80: the CPU has cycles 0 and 2 (spec 2) |
+| Memory cycles | Cycle 4 and the free pool; audio has cycle 2 | Cycle 4 and the free pool; cycle 4 is also where audio (spec 13) goes, since cycle 2 is the CPU's | Z80: the CPU has cycles 0 and 2 (spec 2) |
 | Rate at PRI 1 | One instruction (two words) every 200 ns | One word every 100 ns: one MOVE every slot | One-word MOVE |
 | COPCON.PRI | 0 normal, 1 high, 2 nasty (may take the CPU's cycle 0) | 0 normal, 1 high; 2 and 3 reserved, taken as 1 | The CPU never waits (spec 2) |
 | Prefetch | One instruction (two words) | Two words: a two-word instruction, or two MOVEs; three behind a SKIP | The same buffer, used for 16-bit words. A SKIP must know how long the instruction it skips is |
@@ -221,11 +221,11 @@ Codes `0xFD`–`0xFF`, a bit shown as 0 that is set, B set in a SKIP, an ALU sou
 
 ### 5.1 Memory cycles
 
-The list is in SRAM; the copper reads it one 16-bit word per memory cycle, through its own channel in the scheduler, as retro68k's copper does (spec 2; retro68k spec 5, section 6). Each 100 ns slot has five cycles: 0 CPU, 1 display, 2 CPU, 3 display, 4 audio (reserved) and the free pool. For each cycle the first rule that finds a request wins:
+The list is in SRAM; the copper reads it one 16-bit word per memory cycle, through its own channel in the scheduler, as retro68k's copper does (spec 2; retro68k spec 5, section 6). Each 100 ns slot has five cycles: 0 CPU, 1 display, 2 CPU, 3 display, 4 audio and the free pool. For each cycle the first rule that finds a request wins:
 
 1. The CPU in cycles 0 and 2 (locked): the CPU never waits.
 2. An **urgent** hard-deadline request (a layer or sprite about to be late).
-3. The cycle's **owner**: the hard-deadline channels on cycles 1 and 3, and audio on cycle 4 (reserved: none yet).
+3. The cycle's **owner**: the hard-deadline channels on cycles 1 and 3, and audio on cycle 4 (spec 13).
 4. The **free order**: the copper at PRI 1 first; then by channel number: layers, sprites, audio, the copper at PRI 0, the CPU, the blitter (spec 14), the rasteriser (spec 19), the DMA port.
 
 So the copper gets cycle 4 and any cycle its owner leaves: the CPU's unused cycle 0 or 2 (at 20 MHz the Z80 leaves at least one of the two in every slot, spec 2), and cycles 1 and 3 when no layer or sprite wants them (the whole vertical blank, quiet stretches of a line).
@@ -274,7 +274,7 @@ These figures hold whatever the CPU, the sprites and the blitter do. Spare cycle
 
 At **PRI 0** the copper is best effort, as retro68k's: it usually gets cycle 4 and many spare cycles, but sprites filling their FIFOs ahead and early layer fetches come first. Plan time-critical bursts at PRI 1.
 
-When audio is specified (Q1), its few words per line will come before the copper's in cycle 4 (open point C3).
+Audio's few words per line (at most 8 per output sample, about 12 per line at 48 kHz; spec 13) come before the copper's in cycle 4 (open point C3).
 
 ### 5.4 After a WAIT: prefetch
 
@@ -366,7 +366,7 @@ Rules for a background list, as retro68k's:
 | SRAM | Read its list (22-bit physical addresses, not through the MMU). Nothing else: it cannot write SRAM or read tables from it |
 | Custom block `0x000`–`0x0EF` | Write with MOVE, MOVR or MOVEF: video globals (BGCOLOR, PALIDX, PALDAT, DMACON …), the sprites, the three layers |
 | Custom block `0x0F0`–`0x0FF` | Nothing useful: read-only video registers, which ignore MOVR and MOVEF writes |
-| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own control and state registers, the sprite globals, the attribute layer, the blitter, the rasteriser, audio (reserved) |
+| Custom block `0x100`–`0x3FF` | Write with MOVEF only: its own control and state registers, the sprite globals, the attribute layer, the blitter, the rasteriser, audio |
 | System block (page `0x00`), port `0xFE`, the palettes in the register page, the boot ROM | Nothing. Palette entries are written through PALIDX and PALDAT |
 
 So the copper cannot reach the interrupt controller, the timers, the MMU or the system registers: a runaway list can never page memory, reset the machine or change the interrupt set-up. It can turn the copper off (COPCON, DMACON), and a list that writes COPJMP1 unconditionally loops for ever.
@@ -620,12 +620,12 @@ The wrapper keeps the instruction words (section 4): it decodes each one's code 
 |---|------|
 | C1 | X and Y are 8 bits, as retro68k's are its data width: register codes and data, not SRAM pointers, since the copper reads no memory but its list. A shared "MOVR from (X)+" or a load of X or Y from an SRAM table (retro68k's C4) stays an open point for both machines |
 | C2 | Per-cell colours (section 8.5) need a register that acts at the pixel and takes one to three bytes per change; spec 4 to say which, if any (the palette through PALDAT needs PALIDX too). Otherwise per-cell colour is left to the attribute layer |
-| C3 | Audio (Q1) is to share cycle 4 with the copper and goes before it. When sound is specified, the PRI 1 rate becomes 320 words per line less audio's few. Proposed: accept |
+| C3 | Audio (spec 13) shares cycle 4 with the copper and goes before it: the PRI 1 rate is 320 words per line less audio's few (at most about 12). Proposed: accept |
 | C4 | Closed: COPSTAT.LATE and OVER are dropped with the cycle-3 design. At PRI 1 the copper's rate is certain on screens within the budget, as retro68k's, which has no such bits |
 | C5 | Closed: prefetch depth two words (branch 11) |
 | C6 | Closed (design plan, branch 11): the copper writes registers directly, with no latch, as the CPU does (spec 3, rule 3). Only colours wait for their red byte, in the copper's own colour assembly buffer. A wide value no longer changes whole at one pixel, except a colour |
 | C7 | Closed: the copper no longer shares cycle 3 with the sprites. Sprites are hard-deadline channels on cycles 1 and 3 (spec 5); the copper has cycle 4 at PRI 1 |
-| C8 | MOVEF reaches the audio offsets (`0x240`–`0x2FF`); writes there do nothing until sound is decided (Q1) |
+| C8 | Closed (11 November 2026, #113): MOVEF reaches sound's registers (`0x244`–`0x2F6`, spec 13) |
 | C9 | Exact pixel delay from a WAIT to a palette change, and of the second prefetched MOVE (retro68k's C2: 0 pixels late in its simulation). The copper's part is measured (ticket #32, `make -C sim cop`): the first write is on the register bus 2 clocks after the beam the copper sees reaches the WAIT's position, on its pixel or the next; the second prefetched one 2 clocks after the first. The copper sees the beam a few clocks behind the pixel clock (section 3); the delay to the pixel on screen is still to be measured on the whole system |
 | C10 | RESUME saves only the place (branch 11), as retro68k. With no latch, a cut-off register keeps the bytes already written and list 2 carries on with the next one. The colour buffer is not saved, so a background list that writes colours can mix with list 1's. Proposed: a background list writes no colours |
 | C11 | COPCON.PRI 2 (nasty) is reserved and taken as 1, since the CPU never gives up a cycle it uses. A nasty mode here could only take the CPU's spare cycles, which PRI 1 already gets first. Proposed: as written |

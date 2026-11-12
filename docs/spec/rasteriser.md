@@ -42,7 +42,7 @@ The rasteriser is retro68k's (its spec 17, version 1) in every field, bit and ru
 | Memory cycles | Requester 6 (RAS), with an owner bit (6) in MEMSLOT0–4; the DMA port moves to 7 and loses its owner bit | Requester 6 (RAS), the DMA port 7, as there. The free pool only: no owner bit, since the slot plan is fixed (spec 2, section 5.2) | The Z80 never waits for memory (design plan, branches 11 and 25) |
 | Copper | MOVE | MOVEF, one byte per instruction (section 8.2) | Copper MOVE reaches offsets `0x000`–`0x0EF` only (spec 6) |
 | Interrupt | Source 4, BLT, shared with the blitter, default level 4 | Source 4, BLT, shared with the blitter, fixed priority; IM 2 vector VECBASE + 8 (spec 8) | IM 2 on one /INT line |
-| Triangles | Always built | A build option, `DMX_TRI`: 1 on the KS3; on the KS2 1 if the full build fits, else lines only (section 10, open point RA3) | The KS2's LUTs |
+| Triangles | Always built | A build option, `DMX_TRI`: 1 on the KS3; 0 on the KS2, lines only (section 10) | The KS2's LUTs, with sound (spec 13) |
 | Planar layers | Drawn a plane at a time | Not needed | Layers are chunky only (branch 11) |
 | Reset | Every reset and the 68000's RESET instruction | Every reset (spec 7) | The Z80 has no RESET instruction |
 | Time | From the core's design (its section 8) | The same: the same core, clock and memory cycle (section 9) | – |
@@ -410,7 +410,7 @@ A line pixel outside the window is stepped in one clock, as retro-hw's raster sp
 | The scheduler's eighth requester | A wider multiplexer in `dmac.v` |
 | Block RAM, DSP | None |
 
-**Builds.** The KS3 builds triangles (`DMX_TRI = 1`). The KS2 builds triangles too if the full build fits in its LUTs and meets 100 MHz, and lines only (`DMX_TRI = 0`: a TRI job is an error) otherwise (design plan, branch 10, "Drawing: raster"; open point RA3). The KS2's `GEOM = 1` build leaves the blitter and the rasteriser out (`DMX = 0`): their registers are then not answered (read `0xFF`), and they count as idle (spec 15, section 8).
+**Builds.** The KS3 builds triangles (`DMX_TRI = 1`). The KS2 builds lines only (`DMX_TRI = 0`: a TRI job is an error), to make room for sound (spec 13; design plan, branch 21; open point RA3). The KS2's `GEOM = 1` build leaves the blitter and the rasteriser out (`DMX = 0`): their registers are then not answered (read `0xFF`), and they count as idle (spec 15, section 8).
 
 ### 10.1 Shared core
 
@@ -420,7 +420,7 @@ The rasteriser is retro-hw's `raster` ([spec](../../fpga/retro-hw/docs/spec/rast
 |-----------|-------|-----|
 | AW | 21 | Word addresses: 4 MB of SRAM |
 | LE | 1 | The SRAM is little-endian (spec 2, section 8.4) |
-| TRI | `DMX_TRI`: 1 on the KS3; the KS2's to be decided by its build (section 10) | Triangles are about half the core |
+| TRI | `DMX_TRI`: 1 on the KS3, 0 on the KS2 (section 10) | Triangles are about half the core |
 
 The wrapper keeps this spec's registers (section 7): the job registers as eight 32-bit words, stored a byte at a time from the register bus while the core is idle and a word at a time from a descriptor load; the clip window as 8 bytes; the core's job ports wired straight to their fields; RASDESC through the capture; RASCMD's strobes; RASSTAT; and DMXINT and DMXINTEN, shared with the blitter. It drives the core's `job_bad` from RASCTRL's reserved bits and ties `dl_wait` to 0. Neither core busy gives the copper's IDLE; either's interrupt flag, enabled, gives source 4. The core's memory port is the scheduler's RAS requester; it shares the read data bus with the blitter's.
 
@@ -449,7 +449,7 @@ The wrapper keeps this spec's registers (section 7): the job registers as eight 
 |---|------|
 | RA1 | **retro68k's choices, not yet reviewed by its user**, which retro-z80 follows (retro68k's spec 17, Z1): (a) the wrapper lives in `dmx.v` beside the blitter's, sharing DMXINT and DMXINTEN; (b) its own requester, 6, with the DMA port moved to 7; (c) DMACON.BLTEN enables both units, with no bit of its own; (d) one interrupt source with the blitter, not one of its own (so source 5 is no longer kept for it); (e) the copper's WAIT B waits for both; (f) reserved RASCTRL bits are an error (RA2); (g) the descriptor layout: points together, the pattern a word of its own, the colour in RASCTRL's low byte; (h) the window as two corner points. If retro68k changes any of them, retro-z80 follows |
 | RA2 | **A mismatch retro68k flagged:** the rasteriser treats a reserved RASCTRL bit as an error, but the blitter's wrapper ignores reserved bits (spec 14, D5). One rule for both units would be simpler; to settle with retro68k |
-| RA3 | The KS2 build: triangles (`DMX_TRI = 1`) if the full build fits and meets 100 MHz, lines only otherwise. LUTs, timing and multi-driven nets **to be measured** in Vivado (design plan, branch 23). retro68k's whole design went from 14,687 to 16,166 LUTs with it |
+| RA3 | Closed (11 November 2026, #113): the KS2 builds lines only (`DMX_TRI = 0`), which saves about 640 LUTs for sound (spec 13); the KS3 builds triangles. The KS2 build's LUTs and timing with sound: spec 13, AU6 |
 | RA4 | Measure the times of section 9 in simulation and on the KS2, alone and with the blitter and a display running |
 | RA5 | Closed (11 November 2026): retro-hw's `raster.v` now resets the register that holds the old word (`creg`, retro-hw PR #18), so the first job after power-on may be any job; `rgen.py` no longer starts with a job that reads |
 | RA6 | Closed (11 November 2026): the core steps a line pixel outside the window in one clock, as retro-hw's spec gives (retro-hw PR #18) |

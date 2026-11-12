@@ -381,7 +381,7 @@ The layers fetch only when **DMACON.DMAEN** and **DMACON.BPLEN** are both set an
 | 4 | COPEN | The copper |
 | 3 | BLTEN | The DMA engine |
 | 2 | SPREN | The sprites |
-| 1 | AUDEN | Audio; reserved |
+| 1 | AUDEN | Sound (with each channel's AUDDMA bit) |
 | 0 | – | Reserved |
 
 **Table 3-10: VIDCON**

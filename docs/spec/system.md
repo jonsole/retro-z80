@@ -45,7 +45,7 @@ The other system pieces have their own specs: the MMU (spec 2), interrupts (8), 
 | Boot console | 80 × 30 text drawn with an 8 × 16 font (Spleen) into a 1 bpp 640 × 480 bitmap | 80 × 30 text on a 1 bpp tile layer, 8 × 8 public-domain font shown 2× tall, in the same 640 × 480 window | A character is one 2-byte map write instead of 16 bytes of bitmap; the tile mode is the one new video unit (spec 4) |
 | Long press of reset | The same as a short press (its SY3, answered 25 October 2026) | No UPLOAD on a long press: UPLOAD comes only from the PC | Closed here (SY6) |
 | NMI monitor paging | None | Window 0 switched to the boot ROM's monitor page during an NMI, and the return address kept in registers: the NMI set's default of the interrupt pages (spec 2, section 9.7) | Spectrum extra (Multiface style); the interrupt pages are a retro-z80 extra (design plan, branch 17) |
-| Beeper | None (audio is its spec 6) | Port `0xFE` bit 4 to the audio pins, at a fixed quarter of full scale | Spectrum extra; sound itself is parked (design plan Q1) |
+| Beeper | None (audio is its spec 6) | Port `0xFE` bit 4 to the audio pins, at a fixed quarter of full scale, added to sound's mix (spec 13) with clipping | Spectrum extra |
 
 ## 3. Reset
 
@@ -267,7 +267,7 @@ Pin names follow the Next's own `zxnext_top_issue5.vhd` and `zxnext_pins_issue5.
 | PS/2 | ps2_clk_io, ps2_data_io (keyboard); ps2_pin6_io, ps2_pin2_io (mouse, spare) | PS/2 keyboard (spec 12). Mouse not used |
 | Spectrum keyboard | keyb_row_o[7:0], keyb_col_i[6:0] | The membrane matrix: 8 rows × 7 columns. A row is selected by driving it low (open drain); a pressed key pulls its column low. Columns 0–4 are the Spectrum's 40 keys; columns 5–6 are the Next's extra keys. Scanned and debounced in hardware (spec 12) |
 | Joysticks | joyp1_i (up), joyp2_i (down), joyp3_i (left), joyp4_i (right), joyp6_i (fire 1), joyp9_i (fire 2), joyp7_o (pin 7 out), joysel_o | Both ports share the input pins; joysel_o picks the left or the right port, and the hardware reads them in turn. joyp7_o drives pin 7 (select line of Mega Drive pads). Low = pressed (spec 12) |
-| Audio | audioext_l_o, audioext_r_o, audioint_o | Sigma-delta streams: the beeper in version 1 (section 10.2), sound later (spec 13) |
+| Audio | audioext_l_o, audioext_r_o, audioint_o | Sigma-delta streams: sound (spec 13) and the beeper (section 10.2) |
 | I2C | i2c_scl_io, i2c_sda_io | Real-time clock and HDMI DDC (section 7) |
 | Configuration flash | flash_cs_n_o and the SPI pins | Kept deselected |
 | ESP8266 WiFi | esp_rx_i, esp_tx_o | Not used |
@@ -341,19 +341,19 @@ nmi:    ld   (0x0EB0),sp         ; the program's SP, into the workspace page
 
 ### 10.2 The beeper and the audio output
 
-Until sound (spec 13) is decided, the only sound source is the Spectrum-style **beeper**: bit 4 of the last write to port `0xFE` (spec 12 owns that port).
+Two sources share the audio output: sound's four sample channels (spec 13) and the Spectrum-style **beeper**: bit 4 of the last write to port `0xFE` (spec 12 owns that port).
 
 | Step | What happens |
 |------|--------------|
 | Beeper bit | Port `0xFE` bit 4, held until the next write. 0 after reset |
 | Level | 0 gives the 16-bit value −BEEPAMP, 1 gives +BEEPAMP. BEEPAMP is fixed at a **quarter of full scale** (`0x2000`); software cannot change it |
-| Mix | The beeper's value is the same on both channels. When spec 13 adds sound, its left and right mixes are added to it here, with clipping |
+| Mix | The beeper's value is the same on both sides. Sound's left and right mixes (spec 13, section 3.2) are added to it, and each sum is clipped to 16 bits signed. With the beeper bit 0 the output sits a quarter of full scale down (spec 13, open point AU4) |
 | Modulators | Three second-order sigma-delta modulators at 100 MHz, retro-hw's `sigma_delta2` (as retro68k's), input scaled to half their range: left, right and mono ((left + right) ÷ 2) |
 | Pins | audioext_l_o and audioext_r_o (the jack), audioint_o (the internal speaker) |
 
 The board's RC filter turns each stream back into sound. A steady beeper bit gives a steady level, which the board's coupling capacitor blocks, so silence costs nothing. Square waves toggled by software sound as on a Spectrum, at any CPU speed (the pitch follows the program's timing, so code timed for a Spectrum should run with CPUSPEED.SPECTRUM set, or use the timers).
 
-**Shared core.** Each modulator is retro-hw's `sigma_delta2` ([spec](../../fpga/retro-hw/docs/spec/sigma_delta2.md)), in `fpga/retro-hw/rtl/sigma_delta2.v`. It has no parameters. `fpga/rtl/audio.v` is retro-z80's wrapper: it keeps the beeper bit, makes its level and the mono mix, and builds the three modulators.
+**Shared core.** Each modulator is retro-hw's `sigma_delta2` ([spec](../../fpga/retro-hw/docs/spec/sigma_delta2.md)), in `fpga/retro-hw/rtl/sigma_delta2.v`. It has no parameters. `fpga/rtl/audio.v` is retro-z80's wrapper: it holds sound (spec 13, retro-hw's `audio_engine`), keeps the beeper bit, adds its level to sound's mix, makes the mono mix, and builds the three modulators.
 
 ## 11. Registers
 
@@ -435,7 +435,7 @@ Free. They held the NMI monitor registers (NMICTL, NMISAV0, NMISAVW0, NMISAVHI),
 | SY5 | Closed: SYSCFG.CHIPMB is a build constant (branch 11), not a test at power-on |
 | SY6 | Closed: no UPLOAD on a long press of the reset button (branch 11). UPLOAD comes only from the PC (spec 10) |
 | SY7 | Closed: spec 16, section 5.3 lays out the workspace; the console's state sits in the map's hidden columns. A program may take every page; the monitor then sets the console and workspace up again when it is next entered, and the program loses what it had there |
-| SY8 | Closed: the beeper level is fixed at a quarter of full scale (branch 11); software cannot set it before spec 13 exists |
+| SY8 | Closed: the beeper level is fixed at a quarter of full scale (branch 11); software cannot set it. Sound (spec 13) has its own volumes |
 | SY9 | Which real-time clock chip the KS3 uses, and its I2C address and register layout (retro68k SY4) |
 | SY10 | Should Ctrl + Alt + Delete reset in hardware (RESETWHY.KEYBOARD)? Software does it in version 1, as in retro68k; spec 12 decides |
 | SY11 | Registers `0x7C`–`0x7F` are free again, since the NMI registers moved to I/O page `0x01` (design plan, branch 17). A later system register (for example a SYSSTAT) goes there |

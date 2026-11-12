@@ -35,6 +35,8 @@
 // The CPU's capture (spec 3, rule 4), as retro68k's rh_valid, rh_tag and
 // rh_data: a read of a capturing register's low byte comes with the whole
 // value (rb_cdata, rb_cap), which is kept here tagged with that register.
+// A unit that registers its read (sound's channel registers, spec 13)
+// raises rb_late in the clock after the strobe and answers in the next.
 // A read of a higher byte of the tagged register is answered from it,
 // however late; any other read gets the unit's live byte. Both paths, ports
 // and the register page, share it. Ticket #17.
@@ -123,6 +125,7 @@ module bus_if (
     input  wire        rb_hit,
     input  wire [31:0] rb_cdata,       // with rb_rdata: a capturing register's whole value
     input  wire        rb_cap,         // ... and that rb_cdata holds one
+    input  wire        rb_late,        // the unit answers a clock later (sound's channel registers)
     input  wire        cw_busy,        // the copper has the register bus this clock
 
     // Interrupt controller (intc.v)
@@ -357,8 +360,9 @@ module bus_if (
                 late <= 1'b1;
 
             // I/O and register page read data, the clock after the strobe
+            // (a clock later when the unit says so: rb_late, in the clock after the strobe)
             if (rb_rd) io_rd_d <= 1'b1;
-            if (io_rd_d) begin
+            if (io_rd_d && !rb_late) begin
                 di      <= cap_hit ? cap_byte : rb_hit ? rb_rdata : 8'hFF;
                 if (rb_cap) begin
                     cap_valid <= 1'b1;
