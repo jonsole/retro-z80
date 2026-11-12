@@ -63,7 +63,7 @@ The blitter is retro68k's (its spec 11, version 2) in every field, bit and rule,
 | Planar layers | Drawn a plane at a time (its section 6.1) | Not needed | Layers are chunky only (branch 11) |
 | Reset | Every reset and the 68000's RESET instruction | Every reset (spec 7) | The Z80 has no RESET instruction |
 | VALUE's byte order | Bits 15–8 the even byte: pixel order and memory order agree (big-endian) | **Pixel order, not memory byte order**: the even byte takes bits 15–8 (BLTVALUE1, at `0x159`), the odd byte bits 7–0 (BLTVALUE0, at `0x158`), although the SRAM and the rest of the job are little-endian. A 2-byte pattern goes in swapped (section 3.2) | The core's `job_value` has the leftmost pixel in its top bits whatever the memory's byte order; confirmed in simulation |
-| Speed | Measured in simulation (its section 8) | Not yet measured (open point D2) | – |
+| Speed | Measured in simulation (its section 8) | Measured on the KS2 (open point D2): fill 22.3 MB/s, copy 14.8 MB/s with the screen on | – |
 
 ## 3. The job
 
@@ -502,7 +502,7 @@ The wrapper keeps this spec's registers (section 8): the job registers as eight 
 | # | Item |
 |---|------|
 | D1 | Build the KS2 with the new blitter in Vivado: LUTs, timing at 100 MHz, multi-driven nets (design plan, branch 23) |
-| D2 | Measure the speed of section 7 in simulation and on the KS2, with the screen on and off. Version 1 measured a fill at 73 MB/s and a copy at 39 MB/s on the KS2; retro68k's simulation of the new core gives 25 and 16.7 |
+| D2 | Measure the speed of section 7 in simulation and on the KS2, with the screen on and off. Version 1 measured a fill at 73 MB/s and a copy at 39 MB/s on the KS2; retro68k's simulation of the new core gives 25 and 16.7. **Measured on the KS2 (12 November 2026, #104, examples/blitter/speed.asm):** fill 22.3 MB/s with the screen on, 24.9 off; copy 14.8 MB/s on (7,016 µs for the test copy), 6,242 µs off; XOR as copy; a 32×32 key draw 105 µs on, 93 off; 8 empty descriptors 22 µs |
 | D3 | Closed (11 November 2026, #110): lines and triangles are the rasteriser's (spec 19), retro-hw's `raster` core with its own registers at custom `0x180`–`0x1B3`, beside the blitter in `dmx.v`, as retro68k. It shares interrupt source 4 (DMXINT.RAS); source 5 is no longer kept for it. `geom` (3D points) is later still. Version 1's LINE and EDGES, and the reserved OP 6 (span fill) and OP 7 (triangle), are gone |
 | D4 | A FIFO mover for the SD card and the serial link (version 1's planned port jobs) is decided later, with retro68k (retro-hw's blitter spec, B3). Until then the CPU moves those bytes |
 | D5 | Reserved bits of the job registers are not an error (the core's `job_bad` is tied off): they are not stored. Software written for version 1 gets a wrong picture, not ERR. The rasteriser treats its reserved RASCTRL bits as an error; whether the two should agree is spec 19, RA2 |

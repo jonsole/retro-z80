@@ -95,7 +95,7 @@ The boot ROM has a small decoder and a layout table, and BBC BASIC's `INKEY` and
 | Set repeat rate and delay | `F3`, wait for `FA`, then the rate byte, wait for `FA` |
 | Reset and self-test | `FF`, wait for `FA`, then `AA` |
 
-- A write to KBSEND while TXBUSY is 1 is ignored.
+- A write to KBSEND while TXBUSY is 1, or while KBCON.EN is 0, is ignored. Clearing KBCON.EN stops a byte being sent.
 - If the keyboard does not take the byte within 15 ms, the controller gives up: TXBUSY goes to 0 and KBIRQ.TIMEOUT is set.
 
 ### 3.5 Interrupt

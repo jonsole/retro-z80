@@ -24,7 +24,7 @@ Four sample channels, in the spirit of the Amiga's Paula. Each plays a sample fr
 | Enable | DMACON.AUDEN with DMACON.DMAEN (spec 4), and a bit a channel in AUDDMA |
 | Core | retro-hw's `audio_engine` (section 9), wrapped in `fpga/rtl/audio.v` |
 
-**Against the Amiga (Paula).** Paula plays each channel's 8-bit samples at the channel's own rate (AUDxPER) into its own DAC, hard-panned: channels 0 and 3 left, 1 and 2 right. Here every channel is resampled to one output rate (AUDxSTEP), with 8- or 16-bit samples, linear interpolation or nearest, and any pan. LC and LEN are taken at the start and at each block's end, with an interrupt each time, as on the Amiga. Starting and stopping need no waiting, and a one-shot block stops by itself. An Amiga period P (in 3,546,895 Hz ticks, PAL) gives a step of 3,546,895 × 65536 ÷ (P × 48,008) ≈ 4,841,856 ÷ P at the default rate, so a MOD player needs only a table from periods to steps.
+**Against the Amiga (Paula).** Paula plays each channel's 8-bit samples at the channel's own rate (AUDxPER) into its own DAC, hard-panned: channels 0 and 3 left, 1 and 2 right. Here every channel is resampled to one output rate (AUDxSTEP), with 8- or 16-bit samples, linear interpolation or nearest, and any pan. LC and LEN are taken at the start and at each block's end, with an interrupt each time, as on the Amiga. Starting and stopping need no waiting, and a one-shot block stops by itself. An Amiga period P (in 3,546,895 Hz ticks, PAL) gives a step of 3,546,895 × 65536 ÷ (P × 48,008) ≈ 4,841,886 ÷ P at the default rate, so a MOD player needs only a table from periods to steps.
 
 ## 2. Comparison with retro68k
 
@@ -202,8 +202,8 @@ Playing a looped 8-bit sample on channel 1 at 22,050 Hz, centre. The sample is a
         inc     b
         xor     a
         out     (c),a
-        ld      bc,AUD1_STEP_P        ; STEP = 22050 × 65536 ÷ 48008 = 0x7596
-        ld      a,0x96
+        ld      bc,AUD1_STEP_P        ; STEP = 22050 × 65536 ÷ 48008 = 0x7595
+        ld      a,0x95
         out     (c),a
         inc     b
         ld      a,0x75
@@ -279,7 +279,7 @@ The wrapper keeps the registers of section 6: AUDRATE with its floor of 200 (the
 | AU3 | **AUDDMA is a new register** (not in retro68k): retro68k's DMACON.AUD0EN–AUD3EN do not fit DMACON's one byte, which has one bit, AUDEN. AUDDMA holds them, with AUDEN as master, as SPRDMA with SPREN for the sprites. The other way, AUDEN alone enabling all four channels (setting it would start all four, even ones software has not set up), was not taken. For the user to confirm |
 | AU4 | **The beeper's idle level.** Spec 7's beeper is −BEEPAMP (a quarter of full scale) while its bit is 0, so with the beeper idle the channels' mix sits a quarter of full scale down and clips at the negative end if the four channels together go below −0.75 of full scale. Choices: keep it (a steady level costs nothing audible); make the beeper 0 and +BEEPAMP; or halve BEEPAMP. For the user |
 | AU5 | **The late read.** A channel register read through the register page now has 1 clock to spare at 20 MHz when the copper writes in the same clock (spec 1, section 5.7: was 2); simulation confirms no wait (`make atest`). At 25 MHz (spec 1, B10) it would have none: check with B10 |
-| AU6 | The KS2 build: LUTs, timing and multi-driven nets **to be measured** in Vivado, with `DMX_TRI = 0`. If it does not fit, the choices are `INTERP` 0 (about 130 LUTs less), `RDBACK` 0 (about 60 less, but no AUDxPOS), or 2 channels |
+| AU6 | Measured (12 November 2026, #113): the KS2 build with `DMX_TRI = 0` is 9,826 logic LUTs (94.5%), timing met (+0.155 ns setup, +0.036 ns hold), no critical warnings; the wrapper is 1,001 LUTs. Had it not fitted, the choices were `INTERP` 0 (about 130 LUTs less), `RDBACK` 0 (about 60 less, but no AUDxPOS), or 2 channels |
 | AU7 | The audio filter on the KS2 and the KS3, and the real quality of the sigma-delta output, measured on the board (retro68k's A1) |
 | AU8 | Sound over HDMI (retro68k's A3): the core's `out_l`, `out_r` and `out_v` are the hook |
 | AU9 | AUDRATE, STEP, LC and LEN written a byte at a time can be taken half written (sections 3.1 and 5.4). A latch that commits on the top byte (as the MMU pages, spec 3) would remove it, at a few flip-flops a register; not done, as retro68k's LC then LEN have the same rule |

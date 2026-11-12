@@ -86,7 +86,7 @@ module copper (
     input  wire [10:0] beam_h,
     input  wire        vblank,         // 1 clock: the frame starts, beam (0, 0)
     input  wire        dma_on,         // DMACON.DMAEN and COPEN
-    input  wire        blt_idle,       // the DMA engine has nothing to do
+    input  wire        blt_idle,       // the blitter and rasteriser have nothing to do
 
     output wire        irq             // source COPPER (2)
 );
