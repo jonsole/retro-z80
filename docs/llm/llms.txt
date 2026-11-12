@@ -1,0 +1,65 @@
+# retro-z80
+
+> A Z80 computer in the FPGA of a ZX Spectrum Next (KS2 board now, KS3 later): a 20 MHz Z80 that never waits for memory, an MMU of eight 8 KB windows over 2 MB of SRAM (4 MB on the KS3), and an Amiga-style chipset on one shared SRAM: layers (bitmap or tile-map playfields), sprites, a copper, a descriptor-chain blitter, a line rasteriser (triangles on the KS3 only), 4-channel DMA sound, timers, an IM 2 interrupt controller, keyboards and joysticks, a USB serial link with a debug unit, and a boot ROM with a monitor. Registers are I/O ports in register:page form (`LD BC,NAME_P` / `OUT (C),A`, names from `hw.inc`) and also memory in the register page. Programs are sjasmplus assembly at `org 0x8000`, where a Z80 address is its own physical address, and are run and inspected on the board through an MCP bridge (launch, run, pause, read_memory, screen_capture). Read system.md first; it says what the KS2 build leaves out.
+
+These files are written for AI models writing Z80 programs for the machine. Their register tables are generated from `fpga/regmap.def` by `tools/llm_docs.py`, and every code block in them assembles.
+
+## Start here
+
+- [system.md](system.md): the whole machine on one page: what the KS2 builds, CPU and clocks, the MMU and program map, the register page, the port form and hw.inc names, register rules, the boot ROM's calls and a program's start state, interrupts, the memory slot plan, the toolchain, the MCP bridge's tools, simulation, pitfalls
+
+## Units
+
+- [video-layers.md](video-layers.md): beam and coordinates, layers as bitmaps or tile maps, scaling, windows, scrolling, palettes, PRIO, BGCOLOR, the fetch budget (KS2: layer L0 only)
+- [sprites.md](sprites.md): sprite images, position and scaling, DEPTH, collisions, SPRDMA, SPRPALETTE, restarting each frame (KS2: sprites 0 and 1 only; no sequencer)
+- [copper.md](copper.md): copper instruction words, WAIT on the beam, MOVE reach, lists and the frame restart, the copper.inc macros, the copper interrupt
+- [blitter.md](blitter.md): the minterm blitter, one job or a chain of 32-byte descriptors, fills, copies, transparency, completion and interrupts (KS2: no mask image)
+- [rasteriser.md](rasteriser.md): line jobs from screen points, the clip window, patterns, descriptor chains (KS2: lines only, no triangles)
+- [sound.md](sound.md): four DMA sample channels, rates and steps, volumes, looping and one-shot blocks, the sound interrupt (source 9), the beeper
+- [interrupts-timers.md](interrupts-timers.md): IM 2 set-up and handlers, INTENA, INTID, SOFT, the NMI and interrupt pages, TIME, the four timers, the watchdog
+- [input.md](input.md): port 0xFE and the membrane keyboard, KEYMAP and KEYROW, the PS/2 keyboard and key mapper, joysticks and Kempston
+- [serial-debug.md](serial-debug.md): the USB serial link (SERDATA, flow control, interrupts), the debug unit's breakpoints and watchpoints, SD card (not built on the KS2)
+- [geometry.md](geometry.md): the geometry unit's matrices, projection, multiply and divide (not in the default KS2 bitstream: only `build.sh --geom`)
+
+## Sources of truth
+
+- [hw.inc](../../firmware/include/hw.inc): every register, port, field and constant as sjasmplus equates (generated)
+- [regmap.def](../../fpga/regmap.def): the one register list hw.inc is made from
+- [copper.inc](../../firmware/include/copper.inc): copper instruction macros
+- [Spec 3, registers](../spec/registers.md): register rules and the full map
+- [Specs](../spec/): memory (2), video (4), sprites (5), copper (6), system (7), interrupts (8), timers (9), serial (10), SD card (11), input (12), sound (13), blitter (14, dma-engine.md), geometry (15), boot ROM (16), sprite sequencer (17), debug unit (18), rasteriser (19), monitor, debug transport
+- [Design plan](../design-plan.md): binding decisions (section 1)
+- [KS2 top level](../../fpga/ks2/top_ks2.v): what the KS2 bitstream builds
+- [MCP tools](../../tools/rz80bridge/mcp.py): the bridge's tool names and arguments
+
+## Programmer's guide
+
+- [Chapter 1, system](../guide/system.md): memory, the MMU, registers, the boot ROM, building a program
+- [Chapter 2, interrupts](../guide/interrupts.md): IM 2, handlers, timers, the watchdog
+- [Chapter 3, playfields](../guide/playfields.md): bitmaps, tile maps, scrolling, palettes
+- [Chapter 4, sprites](../guide/sprites.md)
+- [Chapter 5, copper](../guide/copper.md)
+- [Chapter 6, blitter](../guide/blitter.md): being rewritten; trust blitter.md and spec 14 where they differ
+- [Chapter 7, serial](../guide/serial.md): the link, uploading, debugging
+- [Chapter 8, input](../guide/io.md)
+- [Chapter 9, geometry](../guide/geometry.md)
+- [Appendix A, timing](../guide/timing.md)
+
+## Examples known to run
+
+- [examples/system](../../examples/system/): about.asm, regpage.asm (the register page), windows.asm (the MMU)
+- [examples/interrupts](../../examples/interrupts/): vblank.asm, tick.asm, timing.asm, watchdog.asm, line.asm
+- [examples/copper](../../examples/copper/): bars.asm, scan.asm, midline.asm, split.asm, raster.asm
+- [examples/sprdemo/boing.asm](../../examples/sprdemo/boing.asm): sprites driven by a copper list
+- [examples/blitter/blitter.asm](../../examples/blitter/blitter.asm): blitter jobs and chains
+- [examples/sound/tone.asm](../../examples/sound/tone.asm): two looped sample channels
+- [examples/io](../../examples/io/): border.asm, scancodes.asm
+- [examples/serial](../../examples/serial/): echo.asm, blast.asm, serint.asm
+
+## Optional
+
+- [Handoff](../HANDOFF.md): project state and unfinished work
+- [KS2 README](../../fpga/ks2/README.md): building and loading the bitstream
+- [Debug transport](../spec/debug.md): the link's frames, the bridge, DAP and MCP
+- [examples/blitter/raster.asm](../../examples/blitter/raster.asm): rasteriser demo; its triangle jobs fail on the KS2 (lines only)
+- [examples/geometry](../../examples/geometry/): needs the `--geom` bitstream
