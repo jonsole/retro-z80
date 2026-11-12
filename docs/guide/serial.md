@@ -693,9 +693,9 @@ The bridge also serves MCP, so Claude can drive the board as VS Code does, at th
 
 ---
 
-## Bulk Transfers with DMA
+## Bulk Transfers
 
-The DMA engine's **port 1** is meant to be this link: a channel copying from the receive FIFO to SRAM, or from SRAM to the transmit FIFO, paced by the FIFOs, while the Z80 does other work. It is not built yet. Until it is, move blocks with `INIR` and `OTIR`.
+No hardware moves bytes between the link and memory for you: the blitter (Chapter 6) reaches SRAM only, not the FIFOs. The Z80 moves every byte through SERDATA, fastest with `INIR` and `OTIR` as above. A mover for the FIFOs may come later.
 
 ---
 

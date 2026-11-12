@@ -2,7 +2,7 @@
 
 ## Introduction
 
-An **interrupt** lets the hardware call your program when something happens: the beam reaches the bottom of the screen, a timer runs out, a key arrives, a DMA job finishes. The Z80 stops what it is doing, runs a short **handler**, and carries on. **Timers** make things happen at set times, and measure how long things take.
+An **interrupt** lets the hardware call your program when something happens: the beam reaches the bottom of the screen, a timer runs out, a key arrives, a blitter job finishes, a sound channel wants its next block. The Z80 stops what it is doing, runs a short **handler**, and carries on. **Timers** make things happen at set times, and measure how long things take.
 
 retro-z80 uses the Z80's **IM 2**: each source of interrupts has its own handler, found through a table. One controller collects the requests of every unit, puts them in order and hands the Z80 the right entry.
 
@@ -90,17 +90,22 @@ Table 2-1 lists every source, in priority order.
 | 0 | VBLANK | The start of each frame (and of vertical blanking) | VIDSTAT.VBLANK |
 | 1 | LINE | The start of beam line LINECMP | VIDSTAT.LINE |
 | 2 | COPPER | The copper wrote COPINT | COPSTAT.IRQ |
-| 3 | VIDERR | A layer fetched late, a sprite ran dry, the sprite sequencer skipped | VIDSTAT's error bits; SEQSTAT.SKIP |
-| 4–7 | DMA0–DMA3 | A DMA channel finished a job with IRQ set, or met an error | DMXINT.CHn |
+| 3 | VIDERR | A layer fetched late, a sprite ran dry, the sprite sequencer skipped (the sequencer is not built yet) | VIDSTAT's error bits; SEQSTAT.SKIP |
+| 4 | BLT | The blitter or the rasteriser: a job with IRQ set ended, or the unit stopped (the chain's end, STOP, an error) | DMXINT.BLT, DMXINT.RAS |
+| 9 | AUDIO | Sound: a channel took its next block, or its one-shot block ended | AUDSTAT's channel bits |
 | 11–14 | TIMER0–TIMER3 | A timer underflowed | TMRn_STAT.UNDER |
 | 15 | SERIAL | The USB link: data received, room to send, a timeout (from the fix in PR #60, ticket #58) | SERIRQ, or by reading or filling its FIFO |
 | 17 | KEYB | The PS/2 keyboard: bytes waiting, or an error | KBIRQ, or by reading the FIFO |
 | 18 | SOFT | The program itself, through SOFTINT | SOFTINT.CLR |
 | 23 | NONE | Not a source: the controller had nothing to give (below) | – |
 
-Numbers 8, 10, 16, 19 and 20 are not used, or kept for later units (the geometry unit at 19); they never ask.
+Numbers 5–8, 10, 16, 19 and 20 are not used, or kept for later units (the geometry unit at 19); they never ask.
 
-**The number is the priority.** When several are pending, the lowest number goes first: the video before the DMA engine, the DMA engine before the timers, the link and the keyboard after them (their FIFOs can wait), and SOFT last. `hw.inc` names them `INT_VBLANK` … `INT_SOFT`, and `INT_NONE` (23).
+**The number is the priority.** When several are pending, the lowest number goes first: the video first, then the blitter and the rasteriser, sound, the timers, and the link and the keyboard after them (their FIFOs can wait), and SOFT last. `hw.inc` names them `INT_VBLANK` … `INT_SOFT`, and `INT_NONE` (23).
+
+**BLT** is shared by the blitter and the rasteriser. Each has a flag in **DMXINT** (BLT, bit 0; RAS, bit 1) and an enable in **DMXINTEN**; the handler reads DMXINT to see which asked, and writes 1 to the bits it has dealt with. A flag that comes due in the same clock as the write that clears it stays set, so no event is lost. Chapter 6 describes both units.
+
+**AUDIO** asks while any channel's bit in **AUDSTAT** (bits 3–0) is set with its bit in **AUDINTEN**. The handler reads AUDSTAT to see which channels, writes their next blocks, and writes 1 to their bits to clear them. Chapter 10 describes sound.
 
 ---
 
@@ -331,9 +336,9 @@ Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0
 | Bits | Name | Meaning |
 |------|------|---------|
 | 7 | SETCLR | Write: 1 sets, 0 clears the bits written as 1. Reads 0 |
-| 6 | DMA2 | Source 6 |
-| 5 | DMA1 | Source 5 |
-| 4 | DMA0 | Source 4 |
+| 6 | – | Source 6, not used |
+| 5 | – | Source 5, not used |
+| 4 | BLT | Source 4: the blitter and the rasteriser |
 | 3 | VIDERR | Source 3 |
 | 2 | COPPER | Source 2 |
 | 1 | LINE | Source 1 |
@@ -350,7 +355,7 @@ Each source has one bit in **INTENA0**, **INTENA1** or **INTENA2** (registers `0
 | 3 | – | Source 10, not used |
 | 2 | AUDIO | Source 9: sound |
 | 1 | – | Source 8, not used |
-| 0 | DMA3 | Source 7 |
+| 0 | – | Source 7, not used |
 
 **Table 2-5: INTENA2 Register**
 
@@ -557,7 +562,6 @@ Four timers, **TMR0–TMR3**, make things happen at set times. Each is a 16-bit 
 
 - its flag **STAT.UNDER** is set, and with **CTRL.IRQ** its interrupt (TIMER0–TIMER3) asks;
 - with **CTRL.REPEAT** it reloads COUNT from **RELOAD** and goes on; without, it stops (CTRL.EN clears itself);
-- with **CTRL.DMA** it starts a DMA channel (Chapter 6);
 - the next timer, if it counts this one, gets a tick.
 
 So a repeating timer with RELOAD = n underflows every n + 1 ticks.
@@ -580,8 +584,7 @@ Timer n is at register `0x28` + 8n: TMR0 at `0x28`, TMR1 `0x30`, TMR2 `0x38`, TM
 
 | Bits | Name | Meaning |
 |------|------|---------|
-| 7–6 | DMACH | The DMA channel to start, 0–3 |
-| 5 | DMA | 1: start channel DMACH at each underflow (Chapter 6) |
+| 7–5 | – | Reserved: not stored, read 0 |
 | 4 | IRQ | 1: the timer's interrupt asks while STAT.UNDER is set |
 | 3–2 | SRC | What a tick is, 0–3 (Table 2-15) |
 | 1 | REPEAT | 1: reload from RELOAD at underflow and go on. 0: one-shot |
@@ -908,7 +911,7 @@ LINE comes at pixel 0 of line LINECMP: the start of the line's horizontal blank,
         out     (c),a
 ```
 
-Each layer's line settings are read at the start of a line, and the background, BGCOLOR, at the start of its picture (beam pixel 144). A handler starts after its line has begun and takes a while to write, so it changes the **next** line: for a change from line L, set LINECMP to L − 1. The border colour from port `0xFE` is different: it changes at once, wherever the beam is, so a LINE handler that writes it splits that line partway across.
+A layer's line settings (most of its registers; a few act sooner, as Chapter 3's "When Register Writes Take Effect" says) are read at the start of a line, and the background, BGCOLOR, at the start of its picture (beam pixel 144). A handler starts after its line has begun and takes a while to write, so it changes the **next** line: for a change from line L, set LINECMP to L − 1. The border colour from port `0xFE` is different: it changes at once, wherever the beam is, so a LINE handler that writes it splits that line partway across.
 
 ### Reading the beam
 
@@ -1341,7 +1344,7 @@ All are registers of page `0x00`: port = (register << 8) | `0x00`, register page
 | Register | Port | Name | Access | Function |
 |----------|------|------|--------|----------|
 | `0x20`–`0x23` | `0x2000`–`0x2300` | TIME0–3 | R, CAP | Microseconds from power-on, 32 bits |
-| `0x28` + 8n | `0x2800` + n × `0x800` | TMRn_CTRL | RW | EN (0), REPEAT (1), SRC (3–2), IRQ (4), DMA (5), DMACH (7–6) |
+| `0x28` + 8n | `0x2800` + n × `0x800` | TMRn_CTRL | RW | EN (0), REPEAT (1), SRC (3–2), IRQ (4); 7–5 read 0 |
 | `0x29` + 8n | | TMRn_PRESCALE0–1 | RW | The SRC 0 divider |
 | `0x2B` + 8n | | TMRn_RELOAD0–1 | RW | The reload value |
 | `0x2D` + 8n | | TMRn_COUNT0–1 | RW, CAP | The count |
@@ -1368,5 +1371,5 @@ After reset MASTER is off, every INTENA bit is off, VECBASE is 0, SOFT is clear,
 | `LINECMP0_P`, `BEAMPOS0_P`, `FRAMECOUNT0_P`; `VIDSTAT_LINE_M`, `VIDINTEN_LINE_M` | `0x0710`, `0xF010`, `0xF410`; `0x02`, `0x02` |
 | `TMR0` … `TMR3`, `TMR_CTRL` … `TMR_STAT` | `0x28` … `0x40`, and the offsets 0–7 |
 | `TMR0_CTRL`, `TMR0_COUNT0` …, and `_P` | Each timer register's number and port |
-| `TMR_CTRL_EN_M`, `_REPEAT_M`, `_IRQ_M`, `_DMA_M`, `TMR_CTRL_SRC_B`, `TMR_STAT_UNDER_M` | Fields |
+| `TMR_CTRL_EN_M`, `_REPEAT_M`, `_IRQ_M`, `TMR_CTRL_SRC_B`, `TMR_STAT_UNDER_M` | Fields |
 | `TIME0` … `TIME3`, `WDCTRL`, `WDTIME0`, `WDKICK`, and `_P`; `WDKICK_MAGIC` | `0x20` …, `0x5A` |

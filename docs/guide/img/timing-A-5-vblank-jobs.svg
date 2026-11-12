@@ -22,12 +22,12 @@
 <rect x="300" y="220" width="440" height="22" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
 <polygon points="740,220 750,231 740,242" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
 <text x="694" y="236" font-size="11" text-anchor="end" fill="#1a1a1a">45,056 T, 144%: does not fit</text>
-<text x="292" y="270" font-size="12" text-anchor="end" fill="#1a1a1a">DMA engine: copy 1 KB (about 45 MB/s)</text>
-<rect x="300" y="254" width="5.87" height="22" fill="#ffe599" stroke="#333" stroke-width="1"/>
-<text x="311.87" y="270" font-size="11" text-anchor="start" fill="#1a1a1a">about 23 µs, 1.5%</text>
-<text x="292" y="304" font-size="12" text-anchor="end" fill="#1a1a1a">DMA engine: clear 8 KB (about 89 MB/s)</text>
-<rect x="300" y="288" width="23.47" height="22" fill="#ffe599" stroke="#333" stroke-width="1"/>
-<text x="329.47" y="304" font-size="11" text-anchor="start" fill="#1a1a1a">about 92 µs, 6%</text>
+<text x="292" y="270" font-size="12" text-anchor="end" fill="#1a1a1a">Blitter: copy 1 KB (14.8 MB/s)</text>
+<rect x="300" y="254" width="17.6" height="22" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<text x="323.6" y="270" font-size="11" text-anchor="start" fill="#1a1a1a">about 69 µs, 4%</text>
+<text x="292" y="304" font-size="12" text-anchor="end" fill="#1a1a1a">Blitter: fill 8 KB (22.3 MB/s)</text>
+<rect x="300" y="288" width="93.62" height="22" fill="#ffe599" stroke="#333" stroke-width="1"/>
+<text x="399.62" y="304" font-size="11" text-anchor="start" fill="#1a1a1a">about 367 µs, 23%</text>
 <line x1="300" y1="324" x2="300" y2="330" stroke="#777" stroke-width="1"/>
 <text x="300" y="343" font-size="11" text-anchor="start" fill="#555">0</text>
 <line x1="500" y1="324" x2="500" y2="330" stroke="#777" stroke-width="1"/>
@@ -37,5 +37,5 @@
 <rect x="20" y="354" width="12" height="12" fill="#b6d7a8" stroke="#333" stroke-width="1"/>
 <text x="36" y="364" font-size="11" text-anchor="start" fill="#1a1a1a">the Z80</text>
 <rect x="100" y="354" width="12" height="12" fill="#ffe599" stroke="#333" stroke-width="1"/>
-<text x="116" y="364" font-size="11" text-anchor="start" fill="#1a1a1a">the DMA engine (the Z80 carries on meanwhile)</text>
+<text x="116" y="364" font-size="11" text-anchor="start" fill="#1a1a1a">the blitter, measured with the screen on (the Z80 carries on meanwhile)</text>
 </svg>

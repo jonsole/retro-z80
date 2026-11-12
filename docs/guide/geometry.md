@@ -37,7 +37,9 @@ This chapter covers:
 
 You should have read Chapter 1 for the register page, which the examples use throughout, and Chapter 3 for the bitmap layer the examples draw on.
 
-**The unit is on the KS3, and on the KS2 only in the build with it** (`fpga/ks2/build.sh --geom`), which has no blitter: the KS2 has no room for both. Without the unit its registers read `0xFF` and ignore writes. The lines in this chapter's examples are therefore drawn by the Z80; on a machine with both, the blitter's EDGES job (Chapter 6) would draw them.
+**The KS2's usual bitstream has no geometry unit.** The unit is built only by `fpga/ks2/build.sh --geom` (into `fpga/ks2/build/geom/`), and that build leaves out the blitter and the rasteriser: the KS2 has no room for both. The KS3 is to build all three. Without the unit its registers read `0xFF` and ignore writes. The lines in this chapter's examples are therefore drawn by the Z80; on a machine with both, the rasteriser's LINE jobs (Chapter 6) would draw and clip them.
+
+Ticket #108 will rebuild the unit on a shared core and may change how it is programmed. This chapter describes the unit as it is built today.
 
 ---
 
@@ -63,7 +65,7 @@ GEO_ST  equ     SREG + GEOSTAT          ; 0xE0BF
 
 ## The Unit and Its Registers
 
-The unit is a block of 32 registers in the system page, `0xA0`–`0xBF` (Table 9-1). Nothing turns it on: it is always ready, and it never touches memory. The CPU alone reaches it; the copper and the DMA engine cannot.
+The unit is a block of 32 registers in the system page, `0xA0`–`0xBF` (Table 9-1). Nothing turns it on: it is always ready, and it never touches memory. The CPU alone reaches it; the copper, the blitter and the rasteriser cannot.
 
 **Table 9-1: The Unit's Registers**
 
@@ -120,7 +122,7 @@ Table 9-2 gives the window word by word. Each word is two registers, low byte fi
 
 Banks 5–7 are reserved: they read 0 and ignore writes.
 
-A bank is laid out so that a program can keep it as 24 bytes and load it with one `LDIR`. The bytes of a word are written separately, low byte first, as for any register; nothing happens until the last byte of a bank that starts a job (below) is written.
+A bank is laid out so that a program can keep it as 24 bytes and load it with one `LDIR`. The bytes of a word are written separately, low byte first, as for any register. A job starts only when its starting byte is written (below); the one exception is the combined matrix, which the unit works out again after every byte of the camera or the object ("The Combined Matrix").
 
 ### The vertex and its results
 
@@ -440,7 +442,7 @@ project8:
 
 The rest is scaffolding. `screen.inc` has `regs_on` and `regs_off`; `scr_on`, which saves the console's L0 and its two colours, makes L0 the 256 × 192 bitmap at 2 × 2 and blanks both screens; `cls`, `flip` and `scr_off`; `line`, a Bresenham line in software, about 100 T-states a pixel; and `puts`, `putsd` (a signed decimal) and `time`. `cube.inc` has the cube, the sine table, `rot_y`, `rot_x`, `project8` and `draw_edges`.
 
-On the board the cube turns smoothly at the frame rate. After a key the console shows `The matrices and 8 vertices took 345 us a frame`: 6,900 T-states for the two rotation matrices, the product, the two banks and the eight vertices. The Z80's time is in moving bytes; the unit's own work is a few microseconds of it. `line` drops a line with an end off the screen, since the Z80 has no clip rectangle: a cube that is wholly on the screen, as this one is, loses nothing.
+On the board the cube turns smoothly at the frame rate. After a key the console shows `The matrices and 8 vertices took 345 us a frame`: 6,900 T-states for the two rotation matrices, the product, the two banks and the eight vertices. The Z80's time is in moving bytes; the unit's own work is a few microseconds of it. `draw_edges` drops a line with an end off the screen, since the Z80's line drawer does not clip: a cube that is wholly on the screen, as this one is, loses nothing.
 
 ---
 
@@ -448,7 +450,7 @@ On the board the cube turns smoothly at the frame rate. After a key the console 
 
 A vertex behind the eye cannot be projected: dividing by a negative depth would put it on the screen upside down, and a depth of 0 is nonsense. ZMIN in the view bank is the depth a vertex must have; a ZMIN below 1 counts as 1. A vertex nearer than ZMIN sets NEAR and comes back as (X, Y, Z), not projected, so the program can decide:
 
-- **Drop it**, with every edge to it. `project8` marks it with an x of `0x8000` and `draw_edges` skips those edges. For objects that never come close, that is enough.
+- **Drop it**, with every edge to it. `project8` marks it with `0x80` in its x's high byte, which is off the screen, and `draw_edges` skips the edges with an end off the screen. For objects that never come close, that is enough.
 - **Cut the edge at the near plane.** An edge from a vertex a in front of the plane to a vertex b behind it crosses the plane at a + t·(b − a), with t = (ZMIN − az) ÷ (bz − az). The unit's divide gives t as a 16-bit fraction: DVD = (ZMIN − az) × 65,536 and DVS = bz − az ("Multiply and Divide"), then the multiply gives t·(bx − ax) and t·(by − ay), and the cut point, at the depth ZMIN, is projected by the divide again: sx = SCX + DX·X ÷ ZMIN.
 
 The first is what the examples do. A game that flies close to its objects needs the second, or a cull that drops any object that reaches the near plane, as fast3d does.
@@ -510,7 +512,7 @@ The bank in BANK does not matter for a vertex job; CAM is what changes it. The c
         jr      c,.out
 ```
 
-On the board the cubes come into view from the right, cross the screen and leave at the left as the camera turns, two to four at a time, each turning on its own. After a key the console said `The last frame drew 4 of the 12 cubes`. The cull costs one vertex job and a few compares a cube, so the eight or nine cubes out of view cost almost nothing; the lines of a cube half off the screen are dropped by `line`, as the blitter's clip rectangle would cut them.
+On the board the cubes come into view from the right, cross the screen and leave at the left as the camera turns, two to four at a time, each turning on its own. After a key the console said `The last frame drew 4 of the 12 cubes`. The cull costs one vertex job and a few compares a cube, so the eight or nine cubes out of view cost almost nothing; the lines of a cube half off the screen are dropped by `draw_edges`, where the rasteriser's clip window would cut them.
 
 ---
 
@@ -549,7 +551,7 @@ cube_faces:
         db      2, 6, 7, 3              ; y = +S
 ```
 
-After the corners are projected, each face's first three corners go into F0–F2 and FRONT is kept in a table; then each edge is drawn only if one of its two faces is in the table as FRONT. On the board the cube looks solid: only the faces nearest the eye show, and as it turns a face's edges appear the moment it comes round to face the eye. After a key the console said `The six face signs took 206 us a frame`: 4,120 T-states, about 690 a face, most of it looking up and copying the three corners' points; the unit's part is 24 clocks a face.
+After the corners are projected, each face's first three corners go into F0–F2 and FRONT is kept in a table; then each edge is drawn only if one of its two faces is in the table as FRONT. On the board the cube looks solid: only the faces nearest the eye show, and as it turns a face's edges appear the moment it comes round to face the eye. After a key the console said `The six face signs took 206 us a frame`: 4,120 T-states, about 690 a face, most of it looking up and copying the three corners' points; the unit's part is about 4 clocks a face.
 
 ---
 
@@ -579,7 +581,7 @@ INV with PROJ projects the inverse's result, which is rarely wanted. The transpo
 
 The operands bank (Table 9-2) makes the unit a calculator. Both jobs leave RZ as it was.
 
-**Multiply:** MA × MB, both signed 16-bit. Writing MB's high byte starts it; RX is the product's bits 15–0 and RY its bits 31–16. It never saturates. Two 2.14 numbers multiplied give a 4.28 product: the 2.14 answer is bits 29–14, so shift RY:RX down 14, or take RY's bits 15–0 shifted up 2 with RX's top two bits.
+**Multiply:** MA × MB, both signed 16-bit. Writing MB's high byte starts it; RX is the product's bits 15–0 and RY its bits 31–16. It never saturates. Two 2.14 numbers multiplied give a 4.28 product: the 2.14 answer is bits 29–14, so shift RY:RX down 14, or take RY's bits 13–0 shifted up 2 with RX's bits 15–14 below them.
 
 ```
         ld      a,GEO_BANK_OPS
@@ -669,7 +671,7 @@ Every job is done within 24 clocks of its start, 240 ns, before the Z80 can read
 | A divide | about 160 | Six bytes in by `LDIR`, two words out |
 | Example 9-2's frame: two matrices, the product, two banks, eight vertices | 345 µs (6,900) | From TIME on the board |
 
-In fast3d's flight (forty objects, wireframe, 256 pictures), the unit took the geometry from 276,000 T-states a picture to 69,000, and the whole picture from 473,000 to 268,000 (spec 15, section 10). What was left was drawing, which is Chapter 6's EDGES job's work.
+In fast3d's flight (forty objects, wireframe, 256 pictures), the unit took the geometry from 276,000 T-states a picture to 69,000, and the whole picture from 473,000 to 268,000 (spec 15, section 10). What was left was drawing, the work of the rasteriser's LINE jobs (Chapter 6). The KS2 cannot build the unit and the rasteriser together, so the two have not been timed side by side.
 
 ---
 
@@ -677,12 +679,12 @@ In fast3d's flight (forty objects, wireframe, 256 pictures), the unit took the g
 
 - **It reads no memory.** Every vertex goes in and out through the registers, by the Z80. A list mode, where the unit would turn a vertex list in SRAM on its own, is kept open (spec 15, G2); interrupt 19, GEOM, is reserved for it and never fires today.
 - **One job at a time.** A start write while a job runs is held and run after it; the CPU cannot make one, since every job finishes first.
-- **No clipping.** A screen point can be anywhere in ±32,767; the program, or the blitter's clip rectangle (Chapter 6), keeps the lines on the screen.
+- **No clipping.** A screen point can be anywhere in ±32,767; the program, or the rasteriser's clip window (Chapter 6), keeps the lines on the screen.
 - **No cut at the near plane.** A vertex nearer than ZMIN comes back unprojected with NEAR; the program cuts the edge, or drops it.
 - **No scaling beyond 2.0** in a matrix entry, and the inverse turn does not undo a scale.
 - **No dot product, no plane test, no lighting.** The inverse turn and three multiplies do a face-against-the-eye test in 3D (spec 15, G4 and G6).
-- **Only the CPU reaches it.** The copper and the DMA engine cannot write its registers.
-- **Not on the KS2's usual build.** The KS2 builds the unit or the blitter, not both; the KS3 has both.
+- **Only the CPU reaches it.** The copper, the blitter and the rasteriser cannot write its registers.
+- **Not on the KS2's usual build.** The KS2 builds the unit (`--geom`) or the blitter and the rasteriser, not both; the KS3 is to build all three.
 
 ---
 

@@ -26,7 +26,7 @@
 <rect x="448" y="258" width="136" height="34" fill="#f9cb9c" stroke="#333" stroke-width="1"/>
 <text x="516" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">3: display</text>
 <rect x="584" y="258" width="136" height="34" fill="#ffe599" stroke="#333" stroke-width="1"/>
-<text x="652" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">4: free pool</text>
+<text x="652" y="279" font-size="13" text-anchor="middle" fill="#1a1a1a">4: sound, free</text>
 <line x1="40" y1="306" x2="176" y2="306" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>
 <text x="108" y="319" font-size="11" text-anchor="middle" fill="#555">memory cycle: 20 ns, one 16-bit word</text>
 <line x1="40" y1="328" x2="380" y2="328" stroke="#777" stroke-width="1" marker-end="url(#ah)" marker-start="url(#ahs)"/>

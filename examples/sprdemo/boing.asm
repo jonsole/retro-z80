@@ -5,7 +5,8 @@
 ; Here the keys steer the big ball across: O or cursor left, P or cursor right
 ; speed it up; let go and it glides on, slowing down, and bounces off the sides.
 ;
-; The KS2 builds 2 sprites while the DMA engine is in, so it shows 2 balls.
+; The KS2 builds 2 sprites, to leave room for the blitter, the rasteriser
+; and sound, so it shows 2 balls.
 
         device  zxspectrum48            ; sjasmplus writes source lines (--sld) only inside a DEVICE
         org     0x2000

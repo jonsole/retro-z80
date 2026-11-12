@@ -16,7 +16,7 @@ This chapter covers:
 - scaling;
 - depth: where each sprite goes among the layers;
 - reusing a sprite further down the screen with the copper;
-- the sprite sequencer, which reuses sprites from a list without a copper list;
+- the sprite sequencer, which reuses sprites from a list without a copper list (not built yet);
 - collision detection;
 - the data FIFO, the DMA, and how many sprites the memory can feed;
 - what sprites cannot do;
@@ -38,7 +38,7 @@ You should have read the Playfield Hardware chapter, because sprites are mixed w
 - **IX points at a sprite** when code sets one up field by field: `ld ix,CREG+SPR0`, then `ld (ix+SPR_CTL),value`.
 - `hw.inc` has no `CPORT()`: sjasmplus has no function-like defines. Use the `_P` names, or write a computed port out as `((off & 0xFF) << 8) | 0x10 | (off >> 8)` (Table 4-13).
 - Sprite positions are in **beam coordinates**, which count the blanking (see "Beam coordinates" in the Playfield Hardware chapter): the 720 × 576 picture is beam pixels 144–863 and beam lines 49–624. `hw.inc` gives the picture's top left corner as `VID_X0` (144) and `VID_Y0` (49), so picture position (x, y) is beam position (VID_X0 + x, VID_Y0 + y). In the text, "pixel 200, line 100" is a picture position unless it is called a beam pixel or beam line.
-- **Physical and Z80 addresses.** The sprites read SRAM by 22-bit physical address, not through the MMU. Physical addresses have names like `BALL` (`0x040000`), and the Z80 reaches them by mapping their 8 KB page into window 6 (`DRAWWIN`, `0xC000`). As in Chapter 3, the complete examples are loaded at `0x8000` with windows 2–6 still showing SRAM pages 0–4, so a Z80 address a in `0x4000`–`0xDFFF` is physical a − `RAMOFS` (`0x4000`).
+- **Physical and Z80 addresses.** The sprites read SRAM by 22-bit physical address, not through the MMU. Physical addresses have names like `BALL` (`0x040000`), and the Z80 reaches them by mapping their 8 KB page into window 6 (`DRAWWIN`, `0xC000`). As in Chapter 3, the complete examples are loaded at `0x8000` and run in the boot ROM's **program map** (Chapter 1, "Programs"): window n holds SRAM page n, so a Z80 address in `0x2000`–`0xFFFF` is also its physical address. A copper list or a sequencer list kept in the program goes into COP1LC or SEQLC as it is. The stack is at `0xBF00`, in window 5, clear of the register page in window 7.
 - Comments give T-states where they help. The CPU runs at 20 MHz: a line is 640 T-states, a frame 400,000.
 - Tables are numbered Table 4-1, 4-2 …, and figures Figure 4-1, 4-2 …, separately. Bit tables list the top bit first.
 
@@ -332,7 +332,7 @@ radius:     db      0,4,6,7,8,9,10,10,11,11,11,11
             db      12,11,11,11,11,10,10,9,8,7,6,4
 ```
 
-The ball goes half off each edge of the picture before it bounces: the hardware clips it there, as "Positioning and Clipping" explains. Its position is always a positive beam position, so `axis` compares it unsigned. The leftmost HSTART it reaches is 126, well above the lowest allowed, 16.
+The ball goes half off each edge of the picture before it bounces: the hardware clips it there, as "Positioning and Clipping" explains. Its position is always a positive beam position, so `axis` compares it unsigned. The leftmost HSTART it reaches is 127, well above the lowest allowed, 16.
 
 The CTL write lands in beam line 0, so the sprite starts in time for any VSTART from line 1. The polling loop finds the flag up to about 30 T-states after line 0 begins; the writes take about 300 more.
 
@@ -577,7 +577,7 @@ move1:      ld      ix,spr1_h
             ret                         ; about 240 T
 ```
 
-Each sprite costs 12 list words a frame: 4 + 4 MOVEs for the window, 3 for the pointer and 1 for CTL. The list is in the program's memory, so the copper reads it at its physical address (`spr_list − RAMOFS`, written to COP1LC), and the CPU writes it as ordinary memory.
+Each sprite costs 12 list words a frame: 4 + 4 MOVEs for the window, 3 for the pointer and 1 for CTL. The list is in the program's memory, so the copper reads it at its physical address (in the program map `spr_list` itself, written to COP1LC), and the CPU writes it as ordinary memory.
 
 Call `move1` when the copper is not reading those words: for example, once the picture has started (BEAMPOS line VID_Y0 or more), after the copper's work at the start of the frame is done. For many sprites, or to make the change exact, use two lists and swap them (see the Copper chapter).
 
@@ -776,6 +776,8 @@ The **sprite sequencer** reuses the sprites down the screen without a copper lis
 
 The sequencer only writes sprite registers, the same ones the copper and the CPU write, by the same rules. So everything in this chapter still holds, and the three can be mixed.
 
+**Not built yet.** The sequencer is designed, but it is not in the hardware yet: its registers (`0x300`–`0x30A`) read `0xFF` and ignore writes, and Example 4-4 does not run on the board. Until it comes, reuse sprites with the copper ("Reusing a Sprite down the Screen"). This section describes the sequencer as it will be built.
+
 ### The list
 
 The list is in SRAM at an even physical address, which **SEQLC** (3 bytes) holds. The sequencer takes SEQLC at every frame start, as the copper takes COP1LC. Each entry is 16 bytes: exactly a sprite's registers, a sprite record (see "Setting up a sprite from a record"):
@@ -853,7 +855,6 @@ A skip means the screen asks for more sprites on some lines than SEQMASK gives. 
 
 REGS        equ     0xE000
 CREG        equ     REGS+REGS_CUSTOM
-RAMOFS      equ     0x4000              ; Z80 address - physical, windows 2-6
 STACK       equ     0xBF00
 
 ALIEN       equ     0x040000            ; 16 x 16 at 4 bpp: 128 bytes
@@ -899,10 +900,8 @@ main:       ld      a,(CREG+VIDSTAT)
             call    nz,too_many         ; the game's choice
             jr      main
 
-; SEQLC = the physical address of the list at HL
-point:      ld      de,-RAMOFS
-            add     hl,de
-            ld      (CREG+SEQLC),hl     ; bits 15-1
+; SEQLC = the list at HL: in the program map its Z80 address is physical
+point:      ld      (CREG+SEQLC),hl     ; bits 15-1
             xor     a
             ld      (CREG+SEQLC+2),a    ; bits 21-16: 0 here
             ret
@@ -920,9 +919,9 @@ build:      ld      de,(fy)
             ld      (hl),ALIEN>>16
             inc     hl
             push    de
-            call    pair                ; H (+3): HSTART, HSTOP = HSTART + 16
+            call    edges               ; H (+3): HSTART, HSTOP = HSTART + 16
             ld      de,(rowy)
-            call    pair                ; V (+7): VSTART, VSTOP = VSTART + 16
+            call    edges               ; V (+7): VSTART, VSTOP = VSTART + 16
             ld      (hl),CTL_ALIEN      ; CTL (+11)
             inc     hl
             xor     a
@@ -957,7 +956,7 @@ build:      ld      de,(fy)
             ret
 
 ; DE, then DE + 16, low bytes first, at HL; HL moves on by 4
-pair:       ld      (hl),e
+edges:      ld      (hl),e
             inc     hl
             ld      (hl),d
             inc     hl
@@ -1040,7 +1039,7 @@ Each sprite has a **FIFO** of 32 words: its data registers. The DMA fetches the 
 
 The DMA fetches each line's words **during that line**, from its start (the horizontal blank), whenever the FIFO has room, up to 30 words ahead of the beam (it keeps 2 of the 32 places for words still on their way): 60 source pixels at 8 bpp, 120 at 4 bpp, 240 at 2 bpp. It never fetches into the next line, whose settings may still change. So a sprite's words are fetched **ahead** within the line: in the horizontal blank, and in quiet stretches before the sprite's pixels. The time from the line's start to the sprite's first pixel is its **lead**: at least 16 pixels (HSTART 16), and the whole horizontal blank, 144 pixels (5.3 µs), for a sprite at the picture's left edge.
 
-Only when a FIFO is about to run dry does the sprite's fetch become urgent. Then it competes with the layers by deadline: whoever needs a word soonest goes first (see "The Fetch Budget" in the Playfield Hardware chapter). An urgent fetch never takes a memory cycle the Z80 is using: **the sprites never slow the CPU**. They can slow the copper at PRI 0 and the DMA engine, which come after them.
+Only when a FIFO is about to run dry does the sprite's fetch become urgent. Then it competes with the layers by deadline: whoever needs a word soonest goes first (see "The Fetch Budget" in the Playfield Hardware chapter). An urgent fetch never takes a memory cycle the Z80 is using: **the sprites never slow the CPU**. They can slow the copper at PRI 0, the blitter and the rasteriser, which come after them.
 
 A line takes the words that hold its shown pixels, from HSTART to HSTOP or beam pixel 864, whichever comes first; words past the right edge are not fetched. SPRxPT moves on line by line, not word by word: it holds the start of the image line being drawn. Each further line moves on by the source lines YSTEP gives: at normal size one line, when bigger down often none (the line is fetched again), when smaller some lines are skipped and not fetched.
 
@@ -1129,7 +1128,7 @@ There is no way to feed a sprite by hand: retro-z80 has no SPRxDAT, so only the 
 
 The limits below are explained through the chapter; this section gathers them in one place, each with the section that explains it.
 
-- **Only two sprites on the KS2.** The KS2's FPGA has room for sprites 0 and 1 only; the KS3 has all eight. On the KS2 the registers of sprites 2–7 do not answer. A program that uses more shows only sprites 0 and 1 there.
+- **Only two sprites on the KS2.** The KS2's FPGA has room for sprites 0 and 1 only; the KS3 has all eight. On the KS2 the registers of sprites 2–7 read `0xFF` and ignore writes. A program that uses more shows only sprites 0 and 1 there.
 - **No mirroring.** The hardware does not flip a sprite. For an object that faces either way, store both images and point SPRxPT at the one you want ("Scaling").
 - **No feeding by hand.** There is no SPRxDAT: only the DMA fills a sprite's FIFO ("Turning sprite DMA on and off").
 - **No collision interrupt.** Read SPRCOLL once a frame, in the vertical blank ("Collisions").
@@ -1142,6 +1141,7 @@ The limits below are explained through the chapter; this section gathers them in
 - **No depth in direct colour.** With VIDCON.DIRECT set, sprites are drawn in front of the whole picture and DEPTH is not used ("Depth: Sprites and Layers").
 - **No attributes on sprites.** The attribute layer does not act on sprites ("Depth: Sprites and Layers").
 - **No writes at the very end of a line.** The hardware works out the next line's sizes at beam pixels 840–847; what a write in pixels 840–863 does is not specified yet ("Changing a sprite while it is drawn").
+- **No sequencer yet.** The sprite sequencer is not built; reuse sprites with the copper ("The Sprite Sequencer").
 - **No choice of sprite in the sequencer.** It does not report which entry went to which sprite. Per-line effects, a fixed front-to-back order and collisions that matter need a sprite outside SEQMASK ("Sharing with the copper and the CPU").
 
 ---
@@ -1219,7 +1219,7 @@ The copper reaches the sprite globals with `CMOVEF` only.
 | SEQSKIPL | `0x307` | `0x0713` | R | Entries skipped in the last whole frame |
 | SEQPT | `0x308`–`0x30A` | `0x0813`–`0x0A13` | R, CAP | The next entry to read. Reading `0x308` captures all three bytes |
 
-The copper writes them with `CMOVEF`. After reset they are all 0: the sequencer is off and may use no sprite.
+The copper writes them with `CMOVEF`. Once the sequencer is built they are all 0 after reset: the sequencer is off and may use no sprite. Until then they read `0xFF` and ignore writes.
 
 **Table 4-18: SEQCON Bits**
 

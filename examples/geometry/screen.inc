@@ -8,7 +8,7 @@
 ; pages 0x020 and 0x021 (physical 0x040000 and 0x042000): the one being
 ; drawn is in window 6 (0xC000), and flip shows it at the next vertical
 ; blank and brings the other into window 6. Lines are drawn by the Z80,
-; since the KS2's build with the geometry unit has no blitter.
+; since the KS2's build with the geometry unit has no blitter or rasteriser.
 ;
 ; The console's L0 and its two palette entries are saved and put back.
 

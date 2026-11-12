@@ -48,7 +48,7 @@ def fig_scales():
     y3 = 258
     zoom(f, s2, s2 + sw + 1, y2 + 37, L, L + W, y3)
     cw = W / 5
-    owners = [("0: CPU", CPU), ("1: display", DISPLAY), ("2: CPU", CPU), ("3: display", DISPLAY), ("4: free pool", POOL)]
+    owners = [("0: CPU", CPU), ("1: display", DISPLAY), ("2: CPU", CPU), ("3: display", DISPLAY), ("4: sound, free", POOL)]
     for i, (name, col) in enumerate(owners):
         f.rect(L + i * cw, y3, cw, 34, col)
         f.text(L + i * cw + cw / 2, y3 + 21, name, anchor="middle")
@@ -120,8 +120,8 @@ def fig_line():
     f.dim(L, L + 144 * k, y - 8, "horizontal blank")
     # events at pixel 0 and 144
     f.line(L, y, L, 40, stroke=LINE)
-    f.text(L + 5, 44, "pixel 0: LINE interrupt (line LINECMP); line settings copied", size=11)
-    f.text(L + 5, 58, "(CTRL, WINX, WINY, SCROLLX/Y, MAPPT, PATPT); each layer starts its fetch", size=11)
+    f.text(L + 5, 44, "pixel 0: LINE interrupt (line LINECMP); line settings copied (EN, MODE,", size=11)
+    f.text(L + 5, 58, "VSCALE, CTRL3, WINX, WINY, SCROLLX/Y, MAPPT, PATPT); each layer starts its fetch", size=11)
     x144 = L + 144 * k
     f.line(x144, y, x144, 70, stroke=LINE)
     f.text(x144 + 5, 82, "pixel 144: PRIO and BGCOLOR taken; the picture starts", size=11)
@@ -167,7 +167,7 @@ def fig_slot():
     f.dim(L + 100 * ns, L + W, y + 22, "slot k + 1", above=False)
     # cycles
     yc = y + 46
-    names = [("0 CPU", CPU), ("1 display", DISPLAY), ("2 CPU", CPU), ("3 display", DISPLAY), ("4 pool", POOL)]
+    names = [("0 CPU", CPU), ("1 display", DISPLAY), ("2 CPU", CPU), ("3 display", DISPLAY), ("4 sound", POOL)]
     for s in range(2):
         for i, (n, c) in enumerate(names):
             x = L + (s * 100 + i * 20) * ns
@@ -215,8 +215,8 @@ def fig_vblank_jobs():
         ("Load 256 colours (OUTI loop)", 19456, CPU),
         ("Copy 1 KB with LDIR", 21499, CPU),
         ("Clear 8 KB with unrolled PUSH", 45056, CPU),
-        ("DMA engine: copy 1 KB (about 45 MB/s)", 23e-6 / 50e-9, POOL, "about 23 µs, 1.5%"),
-        ("DMA engine: clear 8 KB (about 89 MB/s)", 92e-6 / 50e-9, POOL, "about 92 µs, 6%"),
+        ("Blitter: copy 1 KB (14.8 MB/s)", 69e-6 / 50e-9, POOL, "about 69 µs, 4%"),
+        ("Blitter: fill 8 KB (22.3 MB/s)", 367e-6 / 50e-9, POOL, "about 367 µs, 23%"),
     ]
     f = Fig(760, 70 + 34 * len(jobs) + 56)
     L, W = 300, 400
@@ -248,7 +248,7 @@ def fig_vblank_jobs():
     f.rect(20, yb + 24, 12, 12, CPU)
     f.text(36, yb + 34, "the Z80", size=11)
     f.rect(100, yb + 24, 12, 12, POOL)
-    f.text(116, yb + 34, "the DMA engine (the Z80 carries on meanwhile)", size=11)
+    f.text(116, yb + 34, "the blitter, measured with the screen on (the Z80 carries on meanwhile)", size=11)
     return f.save("timing-A-5-vblank-jobs.svg")
 
 
@@ -389,7 +389,7 @@ def fig_fetch():
 
 # ---------------------------------------------------------------- A-10
 def fig_writes():
-    f = Fig(760, 330)
+    f = Fig(760, 434)
     L, W = 200, 540
     k = W / (2 * 864)
     f.text(20, 22, "When a write changes line L", bold=True)
@@ -402,10 +402,11 @@ def fig_writes():
     for p, lab in ((0, "0"), (144, "144"), (864, "0"), (1008, "144"), (1728, "")):
         f.text(L + p * k, y + 38, lab, size=10, anchor="middle", fill=TXT2)
     rows = [
-        ("CTRL0-3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT, ATCTL ...", 0, 864, "copied at pixel 0 of line L"),
+        ("EN, MODE, VSCALE, CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT, ATCTL ...", 0, 864, "copied at pixel 0 of line L"),
         ("PRIO, BGCOLOR", 144, 1008, "taken at pixel 144 of line L"),
         ("BPL0PT, BPLSTRIDE (live)", 730, 864, "after the layer's last fetch on line L - 1"),
-        ("Palette entries, VIDCON, port 0xFE border", 1100, 1100, "at once: from the next pixel after the write"),
+        ("BPP, HSCALE", 1100, 1100, "from the layer's next group of 16 pixels"),
+        ("TRANSP, PALOFS, WRAP, palette entries, VIDCON, port 0xFE border", 1100, 1100, "at once: from the next pixel after the write"),
     ]
     yr = y + 64
     for name, a, b, note in rows:
