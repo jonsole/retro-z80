@@ -339,7 +339,8 @@ The cost of a screen is a **rate**: at every point across the screen, the layers
 |-----------|----------|-------------------------|
 | CTRL0–CTRL3, WINX, WINY, SCROLLX, SCROLLY, MAPPT, PATPT; ATCTL, ATADDR, ATSTRIDE, ATSCROLL | Beam pixel 0 of each line | During line L − 1 (or earlier) |
 | PRIO, BGCOLOR | Beam pixel 144 of each line | Between pixel 144 of line L − 1 and pixel 144 of line L: the horizontal blank of line L still counts |
-| BPL0PT, BPLSTRIDE | At once: they are live | After the layer's last fetch on line L − 1, before pixel 0 of line L |
+| BPL0PT | At once: it is live | After the layer's last fetch on line L − 1, before pixel 0 of line L |
+| BPLSTRIDE | At once, but used when the pointer moves, about pixel 3 of each line | During line L − 1, from its pixel 8 on: a write in pixels 0–7 of a line's blank can apply at the end of the line before |
 | Palette entries, VIDCON, port `0xFE` border | At once: the next pixel | Anywhere: the change shows from that point in the line |
 | LINECMP, VIDSTAT, VIDINTEN, PALIDX, DMACON | At once | – |
 | Sprite registers | SPRxCTL starts a sprite; SPRxPT, SPRxH, SPRxV and SPRxSTEP act on a running sprite from the next line | See the Sprites chapter |

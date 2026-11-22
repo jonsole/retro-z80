@@ -1095,7 +1095,7 @@ The copper's writes take effect exactly as the Z80's do (Table 5-20).
 | Registers | Take effect |
 |-----------|-------------|
 | Palette entries (PALDAT), VIDCON.DIRECT, VIDCON.BLANKALL | At once, from the next pixel |
-| BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1 |
+| BPL0PT, BPLSTRIDE | Live: a pointer written between a layer's last fetch on line L and the start of line L + 1 is used as written for line L + 1. BPLSTRIDE is used about 3 pixels into the next line's horizontal blank: write it after `CWAIT line,8` or later for it to apply at the end of that line, since a write straight after `CWAIT line,0` can apply at the end of the line before |
 | CTRL0.EN, CTRL0.MODE, CTRL1.VSCALE, CTRL3, the window, SCROLLX | At the start of each line's horizontal blank (beam pixel 0): to change line L, write during line L − 1 |
 | CTRL0.BPP, CTRL0.HSCALE | From the layer's next group of 16 source pixels, one or two groups past the beam: a split mid-line. For line L alone, write at the end of line L − 1, after the layer's last group has begun showing |
 | CTRL0.TRANSP, CTRL1.PALOFS, CTRL2.WRAP | At once: the next pixel (WRAP: the next pointer move) |
