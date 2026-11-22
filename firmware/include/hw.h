@@ -1821,6 +1821,9 @@
 #define VIDCON_SHAREPAL_B            0x5u
 #define VIDCON_SHAREPAL_W            0x1u
 #define VIDCON_SHAREPAL_M            0x20u
+#define VIDCON_DVI_B                 0x6u
+#define VIDCON_DVI_W                 0x1u
+#define VIDCON_DVI_M                 0x40u
 #define VIDSTAT                      0x1u        /* RW1C, spec 4/3.4 */
 #define VIDSTAT_N                    0x1u
 #define VIDSTAT_P                    0x110u

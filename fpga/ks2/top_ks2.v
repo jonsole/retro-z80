@@ -41,7 +41,8 @@
 // (ks2.xdc).
 module top_ks2 #(
     parameter GEOM = 0,                // 1: the geometry unit in place of the DMA engine (spec 15, section 8)
-    parameter COPPER = 1               // 0: no copper, for room (build.sh --no-copper)
+    parameter COPPER = 1,              // 0: no copper, for room (build.sh --no-copper)
+    parameter HDMI_AUDIO = 1           // 1: sound over HDMI (#117); 0: DVI only
 ) (
     input  wire        clock_50_i,
 
@@ -124,13 +125,16 @@ module top_ks2 #(
     wire        ps2_clk_low, ps2_data_low;
     wire [7:0]  row_low;
     wire        aud_l, aud_r, aud_m;
+    wire [15:0] pcm_l, pcm_r;
+    wire        pcm_v, dvi;
 
     // 2 sprites, no blitter mask image and a rasteriser with lines only
     // (DMX_TRI 0), so the blitter, the rasteriser and sound fit (design plan,
     // branches 21 and 9; spec 19, RA3). The XC7A15T has room for the blitter
     // or the geometry unit, not both.
     retroz80 #(.ROM_INIT("boot.hex"), .CHIPMB(6'd2), .NSPRITES(2), .DMX_MASKIMG(0), .DMX_TRI(0),
-               .DMX(GEOM ? 0 : 1), .GEOM(GEOM), .COPPER(COPPER)) sys (
+               .DMX(GEOM ? 0 : 1), .GEOM(GEOM), .COPPER(COPPER),
+               .AUD_INTERP(HDMI_AUDIO ? 0 : 1), .AUD_RDBACK(HDMI_AUDIO ? 0 : 1)) sys (
         .clk(clk100), .por(por),
         .btn_reset_n(!btn_q[0]), .buttons(btn_q[2:1]),
         .sram_a(a), .sram_ce_n(ce_n), .sram_ub_n(ub_n), .sram_lb_n(lb_n),
@@ -143,6 +147,7 @@ module top_ks2 #(
         .keyb_row_low(row_low), .keyb_col_i(keyb_col_i),
         .joy_pin_n({joyp9_i, joyp6_i, joyp4_i, joyp3_i, joyp2_i, joyp1_i}), .joy_sel(joysel_o), .joy_p7(joyp7_o),
         .audio_l(aud_l), .audio_r(aud_r), .audio_m(aud_m),
+        .pcm_l(pcm_l), .pcm_r(pcm_r), .pcm_v(pcm_v), .vid_dvi(dvi),
         .dma_req(1'b0), .dma_we(1'b0), .dma_addr(21'd0), .dma_wdata(16'd0), .dma_be(2'b00),
         .dma_ack(), .dma_rvalid(), .dma_rdata(),
         .dbg_sc()
@@ -200,9 +205,13 @@ module top_ks2 #(
     reg [2:0] prst = 3'b111;
     always @(posedge clk_pix) prst <= {prst[1:0], !locked};
 
-    hdmi_out hdmi (
+    // HDMI_AUDIO 1: HDMI with the sound in the blank (retro-hw's hdmi_packets,
+    // #117), DVI while VIDCON.DVI is set; the sound then has no interpolation
+    // and its channel registers read 0, for room. 0: DVI only, as before
+    hdmi_out #(.AUDIO(HDMI_AUDIO)) hdmi (
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rst(prst[2]),
         .rgb(rgb), .hsync(hs), .vsync(vs), .de(de),
+        .hdmi_on(!dvi), .clk(clk100), .aud_l(pcm_l), .aud_r(pcm_r), .aud_v(pcm_v),
         .tmds_p(hdmi_p_o), .tmds_n(hdmi_n_o)
     );
 

@@ -95,6 +95,7 @@ module video #(
     output wire        cop_on,         // DMACON.DMAEN and COPEN
     output wire        blt_on,         // DMACON.DMAEN and BLTEN (the DMA engine, spec 14)
     output wire        aud_on,         // DMACON.DMAEN and AUDEN (sound, spec 13)
+    output wire        dvi,            // VIDCON.DVI: plain DVI on HDMI, no sound there (#117)
 
     // The scheduler's layer channel (dmac.v)
     output wire        disp_req,
@@ -136,7 +137,7 @@ module video #(
     localparam [10:0] BV0  = VTOT - VVIS;   // 49
 
     // ================================================================ registers (100 MHz)
-    reg  [5:0]  vidcon;                // SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
+    reg  [6:0]  vidcon;                // DVI (6), SHAREPAL (5), DIRECT (4), BLANKALL (2), EN (0)
     reg         vs_vblank;             // VIDSTAT.VBLANK
     reg         vs_line;               // VIDSTAT.LINE
     reg  [10:0] lc_v;                  // LINECMP: read by the pixel side, a setting
@@ -236,6 +237,7 @@ module video #(
     assign cop_on = dmacon[6] && dmacon[4];
     assign blt_on = dmacon[6] && dmacon[3];
     assign aud_on = dmacon[6] && dmacon[1];
+    assign dvi    = vidcon[6];
 
     wire sel_glob = (rb_addr >= `RM_VIDCON) && (rb_addr <= `RM_DMACON) ||
                     (rb_addr >= `RM_BEAMPOS0) && (rb_addr <= `RM_VIDSIZE3);
@@ -271,7 +273,7 @@ module video #(
     always @(posedge clk) begin
         pw_en <= 1'b0;
         if (rst) begin
-            vidcon    <= 6'd0;
+            vidcon    <= 7'd0;
             vs_vblank <= 1'b0;
             vs_line   <= 1'b0;
             lc_v      <= 11'd0;
@@ -299,7 +301,7 @@ module video #(
             for (i = 0; i < 3; i = i + 1) if (ov_ev[i]) vs_over[i] <= 1'b1;
             if (un_s3 != un_s[1]) vs_sprunder <= 1'b1;
             if (rb_wr) case (rb_addr)
-                `RM_VIDCON:   vidcon <= {rb_wdata[5:4], 1'b0, rb_wdata[2], 1'b0, rb_wdata[0]};
+                `RM_VIDCON:   vidcon <= {rb_wdata[6:4], 1'b0, rb_wdata[2], 1'b0, rb_wdata[0]};
                 `RM_VIDSTAT:  begin
                     if (rb_wdata[`RM_VIDSTAT_VBLANK]) vs_vblank <= 1'b0;
                     if (rb_wdata[`RM_VIDSTAT_LINE])   vs_line   <= 1'b0;
@@ -399,7 +401,7 @@ module video #(
             v_cap   <= 1'b1;
         end
         if (rb_rd) case (rb_addr)
-            `RM_VIDCON:   reg_q <= {2'd0, vidcon};
+            `RM_VIDCON:   reg_q <= {1'b0, vidcon};
             `RM_VIDSTAT:  reg_q <= {vs_sprunder, vs_over, invblank, 1'b0, vs_line, vs_vblank};
             `RM_VIDINTEN: reg_q <= vidinten;
             `RM_PRIO:     reg_q <= {2'd0, prio};

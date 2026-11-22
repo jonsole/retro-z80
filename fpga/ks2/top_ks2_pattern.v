@@ -153,6 +153,7 @@ module top_ks2_pattern (
     hdmi_out hdmi (
         .clk_pix(clk_pix), .clk_pix5(clk_pix5), .rst(prst[2]),
         .rgb(rgb24), .hsync(hs), .vsync(vs), .de(de),
+        .hdmi_on(1'b0), .clk(1'b0), .aud_l(16'd0), .aud_r(16'd0), .aud_v(1'b0),
         .tmds_p(hdmi_p_o), .tmds_n(hdmi_n_o)
     );
 

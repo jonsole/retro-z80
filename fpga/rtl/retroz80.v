@@ -37,7 +37,9 @@ module retroz80 #(
     parameter DMX_TRI = 1,             // the rasteriser's triangles (spec 19)
     parameter DMX = 1,                 // build the DMA engine (spec 14)
     parameter GEOM = 1,                // build the geometry unit (spec 15)
-    parameter COPPER = 1               // build the copper (spec 6; 0 frees its LUTs on the KS2)
+    parameter COPPER = 1,              // build the copper (spec 6; 0 frees its LUTs on the KS2)
+    parameter AUD_INTERP = 1,          // sound's interpolation (spec 13; 0 on the KS2, for HDMI sound)
+    parameter AUD_RDBACK = 1           // the channel registers read back (spec 13; 0 on the KS2)
 ) (
     input  wire        clk,            // 100 MHz system clock
     input  wire        por,            // power-on reset; last seen high on a slot boundary
@@ -77,6 +79,9 @@ module retroz80 #(
 
     // Audio (spec 7, section 10.2): sigma-delta streams, before the pads
     output wire        audio_l, audio_r, audio_m,
+    output wire [15:0] pcm_l, pcm_r,       // the mix as samples, for HDMI (#117)
+    output wire        pcm_v,
+    output wire        vid_dvi,           // VIDCON.DVI: HDMI as plain DVI
 
     // DMA port (tests; later the DMA users)
     input  wire        dma_req, dma_we,
@@ -400,7 +405,7 @@ module retroz80 #(
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_vid), .rb_hit(hit_vid), .rb_cdata(cd_vid), .rb_cap(cap_vid), .rb_cop(cw_req),
         .frame_tick(frame_tick), .line_tick(line_tick), .irq(irq_vid), .irq_line(irq_line), .irq_err(irq_viderr),
-        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on), .aud_on(aud_on),
+        .beam_v(beam_v), .beam_h(beam_h), .cop_on(cop_on), .blt_on(blt_on), .aud_on(aud_on), .dvi(vid_dvi),
         .disp_req(bpl_req), .disp_urgent(bpl_urgent), .disp_addr(bpl_addr),
         .disp_ack(bpl_ack), .disp_rvalid(bpl_rvalid), .disp_rdata(mem_rdata),
         .spr_req(spr_req), .spr_urgent(spr_urgent), .spr_addr(spr_addr),
@@ -527,7 +532,7 @@ module retroz80 #(
     // three sigma-delta modulators: left, right and mono. The scheduler is
     // reset at power-on only; a word asked for before a reset comes back
     // long before the 5.12 us reset ends, and the core ignores it.
-    audio aud (
+    audio #(.INTERP(AUD_INTERP), .RDBACK(AUD_RDBACK)) aud (
         .clk(clk), .rst(sys_rst),
         .rb_rd(rb_rd), .rb_wr(rb_wr), .rb_addr(rb_addr), .rb_wdata(rb_wdata),
         .rb_rdata(rd_aud), .rb_hit(hit_aud), .rb_cdata(cd_aud), .rb_cap(cap_aud), .rb_late(late_aud),
@@ -535,6 +540,7 @@ module retroz80 #(
         .mem_req(aud_req), .mem_addr(aud_addr), .mem_ack(aud_ack),
         .mem_rvalid(aud_rvalid), .mem_rdata(mem_rdata),
         .irq(irq_aud),
-        .dac_l(audio_l), .dac_r(audio_r), .dac_m(audio_m)
+        .dac_l(audio_l), .dac_r(audio_r), .dac_m(audio_m),
+        .pcm_l(pcm_l), .pcm_r(pcm_r), .pcm_v(pcm_v)
     );
 endmodule

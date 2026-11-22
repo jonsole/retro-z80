@@ -1827,6 +1827,9 @@ VIDCON_DIRECT_M              equ 0x10
 VIDCON_SHAREPAL_B            equ 0x5
 VIDCON_SHAREPAL_W            equ 0x1
 VIDCON_SHAREPAL_M            equ 0x20
+VIDCON_DVI_B                 equ 0x6
+VIDCON_DVI_W                 equ 0x1
+VIDCON_DVI_M                 equ 0x40
 VIDSTAT                      equ 0x1           ; RW1C, spec 4/3.4
 VIDSTAT_N                    equ 0x1
 VIDSTAT_P                    equ 0x110

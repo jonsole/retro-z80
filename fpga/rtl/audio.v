@@ -25,7 +25,10 @@
 // board's RC filters: the jack and the internal speaker.
 `include "regmap.vh"
 
-module audio (
+module audio #(
+    parameter INTERP = 1,              // the engine's interpolation (0 on the KS2, for room)
+    parameter RDBACK = 1               // the channel registers read back (0: they read 0)
+) (
     input  wire        clk,
     input  wire        rst,
 
@@ -52,7 +55,11 @@ module audio (
 
     output wire        dac_l,          // sigma-delta streams
     output wire        dac_r,
-    output wire        dac_m
+    output wire        dac_m,
+
+    output wire signed [15:0] pcm_l,   // the mix the DACs take, for HDMI (#117)
+    output wire signed [15:0] pcm_r,
+    output reg         pcm_v           // take pcm_l, pcm_r: a fixed 48,008 Hz, whatever AUDRATE is
 );
     // ================================================================ register decode
     wire        in_c  = rb_addr[12:10] == 3'b100;               // the custom block
@@ -128,7 +135,7 @@ module audio (
     assign rb_late = rq;
 
     wire signed [15:0] eng_l, eng_r;
-    audio_engine #(.NCH(4), .AW(21), .LE(1), .INTERP(1), .RDBACK(1)) eng (
+    audio_engine #(.NCH(4), .AW(21), .LE(1), .INTERP(INTERP), .RDBACK(RDBACK)) eng (
         .clk(clk), .rst(rst),
         .rate(rate_c), .start(go), .stop(halt), .on(on), .ev(ev),
         .set_we(rb_wr && c_wr), .set_ch(cn), .set_f(fld),
@@ -186,6 +193,16 @@ module audio (
         out_l <= clip(eng_l + bp);
         out_r <= clip(eng_r + bp);
     end
+
+    // HDMI's fixed 48 kHz tap (spec 13 AU8): every 2,083 clocks (48,008 Hz)
+    // the mix is taken whatever AUDRATE is; HDMI's CTS follows the real rate
+    reg  [11:0] tap = 12'd0;
+    always @(posedge clk) begin
+        tap   <= (tap == 12'd2082) ? 12'd0 : tap + 1'b1;
+        pcm_v <= (tap == 12'd2082);
+    end
+    assign pcm_l = out_l;
+    assign pcm_r = out_r;
 
     sigma_delta2 sd_l (.clk(clk), .rst(rst), .x(out_l), .y(dac_l));
     sigma_delta2 sd_r (.clk(clk), .rst(rst), .x(out_r), .y(dac_r));
