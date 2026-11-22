@@ -456,7 +456,7 @@ All registers are bytes in the **custom block** (spec 3). Custom offset n is I/O
 
 | Offset | Port | Name | Access | Bits | Meaning |
 |--------|------|------|--------|------|---------|
-| `0x000` | `0x0010` | VIDCON | RW | EN (0), BLANKALL (2), DIRECT (4), SHAREPAL (5); 1, 3, 6, 7 reserved | Beam on; show BGCOLOR only; direct colour; everything on PALETTE0 |
+| `0x000` | `0x0010` | VIDCON | RW | EN (0), BLANKALL (2), DIRECT (4), SHAREPAL (5), DVI (6); 1, 3, 7 reserved | Beam on; show BGCOLOR only; direct colour; everything on PALETTE0; HDMI as plain DVI, no sound on it (spec 13, AU8) |
 | `0x001` | `0x0110` | VIDSTAT | W1C (INVBLANK R) | VBLANK (0), LINE (1), OVERRUNA (2), INVBLANK (3), OVERRUN0 (4), OVERRUN1 (5), OVERRUN2 (6), SPRUNDER (7) | Sticky flags, write 1 to clear (section 3.4) |
 | `0x002` | `0x0210` | VIDINTEN | RW | As VIDSTAT bits 0, 1, 2, 4–7; bit 3 reserved | Interrupt enables |
 | `0x003` | `0x0310` | PRIO | RW | FRONT (1–0), MIDDLE (3–2), BACK (5–4) | Layer order (section 4.8). Reset `0x24` |
