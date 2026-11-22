@@ -902,7 +902,7 @@ It costs 8 ÷ 8 ÷ 2 = 0.5 bytes per pixel of the fetch budget, a third of what 
 
 The stride, BPLSTRIDE, is the number of bytes from the start of one line to the start of the next. It is a signed 16-bit value, and it must be even (bit 0 always reads 0).
 
-Here is what happens to the pointer during one line. At the start of the line, BPL0PT holds the address of the line's first word. The hardware fetches the line word by word, and the pointer moves on by 2 for each word. When it fetches the line's **first** word, the hardware saves the pointer's value: the line's start. When it fetches the line's **last** word, it sets the pointer to that saved start plus BPLSTRIDE. So:
+Here is what happens to the pointer during one line. At the start of the line, BPL0PT holds the address of the line's first word. The hardware fetches the line word by word, and the pointer moves on by 2 for each word. When it fetches the line's **first** word, the hardware saves the pointer's value: the line's start. At the end of the line, a few pixels into the next line's horizontal blank, it sets the pointer to that saved start plus BPLSTRIDE. So:
 
 ```
    next line's start  =  this line's start  +  BPLSTRIDE
@@ -930,7 +930,7 @@ Other strides show the picture differently:
 - BPLSTRIDE = 0 shows the same source line on every screen line.
 - BPLSTRIDE = −(row stride) steps **back** one row each line. Point the pointer at the picture's last line and the picture appears upside down.
 
-The stride is live. The hardware reads it at the end of each line, as the horizontal blank starts. A value written at any time during a line applies at the end of that line. Example 3-9 uses this for a reflection.
+The stride is live. The hardware reads it at the end of each line, about 3 pixels into the next line's horizontal blank, when it moves the pointer on. A value written at any time during a line, or in the horizontal blank before it from beam pixel 8 on, applies at the end of that line. Don't write it in the first 8 pixels of a line's blank: the pointer may not have moved on yet, and the new value can apply at the end of the line before. With the copper, wait for pixel 8 or later (`CWAIT line,8`), not pixel 0. Example 3-9 uses this for a reflection.
 
 ---
 
@@ -1790,7 +1790,7 @@ The copper does the same with no CPU time: a WAIT for line 560 and two 2-byte MO
 
 ### Changing the stride partway down
 
-Because the stride is used at the end of each line, changing BPLSTRIDE during line L changes where line L + 1 starts. The write can land anywhere in line L, which is easy to hit from an interrupt.
+Because the stride is used at the end of each line, changing BPLSTRIDE during line L changes where line L + 1 starts. The write can land anywhere in line L, up to the first pixels of line L + 1's horizontal blank (the pointer moves about 3 pixels in), which is easy to hit from an interrupt.
 
 - To jump to another part of memory at line L + 1, set BPLSTRIDE during line L to (address wanted − line L's start), then put the row stride back during line L + 1.
 - To repeat a line, set BPLSTRIDE to 0 for as many lines as you want it repeated.
@@ -2450,7 +2450,7 @@ Table 3-44 gives when each register's write reaches the screen.
 | CTRL0.BPP, CTRL0.HSCALE | From the layer's next group of 16 source pixels, one or two groups past the beam. To change line L only, write at the end of line L − 1, after its last group has begun showing (see "Changing Depth and Scale Mid-Line") |
 | CTRL0.TRANSP, CTRL1.PALOFS | At once: the next pixel |
 | CTRL2.WRAP | At once: the next pointer move |
-| BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the line's saved start. BPLSTRIDE is used at the end of the line |
+| BPL0PT, BPLSTRIDE | At once: they are live. The next word fetched uses a new pointer, which also becomes the line's saved start. BPLSTRIDE is used at the end of the line, about 3 pixels into the next line's horizontal blank: write it from beam pixel 8 of a line's blank on, since a write in pixels 0–7 can apply at the end of the line before |
 | PRIO, BGCOLOR | At the start of each line's picture (beam pixel 144), so a write in the line's horizontal blank still changes that line |
 | Port `0xFE` border | At once (see "Spectrum Extras") |
 | VIDCON, palette entries | At once: the next pixel |
