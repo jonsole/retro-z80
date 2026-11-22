@@ -160,12 +160,12 @@ start:  ld      sp,0x0000
         jp      nz,fail
 
         ; ---- video (spec 4): VIDCON, BGCOLOR, VIDSIZE
-        ld      d,23                    ; check 23 (0x17): VIDCON keeps bits 0, 2, 4, 5 only
+        ld      d,23                    ; check 23 (0x17): VIDCON keeps bits 0, 2, 4, 5, 6 only
         ld      bc,VIDCON_P
         ld      a,0xFF
         out     (c),a
         in      a,(c)
-        cp      VIDCON_EN_M | VIDCON_BLANKALL_M | VIDCON_DIRECT_M | VIDCON_SHAREPAL_M
+        cp      VIDCON_EN_M | VIDCON_BLANKALL_M | VIDCON_DIRECT_M | VIDCON_SHAREPAL_M | VIDCON_DVI_M
         jp      nz,fail
         ld      a,VIDCON_EN_M
         out     (c),a
